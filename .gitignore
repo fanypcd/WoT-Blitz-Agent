@@ -10,3 +10,6 @@ config.toml
 snapshots/
 glb_cache/
 tank_images/
+
+# 本地开发进度笔记(不入仓库)
+wotb-agent-progress.md
