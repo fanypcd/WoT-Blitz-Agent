@@ -70,23 +70,28 @@ replay_dir = "replay_samples"
 tank_cache_path = "data/tank_cache.json"
 ```
 
-### 3. 准备数据
+### 3. 数据（已内置，无需额外准备）
 
-```bash
-# 拉取/构建坦克数据（723 辆，来自 BlitzKit pb，无需 WG API）
-cargo run --release -- fetch-blitzkit          # 下载 tanks.pb + models.pb → data/
-cargo run --release -- fetch-tanks             # 从 BlitzKit 数据构建 tank_cache.json
-cargo run --release -- fetch-icons             # 批量下载 723 辆坦克预览图 → tank_images/
-```
+所有数据已随仓库分发在 `data/` 目录下，**克隆后即可直接运行，无需执行任何数据准备命令**：
 
-数据文件统一放置在 `data/` 数据目录下。`tanks.pb` 是项目唯一坦克数据源（运行时直接解析获取元数据/武器/装填），`armor_cache.json`/`gun_angles.json` 来自 models.pb（装甲板/俯仰角），`tank_cache.json` 由 `fetch-tanks` 构建。
+| 数据 | 位置 | 说明 |
+|------|------|------|
+| 坦克数据源 | `data/tanks.pb` | BlitzKit 坦克数据库（运行时解析元数据/武器/装填，唯一数据源） |
+| 模型节点映射 | `data/models.pb` | 炮塔/主炮→`gun/turret_0X` 模型节点映射 |
+| 坦克缓存 | `data/tank_cache.json` | 由 `fetch-tanks` 构建的缓存 |
+| 装甲板厚度 | `data/armor_cache.json` | 从 models.pb 派生 |
+| 炮管俯仰角 | `data/gun_angles.json` | 从 models.pb 派生 |
+| 装甲/碰撞数据 | `data/game_data/`（723 个 JSON） | 从游戏 DVPL 提取的可移植数据 |
 
-3D 查看器的模型与装甲数据已本地化，无需安装游戏即可运行：
+> **按需重建命令（仅高级用户需要，通常不必执行）**：
+> `fetch-blitzkit`（重下 tanks.pb+models.pb）、`fetch-tanks`（重建 tank_cache.json）、`fetch-icons`（批量下载 723 辆坦克封面图 → `tank_images/`）。这些主要用于离线补数据或更新，日常运行 `web`/`chat`/`scan` 等命令**无需执行**。
 
-- `data/game_data/` — 从游戏 DVPL 文件批量提取的 723 辆坦克装甲板 + 碰撞数据（`extract-game` 命令生成，已随项目分发）
+3D 查看器相关数据也已本地化，无需安装游戏即可运行：
+
+- `data/game_data/` — 723 辆坦克装甲板 + 碰撞数据（`extract-game` 生成，已随项目分发）
 - `glb_cache/` — 3D 模型本地缓存（首次访问某坦克时经 `/glb/` 代理从 BlitzKit CDN 下载并落盘）
 - `tank_images/` — 坦克封面图（`fetch-icons` 批量下载，或经 `/api/tank_image/` 按需缓存）
-- `web/vendor/` — Three.js 与 Chart.js 本地副本（离线可用，无需 CDN）
+- `web/vendor/` — Three.js/Chart.js/KaTeX/markdown-it 本地副本（离线可用，无需 CDN）
 
 ### 3b. 测试回放（可选）
 
