@@ -44,7 +44,7 @@ cp config.toml.example config.toml    # Windows: copy config.toml.example config
 
 ```toml
 [wg_api]
-application_id = "你的WG_API_KEY"    # https://developers.wargaming.net/applications/
+application_id = "9eeca6d62dfc4b1d8539ee5a76d0bf55"    # 项目自带可用的公开 key，可直接使用；也可申请自己的
 server = "asia"                       # asia / eu / na
 
 [llm]

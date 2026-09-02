@@ -9,8 +9,9 @@
 
 # ---------------- WG API (战绩查询) ----------------
 #  坦克数据已全部来自 BlitzKit(本地 tanks.pb/models.pb), 这里仅用于玩家战绩查询。
+#  以下 application_id 为项目自带可用的公开 key, 可直接使用; 也可换成自己的。
 [wg_api]
-application_id = "你的WG_API_KEY"    # Wargaming 开发者平台申请: https://developers.wargaming.net/applications/
+application_id = "9eeca6d62dfc4b1d8539ee5a76d0bf55"    # 可直接使用; 也可在 https://developers.wargaming.net/applications/ 申请自己的
 server = "asia"                       # 服务器分区: asia / eu / na(决定 API 域名)
 
 # ---------------- LLM (大模型) ----------------
