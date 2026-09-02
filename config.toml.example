@@ -1,18 +1,40 @@
+# ============================================================
+#  WoTB Agent 配置模板
+#  复制为 config.toml 后按注释填写自己的密钥/路径。
+#  复制方式:
+#    Linux/macOS: cp config.toml.example config.toml
+#    Windows:     copy config.toml.example config.toml
+#  (注意: config.toml 含密钥, 已被 .gitignore 排除, 不会提交)
+# ============================================================
+
+# ---------------- WG API (战绩查询) ----------------
+#  坦克数据已全部来自 BlitzKit(本地 tanks.pb/models.pb), 这里仅用于玩家战绩查询。
 [wg_api]
-application_id = "你的WG_API_KEY"    # https://developers.wargaming.net/applications/
-server = "asia"                       # asia / eu / na
+application_id = "你的WG_API_KEY"    # Wargaming 开发者平台申请: https://developers.wargaming.net/applications/
+server = "asia"                       # 服务器分区: asia / eu / na(决定 API 域名)
 
+# ---------------- LLM (大模型) ----------------
+#  OpenAI 兼容接口; 可指向任意支持 /v1/chat/completions 的服务。
 [llm]
-endpoint = "https://api.openai.com/v1"
-api_key = "你的API_KEY"
-model = "glm-5"
-context_length = 8192
-thinking_mode = false
-price_input_per_1k = 0.0
-price_output_per_1k = 0.0
-max_tokens = 4096
-budget = 10.0                        # 预算上限（美元），超过自动中断
+endpoint = "https://api.openai.com/v1"   # API 端点(可换任意 OpenAI 兼容服务)
+api_key = "你的API_KEY"                  # API Key(必填)
+model = "glm-5"                          # 模型名(如 gpt-4o / glm-5 / glm-4.6)
+context_length = 8192                    # 上下文窗口长度(token)
+thinking_mode = false                    # 是否开启思考模式
+price_input_per_1k = 0.0                 # 输入价格(美元 / 1000 token)
+price_output_per_1k = 0.0                # 输出价格(美元 / 1000 token)
+max_tokens = 4096                        # 单次回答最大 token 数
+budget = 10.0                            # 总预算(美元), 超预算自动中断
 
+# ---------------- Replay (回放) ----------------
 [replay]
-replay_dir = "C:/Users/你的用户名/AppData/Local/wotblitz/DAVAProject/replays"
-tank_cache_path = "tank_cache.json"
+# 回放文件所在目录(.wotbreplay)。填入真实回放目录即可:
+#   Linux/WSL:   /mnt/c/Users/你的用户名/AppData/Local/wotblitz/DAVAProject/replays
+#   Windows:     C:/Users/你的用户名/AppData/Local/wotblitz/DAVAProject/replays
+#   或直接用项目自带测试回放:
+#     replay_dir = "replay_samples"
+#   (replay_samples/ 内含 3 个示例 .wotbreplay, 可直接用于测试 scan / single / compare)
+#   Web 界面("Replay Scan Report" 标签)里也可以用 Windows 绝对路径, 后端会自动转为 /mnt/... 访问。
+replay_dir = "replay_samples"
+# 坦克缓存文件路径(由 fetch-tanks 命令生成; 默认在 data/ 下)。
+tank_cache_path = "data/tank_cache.json"

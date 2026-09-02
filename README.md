@@ -59,7 +59,14 @@ max_tokens = 4096
 budget = 10.0                        # 预算上限（美元），超过自动中断
 
 [replay]
-replay_dir = "C:/Users/.../wotblitz/DAVAProject/replays"
+# 回放目录：填入真实的 .wotbreplay 所在目录即可。
+#   也可以直接用项目自带的测试回放（3 个示例文件，无需额外准备）:
+# replay_dir = "replay_samples"
+# Linux/WSL 回放目录示例:
+# replay_dir = "/mnt/c/Users/你的用户名/AppData/Local/wotblitz/DAVAProject/replays"
+# Windows 回放目录示例:
+# replay_dir = "C:/Users/你的用户名/AppData/Local/wotblitz/DAVAProject/replays"
+replay_dir = "replay_samples"
 tank_cache_path = "data/tank_cache.json"
 ```
 
@@ -80,6 +87,29 @@ cargo run --release -- fetch-icons             # 批量下载 723 辆坦克预�
 - `glb_cache/` — 3D 模型本地缓存（首次访问某坦克时经 `/glb/` 代理从 BlitzKit CDN 下载并落盘）
 - `tank_images/` — 坦克封面图（`fetch-icons` 批量下载，或经 `/api/tank_image/` 按需缓存）
 - `web/vendor/` — Three.js 与 Chart.js 本地副本（离线可用，无需 CDN）
+
+### 3b. 测试回放（可选）
+
+项目在 `replay_samples/` 目录下提供了 **3 个示例 `.wotbreplay` 文件**，无需安装游戏即可测试回放相关功能：
+
+| 文件 | 说明 |
+|------|------|
+| `20260902_2045__Anonyme_J39_Type_5_Exp_...wotbreplay` | Type 5 H Zetsu 对局（WinterMalinovka，重力模式） |
+| `20260902_2053__Anonyme_J20_Type_2605_...wotbreplay` | Type 5 Heavy 对局（OasisPalms） |
+| `20260902_2104__Anonyme_A116_XM551_...wotbreplay` | Sheridan Missile 对局（XM551 导弹坦） |
+
+用法：把 `config.toml` 的 `replay_dir` 设为 `replay_samples`（如上），即可用 `scan` / `single` / `compare` 直接测试，例如：
+
+```bash
+# 扫描测试回放目录
+cargo run --release -- scan replay_samples --mode all
+
+# 解析其中单场
+cargo run --release -- single replay_samples/20260902_2045__Anonyme_J39_Type_5_Exp_3354568815024678.wotbreplay
+
+# 网页版 Replay Scan
+cargo run --release -- web
+```
 
 ### 4. 使用
 
