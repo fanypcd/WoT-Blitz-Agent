@@ -1,0 +1,18 @@
+[wg_api]
+application_id = "你的WG_API_KEY"    # https://developers.wargaming.net/applications/
+server = "asia"                       # asia / eu / na
+
+[llm]
+endpoint = "https://api.openai.com/v1"
+api_key = "你的API_KEY"
+model = "glm-5"
+context_length = 8192
+thinking_mode = false
+price_input_per_1k = 0.0
+price_output_per_1k = 0.0
+max_tokens = 4096
+budget = 10.0                        # 预算上限（美元），超过自动中断
+
+[replay]
+replay_dir = "C:/Users/你的用户名/AppData/Local/wotblitz/DAVAProject/replays"
+tank_cache_path = "tank_cache.json"

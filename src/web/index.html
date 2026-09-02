@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="data:,">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WoTB Agent — Web GUI</title>
+    <script src="/api/vendor/chart.umd.min.js"></script>
+    <script src="/api/vendor/markdown-it/markdown-it.min.js"></script>
+    <link rel="stylesheet" href="/api/vendor/katex/katex.min.css">
+    <script defer src="/api/vendor/katex/katex.min.js"></script>
+    <script defer src="/api/vendor/katex/auto-render.min.js"></script>
+    <style>
+        :root {
+            --bg:#120f0e;
+            --bg-grad: radial-gradient(1200px 620px at 18% -12%, #3a2412 0%, transparent 58%),
+                        radial-gradient(1000px 520px at 92% -4%, #48240f 0%, transparent 55%),
+                        radial-gradient(900px 700px at 50% 110%, #2a1710 0%, transparent 60%);
+            --panel:#1b1817; --panel2:#231f1d; --panel3:#2c2724;
+            --border:#3a3028; --border-hi:#5c4a35;
+            --accent:#ff8a3d; --accent-2:#ffb35c; --accent-3:#ffd29b;
+            --green:#5fbf7a; --blue:#5fa8e8; --red:#ff6b6b; --yellow:#ffcf5c;
+            --txt:#f3ede6; --muted:#9c8f7f;
+            --shadow:0 10px 34px rgba(0,0,0,0.45);
+            --radius:16px; --radius-sm:10px;
+        }
+        * { box-sizing: border-box; }
+        html,body { height:100%; }
+        body {
+            margin:0; background:var(--bg); background-image:var(--bg-grad); background-attachment:fixed;
+            color:var(--txt); font-family:"Segoe UI", system-ui, -apple-system, sans-serif; line-height:1.5;
+        }
+        /* ---------- Nav ---------- */
+        #nav {
+            display:flex; gap:6px; padding:12px 20px; position:sticky; top:0; z-index:60;
+            background:rgba(27,24,23,0.8); backdrop-filter:blur(14px); border-bottom:1px solid var(--border);
+            align-items:center;
+        }
+        #brand { font-weight:800; letter-spacing:.5px; font-size:1.05em; margin-right:12px; }
+        #brand .dot { color:var(--accent); }
+        #nav .nav-btn {
+            background:transparent; border:1px solid transparent; color:var(--muted);
+            padding:9px 16px; border-radius:var(--radius-sm); cursor:pointer; font-size:0.93em; font-weight:600;
+            transition:all .15s ease;
+        }
+        #nav .nav-btn:hover { color:var(--txt); background:rgba(255,255,255,0.05); }
+        #nav .nav-btn.active { background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:#1a1208; box-shadow:0 4px 16px rgba(255,138,61,0.35); }
+        main { padding:24px; max-width:1200px; margin:0 auto; }
+        section.tab { display:none; animation:fadeIn .25s ease; }
+        section.tab.active { display:block; }
+        @keyframes fadeIn { from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:none;} }
+
+        h2 { margin:0 0 4px 0; font-size:1.25em; font-weight:800; }
+        .sub { color:var(--muted); font-size:0.86em; margin-bottom:16px; }
+        .card {
+            background:linear-gradient(180deg,var(--panel),var(--panel2)); border:1px solid var(--border); border-radius:var(--radius); padding:22px;
+            box-shadow:var(--shadow); margin-bottom:18px;
+        }
+        .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:12px 0; }
+        input, select, button, textarea {
+            font-size:0.95em; padding:9px 13px; background:var(--panel3); color:var(--txt);
+            border:1px solid var(--border); border-radius:var(--radius-sm); transition:border-color .15s ease, box-shadow .15s ease;
+            font-family:inherit;
+        }
+        input:focus, select:focus, textarea:focus { outline:none; border-color:var(--border-hi); box-shadow:0 0 0 3px rgba(255,138,61,0.14); }
+        input, textarea { flex:1; min-width:120px; }
+        textarea { font-family:ui-monospace,monospace; resize:vertical; }
+        .btn { cursor:pointer; }
+        .btn:hover { filter:brightness(1.12); }
+        .btn-primary { background:linear-gradient(135deg,var(--accent),var(--accent-2)); border-color:transparent; color:#1a1208; font-weight:700; box-shadow:0 4px 14px rgba(255,138,61,0.28); }
+        .btn-sm { padding:5px 11px; font-size:0.85em; border-radius:8px; }
+
+        /* ---------- Chat ---------- */
+        #chat-log {
+            height:52vh; overflow-y:auto; border:1px solid var(--border); border-radius:14px; padding:16px;
+            background:linear-gradient(180deg,var(--panel),var(--panel2)); margin-bottom:12px;
+        }
+        .msg { margin:10px 0; display:flex; flex-direction:column; }
+        .msg.user { align-items:flex-end; }
+        .msg.assistant { align-items:flex-start; }
+        .msg .bubble { max-width:80%; padding:10px 15px; border-radius:14px; white-space:pre-wrap; font-size:0.95em; line-height:1.5; box-shadow:var(--shadow); }
+        .msg.user .bubble { background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:#1a1208; border-bottom-right-radius:4px; }
+        .msg.assistant .bubble { background:var(--panel2); border:1px solid var(--border); border-bottom-left-radius:4px; }
+        /* Markdown 渲染内容样式 */
+        .bubble.md { white-space:normal; }
+        .bubble.md * { margin:0.4em 0; }
+        .bubble.md > :first-child { margin-top:0; }
+        .bubble.md > :last-child { margin-bottom:0; }
+        .bubble.md pre {
+            background:#120f0e; border:1px solid var(--border); border-radius:8px; padding:10px 12px;
+            overflow-x:auto; font-size:0.86em; line-height:1.45;
+        }
+        .bubble.md code {
+            font-family:ui-monospace,Monaco,Consolas,monospace;
+            background:rgba(255,255,255,0.08); padding:1px 5px; border-radius:4px; font-size:0.9em;
+        }
+        .bubble.md pre code { background:none; padding:0; }
+        .bubble.md table { border-collapse:collapse; margin:0.6em 0; font-size:0.88em; }
+        .bubble.md th, .bubble.md td { border:1px solid var(--border); padding:4px 9px; }
+        .bubble.md th { background:var(--panel3); }
+        .bubble.md a { color:var(--accent-3); }
+        .bubble.md h1,.bubble.md h2,.bubble.md h3,.bubble.md h4 { margin:0.7em 0 0.3em; line-height:1.3; }
+        .bubble.md h1 { font-size:1.25em; } .bubble.md h2 { font-size:1.15em; } .bubble.md h3 { font-size:1.05em; }
+        .bubble.md ul,.bubble.md ol { padding-left:1.4em; }
+        .bubble.md blockquote { border-left:3px solid var(--accent-2); margin:0.5em 0; padding:2px 12px; color:var(--muted); }
+        .bubble.md .katex { font-size:1.05em; }
+        .tool-call { max-width:94%; margin:6px 0 6px 12px; font-size:0.82em; border-left:3px solid var(--accent-2); padding:6px 12px; background:rgba(255,179,92,0.06); border-radius:6px; color:var(--muted); }
+        .tool-call .tc-name { color:var(--accent-2); font-weight:700; }
+        .tool-call .tc-args { color:var(--muted); font-family:ui-monospace,monospace; font-size:0.92em; }
+        .tool-call .tc-result { color:var(--muted); margin-top:4px; max-height:120px; overflow:auto; white-space:pre-wrap; }
+        .step-line { color:var(--blue); font-size:0.8em; margin:3px 0 3px 12px; }
+        #chat-status { font-size:0.85em; color:var(--muted); min-height:1.2em; }
+        #chat-status .st-tool { color:var(--accent-2); font-weight:700; }
+        #chat-status .st-done { color:var(--green); }
+        #chat-status .st-err { color:var(--red); }
+        .spinner { display:inline-block; width:13px; height:13px; border:2px solid var(--muted); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; vertical-align:middle; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+
+        table { width:100%; border-collapse:collapse; font-size:0.92em; }
+        th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); }
+        th { color:var(--muted); font-weight:600; font-size:0.82em; text-transform:uppercase; letter-spacing:.4px; }
+        tr:hover td { background:rgba(255,255,255,0.03); }
+
+        .stat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:13px; margin:10px 0; }
+        .stat-box { background:linear-gradient(180deg,var(--panel2),var(--panel3)); border:1px solid var(--border); border-radius:12px; padding:14px; transition:transform .12s ease; }
+        .stat-box:hover { transform:translateY(-2px); }
+        .stat-box .lbl { color:var(--muted); font-size:0.76em; text-transform:uppercase; letter-spacing:.4px; }
+        .stat-box .val { font-size:1.35em; font-weight:800; margin-top:4px; }
+        .stat-box .val.g { color:var(--green); } .stat-box .val.o { color:var(--accent-2); } .stat-box .val.b { color:var(--blue); }
+        .bar { height:8px; background:var(--panel3); border-radius:4px; overflow:hidden; }
+        .bar > div { height:100%; background:linear-gradient(90deg,var(--accent),var(--accent-3)); }
+        .inline-table-sm { font-size:0.86em; }
+        #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--panel3); color:var(--txt); padding:11px 20px; border-radius:var(--radius-sm); opacity:0; transition:all .3s; z-index:300; box-shadow:var(--shadow); font-size:0.92em; border:1px solid var(--border-hi); }
+        #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+        .muted { color:var(--muted); }
+        .pill { display:inline-block; padding:2px 9px; border-radius:20px; font-size:0.72em; font-weight:700; }
+        .pill.tier { background:rgba(255,207,92,0.16); color:var(--yellow); }
+        .pill.nat { background:rgba(95,168,232,0.16); color:var(--blue); }
+        .pill.type { background:rgba(95,191,122,0.16); color:var(--green); }
+
+        /* ---------- Tankopedia ---------- */
+        #tp-toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
+        #tp-search { flex:1; min-width:200px; max-width:340px; }
+        #tp-toolbar select { min-width:110px; }
+        #tp-count { color:var(--muted); font-size:0.85em; }
+        #tp-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(178px,1fr)); gap:16px; }
+        .tank-card {
+            background:linear-gradient(180deg,var(--panel),var(--panel2)); border:1px solid var(--border); border-radius:14px; overflow:hidden; cursor:pointer;
+            transition:transform .14s ease, box-shadow .14s ease, border-color .14s ease; box-shadow:var(--shadow);
+        }
+        .tank-card:hover { transform:translateY(-4px); border-color:var(--border-hi); box-shadow:0 16px 38px rgba(0,0,0,0.5); }
+        .tank-card .tc-img { width:100%; height:118px; object-fit:contain; background:linear-gradient(180deg,#201b18,#171310); display:block; padding:6px; }
+        .tank-card .tc-body { padding:8px 11px 11px; }
+        .tank-card .tc-name { font-size:0.88em; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .tank-card .tc-meta { display:flex; justify-content:space-between; align-items:center; gap:5px; margin-top:7px; font-size:0.74em; flex-wrap:wrap; }
+
+    </style>
+    <style>
+        /* 3D armor inspector — 大区块，独立于弹窗滚动，显示完整 */
+        #md-inspector-toggle { width:100%; margin-top:16px; padding:10px; background:linear-gradient(135deg,var(--accent),var(--accent-2)); border:none; color:#1a1208; font-weight:700; border-radius:var(--radius-sm); cursor:pointer; font-size:0.95em; box-shadow:0 4px 14px rgba(255,138,61,0.25); }
+        #md-inspector { display:none; margin-top:14px; border:1px solid var(--border); border-radius:12px; overflow:hidden; background:#140e0c; }
+        #md-inspector.open { display:block; }
+        #md-inspector iframe { width:100%; height:78vh; min-height:560px; border:none; display:block; background:#140e0c; }
+        #md-inspector .inspector-hint { padding:8px 14px; font-size:0.78em; color:var(--muted); background:var(--panel3); border-top:1px solid var(--border); }
+    </style>
+</head>
+<body>
+<nav id="nav">
+    <span id="brand">WoTB<span class="dot">.</span>Agent</span>
+    <button class="nav-btn active" data-tab="chat">Agent</button>
+    <button class="nav-btn" data-tab="tanks">Tankopedia</button>
+    <button class="nav-btn" data-tab="player">Player</button>
+    <button class="nav-btn" data-tab="replay">Replay</button>
+    <button class="nav-btn" data-tab="compare">Compare</button>
+    <button class="nav-btn" data-tab="settings">Settings</button>
+</nav>
+<main>
+    <!-- Agent Chat -->
+    <section class="tab active" id="tab-chat">
+        <div class="card">
+            <div class="row" style="justify-content:space-between;margin-top:0;">
+                <div>
+                    <h2>Agent Assistant</h2>
+                    <div class="sub">分析回放与战绩，翻译建议</div>
+                </div>
+                <div class="row" style="margin:0;">
+                    <button class="btn btn-sm" id="btn-cancel">Interrupt</button>
+                    <button class="btn btn-sm" id="btn-history">History</button>
+                    <button class="btn btn-sm" id="btn-save">Save</button>
+                </div>
+            </div>
+            <div id="chat-log"></div>
+            <div class="row">
+                <textarea id="chat-input" rows="2" placeholder="Ask about your WoTB performance..."></textarea>
+                <button class="btn btn-primary" id="btn-send">Send</button>
+            </div>
+            <div id="chat-status"></div>
+        </div>
+    </section>
+
+    <!-- Tankopedia -->
+    <section class="tab" id="tab-tanks">
+        <h2>Tankopedia</h2>
+        <div class="sub">全部坦克图鉴 — 点击卡片查看装甲 / 弹种 / 属性详情</div>
+        <div class="card">
+            <div id="tp-toolbar">
+                <input id="tp-search" placeholder="Search tank by name...">
+                <select id="tp-tier"><option value="">Tier</option></select>
+                <select id="tp-nation"><option value="">Nation</option></select>
+                <select id="tp-type"><option value="">Type</option></select>
+                <span id="tp-count">Loading...</span>
+            </div>
+            <div id="tp-grid"></div>
+        </div>
+    </section>
+
+    <!-- Player -->
+    <section class="tab" id="tab-player">
+        <div class="card">
+            <h2>Player Stats</h2>
+            <div class="sub">WG API 玩家战绩查询</div>
+            <div class="row">
+                <input id="player-nick" placeholder="Nickname (e.g. Anonyme)">
+                <button class="btn btn-primary" id="btn-player">Search</button>
+            </div>
+            <div id="player-out"></div>
+        </div>
+    </section>
+
+    <!-- Replay Analysis -->
+    <section class="tab" id="tab-replay">
+        <div class="card">
+            <h2>Replay Scan Report</h2>
+            <div class="sub">批量扫描回放目录，聚合胜率 / 伤害 / 坦克 / 地图</div>
+            <div class="row">
+                <input id="scan-dir" placeholder="Replay directory (blank = config)">
+                <select id="scan-mode"><option value="all">All</option><option value="rating">Rating</option><option value="regular">Regular</option></select>
+                <input id="scan-days" type="number" placeholder="Days" style="max-width:100px;">
+                <button class="btn btn-primary" id="btn-scan">Scan</button>
+            </div>
+            <div id="scan-out"></div>
+        </div>
+    </section>
+
+    <!-- Compare / Prematch -->
+    <section class="tab" id="tab-compare">
+        <div class="card">
+            <h2>Compare (Replay vs API)</h2>
+            <div class="sub">近期回放表现 vs 历史累计对比</div>
+            <div class="row">
+                <input id="cmp-nick" placeholder="Nickname (e.g. Anonyme)">
+                <input id="cmp-dir" placeholder="Replay directory (blank = config)">
+                <select id="cmp-mode"><option value="rating">Rating</option><option value="all">All</option></select>
+                <button class="btn btn-primary" id="btn-compare">Compare</button>
+            </div>
+            <div id="cmp-out"></div>
+        </div>
+        <div class="card">
+            <h2>Prematch Lineup</h2>
+            <div class="sub">分析阵容强度、识别威胁与薄弱点</div>
+            <div class="row">
+                <input id="pre-names" placeholder="Comma-separated nicknames">
+                <button class="btn btn-primary" id="btn-prematch">Analyze</button>
+            </div>
+            <div id="pre-out"></div>
+        </div>
+    </section>
+
+    <!-- Settings -->
+    <section class="tab" id="tab-settings">
+        <div class="card">
+            <h2>Model Config</h2>
+            <div class="row"><label class="muted" style="width:80px;">Model</label><input id="cfg-model"></div>
+            <div class="row"><label class="muted" style="width:80px;">Endpoint</label><input id="cfg-endpoint"></div>
+            <div class="row"><label class="muted" style="width:80px;">API Key</label><input id="cfg-apikey" type="password"></div>
+            <div class="row"><label class="muted" style="width:80px;">Context</label><input id="cfg-context" type="number"></div>
+            <div class="row"><label class="muted" style="width:80px;">Max Tokens</label><input id="cfg-maxtok" type="number"></div>
+            <div class="row"><label class="muted" style="width:80px;">Budget ($)</label><input id="cfg-budget" type="number"></div>
+            <div class="row"><label class="muted" style="width:80px;">Thinking</label><select id="cfg-thinking"><option value="false">off</option><option value="true">on</option></select></div>
+            <div class="row"><button class="btn btn-primary" id="btn-cfg-save">Save Config</button><button class="btn" id="btn-cfg-load">Reload</button></div>
+        </div>
+        <div class="card">
+            <h2>Token Usage</h2>
+            <div class="stat-grid" id="usage-stats"></div>
+            <div style="margin:12px 0;"><span class="muted">Budget: </span><span id="usage-budget"></span><div class="bar" style="margin-top:6px;"><div id="usage-bar"></div></div></div>
+            <div id="usage-calls" class="inline-table-sm"></div>
+        </div>
+    </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const API = '';
+const $ = id => document.getElementById(id);
+let sessionId = 'default';
+let pollTimer = null;
+let tanksList = [];   // 提前声明：hash 初始化(/#tanks)会立即触发 loadTanks，避免 TDZ 报错
+
+function toast(msg) { const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+// 把 Windows 盘符路径转为 WSL 挂载路径（C:\... → /mnt/c/...）。
+// 后端在 WSL 里运行，无法直接访问 `C:\`；转换后 `Path` 才能命中。
+function toWslPath(p) {
+    p = (p||'').trim();
+    const m = p.match(/^([A-Za-z]):[\\\/]/);
+    if (m) {
+        const drive = m[1].toLowerCase();
+        const rest = p.slice(m[0].length).replace(/\\/g,'/');
+        return '/mnt/' + drive + (rest ? '/' + rest : '');
+    }
+    if (/^\\\\/.test(p)) return p; // UNC 路径不处理
+    return p;
+}
+
+// tank type / nation display
+const TYPE_LABEL = { lightTank:'Light', mediumTank:'Medium', heavyTank:'Heavy', 'AT-SPG':'TD' };
+const NATION_LABEL = { ussr:'USSR', usa:'USA', germany:'Germany', uk:'UK', japan:'Japan', china:'China', france:'France', european:'EU', other:'Other' };
+
+// ---------- Nav ----------
+function activateTab(name) {
+    const btn = document.querySelector('#nav .nav-btn[data-tab="' + name + '"]');
+    if (!btn) return;
+    document.querySelectorAll('#nav .nav-btn').forEach(x => x.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('section.tab').forEach(s => s.classList.remove('active'));
+    $('tab-' + name).classList.add('active');
+    history.replaceState(null, '', '#' + name);
+    if (name === 'settings') { loadConfig(); loadUsage(); }
+    if (name === 'tanks') loadTanks();
+}
+document.querySelectorAll('#nav .nav-btn').forEach(b => {
+    b.addEventListener('click', () => activateTab(b.dataset.tab));
+});
+// 支持 URL hash 直达对应标签（如 #tanks）
+(function(){ const hash=(location.hash||'').replace('#',''); if(hash && $('tab-'+hash)) activateTab(hash); })();
+
+// ---------- Agent Chat ----------
+// Markdown + LaTeX 渲染：llm 回复常含 markdown/LaTeX 标记，转成可见富文本。
+let mdParser = null;
+function getMdParser() {
+    if (!mdParser && window.markdownit) {
+        mdParser = window.markdownit({ html:false, linkify:true, breaks:true });
+    }
+    return mdParser;
+}
+function renderMarkdown(text) {
+    const src = (text||'').toString();
+    // 无 markdown 库时退化为纯文本（转义避免 XSS）。
+    const parser = getMdParser();
+    if (!parser) return esc(src);
+    let html = parser.render(src);
+    // KaTeX 渲染（行内 $...$ 与块级 $$...$$），仅当库就绪。
+    try {
+        if (window.renderMathInElement) {
+            const div = document.createElement('div');
+            div.innerHTML = html;
+            window.renderMathInElement(div, {
+                delimiters: [
+                    {left:'$$', right:'$$', display:true},
+                    {left:'\\[', right:'\\]', display:true},
+                    {left:'$', right:'$', display:false},
+                    {left:'\\(', right:'\\)', display:false},
+                ],
+                throwOnError:false,
+            });
+            html = div.innerHTML;
+        }
+    } catch(e) { /* 渲染失败则保留原始 html，不抛错 */ }
+    return html;
+}
+function addBubble(role, text, isMd) {
+    const log=$('chat-log'); const m=document.createElement('div'); m.className='msg '+role;
+    const b=document.createElement('div'); b.className='bubble'+(isMd?' md':''); 
+    if(isMd){ b.innerHTML=renderMarkdown(text); } else { b.textContent=text; }
+    m.appendChild(b);
+    log.appendChild(m); log.scrollTop=log.scrollHeight; return m;
+}
+function addToolCall(name, args, result) {
+    const log=$('chat-log'); const el=document.createElement('div'); el.className='tool-call';
+    el.innerHTML = `<span class="tc-name">⚙ ${esc(name)}</span> <span class="tc-args">${esc(args)}</span> <span class="tc-status">⏳</span><div class="tc-result" style="display:none;">${esc(result||'')}</div>`;
+    log.appendChild(el); log.scrollTop=log.scrollHeight;
+    // initial state: running (spinner handled by status bar)
+    return el;
+}
+function setToolCallStatus(el, state, result) {
+    if(!el) return;
+    const s = el.querySelector('.tc-status');
+    const r = el.querySelector('.tc-result');
+    if(state==='done'){
+        if(s) s.textContent='✔';
+        if(r){ r.style.display=''; r.textContent = result||''; }
+    } else if(state==='error'){
+        if(s) s.textContent='✖';
+    }
+}
+// 工具名 → 中文友好描述（未收录则显示原名）
+const TOOL_LABEL = {
+    search_player:'搜索玩家',
+    get_player_stats:'查询玩家战绩',
+    scan_replays:'扫描回放',
+    parse_replay:'解析回放',
+    compare_replay_vs_api:'回放对比 API',
+    view_tank:'查询坦克资料',
+};
+function toolLabel(name){ return TOOL_LABEL[name] || name; }
+function addStep(text) {
+    const log=$('chat-log'); const el=document.createElement('div'); el.className='step-line'; el.textContent=text;
+    log.appendChild(el); log.scrollTop=log.scrollHeight;
+}
+let lastEventCount=0, currentBubble=null, lastToolCard=null;
+function setStatus(html) { $('chat-status').innerHTML=html; }
+
+async function sendChat() {
+    const text=$('chat-input').value; if(!text.trim())return;
+    $('chat-input').value=''; addBubble('user',text); lastEventCount=0; lastToolCard=null;
+    setStatus('<span class="spinner"></span> thinking...');
+    const resp=await fetch(API+'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId,message:text})});
+    if(!resp.ok){setStatus('Error: '+resp.status);return;}
+    startPolling();
+}
+function startPolling() {
+    if(pollTimer)clearInterval(pollTimer);
+    pollTimer=setInterval(async()=>{
+        try {
+            const r=await fetch(API+'/api/chat/events?session_id='+encodeURIComponent(sessionId));
+            const d=await r.json(); const evts=d.events||[];
+            for(let i=lastEventCount;i<evts.length;i++){ const e=evts[i];
+                if(e.type==='step_start')setStatus('<span class="spinner"></span> 正在思考...');
+                else if(e.type==='tool_call'){ 
+                    lastToolCard = addToolCall(e.name, JSON.stringify(e.args));
+                    setStatus('<span class="spinner"></span> 正在调用 <span class="st-tool">⚙ '+esc(toolLabel(e.name))+'</span>...');
+                }
+                else if(e.type==='tool_result'){ 
+                    setToolCallStatus(lastToolCard, 'done', e.result);
+                    setStatus('<span class="st-done">✔</span> '+esc(toolLabel(e.name))+' 已完成');
+                }
+                else if(e.type==='text'){if(!currentBubble)currentBubble=addBubble('assistant','');currentBubble.querySelector('.bubble').textContent+=e.content;currentBubble.querySelector('.bubble').classList.remove('md');}
+                else if(e.type==='interrupted'){addStep('Interrupted');setStatus('<span class="st-err">已中断</span>');}
+                else if(e.type==='error'){setStatus('<span class="st-err">⚠ '+esc(e.message)+'</span>');}
+                else if(e.type==='done'){ const b=currentBubble?currentBubble.querySelector('.bubble'):null;
+                    if(b){ b.classList.add('md'); b.innerHTML=renderMarkdown(e.content); } else addBubble('assistant',e.content,true);
+                    currentBubble=null; setStatus(''); clearInterval(pollTimer); pollTimer=null; }
+            }
+            lastEventCount=evts.length;
+        } catch(err){clearInterval(pollTimer);setStatus('<span class="st-err">poll error: '+esc(err)+'</span>');}
+    },400);
+}
+$('btn-send').addEventListener('click',sendChat);
+$('chat-input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendChat();}});
+$('btn-cancel').addEventListener('click',async()=>{await fetch(API+'/api/chat/cancel',{method:'POST'});setStatus('Interrupting...');});
+$('btn-history').addEventListener('click',async()=>{
+    const r=await fetch(API+'/api/session?session_id='+sessionId); const d=await r.json();
+    $('chat-log').innerHTML=''; (d.messages||[]).forEach(m=>{if(m.role==='user')addBubble('user',m.content);else if(m.role==='assistant')addBubble('assistant',m.content,true);});
+});
+$('btn-save').addEventListener('click',()=>toast('Session auto-managed; see token_usage.json'));
+
+// ---------- Tankopedia ----------
+const TYPE_ORDER={lightTank:0,mediumTank:1,heavyTank:2,'AT-SPG':3};
+async function loadTanks() {
+    if(tanksList.length){renderGrid();return;}
+    const out=$('tp-grid'); out.innerHTML='<div class="muted">Loading tanks...</div>';
+    try {
+        const r=await fetch(API+'/api/tanks'); tanksList=await r.json();
+        populateFilters(); renderGrid();
+    } catch(e){ out.innerHTML='<div class="muted">Failed to load: '+esc(e)+'</div>'; }
+}
+function populateFilters() {
+    const tiers=[...new Set(tanksList.map(t=>t.tier))].sort((a,b)=>a-b);
+    const nations=[...new Set(tanksList.map(t=>t.nation))].sort();
+    const types=[...new Set(tanksList.map(t=>t.type))].sort();
+    const addOpts=(id,items,labelFn,def)=>{ const sel=$(id); sel.innerHTML=''; const d=document.createElement('option'); d.value=''; d.textContent=def; sel.appendChild(d); items.forEach(v=>{const o=document.createElement('option'); o.value=v; o.textContent=labelFn(v); sel.appendChild(o);}); };
+    addOpts('tp-tier',tiers,v=>'Tier '+v,'Tier');
+    addOpts('tp-nation',nations,v=>NATION_LABEL[v]||v,'Nation');
+    addOpts('tp-type',types,v=>TYPE_LABEL[v]||v,'Type');
+}
+function getFilteredTanks() {
+    const q=$('tp-search').value.trim().toLowerCase();
+    const tier=$('tp-tier').value, nat=$('tp-nation').value, type=$('tp-type').value;
+    return tanksList.filter(t =>
+        (!q||(t.name||'').toLowerCase().includes(q)) &&
+        (!tier||String(t.tier)===tier) &&
+        (!nat||t.nation===nat) &&
+        (!type||t.type===type)
+    );
+}
+function renderGrid() {
+    const grid=$('tp-grid'); const filtered=getFilteredTanks();
+    $('tp-count').textContent=filtered.length+' / '+tanksList.length;
+    grid.innerHTML='';
+    if(!filtered.length){grid.innerHTML='<div class="muted">No tanks match.</div>';return;}
+    const frag=document.createDocumentFragment();
+    filtered.forEach(t=>{
+        const c=document.createElement('div'); c.className='tank-card';
+        c.innerHTML = `<img class="tc-img" loading="lazy" src="${API}/api/tank_image/${t.id}" alt="">
+            <div class="tc-body">
+                <div class="tc-name" title="${esc(t.name)}">${esc(t.name)}</div>
+                <div class="tc-meta"><span class="pill tier">T${t.tier}</span><span class="pill nat">${esc(NATION_LABEL[t.nation]||t.nation)}</span><span class="pill type">${esc(TYPE_LABEL[t.type]||t.type)}</span></div>
+            </div>`;
+        c.addEventListener('click',()=>{ window.open('/tank/'+t.id,'_blank'); });
+        frag.appendChild(c);
+    });
+    grid.appendChild(frag);
+}
+$('tp-search').addEventListener('input',renderGrid);
+$('tp-tier').addEventListener('change',renderGrid);
+$('tp-nation').addEventListener('change',renderGrid);
+$('tp-type').addEventListener('change',renderGrid);
+
+// ---------- Player ----------
+async function fetchPlayer() {
+    const nick=$('player-nick').value.trim(); if(!nick){toast('Enter a nickname');return;}
+    const out=$('player-out'); out.innerHTML='<span class="spinner"></span>';
+    const r=await fetch(API+'/api/player/'+encodeURIComponent(nick)); const d=await r.json();
+    if(!d.players||!d.players.length){out.innerHTML='<div class="muted">No player found.</div>';return;}
+    const p=d.players[0];
+    out.innerHTML=`<h3>${esc(p.nickname)}</h3>
+        <div class="stat-grid">
+            <div class="stat-box"><div class="lbl">Random WR</div><div class="val g">${p.random_battles?(100*p.random_wins/p.random_battles).toFixed(1):'-'}%</div></div>
+            <div class="stat-box"><div class="lbl">Rating WR</div><div class="val g">${p.rating_battles?(100*p.rating_wins/p.rating_battles).toFixed(1):'-'}%</div></div>
+            <div class="stat-box"><div class="lbl">Rating dmg</div><div class="val b">${p.rating_battles?Math.round(p.rating_damage_dealt/p.rating_battles):'-'}</div></div>
+            <div class="stat-box"><div class="lbl">Rating</div><div class="val o">${p.rating_display_rating||'-'}</div></div>
+            <div class="stat-box"><div class="lbl">mm_rating</div><div class="val">${p.rating_mm_rating!=null?p.rating_mm_rating:'-'}</div></div>
+        </div>`;
+}
+$('btn-player').addEventListener('click',fetchPlayer);
+$('player-nick').addEventListener('keydown',e=>{if(e.key==='Enter')fetchPlayer();});
+
+// ---------- Replay Scan ----------
+async function doScan() {
+    const out=$('scan-out'); out.innerHTML='<span class="spinner"></span> scanning...';
+    const dir = toWslPath($('scan-dir').value);
+    const body={dir,mode:$('scan-mode').value,days:$('scan-days').value?parseInt($('scan-days').value):null};
+    let r;
+    try { r=await fetch(API+'/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }
+    catch(e){ out.innerHTML='<div class="muted">⚠ 请求失败: '+esc(e.message)+'</div>'; return; }
+    if(!r.ok){ out.innerHTML='<div class="muted">⚠ 扫描出错 (HTTP '+r.status+'): '+esc((await r.text()).slice(0,200))+'</div>'; return; }
+    const d=await r.json();
+    if(d.error){out.innerHTML='<div class="muted">'+esc(d.error)+'</div>';return;}
+    let tankRows=(d.tank_usage||[]).slice(0,8).map(t=>`<tr><td>${esc(t.tank_name)}</td><td>${t.battles}</td><td>${t.win_rate.toFixed(0)}%</td><td>${Math.round(t.avg_damage)}</td></tr>`).join('');
+    let mapRows=(d.map_stats||[]).slice(0,8).map(m=>`<tr><td>${esc(m.map_name||m.map_id)}</td><td>${m.battles}</td><td>${m.win_rate.toFixed(0)}%</td></tr>`).join('');
+    out.innerHTML=`<h3>${esc(d.author_name||'')} — ${esc(d.room_type)}</h3>
+        <div class="stat-grid">
+            <div class="stat-box"><div class="lbl">Battles</div><div class="val">${d.total_battles}</div></div>
+            <div class="stat-box"><div class="lbl">Win rate</div><div class="val g">${d.win_rate.toFixed(1)}%</div></div>
+            <div class="stat-box"><div class="lbl">Avg dmg</div><div class="val b">${Math.round(d.avg_damage)}</div></div>
+            <div class="stat-box"><div class="lbl">Avg frags</div><div class="val">${d.avg_frags.toFixed(2)}</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:10px;">
+            <div><h4>Tanks</h4><table class="inline-table-sm"><tr><th>Name</th><th>B</th><th>WR</th><th>dmg</th></tr>${tankRows}</table></div>
+            <div><h4>Maps</h4><table class="inline-table-sm"><tr><th>Map</th><th>B</th><th>WR</th></tr>${mapRows}</table></div>
+        </div>`;
+}
+$('btn-scan').addEventListener('click',doScan);
+
+// ---------- Compare ----------
+async function doCompare() {
+    const out=$('cmp-out'); out.innerHTML='<span class="spinner"></span> comparing...';
+    const scanB=await fetch(API+'/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dir:toWslPath($('cmp-dir').value),mode:$('cmp-mode').value,days:null})});
+    if(!scanB.ok){out.innerHTML='<div class="muted">⚠ 扫描出错 (HTTP '+scanB.status+')</div>';return;}
+    const scan=await scanB.json();
+    const pB=await fetch(API+'/api/player/'+encodeURIComponent($('cmp-nick').value.trim()));
+    const p=(await pB.json()).players?.[0];
+    if(!scan.total_battles||!p){out.innerHTML='<div class="muted">Not enough data.</div>';return;}
+    out.innerHTML=`<table><tr><th>Metric</th><th>Replay</th><th>API Total</th></tr>
+        <tr><td>Battles</td><td>${scan.total_battles}</td><td>${p.random_battles+p.rating_battles}</td></tr>
+        <tr><td>Win rate</td><td>${scan.win_rate.toFixed(1)}%</td><td>${p.rating_battles?(100*p.rating_wins/p.rating_battles).toFixed(1):'-'}%</td></tr>
+        <tr><td>Avg damage</td><td>${Math.round(scan.avg_damage)}</td><td>${p.rating_battles?Math.round(p.rating_damage_dealt/p.rating_battles):'-'}</td></tr></table>`;
+}
+$('btn-compare').addEventListener('click',doCompare);
+
+// ---------- Prematch ----------
+async function doPrematch() {
+    const out=$('pre-out'); out.innerHTML='<span class="spinner"></span> analyzing...';
+    const names=$('pre-names').value.split(',').map(s=>s.trim()).filter(Boolean);
+    const r=await fetch(API+'/api/prematch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({names})});
+    const d=await r.json();
+    out.innerHTML=`<div class="muted">${esc(d.status)} ${esc(d.info||'')}</div>`;
+}
+$('btn-prematch').addEventListener('click',doPrematch);
+
+// ---------- Settings ----------
+async function loadConfig() {
+    const r=await fetch(API+'/api/config');const d=await r.json();
+    $('cfg-model').value=d.llm.model||'';$('cfg-endpoint').value=d.llm.endpoint||'';
+    $('cfg-context').value=d.llm.context_length||'';$('cfg-maxtok').value=d.llm.max_tokens||'';
+    $('cfg-budget').value=d.llm.budget??'';$('cfg-thinking').value=String(d.llm.thinking_mode);
+    // API Key：不回显明文，仅显示"已配置 / 未配置"状态。
+    const keyInput=$('cfg-apikey');
+    if(d.llm.api_key_set){ keyInput.value=''; keyInput.placeholder='已配置（留空则不修改）'; }
+    else { keyInput.value=''; keyInput.placeholder='未配置（请输入 API Key）'; }
+}
+$('btn-cfg-load').addEventListener('click',loadConfig);
+$('btn-cfg-save').addEventListener('click',async()=>{
+    const keyVal=$('cfg-apikey').value.trim();
+    const body={model:$('cfg-model').value,endpoint:$('cfg-endpoint').value,context_length:parseInt($('cfg-context').value)||0,max_tokens:parseInt($('cfg-maxtok').value)||0,budget:parseFloat($('cfg-budget').value),thinking_mode:$('cfg-thinking').value==='true'};
+    if(keyVal) body.api_key=keyVal;   // 仅当用户输入了新 key 才提交，避免覆盖为空白
+    const r=await fetch(API+'/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json(); toast(d.status==='saved'?'Saved':'Error');
+    loadConfig();   // 刷新状态(已配置/未配置)
+});
+async function loadUsage() {
+    const r=await fetch(API+'/api/usage');const d=await r.json();
+    $('usage-stats').innerHTML=`
+        <div class="stat-box"><div class="lbl">Calls</div><div class="val">${d.call_count}</div></div>
+        <div class="stat-box"><div class="lbl">Input tok</div><div class="val">${d.total_input_tokens}</div></div>
+        <div class="stat-box"><div class="lbl">Output tok</div><div class="val">${d.total_output_tokens}</div></div>
+        <div class="stat-box"><div class="lbl">Total tok</div><div class="val">${d.total_tokens}</div></div>
+        <div class="stat-box"><div class="lbl">Cost ($)</div><div class="val o">${d.total_cost.toFixed(4)}</div></div>`;
+    $('usage-budget').textContent=d.config_path?'':'';
+    const calls=(d.calls||[]).map(c=>`<tr><td>${esc(c.timestamp)}</td><td>${esc(c.model)}</td><td>${c.input_tokens}/${c.output_tokens}</td><td>$${c.cost.toFixed(4)}</td></tr>`).join('');
+    $('usage-calls').innerHTML=`<table><tr><th>Time</th><th>Model</th><th>in/out</th><th>cost</th></tr>${calls}</table>`;
+}
+</script>
+</body>
+</html>

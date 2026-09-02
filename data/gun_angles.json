@@ -1,0 +1,2894 @@
+{
+  "1": {
+    "gun_elevation": 17.0,
+    "gun_depression": 6.0
+  },
+  "17": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "33": {
+    "gun_elevation": 25.0,
+    "gun_depression": 10.0
+  },
+  "49": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "81": {
+    "gun_elevation": 16.0,
+    "gun_depression": 7.0
+  },
+  "113": {
+    "gun_elevation": 15.0,
+    "gun_depression": 2.0
+  },
+  "257": {
+    "gun_elevation": 25.0,
+    "gun_depression": 6.0
+  },
+  "289": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "321": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "337": {
+    "gun_elevation": 16.0,
+    "gun_depression": 7.0
+  },
+  "353": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "385": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "513": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "529": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "545": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "577": {
+    "gun_elevation": 35.0,
+    "gun_depression": 6.0
+  },
+  "593": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "609": {
+    "gun_elevation": 35.0,
+    "gun_depression": 20.0
+  },
+  "625": {
+    "gun_elevation": 9.0,
+    "gun_depression": 6.0
+  },
+  "641": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "769": {
+    "gun_elevation": 25.0,
+    "gun_depression": 8.0
+  },
+  "785": {
+    "gun_elevation": 17.0,
+    "gun_depression": 6.0
+  },
+  "801": {
+    "gun_elevation": 30.0,
+    "gun_depression": 10.0
+  },
+  "817": {
+    "gun_elevation": 23.0,
+    "gun_depression": 5.0
+  },
+  "849": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "865": {
+    "gun_elevation": 20.0,
+    "gun_depression": 15.0
+  },
+  "881": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "897": {
+    "gun_elevation": 20.0,
+    "gun_depression": 5.0
+  },
+  "1025": {
+    "gun_elevation": 25.0,
+    "gun_depression": 8.0
+  },
+  "1041": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "1057": {
+    "gun_elevation": 25.0,
+    "gun_depression": 12.0
+  },
+  "1073": {
+    "gun_elevation": 22.0,
+    "gun_depression": 8.0
+  },
+  "1089": {
+    "gun_elevation": 18.0,
+    "gun_depression": 10.0
+  },
+  "1105": {
+    "gun_elevation": 20.0,
+    "gun_depression": 13.0
+  },
+  "1121": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "1137": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "1153": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "1297": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "1313": {
+    "gun_elevation": 25.0,
+    "gun_depression": 10.0
+  },
+  "1329": {
+    "gun_elevation": 35.0,
+    "gun_depression": 6.0
+  },
+  "1361": {
+    "gun_elevation": 12.0,
+    "gun_depression": 6.0
+  },
+  "1377": {
+    "gun_elevation": 20.0,
+    "gun_depression": 15.0
+  },
+  "1393": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "1409": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "1537": {
+    "gun_elevation": 25.0,
+    "gun_depression": 6.0
+  },
+  "1553": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.0
+  },
+  "1569": {
+    "gun_elevation": 25.0,
+    "gun_depression": 10.0
+  },
+  "1585": {
+    "gun_elevation": 20.0,
+    "gun_depression": 5.0
+  },
+  "1601": {
+    "gun_elevation": 20.0,
+    "gun_depression": 18.0
+  },
+  "1617": {
+    "gun_elevation": 25.0,
+    "gun_depression": 12.0
+  },
+  "1633": {
+    "gun_elevation": 20.0,
+    "gun_depression": 15.0
+  },
+  "1649": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "1665": {
+    "gun_elevation": 25.0,
+    "gun_depression": 10.0
+  },
+  "1809": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "1825": {
+    "gun_elevation": 19.0,
+    "gun_depression": 7.0
+  },
+  "1841": {
+    "gun_elevation": 18.0,
+    "gun_depression": 5.0
+  },
+  "1857": {
+    "gun_elevation": 13.0,
+    "gun_depression": 6.0
+  },
+  "1889": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.5
+  },
+  "1905": {
+    "gun_elevation": 16.0,
+    "gun_depression": 8.0
+  },
+  "1921": {
+    "gun_elevation": 25.0,
+    "gun_depression": 10.0
+  },
+  "2049": {
+    "gun_elevation": 25.0,
+    "gun_depression": 7.0
+  },
+  "2065": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "2097": {
+    "gun_elevation": 19.0,
+    "gun_depression": 5.0
+  },
+  "2129": {
+    "gun_elevation": 20.0,
+    "gun_depression": 15.0
+  },
+  "2145": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "2161": {
+    "gun_elevation": 10.0,
+    "gun_depression": 8.0
+  },
+  "2177": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "2305": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "2321": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "2353": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "2369": {
+    "gun_elevation": 17.0,
+    "gun_depression": 8.0
+  },
+  "2385": {
+    "gun_elevation": 16.0,
+    "gun_depression": 8.0
+  },
+  "2401": {
+    "gun_elevation": 20.0,
+    "gun_depression": 14.0
+  },
+  "2433": {
+    "gun_elevation": 20.0,
+    "gun_depression": 12.0
+  },
+  "2561": {
+    "gun_elevation": 22.0,
+    "gun_depression": 7.0
+  },
+  "2577": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "2593": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "2609": {
+    "gun_elevation": 25.0,
+    "gun_depression": 8.0
+  },
+  "2625": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "2657": {
+    "gun_elevation": 13.0,
+    "gun_depression": 7.0
+  },
+  "2689": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "2817": {
+    "gun_elevation": 25.0,
+    "gun_depression": 5.0
+  },
+  "2849": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "2865": {
+    "gun_elevation": 12.0,
+    "gun_depression": 5.0
+  },
+  "2881": {
+    "gun_elevation": 17.0,
+    "gun_depression": 7.0
+  },
+  "2897": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "2913": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "2945": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "3073": {
+    "gun_elevation": 16.0,
+    "gun_depression": 8.0
+  },
+  "3089": {
+    "gun_elevation": 25.0,
+    "gun_depression": 7.0
+  },
+  "3105": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "3121": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "3137": {
+    "gun_elevation": 13.0,
+    "gun_depression": 6.0
+  },
+  "3153": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "3201": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "3329": {
+    "gun_elevation": 25.0,
+    "gun_depression": 8.0
+  },
+  "3345": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "3361": {
+    "gun_elevation": 30.0,
+    "gun_depression": 10.0
+  },
+  "3377": {
+    "gun_elevation": 18.0,
+    "gun_depression": 5.0
+  },
+  "3425": {
+    "gun_elevation": 13.0,
+    "gun_depression": 10.0
+  },
+  "3457": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "3585": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "3601": {
+    "gun_elevation": 12.0,
+    "gun_depression": 8.0
+  },
+  "3633": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "3649": {
+    "gun_elevation": 11.0,
+    "gun_depression": 6.0
+  },
+  "3681": {
+    "gun_elevation": 13.0,
+    "gun_depression": 11.0
+  },
+  "3697": {
+    "gun_elevation": 5.0,
+    "gun_depression": 12.0
+  },
+  "3713": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "3857": {
+    "gun_elevation": 14.0,
+    "gun_depression": 8.0
+  },
+  "3873": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "3889": {
+    "gun_elevation": 18.0,
+    "gun_depression": 5.0
+  },
+  "3905": {
+    "gun_elevation": 8.0,
+    "gun_depression": 6.0
+  },
+  "3921": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "3937": {
+    "gun_elevation": 14.0,
+    "gun_depression": 6.0
+  },
+  "3953": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "3969": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "4113": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "4145": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "4193": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "4209": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "4225": {
+    "gun_elevation": 10.0,
+    "gun_depression": 9.0
+  },
+  "4353": {
+    "gun_elevation": 25.0,
+    "gun_depression": 7.0
+  },
+  "4369": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "4385": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "4401": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "4417": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "4433": {
+    "gun_elevation": 18.0,
+    "gun_depression": 10.0
+  },
+  "4449": {
+    "gun_elevation": 25.0,
+    "gun_depression": 6.0
+  },
+  "4465": {
+    "gun_elevation": 12.0,
+    "gun_depression": 7.0
+  },
+  "4481": {
+    "gun_elevation": 10.0,
+    "gun_depression": 9.0
+  },
+  "4609": {
+    "gun_elevation": 25.0,
+    "gun_depression": 8.0
+  },
+  "4657": {
+    "gun_elevation": 25.0,
+    "gun_depression": 5.0
+  },
+  "4689": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "4705": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "4721": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.0
+  },
+  "4737": {
+    "gun_elevation": 14.0,
+    "gun_depression": 10.0
+  },
+  "4881": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "4897": {
+    "gun_elevation": 40.0,
+    "gun_depression": 20.0
+  },
+  "4913": {
+    "gun_elevation": 18.0,
+    "gun_depression": 5.0
+  },
+  "4929": {
+    "gun_elevation": 12.0,
+    "gun_depression": 6.0
+  },
+  "4945": {
+    "gun_elevation": 17.0,
+    "gun_depression": 8.0
+  },
+  "4961": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "4977": {
+    "gun_elevation": 12.0,
+    "gun_depression": 8.0
+  },
+  "4993": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "5121": {
+    "gun_elevation": 23.0,
+    "gun_depression": 8.0
+  },
+  "5137": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.0
+  },
+  "5153": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "5169": {
+    "gun_elevation": 22.0,
+    "gun_depression": 7.0
+  },
+  "5185": {
+    "gun_elevation": 6.0,
+    "gun_depression": 6.0
+  },
+  "5201": {
+    "gun_elevation": 20.0,
+    "gun_depression": 15.0
+  },
+  "5217": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "5233": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "5249": {
+    "gun_elevation": 17.5,
+    "gun_depression": 7.5
+  },
+  "5377": {
+    "gun_elevation": 23.0,
+    "gun_depression": 5.0
+  },
+  "5393": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "5409": {
+    "gun_elevation": 18.0,
+    "gun_depression": 8.0
+  },
+  "5425": {
+    "gun_elevation": 18.0,
+    "gun_depression": 6.0
+  },
+  "5441": {
+    "gun_elevation": 16.0,
+    "gun_depression": 10.0
+  },
+  "5457": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "5473": {
+    "gun_elevation": 14.0,
+    "gun_depression": 6.0
+  },
+  "5489": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "5505": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "5665": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "5681": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "5713": {
+    "gun_elevation": 18.0,
+    "gun_depression": 10.0
+  },
+  "5729": {
+    "gun_elevation": 14.0,
+    "gun_depression": 6.0
+  },
+  "5745": {
+    "gun_elevation": 25.0,
+    "gun_depression": 10.0
+  },
+  "5761": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "5889": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "5921": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "5937": {
+    "gun_elevation": 17.0,
+    "gun_depression": 10.0
+  },
+  "5953": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "5969": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "5985": {
+    "gun_elevation": 14.0,
+    "gun_depression": 6.0
+  },
+  "6001": {
+    "gun_elevation": 13.0,
+    "gun_depression": 7.0
+  },
+  "6017": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "6145": {
+    "gun_elevation": 16.0,
+    "gun_depression": 6.0
+  },
+  "6161": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "6177": {
+    "gun_elevation": 20.0,
+    "gun_depression": 5.0
+  },
+  "6193": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.0
+  },
+  "6209": {
+    "gun_elevation": 12.0,
+    "gun_depression": 10.0
+  },
+  "6225": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.0
+  },
+  "6241": {
+    "gun_elevation": 14.0,
+    "gun_depression": 6.0
+  },
+  "6257": {
+    "gun_elevation": 8.0,
+    "gun_depression": 6.0
+  },
+  "6273": {
+    "gun_elevation": 25.0,
+    "gun_depression": 7.0
+  },
+  "6401": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "6417": {
+    "gun_elevation": 17.0,
+    "gun_depression": 6.0
+  },
+  "6433": {
+    "gun_elevation": 27.0,
+    "gun_depression": 5.0
+  },
+  "6449": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "6465": {
+    "gun_elevation": 12.0,
+    "gun_depression": 4.0
+  },
+  "6481": {
+    "gun_elevation": 20.0,
+    "gun_depression": 15.0
+  },
+  "6497": {
+    "gun_elevation": 14.0,
+    "gun_depression": 6.0
+  },
+  "6529": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "6657": {
+    "gun_elevation": 26.0,
+    "gun_depression": 8.0
+  },
+  "6673": {
+    "gun_elevation": 10.0,
+    "gun_depression": 8.0
+  },
+  "6689": {
+    "gun_elevation": 19.5,
+    "gun_depression": 9.5
+  },
+  "6705": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "6721": {
+    "gun_elevation": 14.0,
+    "gun_depression": 5.0
+  },
+  "6753": {
+    "gun_elevation": 14.0,
+    "gun_depression": 6.0
+  },
+  "6785": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "6913": {
+    "gun_elevation": 7.0,
+    "gun_depression": 5.0
+  },
+  "6929": {
+    "gun_elevation": 24.0,
+    "gun_depression": 8.0
+  },
+  "6945": {
+    "gun_elevation": 30.0,
+    "gun_depression": 10.0
+  },
+  "6961": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "6977": {
+    "gun_elevation": 12.0,
+    "gun_depression": 10.0
+  },
+  "6993": {
+    "gun_elevation": 20.0,
+    "gun_depression": 15.0
+  },
+  "7009": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "7025": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "7041": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "7169": {
+    "gun_elevation": 18.0,
+    "gun_depression": 6.0
+  },
+  "7185": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "7201": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "7217": {
+    "gun_elevation": 18.0,
+    "gun_depression": 6.0
+  },
+  "7249": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "7265": {
+    "gun_elevation": 14.0,
+    "gun_depression": 6.0
+  },
+  "7281": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "7297": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "7425": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "7441": {
+    "gun_elevation": 18.0,
+    "gun_depression": 5.0
+  },
+  "7473": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.0
+  },
+  "7505": {
+    "gun_elevation": 20.0,
+    "gun_depression": 15.0
+  },
+  "7521": {
+    "gun_elevation": 13.0,
+    "gun_depression": 6.0
+  },
+  "7537": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "7553": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "7697": {
+    "gun_elevation": 14.0,
+    "gun_depression": 7.5
+  },
+  "7713": {
+    "gun_elevation": 30.0,
+    "gun_depression": 10.0
+  },
+  "7729": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.0
+  },
+  "7745": {
+    "gun_elevation": 12.0,
+    "gun_depression": 6.0
+  },
+  "7761": {
+    "gun_elevation": 20.0,
+    "gun_depression": 15.0
+  },
+  "7777": {
+    "gun_elevation": 6.0,
+    "gun_depression": 12.0
+  },
+  "7793": {
+    "gun_elevation": 12.0,
+    "gun_depression": 8.0
+  },
+  "7809": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "7937": {
+    "gun_elevation": 20.0,
+    "gun_depression": 5.0
+  },
+  "7953": {
+    "gun_elevation": 14.0,
+    "gun_depression": 8.0
+  },
+  "7985": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "8001": {
+    "gun_elevation": 9.0,
+    "gun_depression": 8.0
+  },
+  "8017": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.0
+  },
+  "8033": {
+    "gun_elevation": 18.0,
+    "gun_depression": 8.0
+  },
+  "8049": {
+    "gun_elevation": 25.0,
+    "gun_depression": 15.0
+  },
+  "8065": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "8193": {
+    "gun_elevation": 18.0,
+    "gun_depression": 6.0
+  },
+  "8209": {
+    "gun_elevation": 22.0,
+    "gun_depression": 7.0
+  },
+  "8225": {
+    "gun_elevation": 20.0,
+    "gun_depression": 5.0
+  },
+  "8241": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "8257": {
+    "gun_elevation": 20.0,
+    "gun_depression": 2.0
+  },
+  "8273": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.0
+  },
+  "8289": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "8305": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "8321": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "8465": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "8497": {
+    "gun_elevation": 23.0,
+    "gun_depression": 7.0
+  },
+  "8513": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "8529": {
+    "gun_elevation": 10.0,
+    "gun_depression": 10.0
+  },
+  "8561": {
+    "gun_elevation": 10.0,
+    "gun_depression": 6.0
+  },
+  "8577": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "8737": {
+    "gun_elevation": 20.0,
+    "gun_depression": 5.0
+  },
+  "8753": {
+    "gun_elevation": 18.0,
+    "gun_depression": 8.0
+  },
+  "8785": {
+    "gun_elevation": 13.0,
+    "gun_depression": 7.0
+  },
+  "8817": {
+    "gun_elevation": 20.0,
+    "gun_depression": 12.0
+  },
+  "8833": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "8961": {
+    "gun_elevation": 25.0,
+    "gun_depression": 5.0
+  },
+  "8993": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "9009": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "9041": {
+    "gun_elevation": 25.0,
+    "gun_depression": 5.0
+  },
+  "9057": {
+    "gun_elevation": 18.0,
+    "gun_depression": 7.0
+  },
+  "9073": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "9089": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "9217": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "9249": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "9297": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.0
+  },
+  "9329": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "9345": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "9489": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "9505": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "9521": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.4
+  },
+  "9553": {
+    "gun_elevation": 7.5,
+    "gun_depression": 5.0
+  },
+  "9601": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.2
+  },
+  "9745": {
+    "gun_elevation": 18.0,
+    "gun_depression": 5.0
+  },
+  "9761": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "9777": {
+    "gun_elevation": 18.0,
+    "gun_depression": 9.0
+  },
+  "9793": {
+    "gun_elevation": 30.0,
+    "gun_depression": 10.0
+  },
+  "9809": {
+    "gun_elevation": 12.0,
+    "gun_depression": 10.0
+  },
+  "9841": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "9857": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.0
+  },
+  "9985": {
+    "gun_elevation": 18.3,
+    "gun_depression": 1.8
+  },
+  "10001": {
+    "gun_elevation": 17.0,
+    "gun_depression": 6.0
+  },
+  "10017": {
+    "gun_elevation": 25.0,
+    "gun_depression": 10.0
+  },
+  "10033": {
+    "gun_elevation": 18.0,
+    "gun_depression": 5.0
+  },
+  "10049": {
+    "gun_elevation": 22.0,
+    "gun_depression": 9.0
+  },
+  "10065": {
+    "gun_elevation": 7.5,
+    "gun_depression": 5.0
+  },
+  "10097": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "10113": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "10241": {
+    "gun_elevation": 20.0,
+    "gun_depression": 4.0
+  },
+  "10257": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "10273": {
+    "gun_elevation": 25.0,
+    "gun_depression": 10.0
+  },
+  "10289": {
+    "gun_elevation": 18.0,
+    "gun_depression": 5.0
+  },
+  "10337": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "10353": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "10369": {
+    "gun_elevation": 18.0,
+    "gun_depression": 7.0
+  },
+  "10497": {
+    "gun_elevation": 18.0,
+    "gun_depression": 5.0
+  },
+  "10513": {
+    "gun_elevation": 17.0,
+    "gun_depression": 6.0
+  },
+  "10529": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "10545": {
+    "gun_elevation": 18.0,
+    "gun_depression": 5.0
+  },
+  "10609": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "10625": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "10753": {
+    "gun_elevation": 16.0,
+    "gun_depression": 6.0
+  },
+  "10769": {
+    "gun_elevation": 17.0,
+    "gun_depression": 6.0
+  },
+  "10785": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "10801": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.0
+  },
+  "10817": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "10865": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "10881": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "11009": {
+    "gun_elevation": 12.0,
+    "gun_depression": 6.0
+  },
+  "11025": {
+    "gun_elevation": 10.0,
+    "gun_depression": 15.0
+  },
+  "11041": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "11057": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "11073": {
+    "gun_elevation": 18.0,
+    "gun_depression": 6.0
+  },
+  "11121": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "11137": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "11265": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "11281": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.0
+  },
+  "11297": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "11313": {
+    "gun_elevation": 22.0,
+    "gun_depression": 7.0
+  },
+  "11377": {
+    "gun_elevation": 25.0,
+    "gun_depression": 9.0
+  },
+  "11393": {
+    "gun_elevation": 18.0,
+    "gun_depression": 7.0
+  },
+  "11521": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.0
+  },
+  "11537": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.5
+  },
+  "11553": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "11569": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "11585": {
+    "gun_elevation": 30.0,
+    "gun_depression": 10.0
+  },
+  "11633": {
+    "gun_elevation": 18.0,
+    "gun_depression": 6.0
+  },
+  "11649": {
+    "gun_elevation": 18.0,
+    "gun_depression": 7.0
+  },
+  "11777": {
+    "gun_elevation": 25.0,
+    "gun_depression": 7.0
+  },
+  "11793": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "11809": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "11825": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "11889": {
+    "gun_elevation": 15.0,
+    "gun_depression": 9.0
+  },
+  "11905": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "12033": {
+    "gun_elevation": 16.0,
+    "gun_depression": 4.0
+  },
+  "12049": {
+    "gun_elevation": 17.0,
+    "gun_depression": 6.0
+  },
+  "12065": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "12081": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "12097": {
+    "gun_elevation": 18.0,
+    "gun_depression": 6.0
+  },
+  "12145": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "12161": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "12305": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "12321": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "12337": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "12417": {
+    "gun_elevation": 18.0,
+    "gun_depression": 8.0
+  },
+  "12545": {
+    "gun_elevation": 10.0,
+    "gun_depression": 7.0
+  },
+  "12593": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "12657": {
+    "gun_elevation": 12.0,
+    "gun_depression": 10.0
+  },
+  "12673": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "12849": {
+    "gun_elevation": 18.0,
+    "gun_depression": 6.0
+  },
+  "12913": {
+    "gun_elevation": 15.0,
+    "gun_depression": 9.0
+  },
+  "12929": {
+    "gun_elevation": 18.0,
+    "gun_depression": 7.0
+  },
+  "13073": {
+    "gun_elevation": 16.0,
+    "gun_depression": 8.0
+  },
+  "13089": {
+    "gun_elevation": 12.0,
+    "gun_depression": 6.0
+  },
+  "13105": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "13169": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "13185": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "13329": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "13345": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "13425": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "13441": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "13569": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.0
+  },
+  "13617": {
+    "gun_elevation": 18.0,
+    "gun_depression": 7.0
+  },
+  "13681": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "13697": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "13825": {
+    "gun_elevation": 17.0,
+    "gun_depression": 6.0
+  },
+  "13841": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "13857": {
+    "gun_elevation": 16.0,
+    "gun_depression": 8.0
+  },
+  "13873": {
+    "gun_elevation": 18.0,
+    "gun_depression": 7.0
+  },
+  "13889": {
+    "gun_elevation": 12.0,
+    "gun_depression": 5.0
+  },
+  "13937": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "13953": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "14097": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "14113": {
+    "gun_elevation": 19.0,
+    "gun_depression": 8.0
+  },
+  "14129": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "14145": {
+    "gun_elevation": 13.0,
+    "gun_depression": 5.0
+  },
+  "14193": {
+    "gun_elevation": 18.0,
+    "gun_depression": 7.0
+  },
+  "14209": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "14337": {
+    "gun_elevation": 18.0,
+    "gun_depression": 4.0
+  },
+  "14385": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "14449": {
+    "gun_elevation": 13.0,
+    "gun_depression": 6.0
+  },
+  "14465": {
+    "gun_elevation": 17.0,
+    "gun_depression": 8.0
+  },
+  "14609": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "14625": {
+    "gun_elevation": 14.0,
+    "gun_depression": 9.0
+  },
+  "14705": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "14721": {
+    "gun_elevation": 18.0,
+    "gun_depression": 10.0
+  },
+  "14865": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "14881": {
+    "gun_elevation": 10.0,
+    "gun_depression": 8.0
+  },
+  "14961": {
+    "gun_elevation": 18.0,
+    "gun_depression": 6.0
+  },
+  "14977": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "15137": {
+    "gun_elevation": 25.0,
+    "gun_depression": 10.0
+  },
+  "15217": {
+    "gun_elevation": 13.0,
+    "gun_depression": 7.0
+  },
+  "15233": {
+    "gun_elevation": 18.0,
+    "gun_depression": 9.0
+  },
+  "15393": {
+    "gun_elevation": 13.0,
+    "gun_depression": 7.0
+  },
+  "15441": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "15473": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "15489": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "15617": {
+    "gun_elevation": 16.0,
+    "gun_depression": 7.0
+  },
+  "15649": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "15697": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "15729": {
+    "gun_elevation": 17.0,
+    "gun_depression": 9.0
+  },
+  "15745": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "15889": {
+    "gun_elevation": 17.5,
+    "gun_depression": 7.5
+  },
+  "15905": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "15937": {
+    "gun_elevation": 20.0,
+    "gun_depression": 16.0
+  },
+  "15953": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "15985": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.0
+  },
+  "16001": {
+    "gun_elevation": 18.0,
+    "gun_depression": 8.0
+  },
+  "16145": {
+    "gun_elevation": 35.0,
+    "gun_depression": 5.0
+  },
+  "16193": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "16241": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "16257": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "16401": {
+    "gun_elevation": 45.0,
+    "gun_depression": 5.0
+  },
+  "16449": {
+    "gun_elevation": 13.0,
+    "gun_depression": 7.0
+  },
+  "16497": {
+    "gun_elevation": 16.0,
+    "gun_depression": 6.0
+  },
+  "16513": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "16641": {
+    "gun_elevation": 25.0,
+    "gun_depression": 6.0
+  },
+  "16657": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.0
+  },
+  "16673": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "16705": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "16753": {
+    "gun_elevation": 18.0,
+    "gun_depression": 6.0
+  },
+  "16769": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "16897": {
+    "gun_elevation": 17.0,
+    "gun_depression": 6.0
+  },
+  "17009": {
+    "gun_elevation": 14.0,
+    "gun_depression": 6.0
+  },
+  "17025": {
+    "gun_elevation": 15.0,
+    "gun_depression": 9.0
+  },
+  "17169": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "17217": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "17233": {
+    "gun_elevation": 10.0,
+    "gun_depression": 10.0
+  },
+  "17265": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "17281": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "17425": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "17473": {
+    "gun_elevation": 10.0,
+    "gun_depression": 6.0
+  },
+  "17489": {
+    "gun_elevation": 12.0,
+    "gun_depression": 10.0
+  },
+  "17521": {
+    "gun_elevation": 12.0,
+    "gun_depression": 6.0
+  },
+  "17537": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "17729": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "17745": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "17777": {
+    "gun_elevation": 7.0,
+    "gun_depression": 6.0
+  },
+  "17793": {
+    "gun_elevation": 13.25,
+    "gun_depression": 7.0
+  },
+  "17953": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "17985": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "18001": {
+    "gun_elevation": 8.0,
+    "gun_depression": 10.0
+  },
+  "18033": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "18049": {
+    "gun_elevation": 18.0,
+    "gun_depression": 8.0
+  },
+  "18177": {
+    "gun_elevation": 17.0,
+    "gun_depression": 5.0
+  },
+  "18209": {
+    "gun_elevation": 19.5,
+    "gun_depression": 9.5
+  },
+  "18241": {
+    "gun_elevation": 13.0,
+    "gun_depression": 6.0
+  },
+  "18257": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "18289": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "18305": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "18433": {
+    "gun_elevation": 25.0,
+    "gun_depression": 8.0
+  },
+  "18449": {
+    "gun_elevation": 18.0,
+    "gun_depression": 10.0
+  },
+  "18497": {
+    "gun_elevation": 9.0,
+    "gun_depression": 8.0
+  },
+  "18513": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "18545": {
+    "gun_elevation": 12.0,
+    "gun_depression": 6.0
+  },
+  "18561": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "18689": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "18753": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "18769": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "18801": {
+    "gun_elevation": 18.0,
+    "gun_depression": 7.0
+  },
+  "18817": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "18945": {
+    "gun_elevation": 13.0,
+    "gun_depression": 6.0
+  },
+  "18961": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "18977": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "19009": {
+    "gun_elevation": 11.0,
+    "gun_depression": 7.0
+  },
+  "19025": {
+    "gun_elevation": 18.0,
+    "gun_depression": 10.0
+  },
+  "19057": {
+    "gun_elevation": 18.0,
+    "gun_depression": 6.0
+  },
+  "19073": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "19217": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "19233": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "19265": {
+    "gun_elevation": 20.0,
+    "gun_depression": 5.0
+  },
+  "19281": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "19313": {
+    "gun_elevation": 17.0,
+    "gun_depression": 7.0
+  },
+  "19329": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "19473": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "19489": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "19521": {
+    "gun_elevation": 13.0,
+    "gun_depression": 6.0
+  },
+  "19537": {
+    "gun_elevation": 20.0,
+    "gun_depression": 11.0
+  },
+  "19569": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "19585": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "19713": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "19729": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "19745": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "19777": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "19793": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "19825": {
+    "gun_elevation": 16.0,
+    "gun_depression": 8.0
+  },
+  "19841": {
+    "gun_elevation": 13.0,
+    "gun_depression": 7.0
+  },
+  "19969": {
+    "gun_elevation": 16.0,
+    "gun_depression": 6.0
+  },
+  "19985": {
+    "gun_elevation": 14.0,
+    "gun_depression": 6.0
+  },
+  "20001": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "20033": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.0
+  },
+  "20049": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "20081": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "20097": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "20257": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "20289": {
+    "gun_elevation": 18.0,
+    "gun_depression": 6.0
+  },
+  "20305": {
+    "gun_elevation": 18.0,
+    "gun_depression": 10.0
+  },
+  "20337": {
+    "gun_elevation": 10.0,
+    "gun_depression": 8.0
+  },
+  "20481": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "20497": {
+    "gun_elevation": 30.0,
+    "gun_depression": 8.0
+  },
+  "20513": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "20545": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "20561": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "20593": {
+    "gun_elevation": 17.0,
+    "gun_depression": 8.0
+  },
+  "20737": {
+    "gun_elevation": 16.0,
+    "gun_depression": 7.0
+  },
+  "20753": {
+    "gun_elevation": 24.0,
+    "gun_depression": 8.0
+  },
+  "20769": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "20801": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "20817": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "20849": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "20993": {
+    "gun_elevation": 16.0,
+    "gun_depression": 6.0
+  },
+  "21009": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "21025": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "21057": {
+    "gun_elevation": 15.0,
+    "gun_depression": 9.0
+  },
+  "21073": {
+    "gun_elevation": 12.0,
+    "gun_depression": 10.0
+  },
+  "21105": {
+    "gun_elevation": 10.0,
+    "gun_depression": 10.0
+  },
+  "21249": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "21265": {
+    "gun_elevation": 25.0,
+    "gun_depression": 9.0
+  },
+  "21281": {
+    "gun_elevation": 25.0,
+    "gun_depression": 12.0
+  },
+  "21313": {
+    "gun_elevation": 17.0,
+    "gun_depression": 7.0
+  },
+  "21329": {
+    "gun_elevation": 9.5,
+    "gun_depression": 8.5
+  },
+  "21361": {
+    "gun_elevation": 18.0,
+    "gun_depression": 10.0
+  },
+  "21505": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "21521": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "21569": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "21585": {
+    "gun_elevation": 20.0,
+    "gun_depression": 5.0
+  },
+  "21617": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "21761": {
+    "gun_elevation": 17.0,
+    "gun_depression": 5.0
+  },
+  "21777": {
+    "gun_elevation": 10.0,
+    "gun_depression": 10.0
+  },
+  "21793": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "21825": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "21841": {
+    "gun_elevation": 9.0,
+    "gun_depression": 8.0
+  },
+  "21889": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "22033": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "22049": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "22081": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.0
+  },
+  "22097": {
+    "gun_elevation": 12.0,
+    "gun_depression": 5.0
+  },
+  "22129": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "22145": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "22273": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "22305": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "22337": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "22353": {
+    "gun_elevation": 12.0,
+    "gun_depression": 4.0
+  },
+  "22385": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.5
+  },
+  "22401": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "22529": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.0
+  },
+  "22545": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "22561": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "22609": {
+    "gun_elevation": 17.0,
+    "gun_depression": 10.0
+  },
+  "22641": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.0
+  },
+  "22657": {
+    "gun_elevation": 18.0,
+    "gun_depression": 6.0
+  },
+  "22785": {
+    "gun_elevation": 22.0,
+    "gun_depression": 8.0
+  },
+  "22801": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "22817": {
+    "gun_elevation": 18.0,
+    "gun_depression": 10.0
+  },
+  "22849": {
+    "gun_elevation": 17.0,
+    "gun_depression": 8.0
+  },
+  "22865": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "22913": {
+    "gun_elevation": 18.0,
+    "gun_depression": 8.0
+  },
+  "23041": {
+    "gun_elevation": 17.0,
+    "gun_depression": 8.0
+  },
+  "23057": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "23073": {
+    "gun_elevation": 18.0,
+    "gun_depression": 8.0
+  },
+  "23105": {
+    "gun_elevation": 18.0,
+    "gun_depression": 8.0
+  },
+  "23121": {
+    "gun_elevation": 12.0,
+    "gun_depression": 10.0
+  },
+  "23169": {
+    "gun_elevation": 16.0,
+    "gun_depression": 7.0
+  },
+  "23297": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "23313": {
+    "gun_elevation": 17.0,
+    "gun_depression": 8.0
+  },
+  "23329": {
+    "gun_elevation": 18.0,
+    "gun_depression": 8.0
+  },
+  "23377": {
+    "gun_elevation": 14.0,
+    "gun_depression": 10.0
+  },
+  "23553": {
+    "gun_elevation": 25.0,
+    "gun_depression": 8.0
+  },
+  "23569": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "23585": {
+    "gun_elevation": 18.0,
+    "gun_depression": 7.0
+  },
+  "23633": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "23809": {
+    "gun_elevation": 20.0,
+    "gun_depression": 5.0
+  },
+  "23825": {
+    "gun_elevation": 17.0,
+    "gun_depression": 7.0
+  },
+  "23841": {
+    "gun_elevation": 17.0,
+    "gun_depression": 9.0
+  },
+  "23889": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "24065": {
+    "gun_elevation": 20.0,
+    "gun_depression": 5.0
+  },
+  "24081": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "24097": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "24145": {
+    "gun_elevation": 9.5,
+    "gun_depression": 8.5
+  },
+  "24321": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.0
+  },
+  "24337": {
+    "gun_elevation": 18.0,
+    "gun_depression": 9.0
+  },
+  "24401": {
+    "gun_elevation": 25.0,
+    "gun_depression": 8.0
+  },
+  "24577": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.0
+  },
+  "24593": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "24609": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "24657": {
+    "gun_elevation": 15.0,
+    "gun_depression": 9.0
+  },
+  "24849": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "24865": {
+    "gun_elevation": 18.0,
+    "gun_depression": 8.0
+  },
+  "24913": {
+    "gun_elevation": 18.0,
+    "gun_depression": 8.0
+  },
+  "24945": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.0
+  },
+  "25089": {
+    "gun_elevation": 10.0,
+    "gun_depression": 8.0
+  },
+  "25105": {
+    "gun_elevation": 15.0,
+    "gun_depression": 6.0
+  },
+  "25121": {
+    "gun_elevation": 22.0,
+    "gun_depression": 10.0
+  },
+  "25169": {
+    "gun_elevation": 10.0,
+    "gun_depression": 12.0
+  },
+  "25345": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "25361": {
+    "gun_elevation": 20.0,
+    "gun_depression": 5.0
+  },
+  "25377": {
+    "gun_elevation": 12.0,
+    "gun_depression": 10.0
+  },
+  "25601": {
+    "gun_elevation": 25.0,
+    "gun_depression": 6.0
+  },
+  "25617": {
+    "gun_elevation": 18.0,
+    "gun_depression": 10.0
+  },
+  "25633": {
+    "gun_elevation": 18.0,
+    "gun_depression": 8.0
+  },
+  "25857": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "25873": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.0
+  },
+  "25889": {
+    "gun_elevation": 25.0,
+    "gun_depression": 10.0
+  },
+  "26113": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "26129": {
+    "gun_elevation": 20.0,
+    "gun_depression": 5.0
+  },
+  "26145": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "26369": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "26385": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "26401": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "26625": {
+    "gun_elevation": 22.0,
+    "gun_depression": 7.0
+  },
+  "26641": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "26657": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "26881": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "26897": {
+    "gun_elevation": 15.0,
+    "gun_depression": 9.0
+  },
+  "26913": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "27137": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "27153": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "27169": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "27393": {
+    "gun_elevation": 20.0,
+    "gun_depression": 5.0
+  },
+  "27409": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "27425": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "27665": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "27681": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "27921": {
+    "gun_elevation": 13.0,
+    "gun_depression": 8.0
+  },
+  "27937": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "28177": {
+    "gun_elevation": 18.0,
+    "gun_depression": 7.0
+  },
+  "28193": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "28433": {
+    "gun_elevation": 17.0,
+    "gun_depression": 8.0
+  },
+  "28449": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "28689": {
+    "gun_elevation": 17.0,
+    "gun_depression": 10.0
+  },
+  "28705": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "28945": {
+    "gun_elevation": 14.0,
+    "gun_depression": 8.0
+  },
+  "28961": {
+    "gun_elevation": 25.0,
+    "gun_depression": 12.0
+  },
+  "29201": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "29217": {
+    "gun_elevation": 18.0,
+    "gun_depression": 8.0
+  },
+  "29457": {
+    "gun_elevation": 18.0,
+    "gun_depression": 7.4
+  },
+  "29473": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "29713": {
+    "gun_elevation": 11.0,
+    "gun_depression": 9.0
+  },
+  "29985": {
+    "gun_elevation": 25.0,
+    "gun_depression": 8.0
+  },
+  "30481": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.0
+  },
+  "51201": {
+    "gun_elevation": 24.0,
+    "gun_depression": 8.0
+  },
+  "51457": {
+    "gun_elevation": 25.0,
+    "gun_depression": 14.0
+  },
+  "51473": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "51489": {
+    "gun_elevation": 21.0,
+    "gun_depression": 8.0
+  },
+  "51713": {
+    "gun_elevation": 12.0,
+    "gun_depression": 6.0
+  },
+  "51729": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "51745": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.5
+  },
+  "51809": {
+    "gun_elevation": 20.0,
+    "gun_depression": 11.0
+  },
+  "51985": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "52065": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "52225": {
+    "gun_elevation": 22.0,
+    "gun_depression": 4.0
+  },
+  "52241": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "52257": {
+    "gun_elevation": 25.0,
+    "gun_depression": 10.0
+  },
+  "52481": {
+    "gun_elevation": 25.0,
+    "gun_depression": 10.0
+  },
+  "52497": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "52513": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "52561": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "52737": {
+    "gun_elevation": 25.0,
+    "gun_depression": 10.0
+  },
+  "52769": {
+    "gun_elevation": 30.0,
+    "gun_depression": 10.0
+  },
+  "52993": {
+    "gun_elevation": 22.0,
+    "gun_depression": 7.0
+  },
+  "53025": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "53249": {
+    "gun_elevation": 22.0,
+    "gun_depression": 7.0
+  },
+  "53505": {
+    "gun_elevation": 25.0,
+    "gun_depression": 8.0
+  },
+  "53537": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "53585": {
+    "gun_elevation": 20.0,
+    "gun_depression": 12.5
+  },
+  "53761": {
+    "gun_elevation": 25.0,
+    "gun_depression": 5.0
+  },
+  "53841": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "54097": {
+    "gun_elevation": 10.0,
+    "gun_depression": 10.0
+  },
+  "54273": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.0
+  },
+  "54289": {
+    "gun_elevation": 17.0,
+    "gun_depression": 8.0
+  },
+  "54353": {
+    "gun_elevation": 20.0,
+    "gun_depression": 13.0
+  },
+  "54529": {
+    "gun_elevation": 25.0,
+    "gun_depression": 10.0
+  },
+  "54545": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "54785": {
+    "gun_elevation": 15.0,
+    "gun_depression": 5.0
+  },
+  "54801": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "54865": {
+    "gun_elevation": 37.0,
+    "gun_depression": 10.0
+  },
+  "55057": {
+    "gun_elevation": 17.0,
+    "gun_depression": 6.0
+  },
+  "55073": {
+    "gun_elevation": 40.0,
+    "gun_depression": 4.0
+  },
+  "55297": {
+    "gun_elevation": 16.0,
+    "gun_depression": 4.0
+  },
+  "55313": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.0
+  },
+  "55889": {
+    "gun_elevation": 20.0,
+    "gun_depression": 13.0
+  },
+  "56097": {
+    "gun_elevation": 25.0,
+    "gun_depression": 12.0
+  },
+  "56577": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "56609": {
+    "gun_elevation": 15.0,
+    "gun_depression": 4.4
+  },
+  "57105": {
+    "gun_elevation": 10.0,
+    "gun_depression": 15.0
+  },
+  "57361": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "57617": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "58641": {
+    "gun_elevation": 17.0,
+    "gun_depression": 7.0
+  },
+  "58881": {
+    "gun_elevation": 17.0,
+    "gun_depression": 5.0
+  },
+  "59137": {
+    "gun_elevation": 25.0,
+    "gun_depression": 6.0
+  },
+  "59649": {
+    "gun_elevation": 18.0,
+    "gun_depression": 6.0
+  },
+  "59665": {
+    "gun_elevation": 60.0,
+    "gun_depression": 12.0
+  },
+  "59905": {
+    "gun_elevation": 20.0,
+    "gun_depression": 5.0
+  },
+  "60161": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.0
+  },
+  "60177": {
+    "gun_elevation": 14.0,
+    "gun_depression": 8.0
+  },
+  "60417": {
+    "gun_elevation": 18.0,
+    "gun_depression": 7.0
+  },
+  "60929": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "62737": {
+    "gun_elevation": 17.0,
+    "gun_depression": 8.0
+  },
+  "62977": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "62993": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "63553": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "63585": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "63601": {
+    "gun_elevation": 20.0,
+    "gun_depression": 10.0
+  },
+  "63841": {
+    "gun_elevation": 20.0,
+    "gun_depression": 8.0
+  },
+  "64001": {
+    "gun_elevation": 22.0,
+    "gun_depression": 8.0
+  },
+  "64017": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "64065": {
+    "gun_elevation": 17.0,
+    "gun_depression": 8.0
+  },
+  "64081": {
+    "gun_elevation": 20.0,
+    "gun_depression": 15.0
+  },
+  "64257": {
+    "gun_elevation": 22.0,
+    "gun_depression": 7.0
+  },
+  "64273": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.0
+  },
+  "64337": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "64529": {
+    "gun_elevation": 15.0,
+    "gun_depression": 8.0
+  },
+  "64561": {
+    "gun_elevation": 17.0,
+    "gun_depression": 6.0
+  },
+  "64593": {
+    "gun_elevation": 15.0,
+    "gun_depression": 7.0
+  },
+  "64769": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.0
+  },
+  "64801": {
+    "gun_elevation": 15.0,
+    "gun_depression": 10.0
+  },
+  "64849": {
+    "gun_elevation": 20.0,
+    "gun_depression": 9.0
+  },
+  "65329": {
+    "gun_elevation": 20.0,
+    "gun_depression": 7.0
+  },
+  "65377": {
+    "gun_elevation": 20.0,
+    "gun_depression": 6.5
+  }
+}

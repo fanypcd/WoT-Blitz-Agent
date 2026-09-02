@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="data:,">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>坦克详情 — WoTB Agent</title>
+    <script src="/api/vendor/chart.umd.min.js"></script>
+    <script src="/api/vendor/markdown-it/markdown-it.min.js"></script>
+    <link rel="stylesheet" href="/api/vendor/katex/katex.min.css">
+    <script defer src="/api/vendor/katex/katex.min.js"></script>
+    <script defer src="/api/vendor/katex/auto-render.min.js"></script>
+    <style>
+        :root {
+            --bg:#120f0e;
+            --bg-grad: radial-gradient(1200px 620px at 18% -12%, #3a2412 0%, transparent 58%),
+                        radial-gradient(1000px 520px at 92% -4%, #48240f 0%, transparent 55%),
+                        radial-gradient(900px 700px at 50% 110%, #2a1710 0%, transparent 60%);
+            --panel:#1b1817; --panel2:#231f1d; --panel3:#2c2724;
+            --border:#3a3028; --border-hi:#5c4a35;
+            --accent:#ff8a3d; --accent-2:#ffb35c; --accent-3:#ffd29b;
+            --green:#5fbf7a; --blue:#5fa8e8; --red:#ff6b6b; --yellow:#ffcf5c;
+            --txt:#f3ede6; --muted:#9c8f7f;
+            --shadow:0 10px 34px rgba(0,0,0,0.45);
+            --radius:16px; --radius-sm:10px;
+        }
+        * { box-sizing:border-box; }
+        body { margin:0; background:var(--bg); background-image:var(--bg-grad); background-attachment:fixed; color:var(--txt); font-family:"Segoe UI", system-ui, sans-serif; line-height:1.5; min-height:100vh; }
+        main { max-width:1080px; margin:0 auto; padding:20px; }
+        #back { display:inline-block; margin:0 0 14px 0; color:var(--muted); background:var(--panel2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px 16px; cursor:pointer; font-size:0.9em; text-decoration:none; }
+        #back:hover { color:var(--txt); border-color:var(--border-hi); }
+        #md-head { display:flex; gap:20px; padding:22px; border:1px solid var(--border); border-radius:var(--radius); background:linear-gradient(180deg,var(--panel),var(--panel2)); align-items:center; box-shadow:var(--shadow); }
+        #md-head img { width:150px; height:110px; object-fit:contain; background:linear-gradient(180deg,#201b18,#171310); border-radius:12px; padding:6px; }
+        #md-title { flex:1; }
+        #md-title h2 { margin:0 0 6px 0; font-size:1.6em; }
+        .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+        .pill { display:inline-block; padding:2px 9px; border-radius:20px; font-size:0.75em; font-weight:700; }
+        .pill.tier { background:rgba(255,207,92,0.16); color:var(--yellow); }
+        .pill.nat { background:rgba(95,168,232,0.16); color:var(--blue); }
+        .pill.type { background:rgba(95,191,122,0.16); color:var(--green); }
+        #md-body { margin-top:16px; background:linear-gradient(180deg,var(--panel),var(--panel2)); border:1px solid var(--border); border-radius:var(--radius); padding:22px; box-shadow:var(--shadow); }
+        input, select, button { font-size:0.95em; padding:9px 13px; background:var(--panel3); color:var(--txt); border:1px solid var(--border); border-radius:var(--radius-sm); transition:border-color .15s ease, box-shadow .15s ease; font-family:inherit; }
+        select { flex:1; max-width:300px; }
+        h4 { margin:18px 0 8px 0; color:var(--muted); font-size:0.8em; text-transform:uppercase; letter-spacing:.6px; }
+        h4:first-of-type { margin-top:6px; }
+        .stat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:13px; margin:10px 0; }
+        .stat-box { background:linear-gradient(180deg,var(--panel2),var(--panel3)); border:1px solid var(--border); border-radius:12px; padding:14px; }
+        .stat-box .lbl { color:var(--muted); font-size:0.76em; text-transform:uppercase; letter-spacing:.4px; }
+        .stat-box .val { font-size:1.35em; font-weight:800; margin-top:4px; }
+        .stat-box .val.g { color:var(--green); } .stat-box .val.o { color:var(--accent-2); } .stat-box .val.b { color:var(--blue); }
+        table { width:100%; border-collapse:collapse; font-size:0.92em; }
+        th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); }
+        th { color:var(--muted); font-weight:600; font-size:0.82em; text-transform:uppercase; letter-spacing:.4px; }
+        tr:hover td { background:rgba(255,255,255,0.03); }
+        .muted { color:var(--muted); }
+        .btn { cursor:pointer; }
+        .btn-primary { background:linear-gradient(135deg,var(--accent),var(--accent-2)); border-color:transparent; color:#1a1208; font-weight:700; box-shadow:0 4px 14px rgba(255,138,61,0.28); }
+        #md-inspector-toggle { width:100%; margin-top:16px; padding:11px; background:linear-gradient(135deg,var(--accent),var(--accent-2)); border:none; color:#1a1208; font-weight:700; border-radius:var(--radius-sm); cursor:pointer; font-size:0.95em; }
+        #open-3d { width:100%; margin-top:10px; padding:11px; background:var(--panel3); border:1px solid var(--border-hi); color:var(--txt); font-weight:700; border-radius:var(--radius-sm); cursor:pointer; font-size:0.95em; }
+        #open-3d:hover { border-color:var(--accent); }
+        .spinner { display:inline-block; width:13px; height:13px; border:2px solid var(--muted); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; vertical-align:middle; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+    </style>
+</head>
+<body>
+<main>
+    <a id="back" href="/#tanks">← 返回坦克百科</a>
+    <div id="tank-content"><div style="padding:24px"><span class="spinner"></span> 加载中...</div></div>
+</main>
+<script>
+const API = '/api';
+const $ = id => document.getElementById(id);
+function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+const TYPE_LABEL = { lightTank:'Light', mediumTank:'Medium', heavyTank:'Heavy', 'AT-SPG':'TD' };
+const NATION_LABEL = { ussr:'USSR', usa:'USA', germany:'Germany', uk:'UK', japan:'Japan', china:'China', france:'France', european:'EU', other:'Other' };
+
+// 从 URL 提取 tank_id (支持 /tank/{id})
+const tankId = (() => {
+    const m = location.pathname.match(/\/tank\/(\d+)/);
+    if (m) return m[1];
+    const q = new URLSearchParams(location.search).get('id');
+    return q || '';
+})();
+
+let mdData=null, mdCfgIdx=0;
+
+async function loadDetail() {
+    const out=$('tank-content');
+    if(!tankId){ out.innerHTML='<div class="muted">无效的坦克 ID。</div>'; return; }
+    try {
+        const r=await fetch(API+'/tank_detail/'+tankId);
+        if(!r.ok){ out.innerHTML='<div class="muted">加载失败 (HTTP '+r.status+')</div>'; return; }
+        const d=await r.json();
+        mdData=d; mdCfgIdx=0;
+        document.title = (d.name||'坦克')+' — WoTB Agent';
+        renderDetail();
+    } catch(e){ out.innerHTML='<div class="muted">加载失败: '+esc(e.message)+'</div>'; }
+}
+
+function renderDetail() {
+    const d=mdData; const out=$('tank-content');
+    const cfgs=d.configs||[]; const cfg=cfgs[mdCfgIdx]||null;
+    const shells=(cfg&&cfg.shells||d.shells||[]).map(s=>`<tr><td>${esc(s.type||s.shell_type||'?')}</td><td>${s.penetration??'-'}</td><td>${s.damage??'-'}</td><td>${s.module_damage??'-'}</td></tr>`).join('')||'<tr><td colspan="4" class="muted">No shell data</td></tr>';
+    const caliber=cfg?cfg.caliber:'-';
+    const gdep=cfg&&cfg.gun_depression!=null?cfg.gun_depression:d.gun_depression;
+    const gelev=cfg&&cfg.gun_elevation!=null?cfg.gun_elevation:d.gun_elevation;
+    const reload=cfg&&cfg.reload_time!=null?cfg.reload_time:null;
+    const aim=cfg&&cfg.aim_time!=null?cfg.aim_time:null;
+    const disp=cfg&&cfg.dispersion!=null?cfg.dispersion:null;
+    const dpm=cfg&&cfg.dpm!=null?cfg.dpm:null;
+    const isBurst=cfg&&cfg.is_burst===true;
+    const isDrum=cfg&&cfg.is_drum===true;
+    const burstSize=cfg&&cfg.burst_size;
+    const burstInt=cfg&&cfg.burst_interval&&cfg.burst_interval>0?cfg.burst_interval:null;
+    const burstReloads=(cfg&&cfg.burst_reloads)||[];
+    const reloadDisp=reload!=null?`${reload.toFixed(1)}s`:'-';
+    const dpmDisp=!isBurst&&dpm!=null?Math.round(dpm):'-';
+    const burstNote=isBurst
+        ? (isDrum ? `弹鼓 · ${burstSize!=null?Math.round(burstSize):'?'}发/鼓 · 每发装填 ${burstReloads.length?burstReloads.map(x=>x.toFixed(1)+'s').join(' / '):'-'} · 发射间隔 ${burstInt!=null?burstInt.toFixed(2)+'s':'-'}`
+            : `弹夹 · ${burstSize!=null?Math.round(burstSize):'?'}发/夹 · 整夹装填 ${reload!=null?reload.toFixed(1)+'s':'-'} · 发射间隔 ${burstInt!=null?burstInt.toFixed(2)+'s':'-'}`)
+        : '';
+    const reloadLabel=isBurst?'Autoloader':'Reload';
+    const hullTraverse=d.hull_traverse!=null?`${(d.hull_traverse).toFixed(1)}&deg;/s`:'-';
+    const turretTraverse=(cfg&&cfg.turret_traverse_speed!=null?cfg.turret_traverse_speed:d.turret_traverse_speed);
+    const turretTraverseDisp=turretTraverse!=null?`${turretTraverse.toFixed(1)}&deg;/s`:'-';
+    const viewRange=(cfg&&cfg.view_range!=null?cfg.view_range:d.view_range);
+    const viewDisp=viewRange!=null?`${Math.round(viewRange)}m`:'-';
+    const a=d.armor||{};
+    const armorTable=(a.turret_front||a.hull_front)?`<h4>Armor (mm)</h4><table class="inline-table-sm"><tr><th></th><th>Hull</th><th>Turret</th></tr>
+        <tr><td>Front</td><td>${a.hull_front??'-'}</td><td>${a.turret_front??'-'}</td></tr>
+        <tr><td>Sides</td><td>${a.hull_sides??'-'}</td><td>${a.turret_sides??'-'}</td></tr>
+        <tr><td>Rear</td><td>${a.hull_rear??'-'}</td><td>${a.turret_rear??'-'}</td></tr></table>`:'';
+    const speed=(d.speed_forward!=null||d.speed_reverse!=null)?`${d.speed_forward??'-'} / ${d.speed_reverse??'-'} km/h`:'-';
+    const cfgOptions=cfgs.map((c,i)=>`<option value="${i}" ${i===mdCfgIdx?'selected':''}>${esc(c.label)}${c.turret_name&&c.turret_name!==c.label?' ('+esc(c.turret_name)+')':''}</option>`).join('');
+    out.innerHTML=`
+        <div id="md-head">
+            <img src="${d.image}" alt="">
+            <div id="md-title">
+                <h2>${esc(d.name)}</h2>
+                <div class="row" style="margin:6px 0;">
+                    <span class="pill tier">Tier ${d.tier}</span>
+                    <span class="pill nat">${esc(NATION_LABEL[d.nation]||d.nation)}</span>
+                    <span class="pill type">${esc(TYPE_LABEL[d.type]||d.type)}</span>
+                    ${d.is_premium?'<span class="pill type">Premium</span>':''}
+                </div>
+            </div>
+        </div>
+        <div id="md-body">
+            ${cfgs.length>1?`<div class="row" style="margin:0 0 10px 0;">
+                <label class="muted" style="font-size:0.85em;">Module:</label>
+                <select id="md-config">${cfgOptions}</select>
+            </div>`:''}
+            <div class="stat-grid">
+                <div class="stat-box"><div class="lbl">HP</div><div class="val">${d.hp??'-'}</div></div>
+                <div class="stat-box"><div class="lbl">Speed F/R</div><div class="val">${speed}</div></div>
+                <div class="stat-box"><div class="lbl">Hull Traverse</div><div class="val">${hullTraverse}</div></div>
+                <div class="stat-box"><div class="lbl">Turret Traverse</div><div class="val">${turretTraverseDisp}</div></div>
+                <div class="stat-box"><div class="lbl">View Range</div><div class="val">${viewDisp}</div></div>
+                <div class="stat-box"><div class="lbl">Caliber</div><div class="val o">${caliber} mm</div></div>
+                <div class="stat-box"><div class="lbl">${reloadLabel}</div><div class="val b">${isBurst&&isDrum ? (burstReloads.length?burstReloads.map(x=>x.toFixed(1)+'s').join('/'):'-') : reloadDisp}</div></div>
+                ${isBurst?`<div class="stat-box"><div class="lbl">Burst Interval</div><div class="val">${burstInt!=null?burstInt.toFixed(2)+'s':'-'}</div></div>`:''}
+                ${!isBurst?`<div class="stat-box"><div class="lbl">DPM (AP)</div><div class="val g">${dpmDisp}</div></div>`:''}
+                <div class="stat-box"><div class="lbl">Aim Time</div><div class="val">${aim!=null?aim.toFixed(2)+'s':'-'}</div></div>
+                <div class="stat-box"><div class="lbl">Dispersion</div><div class="val">${disp!=null?disp.toFixed(3):'-'}</div></div>
+                <div class="stat-box"><div class="lbl">Gun Depression</div><div class="val">${gdep??'-'}&deg;</div></div>
+                <div class="stat-box"><div class="lbl">Gun Elevation</div><div class="val">${gelev??'-'}&deg;</div></div>
+            </div>
+            ${isBurst?`<div style="margin:8px 0 4px 0;">${burstNote}</div>`:''}
+            ${armorTable}
+            <h4>Shells (${cfg?esc(cfg.label):''})</h4>
+            <table><tr><th>Type</th><th>Pen</th><th>Dmg</th><th>Mod Dmg</th></tr>${shells}</table>
+            <button id="open-3d">🔍 在新的浏览器窗口打开 3D 检视器</button>
+        </div>`;
+    const cfgSel=$('md-config');
+    if(cfgSel) cfgSel.addEventListener('change',async ()=>{ mdCfgIdx=parseInt(cfgSel.value); renderDetail(); });
+    $('open-3d').addEventListener('click',()=>{ window.open('/armor_view/view/'+d.id+'?config='+mdCfgIdx,'_blank'); });
+}
+
+loadDetail();
+</script>
+</body>
+</html>

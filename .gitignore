@@ -1,0 +1,12 @@
+/target
+token_usage.json
+*_report.json
+report.json
+
+# 含密钥，绝不能上传；用 config.toml.example 作为模板
+config.toml
+
+# 运行时/按需下载的缓存（可由命令重建）
+snapshots/
+glb_cache/
+tank_images/
