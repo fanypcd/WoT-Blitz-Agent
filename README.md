@@ -1,26 +1,27 @@
 # WoTB Blitz Tactics Agent
 
 AI 游戏分析助手 — 针对 World of Tanks Blitz（坦克世界闪击战）的回放分析和战术复盘工具。
+以 Rust 解析回放与游戏数据为底座，LLM Agent 通过 11 个工具自主完成战绩查询、
+回放复盘、装甲穿透分析与 3D 可视化。
 
-## 功能
+## 功能总览
 
-- **回放解析**：解析 `.wotbreplay` 二进制文件，提取 14 名玩家完整战绩
-- **战斗事件时间线**：解码数据包流，追踪生命值变化、死亡事件、累计伤害曲线
-- **射击事件推断**：关联伤害计数器和生命值变化，推断每发射击的目标/伤害/击杀
-- **射击复现（实验性）**：从回放包流确定性提取每次射击的开火/弹着事件（u32 计数器精确配对）、双方位置与炮塔朝向，在 3D 查看器中按射手视角/受击姿态复现并自动穿透判定——**命中位置计算尚不完善，判定结果仅供参考**（详见 `回放射击事件逆向分析.md`）
-- **WG API 集成**：查询玩家累计战绩（25 个 API 端点，仅用于战绩查询；坦克数据全部来自 BlitzKit）
-- **回放 vs API 对比**：量化近期表现 vs 历史平均的差异
-- **API 数据快照**：定期采集快照实现时间序列分析（API 不支持按时间查询）
-- **Web 图形界面**：`wotb-agent web` 启动独立 Web 应用——Agent 对话（SSE 流式进度 + 工具调用轨迹 + 打断）、玩家战绩查询、回放扫描报告、回放 vs API 对比、对局前瞻、模型配置编辑、Token 用量统计
-- **3D 坦克查看器**：浏览器中加载 GLB 3D 模型，支持装甲分析、炮塔旋转、炮管俯仰、弹道轨迹可视化；可自由切换射击坦克（含对应口径/弹药）与受击坦克（按需缓存模型），图形化坦克筛选（封面图网格 + 等级/国家/类型筛选 + 名称搜索）
-- **穿透热力图**：实时 GPU 着色（对齐 BlitzKit 双场景 RT 架构）——间隙甲/外部模块消耗进 RenderTarget，主装甲逐像素显示击穿概率渐变（跳弹高亮、HE 溅射、HEAT 间隙衰减，距离单位=米）；Equip 开关支持 Calibrated Shells（+6%/+7% 分弹种）与 Enhanced Armor（+4%）
-- **坦克配置切换**：多炮塔/多主炮坦克（如 E-100 的 12.8cm/15cm 双炮）可切换配置，同步更新火炮模型、装甲判定、弹种与穿深
-- **多层穿透判定**：跳弹（AP/APCR >70°，HEAT/HE 永不跳弹）、转正（AP 5°/APCR 2°）、overmatch（3x/2x 口径规则）、外部模块（履带/负重轮/炮管 flat 抵消）、逐层消耗穿透力；装甲分类（主装甲/间隙甲）以 models.pb `Armor.spaced` 为权威——炮管安装甲普遍为间隙甲，**穿透它不算击穿坦克，必须最终穿透车体/炮塔主装甲**
-- **统一击穿判定 + 伤害区分**：Rust `penetration.rs` 集中实现全部判定逻辑（跳弹/转正/overmatch/多层/HEAT 间隙衰减/HE 溅射/装备修正，全部距离单位=米），前端通过 `POST /api/penetrate` 调用；区分**血量伤害（HP damage，最终穿透主装甲盒）**、**模块伤害（module damage，仅命中履带/炮管等可破坏模块）**与无伤害（仅穿透间隙甲被阻挡）
-- **对局前瞻**：`prematch` 命令批量查询玩家战绩，分析阵容强度、识别威胁与薄弱点，可直接从回放文件提取双方阵容
-- **BlitzKit 数据集成**：从 `tanks.pb` 提取 723 辆坦克完整数据（名称、tier/类型/国家、弹种、穿深、血量伤害、模块伤害、口径、HE 爆炸半径），从 `models.pb` 提取炮管俯仰角与三级装甲 spaced 分类（穿透判定权威），从 `collision.glb` + `model.glb` 获取装甲板和模块几何，坦克封面图（big.webp）按需缓存
-- **DVPL 游戏文件解码**：解析游戏本地文件提取装甲板厚度（含履带/炮管/spaced 附加装甲 `vehicleDamageFactor` 识别）和碰撞包围盒
-- **LLM Agent**：自然语言对话，Agent 自主调用工具获取数据并生成分析报告（11 个工具，含 3D 装甲查看器、无头热力图截图、射击复现截图）
+| 模块 | 说明 |
+|------|------|
+| 回放解析 | 解析 `.wotbreplay` 二进制文件，提取全部玩家完整战绩 |
+| 战斗事件时间线 | 解码数据包流，追踪生命值变化、死亡事件、累计伤害曲线 |
+| 射击事件推断 | 关联伤害计数器和生命值变化，推断每发射击的目标/伤害/击杀 |
+| WG API 集成 | 查询玩家累计战绩（25 个端点，仅战绩查询；坦克数据全部来自 BlitzKit） |
+| 回放 vs API 对比 | 量化近期表现 vs 历史平均（胜率/场均伤害/评级） |
+| API 数据快照 | 定期采集快照实现时间序列分析 |
+| 对局前瞻 | 批量查询阵容战绩，分析强度、识别威胁与薄弱点 |
+| 3D 装甲查看器 | GLB 双模型（视觉+碰撞）+ 炮塔/炮管交互 + 多层穿透判定 + 实时穿透热力图 |
+| 坦克配置切换 | 多炮塔/多主炮坦克（如 E-100 双炮）切换配置，同步模型/装甲/弹种 |
+| 击穿判定内核 | Rust 统一实现：跳弹/转正/overmatch/间隙甲/HEAT 间隙衰减/HE 溅射/装备修正 |
+| BlitzKit 数据集成 | tanks.pb 723 辆（弹种/穿深/血量）+ models.pb（spaced 权威）+ GLB 几何 |
+| DVPL 游戏文件解码 | 解析游戏本地文件提取装甲/碰撞数据（723 辆，可移植） |
+| LLM Agent | 自然语言对话，11 个工具自主获取数据并生成分析（含热力图截图） |
+| 射击复现（实验性） | 从回放确定性提取射击事件链，3D 查看器按射手视角复现弹道与判定（命中位置计算尚不完善，结果仅供参考） |
 
 ## 快速开始
 
@@ -31,8 +32,6 @@ cargo build --release
 ```
 
 编译产物在 `target/release/wotb-agent`（Windows: `target\release\wotb-agent.exe`）。
-下文命令统一用 `cargo run --release -- <子命令>` 调用（首次会自动编译）；
-也可把编译产物复制到项目根目录后用 `./wotb-agent <子命令>` 调用。
 
 ### 2. 配置
 
@@ -79,249 +78,140 @@ tank_cache_path = "data/tank_cache.json"
 | 数据 | 位置 | 说明 |
 |------|------|------|
 | 坦克数据源 | `data/tanks.pb` | BlitzKit 坦克数据库（运行时解析元数据/武器/装填，唯一数据源） |
-| 模型节点映射 | `data/models.pb` | 炮塔/主炮→`gun/turret_0X` 模型节点映射 |
+| 模型节点映射 | `data/models.pb` | 炮塔/主炮→`gun/turret_0X` 模型节点映射 + spaced 分类权威 |
 | 坦克缓存 | `data/tank_cache.json` | 由 `fetch-tanks` 构建的缓存 |
-| 装甲板厚度 | `data/armor_cache.json` | 从 models.pb 派生 |
-| 炮管俯仰角 | `data/gun_angles.json` | 从 models.pb 派生 |
 | 装甲/碰撞数据 | `data/game_data/`（723 个 JSON） | 从游戏 DVPL 提取的可移植数据 |
 
-> **按需重建命令（仅高级用户需要，通常不必执行）**：
-> `fetch-blitzkit`（重下 tanks.pb+models.pb）、`fetch-tanks`（重建 tank_cache.json）、`fetch-icons`（批量下载 723 辆坦克封面图 → `tank_images/`）。这些主要用于离线补数据或更新，日常运行 `web`/`chat`/`scan` 等命令**无需执行**。
+其他按需缓存（首次访问自动下载，无需手动准备）：3D 模型 `glb_cache/`、
+坦克封面图 `tank_images/`、前端依赖 `web/vendor/`（Three.js/Chart.js，离线可用）。
 
-3D 查看器相关数据也已本地化，无需安装游戏即可运行：
+### 4. 测试回放（可选）
 
-- `data/game_data/` — 723 辆坦克装甲板 + 碰撞数据（`extract-game` 生成，已随项目分发）
-- `glb_cache/` — 3D 模型本地缓存（首次访问某坦克时经 `/glb/` 代理从 BlitzKit CDN 下载并落盘）
-- `tank_images/` — 坦克封面图（`fetch-icons` 批量下载，或经 `/api/tank_image/` 按需缓存）
-- `web/vendor/` — Three.js/Chart.js/KaTeX/markdown-it 本地副本（离线可用，无需 CDN）
+`replay_samples/` 提供 3 个示例 `.wotbreplay` 文件（无游戏也可测试）。
+把 `config.toml` 的 `replay_dir` 设为 `replay_samples` 即可。
 
-### 3b. 测试回放（可选）
-
-项目在 `replay_samples/` 目录下提供了 **3 个示例 `.wotbreplay` 文件**，无需安装游戏即可测试回放相关功能：
-
-| 文件 | 说明 |
-|------|------|
-| `20260902_2045__Anonyme_J39_Type_5_Exp_...wotbreplay` | Type 5 H Zetsu 对局（WinterMalinovka，重力模式） |
-| `20260902_2053__Anonyme_J20_Type_2605_...wotbreplay` | Type 5 Heavy 对局（OasisPalms） |
-| `20260902_2104__Anonyme_A116_XM551_...wotbreplay` | Sheridan Missile 对局（XM551 导弹坦） |
-
-用法：把 `config.toml` 的 `replay_dir` 设为 `replay_samples`（如上），即可用 `scan` / `single` / `compare` 直接测试，例如：
+## Web UI 使用
 
 ```bash
-# 扫描测试回放目录
-cargo run --release -- scan replay_samples --mode all
-
-# 解析其中单场
-cargo run --release -- single replay_samples/20260902_2045__Anonyme_J39_Type_5_Exp_3354568815024678.wotbreplay
-
-# 网页版 Replay Scan
 cargo run --release -- web
 ```
 
-### 4. 使用
+启动后自动打开浏览器。界面为六个标签页：
 
-```bash
-# Web 图形界面（Agent 对话 + 各功能面板，推荐）
-cargo run --release -- web
+### Agent（默认）
 
-# Agent 交互式对话（CLI）
-cargo run --release -- chat
+自然语言对话。直接输入问题，Agent 自主调用工具并给出分析：
+"查询 Anonyme 的排位战绩"、"分析最近回放并和 API 对比"、"查看 E100 的装甲模型"、
+"渲染 E100 正面的穿透热力图"、"复现 xxx.wotbreplay 的第 3 发射击"。
+顶部按钮：Interrupt（打断当前分析）、History（对话历史）、Save（保存会话）。
 
-# 查询玩家战绩
-cargo run --release -- player Anonyme --app-id 你的KEY --server asia
+Agent 会用到的工具：战绩查询、回放扫描/对比、3D 装甲查看器、装甲明细查询、
+击穿模拟、热力图截图（PNG 保存后可在对话中查看）、射击复现截图等（共 11 个）。
 
-# 扫描回放目录生成报告
-cargo run --release -- scan "C:/.../replays/" --tank-cache data/tank_cache.json --mode rating
+### Tankopedia
 
-# 回放 vs API 累计对比
-cargo run --release -- compare Anonyme "C:/.../replays/" --app-id 你的KEY --server asia --tank-cache data/tank_cache.json
+全部 723 辆坦克的图鉴网格。支持模糊搜索（`e100`、`is7`、`def…`）、
+按等级/国家/类型筛选。点击卡片进入坦克详情：装甲汇总、逐板厚度（含 spaced 分类）、
+弹种数据（正式名/穿深/伤害/HE 爆炸半径）。
 
-# 解析单场回放
-cargo run --release -- single replay.wotbreplay --tank-cache data/tank_cache.json
+### Player
 
-# 战斗事件时间线 + 射击推断
-cargo run --release -- combat replay.wotbreplay
+WG API 玩家战绩查询。输入昵称搜索，返回随机/排位累计数据。
 
-# 3D 坦克查看器（浏览器）
-cargo run --release -- view 28689 --tank-cache data/tank_cache.json
+### Replay
 
-# API 数据快照
-cargo run --release -- snapshot Anonyme --app-id 你的KEY --server asia --action take
-cargo run --release -- snapshot Anonyme --app-id 你的KEY --server asia --action diff
+- **Replay Scan Report**：批量扫描回放目录，生成聚合报告（胜率/场均伤害/坦克/地图统计）。
+  支持模式筛选（All/Rating）和天数窗口。目录留空使用配置的 `replay_dir`；
+  Windows 路径可直接粘贴（WSL 下自动转换）。
+- **Shot Replay（射击复现，实验性）**：粘贴单场 `.wotbreplay` 路径 → Parse →
+  得到该场全部射击事件列表（序号/时间/伤害/目标）。点击任一行在新窗口打开
+  3D 查看器复现该发：相机按射手真实视角放置、受击坦克炮塔/炮管按回放时刻
+  姿态呈现、热力图就绪后沿弹道自动穿透判定并在模型上标注弹着点。
+  ⚠ 命中位置计算尚不完善，判定结果仅供参考。
 
-# 解析游戏 DVPL 文件（游戏目录自动探测，WSL/Windows 均可；也可 --game-dir 显式指定）
-cargo run --release -- parse-game R132_T100LT
+### Compare
 
-# 批量提取游戏装甲/碰撞数据到 game_data/（723 辆，可移植）
-cargo run --release -- extract-game
+- **Compare (Replay vs API)**：近期回放表现 vs 历史累计对比（量化差异 + 图表）。
+- **Prematch Lineup**：输入逗号分隔的昵称（或从回放提取），分析阵容强度、
+  识别威胁与薄弱点。
 
-# 查看 Token 用量
-cargo run --release -- usage
+### Settings
 
-# 查看/编辑配置
-cargo run --release -- config --show
-```
+- **Model Config**：LLM 模型/端点/Key/上下文长度/Max Tokens/预算/思考模式，
+  在线编辑并保存到 config.toml。
+- **Token Usage**：调用次数/Token/费用统计 + 预算进度条 + 最近调用明细。
 
-### 5. Agent 对话示例
-
-```
-> 查询Anonyme的排位战绩
-[Agent] Calling LLM (step 1/5)...
-[Agent] Tool call: search_player ({"nickname":"Anonyme"})
-[Agent]   Done (388 chars)
-[Agent] Calling LLM (step 2/5)...
-[Agent] Tool call: get_player_stats ({"account_id":2033684170})
-[Agent]   Done (279 chars)
-[Agent] Calling LLM (step 3/5)...
-
-以下是玩家 Anonyme 的排位战绩信息：
-排位场次: 9,852 | 胜率: 58.4% | 场均伤害: 2,746 | 显示评级: 6,754
-
-> 分析Anonyme最近的排位回放，和API累计数据对比
-[Agent] Calling LLM (step 1/5)...
-[Agent] Tool call: compare_replay_vs_api ({"nickname":"Anonyme","mode":"rating"})
-...
-近期 106 场排位 vs API 累计 9852 场：
-胜率: 68.9% vs 58.4% (+10.5%)
-场均伤害: 3670 vs 2746 (+33.7%)
-评级: 4638 → 6754 (+2116)
-
-> 查看一下E100的装甲模型
-[Agent] Tool call: view_tank ({"tank":"E 100"})
-[Agent]   Done (238 chars)
-
-已为你打开 **E 100** 的3D装甲查看器！🛡️
-（浏览器自动打开，可旋转视角、点击装甲测试穿透）
-```
-
-### 6. 3D 查看器操作
+## 3D 装甲查看器操作
 
 | 操作 | 功能 |
 |------|------|
-| Tank Filter 筛选 | 图形化坦克选择器（弹窗网格 + 封面图 + 等级/国家/类型筛选 + 名称搜索），点击卡片选择 Shooter/Target 坦克 |
-| Config 选择器 | 切换坦克的炮塔/火炮配置（如 E100 的 12.8cm / 15cm 主炮），同步更新火炮模型、装甲判定、弹种与穿深 |
-| Shooter 选择器 | 选择射击坦克，确定口径与弹药（对应弹种数据） |
-| Target 选择器 | 选择受击坦克，切换 3D 模型并重新加载装甲数据 |
 | 左键拖拽 | 旋转视角 |
 | 滚轮 | 缩放 |
-| 左键点击 | 多层穿透判定（用射手坦克弹药 + 受击坦克装甲；弹道轨迹线、接触点标记、信息窗口、跳弹/转正/overmatch） |
+| 左键点击装甲 | 多层穿透判定（弹道轨迹线、接触点标记、信息窗口） |
 | 右键水平拖拽 | 旋转炮塔 |
 | 右键垂直拖拽 | 调整炮管俯仰角 |
-| 弹种选择器 | 选择当前弹种（随射手坦克改变，如 AP/APCR/HE/HEAT），多弹种切换 |
-| Equip 开关 | Calib.Shells（穿深 +6%/+7% 分弹种）/ Enh.Armor（装甲 +4%），同时作用于点击判定与热力图 |
-| 穿透热力图按钮 | 实时 GPU 着色（对齐 BlitzKit）：逐像素击穿概率渐变（绿=稳定击穿 → 红=稳定抵挡），间隙甲/外部模块消耗计入 RT，跳弹蓝紫高亮、HE 溅射橙色分量 |
+| 弹种选择器 | 切换弹种（AP/APCR/HE/HEAT），判定与热力图同步 |
+| Equip 开关 | Calib.Shells（+6%/+7% 穿深）/ Enh.Armor（+4% 装甲） |
+| 穿透热力图按钮 | 逐像素击穿概率渐变（绿=稳定击穿 → 红=稳定抵挡，跳弹蓝紫高亮） |
 | Show Collision 按钮 | 按厚度着色显示装甲板 |
 
-### 射击复现（实验性）
+## CLI 命令
 
-Web Replay 页的 Shot Replay 卡片解析回放后，点击射击行在 3D 查看器中复现该发：
-相机按射手真实相对方位/俯仰放置，受击坦克炮塔/炮管按回放时刻姿态应用，
-热力图就绪后沿弹道方向自动穿透判定，并在模型上标注弹着点。
-**注意：命中位置计算尚不完善（0x14 弹着点为穿透后终点语义、坡度倾斜未呈现等），
-判定结果与游戏内回放存在偏差，仅供参考。**
+以下命令均可用（详细参数见 `--help`）：
 
-## CLI 命令一览
+```
+web            # Web 图形界面（推荐）
+chat           # Agent 交互式对话（CLI）
+single         # 单回放解析
+scan           # 批量扫描回放目录
+compare        # 回放 vs API 累计对比
+combat         # 战斗事件时间线 + 射击推断（--json 含射击复现数据）
+player         # WG API 玩家查询
+snapshot       # API 数据快照（take/diff）
+view           # 3D 装甲查看器
+prematch       # 对局前瞻（--replay 可从回放提取阵容）
+parse-game     # 解析单个游戏 DVPL 文件
+extract-game   # 批量提取 723 辆装甲/碰撞数据到 game_data/
+fetch-blitzkit # 重新下载 BlitzKit 数据源
+fetch-tanks    # 重建 tank_cache.json
+fetch-icons    # 批量下载坦克封面图
+config         # 查看/编辑配置
+usage          # Token 用量统计
+```
 
-| 命令 | 功能 | 说明 |
-|------|------|------|
-| `web` | Web 图形界面 | 独立 Web 应用：Agent 对话（流式进度/工具轨迹/打断）+ 玩家查询 + 回放扫描 + 对比 + 前瞻 + 配置 + Token 用量 |
-| `chat` | Agent 对话 | CLI 交互式多轮对话，Agent 自主调用工具 |
-| `single <file>` | 单回放解析 | 提取 14 名玩家完整战绩 |
-| `scan <dir>` | 批量扫描 | 聚合报告（胜率/伤害/评级/坦克/地图） |
-| `combat <file>` | 战斗事件 | 生命值时间线 + 射击推断 + 死亡事件；`--json` 含射击复现数据（射手/受击姿态 + 弹道两点），`--shots-json <path>` 落盘 |
-| `player <name>` | 玩家查询 | WG API 累计战绩（随机+排位） |
-| `compare <name> <dir>` | 对比分析 | 回放近期 vs API 累计 |
-| `snapshot <name>` | 数据快照 | 定期采集 + 差值对比 |
-| `view <tank_id>` | 3D 查看器 | 浏览器中显示 3D 模型 + 装甲分析 + 穿透判定 + 坦克/配置切换 |
-| `parse-game <name>` | 游戏文件解析 | DVPL 解码 + 碰撞包围盒 + 装甲板（游戏目录自动探测） |
-| `extract-game` | 游戏数据提取 | 批量解析全部 723 辆 DVPL → `data/game_data/*.json`（可移植） |
-| `fetch-blitzkit` | BlitzKit 数据源 | 下载 `tanks.pb` + `models.pb` → `data/` |
-| `prematch <names\|--file>` | 对局前瞻 | 批量查玩家战绩，分析阵容强度；`--replay` 解析回放自动提取双方阵容 |
-| `fetch-tanks` | 坦克数据 | 从本地 tanks.pb 数据构建 `data/tank_cache.json`（723 辆，无需 WG API） |
-| `fetch-icons` | 坦克预览图 | 批量下载 723 辆坦克封面图（BlitzKit big.webp）→ `tank_images/` |
-| `config --show` | 配置管理 | 查看/编辑 config.toml |
-| `usage` | Token 统计 | 调用次数/Token/费用/明细 |
+## Agent 对话示例
 
-## Agent 工具
+```
+> 查询Anonyme的排位战绩
+[Agent] Tool call: search_player ({"nickname":"Anonyme"})
+[Agent] Tool call: get_player_stats ({"account_id":2033684170})
 
-Agent 可自主调用以下工具获取数据：
+排位场次: 9,852 | 胜率: 58.4% | 场均伤害: 2,746
 
-| 工具 | 功能 |
+> 分析Anonyme最近的排位回放，和API累计数据对比
+[Agent] Tool call: compare_replay_vs_api ({"nickname":"Anonyme","mode":"rating"})
+近期 106 场排位 vs API 累计 9852 场：
+胜率: 68.9% vs 58.4% (+10.5%)
+
+> 渲染E100正面的穿透热力图
+[Agent] Tool call: render_heatmap ({"tank":"E 100","view":"front"})
+已保存热力图截图: screenshots/heatmap_front.png
+```
+
+## 文档
+
+| 文档 | 内容 |
 |------|------|
-| `search_player` | 按昵称搜索玩家 |
-| `get_player_stats` | 获取 WG API 累计战绩 |
-| `scan_replays` | 批量扫描回放生成报告 |
-| `parse_replay` | 解析单场回放详情 |
-| `compare_replay_vs_api` | 回放 vs API 对比 |
-| `view_tank` | 打开 3D 装甲查看器（`target`=受击/查看方，`shooter`=射击方，均为模糊查询；多匹配时返回细化列表供选择） |
-| `get_tank_armor` | 查询坦克装甲明细：前/侧/后汇总、逐板厚度（含 spaced 分类——穿透间隙甲不算击穿）、顶配弹种（正式名 AP/APCR/HEAT/HE、穿深近/远、伤害、模块伤害、HE 爆炸半径） |
-| `simulate_penetration` | 击穿模拟（对齐 BlitzKit 判定）：`shooter` 弹种 vs `target` 装甲，支持 `aim` 预设（hull_front 等）或显式 `hits` 层序、入射角、交战距离、Calibrated/Enhanced 装备开关；返回逐层判定与伤害（必须最终穿透车体/炮塔主装甲才算击穿） |
-| `render_heatmap` | 无头渲染 3D 查看器**热力图截图**并保存 PNG（需 Chrome/Edge，自动探测含 WSL Windows 侧安装；WSL 下自动转换输出路径）：`view` 预设（front/right/rear/left/top/斜视角）、`yaw_deg`/`pitch_deg`（炮塔/炮管）、`shell` 过滤、宽高可调；URL 参数机制同时让任意热力图视图可通过链接分享 |
-| `replay_shot` | 射击复现（实验性）：在 3D 查看器中复现回放指定射击（`file` 回放路径 + `shot_no` 序号），无头浏览器截图保存 PNG；相机按射手真实相对方位/俯仰放置，受击坦克炮塔/炮管按回放时刻姿态应用，热力图就绪后自动穿透判定（命中位置计算尚不完善，结果仅供参考） |
-
-## 数据源
-
-| 数据源 | 内容 | 获取方式 |
-|--------|------|----------|
-| 本地 `.wotbreplay` | 每场战斗完整数据 | 游戏自动保存 |
-| WG Public API | 玩家累计战绩（随机+排位）/ 军团 / 赛事 / 成就 | 25 个 API 端点（**仅战绩查询**） |
-| 游戏 DVPL 文件 | 装甲板 + 碰撞包围盒 + 部件位置偏移 | LZ4_HC 解压 |
-| BlitzKit `tanks.pb` | 723 辆坦克名称、tier、类型、国家、弹种、穿深、伤害、装填（弹夹/弹鼓）、HE 爆炸半径 | 运行时 Protobuf 解析（唯一数据源）→ `data/tanks.pb` |
-| BlitzKit `models.pb` | 723 辆坦克装甲板厚度 + 炮管俯仰角 + 三级装甲 spaced 分类（穿透判定权威） | Protobuf 解析 → `data/armor_cache.json` + `data/gun_angles.json` + `/api/tank` 载荷 |
-| BlitzKit CDN | `collision.glb`（装甲板几何）+ `model.glb`（视觉模型 + 履带/炮管模块 mesh） | HTTP 下载，经 `/glb/` 代理缓存到 `glb_cache/` |
-| BlitzKit tank icons | 坦克封面图（`/tanks/{id}/icons/big.webp`） | 经 `/api/tank_image/` 代理缓存到 `tank_images/` |
-
-## 项目结构
-
-```
-wotb-agent/
-├── Cargo.toml
-├── config.toml.example        # 配置模板（含 WG API + LLM 字段，不含密钥；复制为 config.toml）
-├── data/                      # 数据目录（全部静态数据文件）
-│   ├── tank_cache.json        #   坦克数据缓存（由 tanks.pb 构建, 723 辆，含 HP/模块伤害）
-│   ├── tanks.pb               #   BlitzKit 坦克数据库（元数据/武器/装填, 运行时解析, 723 辆）
-│   ├── models.pb              #   BlitzKit 模型定义（炮塔/主炮→模型节点映射, 运行时解析, 723 辆）
-│   ├── armor_cache.json       #   装甲板厚度数据（BlitzKit models.pb, 723 辆）
-│   ├── gun_angles.json        #   炮管俯仰角数据（BlitzKit models.pb, 723 辆）
-│   └── game_data/             #   游戏装甲/碰撞数据提取（DVPL, 723 辆, 可移植）
-├── glb_cache/                 # 3D 模型本地缓存（BlitzKit CDN, 按需下载落盘；不入库）
-├── tank_images/               # 坦克封面图缓存（BlitzKit big.webp, 723 辆；不入库）
-├── web/vendor/                # 前端本地依赖（three/ Three.js + chart.umd.min.js Chart.js）
-├── src/
-│   ├── main.rs              # CLI 入口（18 个子命令）
-│   ├── agent/
-│   │   ├── mod.rs           # Agent Loop（async，AgentEvent 流式事件 + CLI 阻塞包装）
-│   │   ├── llm_client.rs    # LLM 客户端（OpenAI 兼容 API，async）
-│   │   └── tools.rs         # Agent 工具定义和执行（含 view_tank 打开 3D 查看器）
-│   ├── web/
-│   │   ├── mod.rs           # Web GUI 服务器（axum：Agent SSE 事件/会话/各面板 API）
-│   │   └── index.html       # Web 前端（对话 + 玩家 + 回放 + 对比 + 设置 五个标签页）
-│   ├── models/
-│   │   ├── battle.rs        # 单场战斗数据结构
-│   │   ├── report.rs        # 多场聚合报告
-│   │   └── config.rs        # 配置 + Token 统计
-│   ├── replay/
-│   │   ├── parser.rs        # 回放解析（meta + battle_results）
-│   │   ├── scanner.rs       # 目录扫描 + 日期/模式筛选
-│   │   └── combat.rs        # 战斗事件解码 + 射击推断 + 射击复现数据提取（开火/弹着确定性配对）
-│   └── wargaming/
-│       ├── tank_resolver.rs # 坦克解析（from_blitzkit 从 BlitzKit 数据构建 + 弹种 HP/模块伤害）
-│       ├── api_client.rs    # WG API 客户端（仅战绩查询）
-│       ├── blitzkit.rs      # BlitzKit tanks.pb Protobuf 解析（元数据/图标批量下载）
-│       ├── snapshot.rs      # API 数据快照存储
-│       ├── prematch.rs      # 对局前瞻（阵容强度/威胁/薄弱点分析）
-│       ├── viewer.rs        # 3D 查看器（axum + Three.js：坦克/配置切换 + 装甲穿透判定 + 射击复现呈现）
-│       ├── dvpl.rs          # DVPL 解码 + 装甲/碰撞解析 + spaced 识别 + 部件偏移
-│       ├── game_extract.rs  # 游戏数据批量提取（data/game_data/ 生成与加载）
-│       └── penetration.rs   # 统一击穿判定（跳弹/转正/overmatch/多层/HE + HP/模块伤害区分）
-```
+| [设计文档](设计文档.md) | 完整设计：痛点/方案/架构/R1-R6 实现说明 |
+| [设计文档摘要](设计文档摘要.md) | 一页速览：痛点→方案→架构→功能现状 |
+| [回放射击事件逆向分析](回放射击事件逆向分析.md) | 回放包格式逆向结论 + 射击复现实现细节 |
 
 ## 环境要求
 
 - Rust 1.70+
-- Wargaming API Application ID（免费注册：https://developers.wargaming.net/applications/）
 - LLM API Key（OpenAI / 清华 AI 平台 / 其他 OpenAI 兼容 API）
-- WoTB 游戏安装（可选，用于 DVPL 游戏文件解析和回放文件）
+- WG API Application ID（可选，项目自带公开 key；免费注册：https://developers.wargaming.net/applications/）
+- WoTB 游戏安装（可选，用于 DVPL 游戏文件解析和真实回放文件）
 
 ## 许可证
 
