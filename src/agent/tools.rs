@@ -1145,10 +1145,11 @@ mod tests {
         let tools = tools();
         let f = "replay_samples/20260902_2104__Anonyme_A116_XM551_Exp_3355505117896350.wotbreplay";
         if !std::path::Path::new(f).exists() { eprintln!("replay sample missing, skip"); return; }
-        let args = json!({"replay_file": f, "shot_no": 1});
+        let args = json!({"replay_file": f, "shot_no": 2});
         match tools.execute_replay_shot(&args) {
             Ok(out) => {
                 eprintln!("replay_shot: {}", out);
+                assert!(out.contains("Shot #2 replay view saved"), "{}", out);
                 assert!(out.contains("replay view saved"), "{}", out);
             }
             Err(e) => {

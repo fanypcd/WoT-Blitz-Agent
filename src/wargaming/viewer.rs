@@ -241,8 +241,13 @@ pub async fn start_viewer_server_for_replay(
     if shots.is_empty() {
         return Err(anyhow::anyhow!("No shot events detected in this replay."));
     }
-    let file_name = replay_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let author_player_eid = crate::replay::combat::resolve_author_player_eid(&raw_packets, file_name);
+    let author_nickname = meta.as_ref().map(|m| m.player_name.clone()).unwrap_or_default();
+    let author_player_eid = if author_nickname.is_empty() { 0 } else {
+        timeline.entity_names.iter()
+            .find(|(_, name)| name.as_str() == author_nickname)
+            .map(|(eid, _)| *eid)
+            .unwrap_or(0)
+    };
     let replay_data = crate::replay::combat::extract_shot_replays(&raw_packets, author_player_eid, &shots);
     if shot_no == 0 || shot_no > replay_data.len() {
         return Err(anyhow::anyhow!("shot {} out of range (1..={})", shot_no, replay_data.len()));
@@ -260,7 +265,6 @@ pub async fn start_viewer_server_for_replay(
     let target_tank = tank_of(&shot.target_name);
     // 射手坦克：优先 battle_results 按作者昵称查找（与目标同路径、同 ID 空间）；
     // meta.tank_id 可能是车库/账号域的 ID，仅作回退。
-    let author_nickname = meta.as_ref().map(|m| m.player_name.clone()).unwrap_or_default();
     let shooter_tank = tank_of(&author_nickname)
         .or_else(|| meta.as_ref().map(|m| m.tank_id as u32).filter(|v| *v > 0));
     eprintln!("[replay_shot] shot={}_{} target_name={} target_tank={:?} shooter_tank={:?} target_ang={:?}",
@@ -403,17 +407,10 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
         .and_then(|v| v.get(tank_id.to_string()).cloned());
 
     // Armor model from portable game_data/ extraction (fallback: game install)
-    let game_data = crate::wargaming::game_extract::load_game_data(tank_id, &crate::data::data_dir().join("game_data"));
-    let armor_model = match &game_data {
+    let armor_model = match crate::wargaming::game_extract::load_game_data(tank_id, &crate::data::data_dir().join("game_data")) {
         Some(gd) => gd.armor_model.clone(),
         None => load_armor_model(tank_id),
     };
-    // 碰撞包围盒数据（车体中心定位用）
-    let collision_val = game_data.as_ref().and_then(|gd| gd.collision.as_ref()).map(|c| {
-        serde_json::json!({
-            "hull_bbox": c.hull_bbox.as_ref().map(|b| json!({"min": b.min, "max": b.max})),
-        })
-    }).unwrap_or(json!(null));
 
     // Gun angles from models.pb data
     let gun_angles = std::fs::read_to_string(crate::data::data_path("gun_angles.json"))
@@ -492,7 +489,6 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
         "model_origins": model_origins,
         "initial_turret_rotation": initial_turret_rotation,
         "armor_model": armor_model_val,
-        "collision": collision_val,
         "caliber": caliber,
         "shells": shells,
         "configs": configs,
@@ -1883,28 +1879,20 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         // 模块装甲（炮塔/炮盾）与视觉模型的对齐统一由 alignArmorModules() 完成；
         // 车体(hull) 的 game points 恒接近 0，无需偏移，故不再对碰撞模型做预平移。
         let worldMetersPerUnit = null;   // 场景单位→米换算系数（maxDim/6，随模型加载更新）
-        // applyModelTransforms：缩放到 6 单位 + 【车体中心水平对齐原点】+ 贴地。
-        // bodyCenter = 车体中心（glb 坐标系，来自 collision.hull_bbox 中心）；
-        // 水平居中基准用车体中心而非全模型包围盒中心（后者被炮管前伸拉偏，
-        // 导致 aim_point 等以车体中心为基准的数据在 viewer 中错位）。
-        // y 仍用全模型贴地（glb z_min=0 即地面，visual/collision 的 z 原点一致）。
-        function applyModelTransforms(model, bodyCenter) {
+        function applyModelTransforms(model) {
             model.rotation.x = -Math.PI / 2;
             const box = new THREE.Box3().setFromObject(model);
+            const center = box.getCenter(new THREE.Vector3());
             const size = box.getSize(new THREE.Vector3());
             const maxDim = Math.max(size.x, size.y, size.z);
             const scale = 6 / maxDim;
             worldMetersPerUnit = maxDim / 6;
             model.scale.setScalar(scale);
-            // 车体中心旋转后位置：glb(x,y,z) →(x, z, -y)
-            const bc = bodyCenter || box.getCenter(new THREE.Vector3());
-            const bcRot = new THREE.Vector3(bc.x, bc.z, -bc.y).multiplyScalar(scale);
-            // 水平对齐：position 平移使车体中心 x/z 归零
-            model.position.x = -bcRot.x;
-            model.position.z = -bcRot.z;
-            // 贴地：全模型 z_min(旋转后 y_min) = 0
             const box2 = new THREE.Box3().setFromObject(model);
-            model.position.y = -box2.min.y;
+            const center2 = box2.getCenter(new THREE.Vector3());
+            const min2 = box2.min.clone();
+            model.position.sub(center2);
+            model.position.y += (center2.y - min2.y);
         }
 
         function syncTransforms() {
@@ -2026,18 +2014,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             // Load visual model (visible)
             loader.load(tankData.visual_model_url, function(gltf) {
                 tankModel = gltf.scene;
-                // 车体中心（glb 坐标系）：collision.hull_bbox 的中心
-                let bodyCenter = null;
-                const col = tankData.collision || null;
-                if (col && col.hull_bbox) {
-                    const hb = col.hull_bbox;
-                    bodyCenter = {
-                        x: (hb.min[0] + hb.max[0]) / 2,
-                        y: (hb.min[1] + hb.max[1]) / 2,
-                        z: (hb.min[2] + hb.max[2]) / 2,
-                    };
-                }
-                applyModelTransforms(tankModel, bodyCenter);
+                applyModelTransforms(tankModel);
                 tagModuleMeshes(tankModel);
                 tankModel.traverse(function(node) {
                     if (node.isMesh) {
@@ -2159,20 +2136,6 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                     controls.target.set(0, gunLine, 0);
                     controls.update();
                     __shotRayOrigin = new THREE.Vector3(Math.sin(relBearing) * distH, h, -Math.cos(relBearing) * distH);
-                    // ===== 弹道：ball_a(射手@开火) → ball_b(弹着点)，回放系全直通映射 =====
-                    // aimDir = 弹道方向（viewer 系单位向量）；aimTarget = 弹着点相对车体中心的偏移
-                    const ba = s.ball_a, bb = s.ball_b;
-                    let aimDir = null;
-                    if (ba && bb && (ba[0] || ba[1] || ba[2]) && (bb[0] || bb[1] || bb[2])) {
-                        const dvx = bb[0] - ba[0], dvy = bb[1] - ba[1], dvz = bb[2] - ba[2];
-                        const n = Math.sqrt(dvx*dvx + dvy*dvy + dvz*dvz);
-                        if (n > 1.0) aimDir = { x: dvx/n, y: dvy/n, z: dvz/n };
-                    }
-                    const ap2 = s.aim_point || [0, 0, 0];
-                    const aimTarget = {
-                        x: ap2[0] * scl, y: ap2[1] * scl, z: ap2[2] * scl
-                    };
-                    // ===== 炮塔：绝对朝向 → 相对车体（模型未旋转 → 相对 = 绝对 − hullYaw） =====
                     // ===== 炮塔：绝对朝向 → 相对车体（模型未旋转 → 相对 = 绝对 − hullYaw） =====
                     const turretAbs = (typeof s.target_turret_yaw === 'number') ? s.target_turret_yaw : 0;
                     let turretDeg = -(turretAbs - hullYaw) * 180 / Math.PI;
@@ -2194,12 +2157,19 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                     __shotRayOrigin = new THREE.Vector3(Math.sin(bearing) * distH, h, -Math.cos(bearing) * distH);
                     // 射线终点：弹道方向可用 → 沿方向穿过模型（raycast 截断取真实命中）；
                     // 否则用弹着点坐标（<6m 过滤后）。
-                    // 射线终点：aimDir 可用 → 沿弹道方向穿过模型（raycast 截断取命中）；
-                    // 否则直接用弹着点偏移（无保守 clamp，按原始计算值渲染）
-                    const targetPoint = (aimDir)
-                        ? __shotRayOrigin.clone()
-                            .add(new THREE.Vector3(aimDir.x, aimDir.y, aimDir.z).multiplyScalar(distH * 3))
-                        : new THREE.Vector3(aimTarget.x, aimTarget.y, aimTarget.z);
+                    let targetPoint;
+                    if (aimDir) {
+                        targetPoint = __shotRayOrigin.clone()
+                            .add(new THREE.Vector3(aimDir.x, aimDir.y, aimDir.z).multiplyScalar(distH * 3));
+                    } else {
+                        targetPoint = new THREE.Vector3(aimTarget.x, aimTarget.y, aimTarget.z);
+                        if (armorModel) {
+                            const bbArmor = new THREE.Box3().setFromObject(armorModel);
+                            if (!bbArmor.containsPoint(targetPoint)) {
+                                targetPoint.clamp(bbArmor.min, bbArmor.max);
+                            }
+                        }
+                    }
                     // 射线终点延伸到模型对面（沿 origin→target 方向加倍距离）
                     const rayDir = targetPoint.clone().sub(__shotRayOrigin);
                     __shotRayTarget = __shotRayOrigin.clone().add(rayDir.multiplyScalar(2));
