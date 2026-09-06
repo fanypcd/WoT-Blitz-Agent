@@ -2170,30 +2170,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                             }
                         }
                     }
-                    // 标记球位置 = 弹着点（模型局部坐标，非射线远端！）
-                    // aimTarget <6m 过滤通过时用弹着点，否则放射线与模型的交点近似（中心）。
-                    const markerPoint = (aimTarget.x !== 0 || aimTarget.y !== 0 || aimTarget.z !== 0)
-                        ? new THREE.Vector3(aimTarget.x, aimTarget.y, aimTarget.z)
-                        : new THREE.Vector3(0, gunLine, 0);
                     // 射线终点延伸到模型对面（沿 origin→target 方向加倍距离）
                     const rayDir = targetPoint.clone().sub(__shotRayOrigin);
                     __shotRayTarget = __shotRayOrigin.clone().add(rayDir.multiplyScalar(2));
-                    // 【命中点可视化标注】：在弹着点位置放一个红色标记球（半透明，随炮塔旋转需重算暂不支持——静态标注）
-                    if (window.__hitMarker) { scene.remove(window.__hitMarker); window.__hitMarker = null; }
-                    const markerGeo = new THREE.SphereGeometry(0.08, 16, 12);
-                    const markerMat = new THREE.MeshBasicMaterial({ color: 0xff2222, transparent: true, opacity: 0.9, depthTest: false });
-                    const marker = new THREE.Mesh(markerGeo, markerMat);
-                    marker.position.copy(markerPoint);
-                    marker.renderOrder = 999;
-                    scene.add(marker);
-                    window.__hitMarker = marker;
-                    // 外圈环（更醒目，与球同心：环是球的子节点，position(0,0,0) 即球心）
-                    const ringGeo = new THREE.RingGeometry(0.12, 0.18, 24);
-                    const ringMat = new THREE.MeshBasicMaterial({ color: 0xff2222, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthTest: false });
-                    const ring = new THREE.Mesh(ringGeo, ringMat);
-                    ring.lookAt(camera.position);
-                    marker.add(ring);
-                    window.__hitMarkerRing = ring;
+                    // 命中点标记在 doPenetrationCheck 成功后渲染（位置 = raycast 实际命中点）
 
                     setTimeout(() => {
                         doPenetrationCheck(0, 0);
@@ -3109,7 +3089,26 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
             const first = armorHits[0];
             const point = first.point;
-            const viewDir = camera.position.clone().sub(point).normalize();
+            // 命中点标记：渲染在 raycast 实际命中的装甲板表面
+            if (window.__hitMarker) { scene.remove(window.__hitMarker); window.__hitMarker = null; }
+            const markerGeo = new THREE.SphereGeometry(0.08, 16, 12);
+            const markerMat = new THREE.MeshBasicMaterial({ color: 0xff2222, transparent: true, opacity: 0.9, depthTest: false });
+            const marker = new THREE.Mesh(markerGeo, markerMat);
+            marker.position.copy(point);
+            marker.renderOrder = 999;
+            scene.add(marker);
+            window.__hitMarker = marker;
+            const ringGeo = new THREE.RingGeometry(0.12, 0.18, 24);
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0xff2222, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthTest: false });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.lookAt(camera.position);
+            marker.add(ring);
+            window.__hitMarkerRing = ring;
+            // 射击复现模式：入射方向用真实弹道（射线起点→命中点），
+            // 而非 camera→point（相机被 maxDistance clamp 后方向有偏差）
+            const viewDir = (__shotRayOrigin && __shotRayTarget)
+                ? __shotRayOrigin.clone().sub(point).normalize()
+                : camera.position.clone().sub(point).normalize();
 
             // 命中距离（米，对齐 BlitzKit 世界单位）：炮口世界坐标 → 命中点，× worldMetersPerUnit
             // 换算回真实米数。炮管几何不可用时回退为相机到命中点的真实米数（不再乘 10 伪系数）。
