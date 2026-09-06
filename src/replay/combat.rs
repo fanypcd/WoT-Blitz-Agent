@@ -463,7 +463,7 @@ pub fn extract_shot_replays(
     shots: &[ShotEvent],
 ) -> Vec<ShotReplayData> {
     // 收集所有作者的开火事件（0x1d）：包含未击穿的射击
-    let mut all_fires: Vec<(f32, u32)> = Vec::new();  // (fire_time, fire_counter)
+    let mut all_fires: Vec<(f32, u32, f32)> = Vec::new();  // (fire_time, fire_counter, hit_time)
     for (_, clock, p) in packets {
         if *clock == 0.0 { continue; }
         if *clock < 5.0 { continue; }  // 排除初始化阶段的包
@@ -478,16 +478,30 @@ pub fn extract_shot_replays(
         let eid = u32::from_le_bytes([a[0], a[1], a[2], a[3]]);
         if eid != author_player_eid { continue; }
         let counter = u32::from_le_bytes([a[4], a[5], a[6], a[7]]);
-        all_fires.push((*clock, counter));
+        // 同时找对应 0x14 弹着包的时刻（= 弹丸命中时刻，用于伤害匹配）
+        let hit_time = packets.iter()
+            .filter(|(t2, _, p2)| {
+                if *t2 != 8 || p2.len() < 28 { return false; }
+                let m2 = u32::from_le_bytes([p2[4], p2[5], p2[6], p2[7]]);
+                if m2 != 0x14 { return false; }
+                let al2 = u32::from_le_bytes([p2[8], p2[9], p2[10], p2[11]]) as usize;
+                al2 >= 16 && 12 + al2 <= p2.len()
+                    && u32::from_le_bytes([p2[12], p2[13], p2[14], p2[15]]) == counter
+            })
+            .next()
+            .map(|(_, c2, _)| *c2)
+            .unwrap_or(*clock);
+        all_fires.push((*clock, counter, hit_time));
     }
     all_fires.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
     // ShotEvent 列表（按伤害时刻排序，用于确定性伤害匹配）
     let mut se_cursor = 0usize;  // ShotEvent 游标（顺序消费）
 
-    all_fires.iter().enumerate().map(|(i, (fire_time, fire_counter))| {
+    all_fires.iter().enumerate().map(|(i, (fire_time, fire_counter, hit_time))| {
         let fire_time = *fire_time;
         let fire_counter = *fire_counter;
+        let hit_time = *hit_time;
 
         // 射手状态 @ 开火时刻
         let (sp, sa) = entity_state_at(packets, author_player_eid, fire_time)
@@ -547,22 +561,20 @@ pub fn extract_shot_replays(
         let mut target_name = String::new();
         let mut is_kill = false;
         let mut hit = false;
-        if se_cursor < shots.len() {
+        // 确定性顺序匹配：弹着点在目标附近（target_eid 非空）= 命中 →
+        // 消费下一个 ShotEvent（因果序：命中 → HP 下降 → DC 递增）。
+        // 弹着点不在目标附近 = miss → 不消费 ShotEvent。
+        if target_eid.is_some() && se_cursor < shots.len() {
             let se = &shots[se_cursor];
-            if se.timestamp > fire_time - 0.5 {
-                // 这发命中了
+            if se.timestamp > fire_time {
                 damage = se.damage;
                 target_name = se.target_name.clone();
                 is_kill = se.is_kill;
                 hit = true;
                 se_cursor += 1;
-            } else {
-                // 该 ShotEvent 属于更早的开火（异常），跳过
-                se_cursor += 1;
             }
         }
         if !hit && target_eid.is_some() {
-            // 弹着点在目标附近但无伤害记录（未穿透/跳弹）→ 用几何目标名
             target_name = extract_entity_names(packets)
                 .get(&target_eid.unwrap_or(0)).cloned().unwrap_or_default();
         }
