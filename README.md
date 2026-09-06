@@ -7,18 +7,20 @@ AI 游戏分析助手 — 针对 World of Tanks Blitz（坦克世界闪击战）
 - **回放解析**：解析 `.wotbreplay` 二进制文件，提取 14 名玩家完整战绩
 - **战斗事件时间线**：解码数据包流，追踪生命值变化、死亡事件、累计伤害曲线
 - **射击事件推断**：关联伤害计数器和生命值变化，推断每发射击的目标/伤害/击杀
+- **射击复现（实验性）**：从回放包流确定性提取每次射击的开火/弹着事件（u32 计数器精确配对）、双方位置与炮塔朝向，在 3D 查看器中按射手视角/受击姿态复现并自动穿透判定——**命中位置计算尚不完善，判定结果仅供参考**（详见 `回放射击事件逆向分析.md`）
 - **WG API 集成**：查询玩家累计战绩（25 个 API 端点，仅用于战绩查询；坦克数据全部来自 BlitzKit）
 - **回放 vs API 对比**：量化近期表现 vs 历史平均的差异
 - **API 数据快照**：定期采集快照实现时间序列分析（API 不支持按时间查询）
 - **Web 图形界面**：`wotb-agent web` 启动独立 Web 应用——Agent 对话（SSE 流式进度 + 工具调用轨迹 + 打断）、玩家战绩查询、回放扫描报告、回放 vs API 对比、对局前瞻、模型配置编辑、Token 用量统计
 - **3D 坦克查看器**：浏览器中加载 GLB 3D 模型，支持装甲分析、炮塔旋转、炮管俯仰、弹道轨迹可视化；可自由切换射击坦克（含对应口径/弹药）与受击坦克（按需缓存模型），图形化坦克筛选（封面图网格 + 等级/国家/类型筛选 + 名称搜索）
+- **穿透热力图**：实时 GPU 着色（对齐 BlitzKit 双场景 RT 架构）——间隙甲/外部模块消耗进 RenderTarget，主装甲逐像素显示击穿概率渐变（跳弹高亮、HE 溅射、HEAT 间隙衰减，距离单位=米）；Equip 开关支持 Calibrated Shells（+6%/+7% 分弹种）与 Enhanced Armor（+4%）
 - **坦克配置切换**：多炮塔/多主炮坦克（如 E-100 的 12.8cm/15cm 双炮）可切换配置，同步更新火炮模型、装甲判定、弹种与穿深
-- **多层穿透判定**：跳弹（>70°）、转正（AP 5°/APCR 2°）、overmatch（3x/2x 口径规则）、模块装甲（履带/炮管/炮盾 flat 抵消）、逐层消耗穿透力、spaced 附加装甲识别
-- **统一击穿判定 + 伤害区分**：Rust `penetration.rs` 集中实现全部判定逻辑（跳弹/转正/overmatch/多层/HEAT 间隙衰减/HE 溅射/装备修正），前端通过 `POST /api/penetrate` 调用；区分**血量伤害（HP damage，穿透主装甲盒）**与**模块伤害（module damage，仅命中履带/炮管等外部模块）**
+- **多层穿透判定**：跳弹（AP/APCR >70°，HEAT/HE 永不跳弹）、转正（AP 5°/APCR 2°）、overmatch（3x/2x 口径规则）、外部模块（履带/负重轮/炮管 flat 抵消）、逐层消耗穿透力；装甲分类（主装甲/间隙甲）以 models.pb `Armor.spaced` 为权威——炮管安装甲普遍为间隙甲，**穿透它不算击穿坦克，必须最终穿透车体/炮塔主装甲**
+- **统一击穿判定 + 伤害区分**：Rust `penetration.rs` 集中实现全部判定逻辑（跳弹/转正/overmatch/多层/HEAT 间隙衰减/HE 溅射/装备修正，全部距离单位=米），前端通过 `POST /api/penetrate` 调用；区分**血量伤害（HP damage，最终穿透主装甲盒）**、**模块伤害（module damage，仅命中履带/炮管等可破坏模块）**与无伤害（仅穿透间隙甲被阻挡）
 - **对局前瞻**：`prematch` 命令批量查询玩家战绩，分析阵容强度、识别威胁与薄弱点，可直接从回放文件提取双方阵容
-- **BlitzKit 数据集成**：从 `tanks.pb` 提取 723 辆坦克完整数据（名称、tier/类型/国家、弹种、穿深、血量伤害、模块伤害、口径），从 `models.pb` 提取炮管俯仰角，从 `collision.glb` + `model.glb` 获取装甲板和模块几何，坦克封面图（big.webp）按需缓存
+- **BlitzKit 数据集成**：从 `tanks.pb` 提取 723 辆坦克完整数据（名称、tier/类型/国家、弹种、穿深、血量伤害、模块伤害、口径、HE 爆炸半径），从 `models.pb` 提取炮管俯仰角与三级装甲 spaced 分类（穿透判定权威），从 `collision.glb` + `model.glb` 获取装甲板和模块几何，坦克封面图（big.webp）按需缓存
 - **DVPL 游戏文件解码**：解析游戏本地文件提取装甲板厚度（含履带/炮管/spaced 附加装甲 `vehicleDamageFactor` 识别）和碰撞包围盒
-- **LLM Agent**：自然语言对话，Agent 自主调用工具获取数据并生成分析报告（6 个工具，含打开 3D 装甲查看器）
+- **LLM Agent**：自然语言对话，Agent 自主调用工具获取数据并生成分析报告（11 个工具，含 3D 装甲查看器、无头热力图截图、射击复现截图）
 
 ## 快速开始
 
@@ -206,7 +208,17 @@ cargo run --release -- config --show
 | 右键水平拖拽 | 旋转炮塔 |
 | 右键垂直拖拽 | 调整炮管俯仰角 |
 | 弹种选择器 | 选择当前弹种（随射手坦克改变，如 AP/APCR/HE/HEAT），多弹种切换 |
+| Equip 开关 | Calib.Shells（穿深 +6%/+7% 分弹种）/ Enh.Armor（装甲 +4%），同时作用于点击判定与热力图 |
+| 穿透热力图按钮 | 实时 GPU 着色（对齐 BlitzKit）：逐像素击穿概率渐变（绿=稳定击穿 → 红=稳定抵挡），间隙甲/外部模块消耗计入 RT，跳弹蓝紫高亮、HE 溅射橙色分量 |
 | Show Collision 按钮 | 按厚度着色显示装甲板 |
+
+### 射击复现（实验性）
+
+Web Replay 页的 Shot Replay 卡片解析回放后，点击射击行在 3D 查看器中复现该发：
+相机按射手真实相对方位/俯仰放置，受击坦克炮塔/炮管按回放时刻姿态应用，
+热力图就绪后沿弹道方向自动穿透判定，并在模型上标注弹着点。
+**注意：命中位置计算尚不完善（0x14 弹着点为穿透后终点语义、坡度倾斜未呈现等），
+判定结果与游戏内回放存在偏差，仅供参考。**
 
 ## CLI 命令一览
 
@@ -216,7 +228,7 @@ cargo run --release -- config --show
 | `chat` | Agent 对话 | CLI 交互式多轮对话，Agent 自主调用工具 |
 | `single <file>` | 单回放解析 | 提取 14 名玩家完整战绩 |
 | `scan <dir>` | 批量扫描 | 聚合报告（胜率/伤害/评级/坦克/地图） |
-| `combat <file>` | 战斗事件 | 生命值时间线 + 射击推断 + 死亡事件 |
+| `combat <file>` | 战斗事件 | 生命值时间线 + 射击推断 + 死亡事件；`--json` 含射击复现数据（射手/受击姿态 + 弹道两点），`--shots-json <path>` 落盘 |
 | `player <name>` | 玩家查询 | WG API 累计战绩（随机+排位） |
 | `compare <name> <dir>` | 对比分析 | 回放近期 vs API 累计 |
 | `snapshot <name>` | 数据快照 | 定期采集 + 差值对比 |
@@ -242,6 +254,10 @@ Agent 可自主调用以下工具获取数据：
 | `parse_replay` | 解析单场回放详情 |
 | `compare_replay_vs_api` | 回放 vs API 对比 |
 | `view_tank` | 打开 3D 装甲查看器（`target`=受击/查看方，`shooter`=射击方，均为模糊查询；多匹配时返回细化列表供选择） |
+| `get_tank_armor` | 查询坦克装甲明细：前/侧/后汇总、逐板厚度（含 spaced 分类——穿透间隙甲不算击穿）、顶配弹种（正式名 AP/APCR/HEAT/HE、穿深近/远、伤害、模块伤害、HE 爆炸半径） |
+| `simulate_penetration` | 击穿模拟（对齐 BlitzKit 判定）：`shooter` 弹种 vs `target` 装甲，支持 `aim` 预设（hull_front 等）或显式 `hits` 层序、入射角、交战距离、Calibrated/Enhanced 装备开关；返回逐层判定与伤害（必须最终穿透车体/炮塔主装甲才算击穿） |
+| `render_heatmap` | 无头渲染 3D 查看器**热力图截图**并保存 PNG（需 Chrome/Edge，自动探测含 WSL Windows 侧安装；WSL 下自动转换输出路径）：`view` 预设（front/right/rear/left/top/斜视角）、`yaw_deg`/`pitch_deg`（炮塔/炮管）、`shell` 过滤、宽高可调；URL 参数机制同时让任意热力图视图可通过链接分享 |
+| `replay_shot` | 射击复现（实验性）：在 3D 查看器中复现回放指定射击（`file` 回放路径 + `shot_no` 序号），无头浏览器截图保存 PNG；相机按射手真实相对方位/俯仰放置，受击坦克炮塔/炮管按回放时刻姿态应用，热力图就绪后自动穿透判定（命中位置计算尚不完善，结果仅供参考） |
 
 ## 数据源
 
@@ -250,8 +266,8 @@ Agent 可自主调用以下工具获取数据：
 | 本地 `.wotbreplay` | 每场战斗完整数据 | 游戏自动保存 |
 | WG Public API | 玩家累计战绩（随机+排位）/ 军团 / 赛事 / 成就 | 25 个 API 端点（**仅战绩查询**） |
 | 游戏 DVPL 文件 | 装甲板 + 碰撞包围盒 + 部件位置偏移 | LZ4_HC 解压 |
-| BlitzKit `tanks.pb` | 723 辆坦克名称、tier、类型、国家、弹种、穿深、伤害、装填（弹夹/弹鼓） | 运行时 Protobuf 解析（唯一数据源）→ `data/tanks.pb` |
-| BlitzKit `models.pb` | 723 辆坦克装甲板厚度 + 炮管俯仰角 | Protobuf 解析 → `data/armor_cache.json` + `data/gun_angles.json` |
+| BlitzKit `tanks.pb` | 723 辆坦克名称、tier、类型、国家、弹种、穿深、伤害、装填（弹夹/弹鼓）、HE 爆炸半径 | 运行时 Protobuf 解析（唯一数据源）→ `data/tanks.pb` |
+| BlitzKit `models.pb` | 723 辆坦克装甲板厚度 + 炮管俯仰角 + 三级装甲 spaced 分类（穿透判定权威） | Protobuf 解析 → `data/armor_cache.json` + `data/gun_angles.json` + `/api/tank` 载荷 |
 | BlitzKit CDN | `collision.glb`（装甲板几何）+ `model.glb`（视觉模型 + 履带/炮管模块 mesh） | HTTP 下载，经 `/glb/` 代理缓存到 `glb_cache/` |
 | BlitzKit tank icons | 坦克封面图（`/tanks/{id}/icons/big.webp`） | 经 `/api/tank_image/` 代理缓存到 `tank_images/` |
 
@@ -287,14 +303,14 @@ wotb-agent/
 │   ├── replay/
 │   │   ├── parser.rs        # 回放解析（meta + battle_results）
 │   │   ├── scanner.rs       # 目录扫描 + 日期/模式筛选
-│   │   └── combat.rs        # 战斗事件解码 + 射击推断
+│   │   └── combat.rs        # 战斗事件解码 + 射击推断 + 射击复现数据提取（开火/弹着确定性配对）
 │   └── wargaming/
 │       ├── tank_resolver.rs # 坦克解析（from_blitzkit 从 BlitzKit 数据构建 + 弹种 HP/模块伤害）
 │       ├── api_client.rs    # WG API 客户端（仅战绩查询）
 │       ├── blitzkit.rs      # BlitzKit tanks.pb Protobuf 解析（元数据/图标批量下载）
 │       ├── snapshot.rs      # API 数据快照存储
 │       ├── prematch.rs      # 对局前瞻（阵容强度/威胁/薄弱点分析）
-│       ├── viewer.rs        # 3D 查看器（axum + Three.js：坦克/配置切换 + 装甲穿透判定）
+│       ├── viewer.rs        # 3D 查看器（axum + Three.js：坦克/配置切换 + 装甲穿透判定 + 射击复现呈现）
 │       ├── dvpl.rs          # DVPL 解码 + 装甲/碰撞解析 + spaced 识别 + 部件偏移
 │       ├── game_extract.rs  # 游戏数据批量提取（data/game_data/ 生成与加载）
 │       └── penetration.rs   # 统一击穿判定（跳弹/转正/overmatch/多层/HE + HP/模块伤害区分）
