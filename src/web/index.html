@@ -81,6 +81,7 @@
         .msg .bubble { max-width:80%; padding:10px 15px; border-radius:14px; white-space:pre-wrap; font-size:0.95em; line-height:1.5; box-shadow:var(--shadow); }
         .msg.user .bubble { background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:#1a1208; border-bottom-right-radius:4px; }
         .msg.assistant .bubble { background:var(--panel2); border:1px solid var(--border); border-bottom-left-radius:4px; }
+        .bubble img { max-width:100%; border-radius:8px; margin:4px 0; display:block; }
         /* Markdown 渲染内容样式 */
         .bubble.md { white-space:normal; }
         .bubble.md * { margin:0.4em 0; }
@@ -204,7 +205,7 @@
         <div class="sub">全部坦克图鉴 — 点击卡片查看装甲 / 弹种 / 属性详情</div>
         <div class="card">
             <div id="tp-toolbar">
-                <input id="tp-search" placeholder="Search tank by name...">
+                <input id="tp-search" placeholder="Search (fuzzy): e100 · is7 · def…">
                 <select id="tp-tier"><option value="">Tier</option></select>
                 <select id="tp-nation"><option value="">Nation</option></select>
                 <select id="tp-type"><option value="">Type</option></select>
@@ -239,6 +240,16 @@
                 <button class="btn btn-primary" id="btn-scan">Scan</button>
             </div>
             <div id="scan-out"></div>
+        </div>
+
+        <div class="card">
+            <h2>Shot Replay (射击复现)</h2>
+            <div class="sub">解析单场回放，还原每发射击的双方位置/朝向与伤害，点击在 3D 查看器中复现该发</div>
+            <div class="row">
+                <input id="sr-file" placeholder="Path to the .wotbreplay file (Windows or WSL path)" style="flex:1;">
+                <button class="btn btn-primary" id="btn-sr-load">Parse</button>
+            </div>
+            <div id="sr-out"></div>
         </div>
     </section>
 
@@ -313,7 +324,7 @@ function toWslPath(p) {
 }
 
 // tank type / nation display
-const TYPE_LABEL = { lightTank:'Light', mediumTank:'Medium', heavyTank:'Heavy', 'AT-SPG':'TD' };
+const TYPE_LABEL = { lightTank:'Light', mediumTank:'Medium', heavyTank:'Heavy', 'AT-SPG':'TD', unknown:'Unknown' };
 const NATION_LABEL = { ussr:'USSR', usa:'USA', germany:'Germany', uk:'UK', japan:'Japan', china:'China', france:'France', european:'EU', other:'Other' };
 
 // ---------- Nav ----------
@@ -467,21 +478,58 @@ async function loadTanks() {
 function populateFilters() {
     const tiers=[...new Set(tanksList.map(t=>t.tier))].sort((a,b)=>a-b);
     const nations=[...new Set(tanksList.map(t=>t.nation))].sort();
-    const types=[...new Set(tanksList.map(t=>t.type))].sort();
+    // 部分坦克(119辆，tanks.pb 无类别码)的 type 为空串——其选项值恰与"全部"(value='')
+    // 冲突，产生一个空白选项。统一归一为 'unknown'，显示为 Unknown。
+    const types=[...new Set(tanksList.map(t=>t.type||'unknown'))].sort();
     const addOpts=(id,items,labelFn,def)=>{ const sel=$(id); sel.innerHTML=''; const d=document.createElement('option'); d.value=''; d.textContent=def; sel.appendChild(d); items.forEach(v=>{const o=document.createElement('option'); o.value=v; o.textContent=labelFn(v); sel.appendChild(o);}); };
     addOpts('tp-tier',tiers,v=>'Tier '+v,'Tier');
     addOpts('tp-nation',nations,v=>NATION_LABEL[v]||v,'Nation');
     addOpts('tp-type',types,v=>TYPE_LABEL[v]||v,'Type');
 }
+// ---------- 模糊搜索 ----------
+// 归一化：小写 + 去除空格/连字符/点等符号（e100↔E 100、t34↔T-34、obj261↔Object 261）
+const normTank = s => (s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+// 单 token 对名称打分：① 归一化子串（越靠前越高，前缀再加分）② 子序列（匹配越紧凑越高）。
+// 0 = 不匹配。
+function tankTokenScore(name, tok) {
+    const nn = normTank(name), nq = normTank(tok);
+    if (!nq) return 0;
+    const idx = nn.indexOf(nq);
+    if (idx >= 0) return 200 - Math.min(idx, 50) + (idx === 0 ? 50 : 0);
+    let first = -1, last = -1, pi = 0;
+    for (let i = 0; i < nn.length && pi < nq.length; i++) {
+        if (nn[i] === nq[pi]) { if (first < 0) first = i; last = i; pi++; }
+    }
+    if (pi >= nq.length) return Math.max(40, 100 - (last - first + 1 - nq.length));
+    return 0;
+}
+// 多 token AND（空格分隔，如 "t28 def"），总分为排序依据
+function tankFuzzyScore(name, q) {
+    const toks = q.split(/\s+/).filter(Boolean);
+    if (!toks.length) return 1;
+    let total = 0;
+    for (const t of toks) {
+        const s = tankTokenScore(name, t);
+        if (!s) return 0;
+        total += s;
+    }
+    return total;
+}
 function getFilteredTanks() {
     const q=$('tp-search').value.trim().toLowerCase();
     const tier=$('tp-tier').value, nat=$('tp-nation').value, type=$('tp-type').value;
-    return tanksList.filter(t =>
-        (!q||(t.name||'').toLowerCase().includes(q)) &&
+    const base = tanksList.filter(t =>
         (!tier||String(t.tier)===tier) &&
         (!nat||t.nation===nat) &&
-        (!type||t.type===type)
+        (!type||(t.type||'unknown')===type)
     );
+    if (!q) return base;
+    // 模糊匹配 + 按得分降序（精确/前缀命中排最前），同分按名称
+    return base
+        .map(t => ({ t, s: tankFuzzyScore(t.name, q) }))
+        .filter(x => x.s > 0)
+        .sort((a, b) => b.s - a.s || (a.t.name||'').localeCompare(b.t.name||''))
+        .map(x => x.t);
 }
 function renderGrid() {
     const grid=$('tp-grid'); const filtered=getFilteredTanks();
@@ -494,7 +542,7 @@ function renderGrid() {
         c.innerHTML = `<img class="tc-img" loading="lazy" src="${API}/api/tank_image/${t.id}" alt="">
             <div class="tc-body">
                 <div class="tc-name" title="${esc(t.name)}">${esc(t.name)}</div>
-                <div class="tc-meta"><span class="pill tier">T${t.tier}</span><span class="pill nat">${esc(NATION_LABEL[t.nation]||t.nation)}</span><span class="pill type">${esc(TYPE_LABEL[t.type]||t.type)}</span></div>
+                <div class="tc-meta"><span class="pill tier">T${t.tier}</span><span class="pill nat">${esc(NATION_LABEL[t.nation]||t.nation)}</span><span class="pill type">${esc(TYPE_LABEL[t.type]||t.type||'Unknown')}</span></div>
             </div>`;
         c.addEventListener('click',()=>{ window.open('/tank/'+t.id,'_blank'); });
         frag.appendChild(c);
@@ -551,6 +599,47 @@ async function doScan() {
         </div>`;
 }
 $('btn-scan').addEventListener('click',doScan);
+
+// ---------- Shot Replay (射击复现) ----------
+let srData = [];
+async function srParse() {
+    const out=$('sr-out');
+    const f=$('sr-file').value.trim();
+    if(!f){ out.innerHTML='<div class="muted">Enter a .wotbreplay path.</div>'; return; }
+    out.innerHTML='<span class="spinner"></span> parsing replay...';
+    try {
+        const r=await fetch(API+'/api/replay/shots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:toWslPath(f)})});
+        if(!r.ok){ out.innerHTML='<div class="muted">⚠ HTTP '+r.status+': '+esc((await r.text()).slice(0,200))+'</div>'; return; }
+        const d=await r.json();
+        srData=d.shots||[];
+        window.__srTargetMap={};
+        srData.forEach(s=>{ if(s.target_tank_id) window.__srTargetMap[s.index]=s.target_tank_id; });
+        window.__srAuthorTank=d.author_tank_id||0;
+        console.log('[sr] loaded', srData.length, 'shots, authorTank:', window.__srAuthorTank);
+        renderShotList();
+    } catch(e){ out.innerHTML='<div class="muted">⚠ '+esc(e.message)+'</div>'; }
+}
+function renderShotList() {
+    const out=$('sr-out');
+    if(!srData.length){ out.innerHTML='<div class="muted">No shots detected.</div>'; return; }
+    const rows=srData.map(s=>`
+        <tr style="cursor:pointer;" onclick="openShotInViewer(${s.index})">
+            <td>#${s.index}</td><td>${s.time_s.toFixed(1)}s</td><td>${s.damage}</td>
+            <td>${esc(s.target_name)}</td><td>${s.is_kill?'<span class="pill type">KILL</span>':''}</td>
+            <td><button class="btn" style="padding:2px 10px;">3D View</button></td>
+        </tr>`).join('');
+    out.innerHTML=`<table class="inline-table-sm"><tr><th>#</th><th>Time</th><th>Dmg</th><th>Target</th><th></th><th></th></tr>${rows}</table>
+        <div class="muted" style="margin-top:6px;">点击行 → 3D 查看器复现该发（相机=射手 POV + 热力图）</div>`;
+}
+window.openShotInViewer = function(no) {
+    const w = Math.round(window.innerWidth*0.85), h = Math.round(window.innerHeight*0.85);
+    const tid = (window.__srTargetMap||{})[no] || window.__srAuthorTank || 0;
+    // 射手坦克 = 回放作者（__srAuthorTank）；不传时 armor_view 默认射手=目标坦克
+    const sh = window.__srAuthorTank ? ('&shooter='+window.__srAuthorTank) : '';
+    window.open(API+'/armor_view/view/'+tid+'?heatmap=1&shot='+no+sh, '_blank',
+        'width='+w+',height='+h);
+};
+$('btn-sr-load').addEventListener('click',srParse);
 
 // ---------- Compare ----------
 async function doCompare() {

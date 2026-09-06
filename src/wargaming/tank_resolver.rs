@@ -67,6 +67,9 @@ pub struct ShellData {
     pub damage: u32,
     /// 模块伤害——仅命中履带/炮管等外部模块时的伤害
     pub module_damage: u32,
+    /// HE 爆炸半径（m）；旧缓存缺失时为 0。
+    #[serde(default)]
+    pub explosion_radius: f64,
 }
 
 /// 坦克解析器：缓存 `tank_id → TankInfo`。
@@ -142,7 +145,9 @@ impl TankResolver {
             let nation = tank.nation;
             let tank_type = tank.tank_type;
             let tier = tank.tier as u8;
-            let hp = Some(tank.hp);
+            // 血量 = 车体 health（TankDefinition.health）+ 炮塔 health（TurretDefinition.health）
+            // ——取顶级炮塔（turrets.at(-1)，对齐 BlitzKit 默认配置），百科显示的总血量
+            let hp = Some(tank.hp + tank.turrets.last().map(|t| t.health).unwrap_or(0));
             let is_premium = tank.is_premium;
             let speed_forward = if tank.speed_forward > 0.0 { Some(tank.speed_forward as u32) } else { None };
             let speed_reverse = if tank.speed_reverse > 0.0 { Some(tank.speed_reverse as u32) } else { None };
@@ -157,6 +162,7 @@ impl TankResolver {
                         penetration: s.penetration.round() as u32,
                         damage: s.damage.round() as u32,
                         module_damage: s.module_damage.round() as u32,
+                        explosion_radius: s.explosion_radius,
                     });
                 }
             }

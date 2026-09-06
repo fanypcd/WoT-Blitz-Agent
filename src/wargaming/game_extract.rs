@@ -51,6 +51,17 @@ pub fn load_game_data(tank_id: u32, dir: &Path) -> Option<TankGameData> {
 }
 
 /// 确定游戏数据目录：优先用显式路径，否则在常见目录里自动探测。
+/// 从 item_defs XML 提取 `<hullPosition>x y z</hullPosition>`（车体相对底盘位置）。
+fn parse_hull_position(xml: &str) -> Option<[f32; 3]> {
+    let start = xml.find("<hullPosition>")? + "<hullPosition>".len();
+    let end = xml[start..].find("</hullPosition>")? + start;
+    let nums: Vec<f32> = xml[start..end]
+        .split_whitespace()
+        .filter_map(|t| t.parse().ok())
+        .collect();
+    if nums.len() == 3 { Some([nums[0], nums[1], nums[2]]) } else { None }
+}
+
 pub fn resolve_game_dir(explicit: Option<&Path>) -> Result<PathBuf> {
     if let Some(d) = explicit {
         if d.exists() {
@@ -65,6 +76,49 @@ pub fn resolve_game_dir(explicit: Option<&Path>) -> Result<PathBuf> {
         }
     }
     anyhow::bail!("No game data directory found. Pass --game-dir explicitly.")
+}
+
+/// 归一化用于文件名比较：去掉所有非字母数字并转小写（如 "GB91_Super_Conqueror" → "gb91superconqueror"）。
+fn norm_file_name(s: &str) -> String {
+    s.chars().filter(|c| c.is_ascii_alphanumeric()).flat_map(|c| c.to_lowercase()).collect()
+}
+/// 在民族目录内解析某坦克的车辆 DVPL 文件（XML/YAML）。
+/// 优先精确匹配 `{dev_name}{ext}`；否则按归一化后的文件名包含 dev_name 匹配（处理
+/// tanks.pb dev_name 与游戏文件名不一致，如 "super-conqueror" → "GB91_Super_Conqueror"）。
+fn resolve_vehicle_file(
+    game_dir: &Path,
+    rel: &str,
+    nation: &str,
+    dev_name: &str,
+    ext: &str,
+) -> Option<PathBuf> {
+    let dir = game_dir.join(rel).join(nation);
+    let exact = game_dir.join(rel).join(nation).join(format!("{}{}", dev_name, ext));
+    if exact.exists() {
+        return Some(exact);
+    }
+    let target = norm_file_name(dev_name);
+    if target.is_empty() { return None; }
+    let entries = std::fs::read_dir(&dir).ok()?;
+    // 收集所有匹配文件名：含 target 的（排除 _tutorial/_bot 变体，按最短/最接近优先）
+    let mut cands: Vec<(usize, PathBuf)> = Vec::new();
+    for e in entries.flatten() {
+        let name = e.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if !name.ends_with(ext) { continue; }
+        let base = &name[..name.len() - ext.len()];
+        // 排除 tutorial/bot 等衍生变体
+        if base.to_lowercase().contains("tutorial") || base.to_lowercase().contains("bot") {
+            continue;
+        }
+        let norm = norm_file_name(base);
+        if norm.contains(&target) || target.contains(&norm) {
+            cands.push((base.len(), e.path()));
+        }
+    }
+    // 最短文件名优先（通常是基准车而非衍生）
+    cands.sort_by_key(|(l, _)| *l);
+    cands.first().map(|(_, p)| p.clone())
 }
 
 /// 批量提取全部坦克的装甲/碰撞数据到 `game_data/`（`extract-game` 命令）。
@@ -100,22 +154,32 @@ pub fn extract_all(
             continue;
         }
 
-        // 该坦克在游戏目录里的 XML（装甲）+ YAML（碰撞）DVPL 文件
-        let xml_path = game_dir.join(format!("XML/item_defs/vehicles/{}/{}.xml.dvpl", nation, model_name));
-        let yaml_path = game_dir.join(format!("3d/Tanks/Parameters/{}/{}.yaml.dvpl", nation, model_name));
+        // 该坦克在游戏目录里的 XML（装甲）+ YAML（碰撞）DVPL 文件。
+        // 注意：tanks.pb 的 dev_name（如 "super-conqueror"）与游戏实际文件名
+        // （如 "GB91_Super_Conqueror"）不一致，需按文件名模糊匹配（忽略非字母数字、
+        // 忽略大小写地包含 dev_name 片段）。
+        let xml_path = resolve_vehicle_file(&game_dir, "XML/item_defs/vehicles", nation, model_name, ".xml.dvpl");
+        let yaml_path = resolve_vehicle_file(&game_dir, "3d/Tanks/Parameters", nation, model_name, ".yaml.dvpl");
 
-        if !xml_path.exists() || !yaml_path.exists() {
+        if xml_path.is_none() || yaml_path.is_none() {
             stats.missing_files += 1;
             continue;
         }
+        let xml_path = xml_path.unwrap();
+        let yaml_path = yaml_path.unwrap();
 
         // 解码 DVPL 并解析成结构化数据（失败则视为 null，不算致命）
-        let armor_model = DvplFile::read(&xml_path)
+        let xml_text = DvplFile::read(&xml_path)
             .ok()
-            .and_then(|d| ArmorModel::parse_from_xml(&String::from_utf8_lossy(&d.data)));
-        let collision = DvplFile::read(&yaml_path)
+            .map(|d| String::from_utf8_lossy(&d.data).into_owned());
+        let armor_model = xml_text.as_ref().and_then(|t| ArmorModel::parse_from_xml(t));
+        // hullPosition 在 item_defs XML 里（车体相对底盘的权威位置），补进 collision 数据。
+        let mut collision = DvplFile::read(&yaml_path)
             .ok()
             .and_then(|d| CollisionData::parse_from_yaml(&String::from_utf8_lossy(&d.data)));
+        if let (Some(t), Some(ref mut c)) = (&xml_text, collision.as_mut()) {
+            c.hull_position = parse_hull_position(t);
+        }
 
         if armor_model.is_none() && collision.is_none() {
             stats.parse_failed += 1;

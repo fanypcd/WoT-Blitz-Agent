@@ -123,6 +123,20 @@ pub struct ShellData {
     pub damage: f64,
     pub penetration: f64,
     pub module_damage: f64,
+    /// 弹速（m/s）。
+    pub velocity: f64,
+    /// 最大射程（m）。
+    pub range: f64,
+    /// 远距离穿深（穿深随距离线性衰减到该值）。
+    pub penetration_far: f64,
+    /// 弹径（mm）。
+    pub caliber: f64,
+    /// 转正角（度）。
+    pub normalization: f64,
+    /// 跳弹临界角（度）。
+    pub ricochet: f64,
+    /// HE 爆炸半径（m）；仅 HE 弹非零。
+    pub explosion_radius: f64,
 }
 
 /// 一门主炮。
@@ -142,11 +156,24 @@ pub struct GunData {
     pub reload: GunReload,
 }
 
+/// 一个引擎（来自坦克条目 field21）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EngineData {
+    pub name: String,
+    /// 引擎功率（马力）。
+    pub power: f64,
+    /// 起火率（0-1，如 0.082 = 8.2%）。
+    pub fire_chance: f64,
+}
+
 /// 一个炮塔（含其主炮）。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TurretData {
     pub module_id: u32,
     pub name: String,
+    /// 炮塔血量（TurretDefinition.health，field2）——坦克总 HP = 车体 health + 炮塔 health
+    pub health: u32,
+    /// 炮塔重量（TurretDefinition.weight，field8）
     pub weight: f64,
     pub view_range: f64,
     pub traverse_speed: f64,
@@ -169,6 +196,46 @@ pub struct TankFullData {
     pub hull_traverse: f64,
     pub weight: f64,
     pub turrets: Vec<TurretData>,
+    /// 可用引擎列表（通常 1 个，部分车多档）。
+    pub engines: Vec<EngineData>,
+}
+
+/// 炮管俯仰极值（PitchLimitsExtrema，度）：朝向某方向的俯仰范围。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PitchExtremaInfo {
+    pub min: f32,
+    pub max: f32,
+    pub range: f32,
+}
+
+/// 炮管俯仰限制（GunModelDefinition.pitch，度，对齐 BlitzKit applyPitchYawLimits）：
+/// min = −仰角上限、max = 俯角上限（lower=−max、upper=−min）；front/back = 炮塔朝向
+/// 车头/车尾方向的极值（range 为该朝向的覆盖角度），transition = 朝向过渡角度。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PitchLimitsInfo {
+    pub min: f32,
+    pub max: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub front: Option<PitchExtremaInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub back: Option<PitchExtremaInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition: Option<f32>,
+}
+
+/// 炮塔水平射界（TurretModelDefinition.yaw，度；使用时钳制到 [−max, −min]，对齐 BlitzKit）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct YawLimitsInfo {
+    pub min: f32,
+    pub max: f32,
+}
+
+/// 初始炮塔姿态（ModelDefinition.initial_turret_rotation，度）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct InitialRotationInfo {
+    pub yaw: f32,
+    pub pitch: f32,
+    pub roll: f32,
 }
 
 /// 单个炮塔的模型节点信息（来自 models.pb）。
@@ -178,6 +245,15 @@ pub struct TurretModelInfo {
     pub module_id: u32,
     /// 该炮塔的模型节点编号（`turret_0X` 的 X）。
     pub model_node: u32,
+    /// 炮塔装甲板 spaced 列表（TurretModelDefinition.armor.spaced，BlitzKit 分类权威）。
+    #[serde(default)]
+    pub turret_spaced: Vec<u32>,
+    /// 火炮原点（TurretModelDefinition.gun_origin，DAVA 坐标）——炮管装甲板的定位基准。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gun_origin: Option<[f32; 3]>,
+    /// 炮塔水平射界（TurretModelDefinition.yaw，度）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub yaw_limits: Option<YawLimitsInfo>,
     /// 该炮塔下各主炮的模型节点编号（`gun_0X` 的 X）。
     pub guns: Vec<GunModelInfo>,
 }
@@ -189,12 +265,39 @@ pub struct GunModelInfo {
     pub gun_module_id: u32,
     /// 该主炮的模型节点编号（`gun_0X` 的 X）。
     pub model_node: u32,
+    /// 炮管外部模块厚度（GunModelDefinition.thickness，mm）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thickness: Option<f32>,
+    /// 炮根/炮盾掩体位置（GunModelDefinition.mask）。None → 外部模块只取精确 gun_0X 节点；
+    /// Some(v) → 含 gun_0X* 全部网格并按掩体平面裁剪（对齐 BlitzKit）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask: Option<f32>,
+    /// 炮管装甲板 spaced 列表（GunModelDefinition.armor.spaced）。
+    /// BlitzKit 数据中炮管安装甲普遍为 spaced（间隙甲）：穿透它不算击穿坦克，
+    /// 炮弹必须继续穿透后面的车体/炮塔主装甲（实测 T-34 [1,2,3]、E 100 [1,2,3,4,5] 等）。
+    #[serde(default)]
+    pub gun_spaced: Vec<u32>,
+    /// 炮管俯仰限制（GunModelDefinition.pitch，含 front/back 极值，度）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pitch_limits: Option<PitchLimitsInfo>,
 }
 
 /// 一辆坦克的模型节点信息（来自 models.pb）。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TankModelInfo {
     pub tank_id: u32,
+    /// 车体装甲板 spaced 列表（ModelDefinition.armor.spaced）。
+    #[serde(default)]
+    pub hull_spaced: Vec<u32>,
+    /// 炮塔原点（ModelDefinition.turret_origin，DAVA 坐标）——炮塔装甲板的定位基准。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turret_origin: Option<[f32; 3]>,
+    /// 履带原点（第一个 TrackModelDefinition.origin，DAVA 坐标）——车体装甲板的定位基准。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub track_origin: Option<[f32; 3]>,
+    /// 初始炮塔姿态（ModelDefinition.initial_turret_rotation，度；部分车辆才有）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_turret_rotation: Option<InitialRotationInfo>,
     pub turrets: Vec<TurretModelInfo>,
 }
 
@@ -258,7 +361,7 @@ fn parse_tank_main(sub: &[u8], tank_id: u32) -> Result<Option<TankFullData>> {
         nation: String::new(), tier: 0, tank_type: String::new(),
         hp: 0, is_premium: false,
         speed_forward: 0.0, speed_reverse: 0.0, hull_traverse: 0.0,
-        weight: 0.0, turrets: Vec::new(),
+        weight: 0.0, turrets: Vec::new(), engines: Vec::new(),
     };
     let mut has_name = false;
     let mut localized_name = String::new();
@@ -273,6 +376,31 @@ fn parse_tank_main(sub: &[u8], tank_id: u32) -> Result<Option<TankFullData>> {
             (13, 0) => tank.is_premium = sr.varint()? == 1,
             (16, 0) => tank.tier = sr.varint()? as u32,
             (17, 0) => tank.tank_type = decode_class_code(sr.varint()? as u32),
+            (21, 2) => {
+                // 引擎: field2=名字, field6=功率(马力), field7=起火率(万分比)
+                let l = sr.varint()? as usize;
+                let eb = sr.bytes(l)?;
+                let mut name = String::new();
+                let mut power = 0.0f64;
+                let mut fire = 0.0f64;
+                let mut er = Reader { buf: eb, pos: 0 };
+                while let Some(res) = er.tag() {
+                    let (f, w) = res?;
+                    match (f, w) {
+                        (2, 2) => {
+                            let nl = er.varint()? as usize;
+                            let nb = er.bytes(nl)?;
+                            name = extract_name(nb);
+                        },
+                        (6, 0) => power = er.varint()? as f64,
+                        (7, 0) => fire = er.varint()? as f64 / 10000.0,
+                        _ => er.skip_field(w)?,
+                    }
+                }
+                if !name.is_empty() || power > 0.0 {
+                    tank.engines.push(EngineData { name, power, fire_chance: fire });
+                }
+            },
             (25, 5) => { tank.speed_forward = f32::from_le_bytes(sr.bytes(4)?.try_into().unwrap()) as f64; },
             (26, 5) => { tank.speed_reverse = f32::from_le_bytes(sr.bytes(4)?.try_into().unwrap()) as f64; },
             (27, 5) => { tank.hull_traverse = f32::from_le_bytes(sr.bytes(4)?.try_into().unwrap()) as f64; },
@@ -291,6 +419,9 @@ fn parse_tank_main(sub: &[u8], tank_id: u32) -> Result<Option<TankFullData>> {
     if !has_name { return Ok(None); }
     // 优先本地化 display 名（en）；若为空则用 field32 短名。
     if !localized_name.is_empty() { tank.name = localized_name; }
+    // 类别码 field17 缺失 → 轻坦（Blitz 约定：lightTank 为枚举默认值，
+    // 仅 medium/heavy/AT-SPG 显式编码；实测 119 辆车无此字段，均为轻坦）。
+    if tank.tank_type.is_empty() { tank.tank_type = "lightTank".to_string(); }
     Ok(Some(tank))
 }
 
@@ -299,16 +430,19 @@ fn parse_turret(tb: &[u8]) -> Result<Option<TurretData>> {
     let mut tr = Reader { buf: tb, pos: 0 };
     let mut turret = TurretData {
         module_id: 0, name: String::new(),
-        weight: 0.0, view_range: 0.0, traverse_speed: 0.0, guns: Vec::new(),
+        health: 0, weight: 0.0, view_range: 0.0, traverse_speed: 0.0, guns: Vec::new(),
     };
     let mut has_gun = false;
     while let Some(res) = tr.tag() {
         let (f, w) = res?;
         match (f, w) {
             (1, 0) => turret.module_id = tr.varint()? as u32,
-            (2, 0) => turret.weight = tr.varint()? as f64,
+            // TurretDefinition.health（field2）——炮塔血量；旧实现误当 weight
+            (2, 0) => turret.health = tr.varint()? as u32,
             (3, 0) => turret.view_range = tr.varint()? as f64,
             (4, 5) => turret.traverse_speed = f32::from_le_bytes(tr.bytes(4)?.try_into().unwrap()) as f64,
+            // TurretDefinition.weight（field8）——真正的炮塔重量
+            (8, 0) => turret.weight = tr.varint()? as f64,
             (6, 2) => { let l = tr.varint()? as usize; let _ = tr.bytes(l)?; },
             (9, 2) => {
                 let glen = tr.varint()? as usize;
@@ -399,7 +533,7 @@ fn parse_gun(gb: &[u8]) -> Result<Option<GunData>> {
 /// 解析一个弹种子块。
 fn parse_shell(sb: &[u8]) -> Result<Option<ShellData>> {
     let mut sr = Reader { buf: sb, pos: 0 };
-    let mut shell = ShellData { name: String::new(), shell_type: String::new(), damage: 0.0, penetration: 0.0, module_damage: 0.0 };
+    let mut shell = ShellData { name: String::new(), shell_type: String::new(), damage: 0.0, penetration: 0.0, module_damage: 0.0, velocity: 0.0, range: 0.0, penetration_far: 0.0, caliber: 0.0, normalization: 0.0, ricochet: 0.0, explosion_radius: 0.0 };
     let mut name_bytes: Vec<u8> = Vec::new();
     let mut type_bytes: Vec<u8> = Vec::new();
     while let Some(res) = sr.tag() {
@@ -407,18 +541,25 @@ fn parse_shell(sb: &[u8]) -> Result<Option<ShellData>> {
         match (f, w) {
             (1, 0) => { let _ = sr.varint()?; },
             (2, 2) => { let l = sr.varint()? as usize; name_bytes = sr.bytes(l)?.to_vec(); },
+            (3, 0) => shell.velocity = sr.varint()? as f64,          // 弹速 m/s
             (4, 0) => shell.damage = sr.varint()? as f64,
             (5, 0) => shell.module_damage = sr.varint()? as f64,
             (7, 2) => { let l = sr.varint()? as usize; type_bytes = sr.bytes(l)?.to_vec(); },
             (8, 2) => { let l = sr.varint()? as usize; let pb = sr.bytes(l)?;
-                // 穿透在 field8 内嵌 field1(float)
+                // 穿透在 field8 内嵌：field1(float)=近距穿深、field2(float)=远距穿深
                 let mut pr = Reader { buf: pb, pos: 0 };
                 while let Some(res2) = pr.tag() {
                     let (f2, w2) = res2?;
                     if f2 == 1 && w2 == 5 { shell.penetration = f32::from_le_bytes(pr.bytes(4)?.try_into().unwrap()) as f64; }
+                    else if f2 == 2 && w2 == 5 { shell.penetration_far = f32::from_le_bytes(pr.bytes(4)?.try_into().unwrap()) as f64; }
                     else { pr.skip_field(w2)?; }
                 }
             },
+            (13, 0) => shell.range = sr.varint()? as f64,            // 射程 m
+            (6, 5) => shell.caliber = f32::from_le_bytes(sr.bytes(4)?.try_into().unwrap()) as f64,      // 弹径 mm
+            (10, 5) => shell.normalization = f32::from_le_bytes(sr.bytes(4)?.try_into().unwrap()) as f64, // 转正角度
+            (11, 5) => shell.ricochet = f32::from_le_bytes(sr.bytes(4)?.try_into().unwrap()) as f64,   // 跳弹临界角
+            (12, 5) => shell.explosion_radius = f32::from_le_bytes(sr.bytes(4)?.try_into().unwrap()) as f64, // HE 爆炸半径 m
             _ => sr.skip_field(w)?,
         }
     }
@@ -557,6 +698,46 @@ pub fn parse_models_pb(buf: &[u8]) -> Result<Vec<TankModelInfo>> {
     Ok(result)
 }
 
+/// 解析 Armor 消息中的 spaced 列表（field2：packed 或逐项 varint repeated uint32）。
+/// Armor = { map<uint32,float> thickness=1; repeated uint32 spaced=2; }。
+fn parse_armor_spaced(ab: &[u8]) -> Result<Vec<u32>> {
+    let mut ar = Reader { buf: ab, pos: 0 };
+    let mut spaced = Vec::new();
+    while let Some(res) = ar.tag() {
+        let (f, w) = res?;
+        match (f, w) {
+            (2, 2) => {
+                let l = ar.varint()? as usize;
+                let pb = ar.bytes(l)?;
+                let mut pr = Reader { buf: pb, pos: 0 };
+                while pr.pos < pr.buf.len() {
+                    spaced.push(pr.varint()? as u32);
+                }
+            }
+            (2, 0) => spaced.push(ar.varint()? as u32),
+            _ => ar.skip_field(w)?,
+        }
+    }
+    Ok(spaced)
+}
+
+/// 解析 Vector3 消息（field1/2/3 均为 fixed32 float；缺失分量记 0）。
+fn parse_vec3(vb: &[u8]) -> Result<Option<[f32; 3]>> {
+    let mut vr = Reader { buf: vb, pos: 0 };
+    let mut v = [0.0f32; 3];
+    let mut any = false;
+    while let Some(res) = vr.tag() {
+        let (f, w) = res?;
+        match (f, w) {
+            (1, 5) => { let b = vr.bytes(4)?; v[0] = f32::from_le_bytes([b[0], b[1], b[2], b[3]]); any = true; }
+            (2, 5) => { let b = vr.bytes(4)?; v[1] = f32::from_le_bytes([b[0], b[1], b[2], b[3]]); any = true; }
+            (3, 5) => { let b = vr.bytes(4)?; v[2] = f32::from_le_bytes([b[0], b[1], b[2], b[3]]); any = true; }
+            _ => vr.skip_field(w)?,
+        }
+    }
+    Ok(if any { Some(v) } else { None })
+}
+
 /// 解析 models.pb 中单个坦克条目。
 fn parse_model_tank_entry(tb: &[u8]) -> Result<Option<TankModelInfo>> {
     let mut tr = Reader { buf: tb, pos: 0 };
@@ -572,11 +753,43 @@ fn parse_model_tank_entry(tb: &[u8]) -> Result<Option<TankModelInfo>> {
     }
     let Some(content) = content else { return Ok(None) };
 
+    let mut hull_spaced = Vec::new();
+    let mut turret_origin: Option<[f32; 3]> = None;
+    let mut track_origin: Option<[f32; 3]> = None;
+    let mut initial_turret_rotation: Option<InitialRotationInfo> = None;
     let mut turrets = Vec::new();
     let mut cr = Reader { buf: content, pos: 0 };
     while let Some(res) = cr.tag() {
         let (f, w) = res?;
         match (f, w) {
+            // ModelDefinition.armor（field1）= 车体 Armor（thickness map + spaced）
+            (1, 2) => {
+                let l = cr.varint()? as usize;
+                hull_spaced = parse_armor_spaced(cr.bytes(l)?)?;
+            }
+            // ModelDefinition.turret_origin（field2）——注意：全 0 的 origin 可能被序列化器
+            // 省略为空消息，此时按 (0,0,0) 处理（否则 model_origins 整体失效、定位回退旧方案）
+            (2, 2) => {
+                let l = cr.varint()? as usize;
+                turret_origin = Some(parse_vec3(cr.bytes(l)?)?.unwrap_or([0.0, 0.0, 0.0]));
+            }
+            // ModelDefinition.initial_turret_rotation（field3）= {yaw=1, pitch=2, roll=3}（度）
+            (3, 2) => {
+                let l = cr.varint()? as usize;
+                let ib = cr.bytes(l)?;
+                let mut ir = Reader { buf: ib, pos: 0 };
+                let mut rot = InitialRotationInfo { yaw: 0.0, pitch: 0.0, roll: 0.0 };
+                while let Some(res2) = ir.tag() {
+                    let (f2, w2) = res2?;
+                    match (f2, w2) {
+                        (1, 5) => { let b = ir.bytes(4)?; rot.yaw = f32::from_le_bytes([b[0], b[1], b[2], b[3]]); }
+                        (2, 5) => { let b = ir.bytes(4)?; rot.pitch = f32::from_le_bytes([b[0], b[1], b[2], b[3]]); }
+                        (3, 5) => { let b = ir.bytes(4)?; rot.roll = f32::from_le_bytes([b[0], b[1], b[2], b[3]]); }
+                        _ => ir.skip_field(w2)?,
+                    }
+                }
+                initial_turret_rotation = Some(rot);
+            }
             (4, 2) => {
                 let tl = cr.varint()? as usize;
                 let tb = cr.bytes(tl)?;
@@ -584,10 +797,41 @@ fn parse_model_tank_entry(tb: &[u8]) -> Result<Option<TankModelInfo>> {
                     turrets.push(tur);
                 }
             }
+            // ModelDefinition.tracks（field5）= map<uint32, TrackModelDefinition{thickness=1, origin=2}>
+            (5, 2) => {
+                let l = cr.varint()? as usize;
+                let kb = cr.bytes(l)?;
+                let mut k = None;
+                let mut origin: Option<[f32; 3]> = None;
+                let mut kr = Reader { buf: kb, pos: 0 };
+                while let Some(res2) = kr.tag() {
+                    let (f2, w2) = res2?;
+                    match (f2, w2) {
+                        (1, 0) => { k = Some(kr.varint()? as u32); }
+                        (2, 2) => {
+                            let l2 = kr.varint()? as usize;
+                            let trb = kr.bytes(l2)?;
+                            let mut trr = Reader { buf: trb, pos: 0 };
+                            while let Some(res3) = trr.tag() {
+                                let (f3, w3) = res3?;
+                                match (f3, w3) {
+                                    (2, 2) => { let l3 = trr.varint()? as usize; origin = parse_vec3(trr.bytes(l3)?)?; }
+                                    _ => trr.skip_field(w3)?,
+                                }
+                            }
+                        }
+                        _ => kr.skip_field(w2)?,
+                    }
+                }
+                if k.is_some() && track_origin.is_none() {
+                    // 空的 origin 消息（全 0 省略）按 (0,0,0) 处理——如 T28 Defender
+                    track_origin = Some(origin.unwrap_or([0.0, 0.0, 0.0]));
+                }
+            }
             _ => cr.skip_field(w)?,
         }
     }
-    Ok(Some(TankModelInfo { tank_id, turrets }))
+    Ok(Some(TankModelInfo { tank_id, hull_spaced, turret_origin, track_origin, initial_turret_rotation, turrets }))
 }
 
 /// 解析 models.pb 中单个炮塔条目。
@@ -606,12 +850,38 @@ fn parse_model_turret(tb: &[u8]) -> Result<Option<TurretModelInfo>> {
     let Some(content) = content else { return Ok(None) };
 
     let mut model_node = 0u32;
+    let mut turret_spaced = Vec::new();
+    let mut gun_origin: Option<[f32; 3]> = None;
+    let mut yaw_limits: Option<YawLimitsInfo> = None;
     let mut guns = Vec::new();
     let mut cr = Reader { buf: content, pos: 0 };
     while let Some(res) = cr.tag() {
         let (f, w) = res?;
         match (f, w) {
             (3, 0) => model_node = cr.varint()? as u32,
+            // TurretModelDefinition.armor（field2）= 炮塔 Armor（thickness map + spaced）
+            (2, 2) => {
+                let l = cr.varint()? as usize;
+                turret_spaced = parse_armor_spaced(cr.bytes(l)?)?;
+            }
+            // TurretModelDefinition.gun_origin（field4）
+            (4, 2) => { let l = cr.varint()? as usize; gun_origin = parse_vec3(cr.bytes(l)?)?; }
+            // TurretModelDefinition.yaw（field6）= YawLimits{min=1, max=2}（度）
+            (6, 2) => {
+                let l = cr.varint()? as usize;
+                let yb = cr.bytes(l)?;
+                let mut yr = Reader { buf: yb, pos: 0 };
+                let mut yl = YawLimitsInfo { min: 0.0, max: 0.0 };
+                while let Some(res2) = yr.tag() {
+                    let (f2, w2) = res2?;
+                    match (f2, w2) {
+                        (1, 5) => { let b = yr.bytes(4)?; yl.min = f32::from_le_bytes([b[0], b[1], b[2], b[3]]); }
+                        (2, 5) => { let b = yr.bytes(4)?; yl.max = f32::from_le_bytes([b[0], b[1], b[2], b[3]]); }
+                        _ => yr.skip_field(w2)?,
+                    }
+                }
+                yaw_limits = Some(yl);
+            }
             (5, 2) => {
                 let gl = cr.varint()? as usize;
                 let gb = cr.bytes(gl)?;
@@ -622,10 +892,10 @@ fn parse_model_turret(tb: &[u8]) -> Result<Option<TurretModelInfo>> {
             _ => cr.skip_field(w)?,
         }
     }
-    Ok(Some(TurretModelInfo { module_id: tmod, model_node, guns }))
+    Ok(Some(TurretModelInfo { module_id: tmod, model_node, turret_spaced, gun_origin, yaw_limits, guns }))
 }
 
-/// 解析 models.pb 中单个主炮条目。
+/// 解析 models.pb 中单个主炮条目（GunModelDefinition：1=armor 2=thickness 3=model_id 4=pitch 5=mask）。
 fn parse_model_gun(gb: &[u8]) -> Result<Option<GunModelInfo>> {
     let mut gr = Reader { buf: gb, pos: 0 };
     let mut gmod = 0u32;
@@ -638,18 +908,62 @@ fn parse_model_gun(gb: &[u8]) -> Result<Option<GunModelInfo>> {
             _ => gr.skip_field(w)?,
         }
     }
-    let Some(inner) = inner else { return Ok(Some(GunModelInfo { gun_module_id: gmod, model_node: 0 })) };
+    let Some(inner) = inner else {
+        return Ok(Some(GunModelInfo { gun_module_id: gmod, model_node: 0, thickness: None, mask: None, gun_spaced: Vec::new(), pitch_limits: None }));
+    };
 
     let mut ir = Reader { buf: inner, pos: 0 };
     let mut model_node = 0u32;
+    let mut thickness = None;
+    let mut mask = None;
+    let mut gun_spaced = Vec::new();
+    let mut pitch_limits: Option<PitchLimitsInfo> = None;
     while let Some(res) = ir.tag() {
         let (f, w) = res?;
         match (f, w) {
             (3, 0) => model_node = ir.varint()? as u32,
+            // float 固定 32 位小端
+            (2, 5) => { let b = ir.bytes(4)?; thickness = Some(f32::from_le_bytes([b[0], b[1], b[2], b[3]])); }
+            (5, 5) => { let b = ir.bytes(4)?; mask = Some(f32::from_le_bytes([b[0], b[1], b[2], b[3]])); }
+            // GunModelDefinition.armor（field1）= 炮管 Armor（thickness map + spaced）
+            (1, 2) => { let l = ir.varint()? as usize; gun_spaced = parse_armor_spaced(ir.bytes(l)?)?; }
+            // GunModelDefinition.pitch（field4）= PitchLimits{min=1, max=2, front=3, back=4, transition=5}
+            (4, 2) => {
+                let l = ir.varint()? as usize;
+                let pb = ir.bytes(l)?;
+                let mut pr = Reader { buf: pb, pos: 0 };
+                let mut pl = PitchLimitsInfo { min: 0.0, max: 0.0, front: None, back: None, transition: None };
+                let extrema = |b: &[u8]| -> Result<PitchExtremaInfo> {
+                    let mut er = Reader { buf: b, pos: 0 };
+                    let mut e = PitchExtremaInfo { min: 0.0, max: 0.0, range: 0.0 };
+                    while let Some(res2) = er.tag() {
+                        let (f2, w2) = res2?;
+                        match (f2, w2) {
+                            (1, 5) => { let b = er.bytes(4)?; e.min = f32::from_le_bytes([b[0], b[1], b[2], b[3]]); }
+                            (2, 5) => { let b = er.bytes(4)?; e.max = f32::from_le_bytes([b[0], b[1], b[2], b[3]]); }
+                            (3, 5) => { let b = er.bytes(4)?; e.range = f32::from_le_bytes([b[0], b[1], b[2], b[3]]); }
+                            _ => er.skip_field(w2)?,
+                        }
+                    }
+                    Ok(e)
+                };
+                while let Some(res2) = pr.tag() {
+                    let (f2, w2) = res2?;
+                    match (f2, w2) {
+                        (1, 5) => { let b = pr.bytes(4)?; pl.min = f32::from_le_bytes([b[0], b[1], b[2], b[3]]); }
+                        (2, 5) => { let b = pr.bytes(4)?; pl.max = f32::from_le_bytes([b[0], b[1], b[2], b[3]]); }
+                        (3, 2) => { let l2 = pr.varint()? as usize; pl.front = Some(extrema(pr.bytes(l2)?)?); }
+                        (4, 2) => { let l2 = pr.varint()? as usize; pl.back = Some(extrema(pr.bytes(l2)?)?); }
+                        (5, 5) => { let b = pr.bytes(4)?; pl.transition = Some(f32::from_le_bytes([b[0], b[1], b[2], b[3]])); }
+                        _ => pr.skip_field(w2)?,
+                    }
+                }
+                pitch_limits = Some(pl);
+            }
             _ => ir.skip_field(w)?,
         }
     }
-    Ok(Some(GunModelInfo { gun_module_id: gmod, model_node }))
+    Ok(Some(GunModelInfo { gun_module_id: gmod, model_node, thickness, mask, gun_spaced, pitch_limits }))
 }
 
 /// 读取单辆坦克的模型节点信息。
@@ -685,6 +999,15 @@ mod parse_tests {
         assert_eq!(ap.module_damage as i64, 180);
         assert!((gun.reload.reload - 12.4).abs() < 0.5, "reload {}", gun.reload.reload);
         assert!(!gun.reload.is_burst);
+        // 引擎数据（IS-7: V-2-54SCP 900 马力）
+        assert!(!is7.engines.is_empty(), "IS-7 should have engine");
+        let eng = &is7.engines[0];
+        assert!(eng.power > 0.0, "engine power");
+        assert!(eng.fire_chance > 0.0 && eng.fire_chance < 0.5, "fire chance");
+        // 弹速/射程/远距穿深
+        assert!(ap.velocity > 0.0, "shell velocity");
+        assert!(ap.range > 0.0, "shell range");
+        assert!(ap.penetration_far > 0.0 && ap.penetration_far <= ap.penetration, "pen far");
         // T57 heavy = magazine
         let t57 = tanks.iter().find(|t| t.tank_id == 14881).expect("T57");
         let g0 = &t57.turrets[0].guns[0];
@@ -722,5 +1045,30 @@ mod parse_tests {
         assert_eq!(t2.module_id, 58481);
         assert_eq!(t2.guns.iter().map(|g| (g.gun_module_id, g.model_node)).collect::<Vec<_>>(),
                    vec![(47217, 2), (48497, 3), (52849, 3)]);
+    }
+
+    /// Armor.spaced 解析（炮管/车体/炮塔装甲板的 spaced 分类）。
+    /// 实测（2026-09）：炮管安装甲普遍为 spaced——穿透它不算击穿坦克。
+    #[test]
+    fn parse_models_pb_spaced() {
+        let bytes = std::fs::read(crate::data::data_path("models.pb")).unwrap();
+        let ms = parse_models_pb(&bytes).unwrap();
+        // Jg.Pz. E 100: gun spaced = [1,2,3,4]（17cm Pak），hull spaced = [13,15]
+        let jpz = ms.iter().find(|m| m.tank_id == 12049).expect("Jg.Pz. E 100");
+        let gun = &jpz.turrets[0].guns[0];
+        assert_eq!(gun.gun_spaced, vec![1, 2, 3, 4]);
+        assert_eq!(jpz.hull_spaced, vec![13, 15]);
+        // E 100: gun spaced = [1,2,3,4,5]；hull spaced 含 10/13；turret spaced 含 9
+        let e100 = ms.iter().find(|m| m.tank_id == 9489).expect("E 100");
+        assert_eq!(e100.turrets[0].guns[0].gun_spaced, vec![1, 2, 3, 4, 5]);
+        assert!(e100.hull_spaced.contains(&10) && e100.hull_spaced.contains(&13));
+        assert!(e100.turrets[0].turret_spaced.contains(&9));
+        // T-34: 所有炮的 gun spaced = [1,2,3]
+        let t34 = ms.iter().find(|m| m.tank_id == 1).expect("T-34");
+        for t in &t34.turrets {
+            for g in &t.guns {
+                assert_eq!(g.gun_spaced, vec![1, 2, 3], "T-34 gun spaced");
+            }
+        }
     }
 }

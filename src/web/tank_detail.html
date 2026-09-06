@@ -99,8 +99,16 @@ async function loadDetail() {
 
 function renderDetail() {
     const d=mdData; const out=$('tank-content');
+    // 弹种正式显示名（开发名 ap_cr/hc_premium → APCR/HEAT）
+    const SHELL_LABEL={ap:'AP',apcr:'APCR',heat:'HEAT',he:'HE'};
+    const normType=t=>{t=(t||'').toLowerCase();if(t==='hc'||t==='hc_premium'||t==='heat')return'heat';if(t==='ap_cr'||t==='ap_cr_premium'||t==='apcr')return'apcr';if(t==='he'||t==='he_premium')return'he';if(t==='ap'||t==='ap_premium')return'ap';return t;};
+    const shellLabel=s=>SHELL_LABEL[normType(s.type||s.shell_type)]||esc(s.type||s.shell_type||'?');
     const cfgs=d.configs||[]; const cfg=cfgs[mdCfgIdx]||null;
-    const shells=(cfg&&cfg.shells||d.shells||[]).map(s=>`<tr><td>${esc(s.type||s.shell_type||'?')}</td><td>${s.penetration??'-'}</td><td>${s.damage??'-'}</td><td>${s.module_damage??'-'}</td></tr>`).join('')||'<tr><td colspan="4" class="muted">No shell data</td></tr>';
+    const shells=(cfg&&cfg.shells||d.shells||[]).map(s=>{
+        const pen = s.penetration!=null && s.penetration_far!=null && s.penetration_far>0 && s.penetration_far!==s.penetration
+            ? `${s.penetration}→${s.penetration_far}` : (s.penetration??'-');
+        return `<tr><td>${shellLabel(s)}</td><td>${pen}</td><td>${s.damage??'-'}</td><td>${s.module_damage??'-'}</td><td>${s.velocity?Math.round(s.velocity):'-'}</td><td>${s.range?Math.round(s.range):'-'}</td></tr>`;
+    }).join('')||'<tr><td colspan="6" class="muted">No shell data</td></tr>';
     const caliber=cfg?cfg.caliber:'-';
     const gdep=cfg&&cfg.gun_depression!=null?cfg.gun_depression:d.gun_depression;
     const gelev=cfg&&cfg.gun_elevation!=null?cfg.gun_elevation:d.gun_elevation;
@@ -165,10 +173,21 @@ function renderDetail() {
                 <div class="stat-box"><div class="lbl">Gun Depression</div><div class="val">${gdep??'-'}&deg;</div></div>
                 <div class="stat-box"><div class="lbl">Gun Elevation</div><div class="val">${gelev??'-'}&deg;</div></div>
             </div>
+            ${(()=>{ const eng=(cfg&&cfg.engines&&cfg.engines[0])||(d.engines&&d.engines[0])||null;
+                if(!eng||!eng.power) return '';
+                const w = (cfg&&cfg.weight) || d.weight;
+                const ptw = w ? (eng.power/ (w/1000)).toFixed(1) : null;
+                const fire = eng.fire_chance!=null ? (eng.fire_chance*100).toFixed(1)+'%' : null;
+                const name = eng.name ? `<div style="margin:2px 0 8px 0;" class="muted">Engine: ${esc(eng.name)}</div>` : '';
+                return `${name}<div class="stat-grid">
+                    <div class="stat-box"><div class="lbl">Engine Power</div><div class="val o">${Math.round(eng.power)} hp</div></div>
+                    ${ptw?`<div class="stat-box"><div class="lbl">Power/Weight</div><div class="val">${ptw} hp/t</div></div>`:''}
+                    ${fire?`<div class="stat-box"><div class="lbl">Fire Chance</div><div class="val">${fire}</div></div>`:''}
+                </div>`; })()}
             ${isBurst?`<div style="margin:8px 0 4px 0;">${burstNote}</div>`:''}
             ${armorTable}
             <h4>Shells (${cfg?esc(cfg.label):''})</h4>
-            <table><tr><th>Type</th><th>Pen</th><th>Dmg</th><th>Mod Dmg</th></tr>${shells}</table>
+            <table><tr><th>Type</th><th>Pen (far)</th><th>Dmg</th><th>Mod Dmg</th><th>Vel m/s</th><th>Range m</th></tr>${shells}</table>
             <button id="open-3d">🔍 在新的浏览器窗口打开 3D 检视器</button>
         </div>`;
     const cfgSel=$('md-config');

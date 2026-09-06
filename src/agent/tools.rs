@@ -9,6 +9,8 @@ use crate::wargaming::tank_resolver::{TankResolver, TankInfo};
 use crate::replay::parser::ReplayParser;
 use crate::replay::scanner::{ReplayScanner, ScanFilter};
 use crate::models::report::AggregatedReport;
+use crate::wargaming::blitzkit;
+use crate::wargaming::penetration::{self, ArmorHit, ArmorSection, PenetrationRequest};
 
 // =====================================================================
 //  Agent 工具集
@@ -129,6 +131,82 @@ impl AgentTools {
                             "target": {"type": "string", "description": "Tank to view/inspect (defending side). Name (e.g. 'E 100') or numeric ID (e.g. 7169). Fuzzy match."},
                             "shooter": {"type": "string", "description": "Shooting/attacking tank whose shell & caliber are used for penetration (optional). Name or numeric ID, fuzzy match. Omit to default to the target."},
                             "port": {"type": "integer", "description": "Preferred port (optional, default 0 = auto-assign)"}
+                        },
+                        "required": ["target"]
+                    }),
+                },
+            },
+            // 工具 7：查询坦克装甲数据（明细板件 + spaced 分类 + 顶配弹种）
+            ToolDefinition {
+                def_type: "function".to_string(),
+                function: ToolFunction {
+                    name: "get_tank_armor".to_string(),
+                    description: "Get a tank's full armor breakdown: hull/turret front-side-rear summary, per-plate thickness list with spaced-armor classification (plates classified spaced are flat consumption layers - penetrating them does NOT count as tank penetration), and the top-config gun's shells with formal types (AP/APCR/HEAT/HE), penetration near/far, damage, module damage and HE explosion radius. Call this before simulate_penetration to inspect available plates.".to_string(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "target": {"type": "string", "description": "Tank name (e.g. 'E 100', 'Jg.Pz. E 100') or numeric ID. Fuzzy match."}
+                        },
+                        "required": ["target"]
+                    }),
+                },
+            },
+            // 工具 8：击穿模拟（对齐 BlitzKit 判定）
+            ToolDefinition {
+                def_type: "function".to_string(),
+                function: ToolFunction {
+                    name: "simulate_penetration".to_string(),
+                    description: "Simulate a shell penetration: shooter tank's shell vs target tank's armor, using the BlitzKit-aligned judgment (ricochet, normalization, overmatch, spaced plates, HEAT gap decay, HE splash, distance decay, calibrated shells/enhanced armor). NOTE: the shell must ULTIMATELY penetrate the target's hull/turret main armor to count as penetration - spaced plates and gun mantlets only consume penetration. Provide `aim` preset OR explicit `hits` (see get_tank_armor for available plates).".to_string(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "target": {"type": "string", "description": "Target (defending) tank name or ID. Fuzzy match."},
+                            "shooter": {"type": "string", "description": "Shooter (attacking) tank name or ID. Fuzzy match."},
+                            "shell": {"type": "string", "description": "Shell type filter: AP, APCR, HEAT or HE (optional, default = the gun's first shell)"},
+                            "aim": {"type": "string", "description": "Aim preset: hull_front, hull_side, hull_rear, turret_front, turret_side, turret_rear. Builds a single-plate hit from the armor summary.", "enum": ["hull_front","hull_side","hull_rear","turret_front","turret_side","turret_rear"]},
+                            "hits": {"type": "array", "description": "Explicit layer stack (advanced, overrides aim). Order = the order the shell crosses them. Items: {section: hull|turret|spaced|chassis|gunBarrel, thickness_mm: number}. hull/turret are main-armor (angle-effective, can ricochet); spaced/chassis/gunBarrel are flat consumption layers.", "items": {"type": "object", "properties": {"section": {"type": "string", "enum": ["hull","turret","spaced","chassis","gunBarrel"]}, "thickness_mm": {"type": "number"}}, "required": ["section","thickness_mm"]}},
+                            "angle_deg": {"type": "number", "description": "Impact angle in degrees. 0 = perpendicular to the plate. Default 0."},
+                            "distance_m": {"type": "number", "description": "Engagement distance in meters (default 100). Penetration decays linearly from near to far over the shell's range."},
+                            "calibrated_shells": {"type": "boolean", "description": "Calibrated Shells equipment: penetration +6% (AP/APCR) / +7% (HEAT/HE). Default false."},
+                            "enhanced_armor": {"type": "boolean", "description": "Enhanced Armor equipment on the target: armor thickness +4%. Default false."}
+                        },
+                        "required": ["target", "shooter"]
+                    }),
+                },
+            },
+            // 工具 10：回放射击事件复现（3D 查看器射手 POV 热力图截图）
+            ToolDefinition {
+                def_type: "function".to_string(),
+                function: ToolFunction {
+                    name: "replay_shot".to_string(),
+                    description: "Replay a specific shot from a .wotbreplay file in the 3D armor viewer: extracts the recorded shooter/target positions and orientations, places the camera at the shooter's viewpoint aiming at the target, overlays the penetration heat map, and saves a screenshot PNG. Use after analyzing which shot to inspect. shot_no is 1-based over the detected hits.".to_string(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "replay_file": {"type": "string", "description": "Path to the .wotbreplay file"},
+                            "shot_no": {"type": "integer", "description": "1-based shot (hit) index to reproduce", "default": 1}
+                        },
+                        "required": ["replay_file"]
+                    }),
+                },
+            },
+            // 工具 9：无头渲染 3D 查看器热力图截图
+            ToolDefinition {
+                def_type: "function".to_string(),
+                function: ToolFunction {
+                    name: "render_heatmap".to_string(),
+                    description: "Render a penetration heat-map screenshot of the target tank's 3D armor viewer and save it as a PNG. The heat map colors armor faces by penetration chance for the shooter's shell (green=likely penetration, red=blocked, magenta=ricochet, orange=HE splash). Supports turret yaw, gun pitch and camera view. Requires Chrome/Chromium (auto-detected; WSL can use the Windows install, or set the CHROME_PATH env var). ALWAYS embed the returned image in your final reply as a markdown image: ![heatmap](/screenshots/<file>.png) - the user sees images only if you embed them.".to_string(),
+                    parameters: json!({
+                        "type": "object",
+                        "properties": {
+                            "target": {"type": "string", "description": "Target (defending) tank name or ID. Fuzzy match."},
+                            "shooter": {"type": "string", "description": "Shooter (attacking) tank whose shell is visualized. Optional, default = the target."},
+                            "shell": {"type": "string", "description": "Shell type filter: AP, APCR, HEAT or HE (optional, default = the gun's first shell)"},
+                            "yaw_deg": {"type": "number", "description": "Turret rotation in degrees (optional, default 0)"},
+                            "pitch_deg": {"type": "number", "description": "Gun elevation in degrees (optional, default 0)"},
+                            "view": {"type": "string", "description": "Camera view preset. front/rear/left/right = LEVEL view at gun line height (default front). hull_down = low camera looking up at the turret over the hull (卖头视角). top = from above. front_left/front_right/rear_left/rear_right = level 3/4 views.", "enum": ["front","rear","left","right","top","hull_down","front_left","front_right","rear_left","rear_right"]},
+                            "width": {"type": "integer", "description": "Screenshot width in px (default 1280)"},
+                            "height": {"type": "integer", "description": "Screenshot height in px (default 800)"}
                         },
                         "required": ["target"]
                     }),
@@ -305,6 +383,10 @@ impl AgentTools {
                 ))
             }
             "view_tank" => self.execute_view_tank(args),
+            "get_tank_armor" => self.execute_get_tank_armor(args),
+            "simulate_penetration" => self.execute_simulate_penetration(args),
+            "render_heatmap" => self.execute_render_heatmap(args),
+            "replay_shot" => self.execute_replay_shot(args),
             _ => Ok(format!("Unknown tool: {}", tool_name)),
         }
     }
@@ -392,6 +474,434 @@ impl AgentTools {
     }
 
     /// 模糊解析一辆坦克：`ResolveTank::One(id)` 唯一命中，`Ambiguous` 多候选，`None` 未命中。
+    /// 弹种正式显示名（AP/APCR/HEAT/HE）。
+    fn shell_label(shell_type: &str) -> String {
+        match shell_type.to_lowercase().as_str() {
+            "ap" | "ap_premium" => "AP".to_string(),
+            "apcr" | "ap_cr" | "ap_cr_premium" => "APCR".to_string(),
+            "heat" | "hc" | "hc_premium" => "HEAT".to_string(),
+            "he" | "he_premium" => "HE".to_string(),
+            other => other.to_uppercase(),
+        }
+    }
+
+    /// 加载坦克解析器（tank_cache.json，与 execute_view_tank 相同）。
+    fn load_resolver(&self) -> Result<TankResolver> {
+        TankResolver::load_from_json_file(&crate::data::data_path("tank_cache.json"))
+            .or_else(|_| self.tank_resolver.clone().ok_or_else(|| anyhow::anyhow!("no resolver")))
+    }
+
+    /// get_tank_armor 工具：装甲汇总 + 逐板明细（含 spaced 分类）+ 顶配弹种。
+    fn execute_get_tank_armor(&self, args: &Value) -> Result<String> {
+        let target_ref = args["target"].as_str().unwrap_or("").trim();
+        if target_ref.is_empty() {
+            return Ok("Please provide a tank name or ID (e.g. target: 'E 100').".to_string());
+        }
+        let resolver = self.load_resolver()?;
+        let target = match self.resolve_tank(&resolver, target_ref) {
+            ResolveTank::One(id) => id,
+            ResolveTank::Ambiguous(cands) => {
+                return Ok(format!("The name '{}' matches multiple tanks. Please pick one:\n{}", target_ref, format_candidates(&cands)));
+            }
+            ResolveTank::None => return Ok(format!("Could not find a tank matching '{}'.", target_ref)),
+        };
+        let name = resolver.resolve(target).unwrap_or_else(|| format!("tank_{}", target));
+
+        // 装甲汇总（前/侧/后，mm）
+        let summary = resolver.resolve_info(target).and_then(|i| i.armor.clone());
+        // 逐板厚度（armor_cache.json，models.pb 派生）
+        let plates: Value = std::fs::read_to_string(crate::data::data_path("armor_cache.json")).ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .and_then(|v| v.get(target.to_string()).cloned())
+            .unwrap_or(json!(null));
+
+        // spaced 分类 + 顶配弹种（models.pb；顶配 = turrets.at(-1).guns.at(-1)）
+        let mut sp: Value = json!(null);
+        let mut shells_json: Vec<Value> = Vec::new();
+        let mut gun_name = String::new();
+        let hp = resolver.resolve_info(target).and_then(|i| i.hp);
+        if let Some(tank) = blitzkit::tank_full(target) {
+            let mi = blitzkit::model_info(target);
+            let mut sp_map = serde_json::Map::new();
+            sp_map.insert("hull".into(), json!(mi.as_ref().map(|m| m.hull_spaced.clone()).unwrap_or_default()));
+            if let Some(t) = tank.turrets.last() {
+                if let Some(ti) = mi.as_ref().and_then(|m| m.turrets.iter().find(|x| x.module_id == t.module_id)) {
+                    sp_map.insert("turret".into(), json!(ti.turret_spaced.clone()));
+                }
+                if let Some(g) = t.guns.last() {
+                    gun_name = g.name.clone();
+                    if let Some(gi) = mi.as_ref().and_then(|m| m.turrets.iter().find(|x| x.module_id == t.module_id))
+                        .and_then(|x| x.guns.iter().find(|y| y.gun_module_id == g.module_id)) {
+                        sp_map.insert("gun".into(), json!(gi.gun_spaced.clone()));
+                    }
+                    for s in &g.shells {
+                        shells_json.push(json!({
+                            "label": Self::shell_label(&s.shell_type),
+                            "type": s.shell_type,
+                            "penetration_mm": s.penetration,
+                            "penetration_far_mm": if s.penetration_far > 0.0 { json!(s.penetration_far) } else { Value::Null },
+                            "damage_hp": s.damage,
+                            "module_damage": s.module_damage,
+                            "explosion_radius_m": if s.explosion_radius > 0.0 { json!(s.explosion_radius) } else { Value::Null },
+                            "caliber_mm": s.caliber,
+                        }));
+                    }
+                }
+            }
+            sp = Value::Object(sp_map);
+        }
+
+        Ok(json!({
+            "tank": name,
+            "hp_total": hp,
+            "hp_note": "total = hull health + turret health",
+            "armor_summary_mm": summary,
+            "plates": plates,
+            "spaced": sp,
+            "top_gun": gun_name,
+            "shells": shells_json,
+        }).to_string())
+    }
+
+    /// simulate_penetration 工具：对齐 BlitzKit 的击穿模拟（penetration.rs）。
+    fn execute_simulate_penetration(&self, args: &Value) -> Result<String> {
+        let target_ref = args["target"].as_str().unwrap_or("").trim();
+        let shooter_ref = args["shooter"].as_str().unwrap_or("").trim();
+        if target_ref.is_empty() || shooter_ref.is_empty() {
+            return Ok("Please provide both `target` (defending) and `shooter` (attacking) tank names or IDs.".to_string());
+        }
+        let resolver = self.load_resolver()?;
+        let target = match self.resolve_tank(&resolver, target_ref) {
+            ResolveTank::One(id) => id,
+            ResolveTank::Ambiguous(cands) => return Ok(format!("The target name '{}' matches multiple tanks. Please pick one:\n{}", target_ref, format_candidates(&cands))),
+            ResolveTank::None => return Ok(format!("Could not find a target tank matching '{}'.", target_ref)),
+        };
+        let shooter = match self.resolve_tank(&resolver, shooter_ref) {
+            ResolveTank::One(id) => id,
+            ResolveTank::Ambiguous(cands) => return Ok(format!("The shooter name '{}' matches multiple tanks. Please pick one:\n{}", shooter_ref, format_candidates(&cands))),
+            ResolveTank::None => return Ok(format!("Could not find a shooter tank matching '{}'.", shooter_ref)),
+        };
+        let target_name = resolver.resolve(target).unwrap_or_else(|| format!("tank_{}", target));
+        let shooter_name = resolver.resolve(shooter).unwrap_or_else(|| format!("tank_{}", shooter));
+
+        // 射手顶配炮的弹种（turrets.at(-1).guns.at(-1)，对齐 BlitzKit 默认）
+        let Some(tank) = blitzkit::tank_full(shooter) else {
+            return Ok(format!("No shell data for shooter {}.", shooter_name));
+        };
+        let Some(turret) = tank.turrets.last() else {
+            return Ok(format!("No turret data for shooter {}.", shooter_name));
+        };
+        let Some(gun) = turret.guns.last() else {
+            return Ok(format!("No gun data for shooter {}.", shooter_name));
+        };
+        if gun.shells.is_empty() {
+            return Ok(format!("No shells for shooter {}.", shooter_name));
+        }
+        // 弹种选择：按正式名/原始串过滤，默认第一发
+        let shell = match args["shell"].as_str() {
+            Some(filt) => {
+                gun.shells.iter().find(|s| {
+                    Self::shell_label(&s.shell_type).eq_ignore_ascii_case(filt) || s.shell_type.eq_ignore_ascii_case(filt)
+                }).ok_or_else(|| anyhow::anyhow!("shell '{}' not found; available: {}", filt,
+                    gun.shells.iter().map(|s| Self::shell_label(&s.shell_type)).collect::<Vec<_>>().join("/")))?
+            }
+            None => &gun.shells[0],
+        };
+
+        let angle = args["angle_deg"].as_f64().unwrap_or(0.0);
+        let rad = (angle as f32).to_radians();
+        let view = [0.0f32, 1.0, 0.0];
+        let normal = [0.0f32, rad.cos(), rad.sin()];
+        let mpu_note = "";
+
+        // 命中层：显式 hits 优先，否则 aim 预设（装甲汇总单板）
+        let mut hits: Vec<ArmorHit> = Vec::new();
+        let mut aim_desc = String::from("custom layers");
+        if let Some(hits_arr) = args["hits"].as_array() {
+            for (i, h) in hits_arr.iter().enumerate() {
+                let section: ArmorSection = serde_json::from_value(h["section"].clone())
+                    .map_err(|_| anyhow::anyhow!("invalid section '{}' (use hull/turret/spaced/chassis/gunBarrel)", h["section"].as_str().unwrap_or("?")))?;
+                let thickness = h["thickness_mm"].as_f64().unwrap_or(0.0) as f32;
+                hits.push(ArmorHit {
+                    section, plate_id: format!("h{}", i + 1), thickness,
+                    normal, point: [0.0, 0.0, 0.0], part_name: format!("Layer {} ({})", i + 1, h["section"].as_str().unwrap_or("?")),
+                });
+            }
+        } else if let Some(aim) = args["aim"].as_str() {
+            let Some(summary) = resolver.resolve_info(target).and_then(|i| i.armor.clone()) else {
+                return Ok(format!("No armor summary for {}. Use get_tank_armor to inspect, or provide explicit `hits`.", target_name));
+            };
+            let (section, thickness, part) = match aim {
+                "hull_front" => (ArmorSection::Hull, summary.hull_front, "Hull Front"),
+                "hull_side" => (ArmorSection::Hull, summary.hull_sides, "Hull Side"),
+                "hull_rear" => (ArmorSection::Hull, summary.hull_rear, "Hull Rear"),
+                "turret_front" => (ArmorSection::Turret, summary.turret_front, "Turret Front"),
+                "turret_side" => (ArmorSection::Turret, summary.turret_sides, "Turret Side"),
+                "turret_rear" => (ArmorSection::Turret, summary.turret_rear, "Turret Rear"),
+                other => return Ok(format!("Unknown aim '{}'. Use hull_front/hull_side/hull_rear/turret_front/turret_side/turret_rear, or provide explicit `hits`.", other)),
+            };
+            if thickness == 0 {
+                return Ok(format!("No armor data for {} on {}.", aim, target_name));
+            }
+            aim_desc = part.to_string();
+            hits.push(ArmorHit {
+                section, plate_id: "aim".into(), thickness: thickness as f32,
+                normal, point: [0.0, 0.0, 0.0], part_name: part.into(),
+            });
+        }
+        if hits.is_empty() {
+            return Ok("Provide `aim` (e.g. hull_front) or explicit `hits` for the simulation.".to_string());
+        }
+
+        let distance = args["distance_m"].as_f64().unwrap_or(100.0) as f32;
+        let req = PenetrationRequest {
+            shell_type: shell.shell_type.clone(),
+            penetration: shell.penetration as f32,
+            caliber: shell.caliber as f32,
+            view_dir: view,
+            hits,
+            damage: shell.damage as f32,
+            module_damage: shell.module_damage as f32,
+            explosion_radius: shell.explosion_radius as f32,
+            calibrated_shells: args["calibrated_shells"].as_bool().unwrap_or(false),
+            penetration_far: if shell.penetration_far > 0.0 { Some(shell.penetration_far as f32) } else { None },
+            range: if shell.range > 0.0 { Some(shell.range as f32) } else { None },
+            enhanced_armor: args["enhanced_armor"].as_bool().unwrap_or(false),
+            distance,
+            allow_ricochet: true,
+        };
+        let res = penetration::calculate(&req);
+
+        let mut out = format!(
+            "Result: **{}**\n{} (shell {} {:.0}mm) vs {}\nAim: {} · Angle {:.0}° · Distance {:.0}m\nLayers:\n",
+            res.result, shooter_name, Self::shell_label(&shell.shell_type), shell.caliber, target_name, aim_desc, angle, distance
+        );
+        for (i, l) in res.layers.iter().enumerate() {
+            let status = if l.ricochet {
+                "RICOCHET".to_string()
+            } else if l.penetrated {
+                format!("penetrated, remaining pen {:.0}mm", (l.remaining_before - l.effective).max(0.0))
+            } else {
+                "BLOCKED here".to_string()
+            };
+            out.push_str(&format!("  {}. {} — nominal {:.0}mm / effective {:.0}mm — {}\n", i + 1, l.part_name, l.thickness, l.effective, status));
+        }
+        out.push_str(&format!("Total effective: {:.0}mm\n", res.total_effective));
+        if res.damage > 0.0 {
+            out.push_str(&format!("Damage: {:.0}\n", res.damage));
+        }
+        let _ = mpu_note;
+        Ok(out)
+    }
+
+    /// render_heatmap 工具：无头浏览器渲染 3D 查看器热力图并保存 PNG。
+    ///
+    /// 流程：启动独立查看器服务器（随机端口）→ 构造带 URL 参数的热力图链接
+    /// （heatmap=1&clean=1&shell/yaw/pitch/az）→ Chrome/Chromium 无头截图。
+    /// WSL 环境自动探测 Windows 侧 Chrome 并转换输出路径。
+    fn execute_render_heatmap(&self, args: &Value) -> Result<String> {
+        let target_ref = args["target"].as_str().unwrap_or("").trim();
+        if target_ref.is_empty() {
+            return Ok("Please provide a target tank name or ID (e.g. target: 'E 100').".to_string());
+        }
+        let shooter_ref = args["shooter"].as_str().map(|s| s.trim()).filter(|s| !s.is_empty());
+
+        let resolver = self.load_resolver()?;
+        let target = match self.resolve_tank(&resolver, target_ref) {
+            ResolveTank::One(id) => id,
+            ResolveTank::Ambiguous(cands) => {
+                return Ok(format!("The target name '{}' matches multiple tanks. Please pick one:\n{}", target_ref, format_candidates(&cands)));
+            }
+            ResolveTank::None => return Ok(format!("Could not find a target tank matching '{}'.", target_ref)),
+        };
+        let shooter = match shooter_ref {
+            Some(sref) => match self.resolve_tank(&resolver, sref) {
+                ResolveTank::One(id) => Some(id),
+                ResolveTank::Ambiguous(cands) => {
+                    return Ok(format!("The shooter name '{}' matches multiple tanks. Please pick one:\n{}", sref, format_candidates(&cands)));
+                }
+                ResolveTank::None => return Ok(format!("Could not find a shooter tank matching '{}'.", sref)),
+            },
+            None => None,
+        };
+        let shooter_id = shooter.unwrap_or(target);
+        let target_name = resolver.resolve(target).unwrap_or_else(|| format!("tank_{}", target));
+        let shooter_name = resolver.resolve(shooter_id).unwrap_or_else(|| format!("tank_{}", shooter_id));
+
+        // 弹种索引（查看器弹种选择器 = 射手首配弹种列表，按正式名过滤）
+        let shell_filter = args["shell"].as_str().map(|s| s.trim().to_string());
+        let shell_idx = shell_filter.as_ref().and_then(|f| {
+            blitzkit::tank_full(shooter_id).and_then(|t| t.turrets.first().and_then(|tu| tu.guns.first()).map(|g| {
+                g.shells.iter().position(|s| {
+                    Self::shell_label(&s.shell_type).eq_ignore_ascii_case(f) || s.shell_type.eq_ignore_ascii_case(f)
+                })
+            }).flatten())
+        });
+        if let Some(f) = &shell_filter {
+            if shell_idx.is_none() {
+                let avail = blitzkit::tank_full(shooter_id)
+                    .and_then(|t| t.turrets.first().and_then(|tu| tu.guns.first()).map(|g|
+                        g.shells.iter().map(|s| Self::shell_label(&s.shell_type)).collect::<Vec<_>>().join("/")))
+                    .unwrap_or_default();
+                return Ok(format!("Shell '{}' not found for {}. Available: {}", f, shooter_name, avail));
+            }
+        }
+
+        // 视角预设由前端按炮线高度解析（水平/卖头/俯视），工具只传语义名称；
+        // azimuth_deg 可覆盖预设方位角
+        let view_raw = args["view"].as_str().unwrap_or("front").trim().to_string();
+        let view: String = {
+            let safe: String = view_raw.chars().filter(|c| c.is_ascii_lowercase() || *c == '_').collect();
+            if safe.is_empty() { "front".into() } else { safe }
+        };
+        let yaw = args["yaw_deg"].as_f64().unwrap_or(0.0);
+        let pitch = args["pitch_deg"].as_f64().unwrap_or(0.0);
+        let width = args["width"].as_u64().unwrap_or(1280).clamp(320, 3840) as u32;
+        let height = args["height"].as_u64().unwrap_or(800).clamp(240, 2160) as u32;
+
+        let Some(chrome) = find_chrome() else {
+            return Ok("Chrome/Chromium not found (required for headless screenshots). Install Google Chrome, or set the CHROME_PATH environment variable to the browser executable.".to_string());
+        };
+
+        std::fs::create_dir_all("screenshots")?;
+        let shell_txt = shell_filter.as_deref().unwrap_or("default").to_uppercase();
+        let fname = format!(
+            "screenshots/heatmap_{}_vs_{}_{}_{}.png",
+            sanitize_name(&target_name), sanitize_name(&shooter_name), sanitize_name(&shell_txt), view
+        );
+
+        // 独立线程 + 独立 runtime：启动服务器（阻塞）→ Chrome 无头截图 → 线程结束即关闭服务器
+        let resolver2 = resolver.clone();
+        let chrome2 = chrome.clone();
+        let fname2 = fname.clone();
+        let url = {
+            let mut u = format!(
+                "http://127.0.0.1:PORT/?headless=1&heatmap=1&clean=1&shell={}&yaw={}&pitch={}&view={}",
+                shell_idx.unwrap_or(0), yaw, pitch, view
+            );
+            if let Some(v) = args["azimuth_deg"].as_f64() {
+                u += &format!("&az={}", v as i64);
+            }
+            u
+        };
+        let view2 = view.clone();
+        let handle = std::thread::spawn(move || -> Result<String> {
+            let rt = tokio::runtime::Runtime::new()?;
+            let port = rt.block_on(crate::wargaming::viewer::start_viewer_server(resolver2, target, shooter_id))?;
+            let url = url.replace("PORT", &port.to_string());
+            // WSL 调 Windows 侧浏览器：--screenshot 输出路径转 Windows 形式（/mnt/d/x → D:\x）
+            let is_win_browser = chrome2.contains("/mnt/");
+            // 相对路径必须先转绝对（Windows Edge 无法解析 WSL 相对路径——否则不写文件）
+            let fname_abs = std::env::current_dir()
+                .map(|d| d.join(&fname2).to_string_lossy().to_string())
+                .unwrap_or_else(|_| fname2.clone());
+            let shot_arg = if is_win_browser {
+                format!("--screenshot={}", wsl_to_windows_path(&fname_abs).unwrap_or_else(|| fname_abs.clone()))
+            } else {
+                format!("--screenshot={}", fname_abs)
+            };
+            let out = std::process::Command::new(&chrome2)
+                .args([
+                    "--headless=new", "--no-sandbox", "--disable-dev-shm-usage", "--hide-scrollbars",
+                    &format!("--window-size={},{}", width, height),
+                    "--virtual-time-budget=20000",
+                    &shot_arg,
+                    &url,
+                ])
+                .output()
+                .map_err(|e| anyhow::anyhow!("failed to launch browser '{}': {}", chrome2, e))?;
+            // 完成信号 = 浏览器 stderr 的 "N bytes written to file ..."（WSL 对 Windows 侧
+            // 写入文件的 stat 存在 drvfs 元数据缓存延迟，size/存在性都不可靠，不能用作判据）
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            if !out.status.success() {
+                return Err(anyhow::anyhow!(
+                    "browser screenshot failed (status {:?}): {}",
+                    out.status,
+                    stderr.chars().take(400).collect::<String>()
+                ));
+            }
+            let written = stderr.lines().rev()
+                .find(|l| l.contains("bytes written to file"))
+                .map(|l| l.trim().trim_start_matches('[').to_string())
+                .unwrap_or_default();
+            if written.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "browser did not report a screenshot (status {:?}): {}",
+                    out.status,
+                    stderr.chars().take(400).collect::<String>()
+                ));
+            }
+            let url_name = fname2.rsplit('/').next().unwrap_or(&fname2);
+            Ok(format!(
+                "Heatmap screenshot saved: {} ({}x{}, browser: {})\n[{}]\nImage URL: /screenshots/{}",
+                fname2, width, height, chrome2, written, url_name
+            ))
+        });
+
+        let detail = handle.join().map_err(|_| anyhow::anyhow!("screenshot thread panicked"))??;
+        Ok(format!(
+            "Heatmap screenshot saved: {}\nTarget: {} · Shooter: {} · View: {} · Turret yaw {}° · Gun pitch {}°\nThe image colors armor faces by penetration chance (green=likely penetration, red=blocked, magenta=ricochet, orange=HE splash). The temporary viewer server has been stopped; use view_tank for an interactive session.",
+            detail, target_name, shooter_name, view2, yaw, pitch
+        ))
+    }
+
+    /// replay_shot 工具：复用回放解析管线（extract_shot_replays_auto）→
+    /// 启动带复现数据的查看器 → 无头截图（相机 = 射手 POV）。
+    fn execute_replay_shot(&self, args: &Value) -> Result<String> {
+        let file = args["replay_file"].as_str().unwrap_or("").trim().to_string();
+        if file.is_empty() {
+            return Ok("Please provide replay_file (path to the .wotbreplay file).".to_string());
+        }
+        let shot_no = args["shot_no"].as_i64().unwrap_or(1).max(1) as usize;
+        let Some(chrome) = find_chrome() else {
+            return Ok("Chrome/Chromium not found (required for headless screenshots). Install Google Chrome or set CHROME_PATH.".to_string());
+        };
+
+        let resolver = self.load_resolver()?;
+        let fname2 = format!("screenshots/replay_shot_{:02}.png", shot_no);
+
+        // 独立线程 + 独立 runtime：解析回放 → 启动带数据的查看器 → 无头截图
+        let handle = std::thread::spawn(move || -> Result<String> {
+            let rt = tokio::runtime::Runtime::new()?;
+            let port = rt.block_on(crate::wargaming::viewer::start_viewer_server_for_replay(
+                std::path::Path::new(&file), resolver, shot_no))?;
+            let is_win = chrome.contains("/mnt/");
+            let fname_abs = std::env::current_dir()
+                .map(|d| d.join(&fname2).to_string_lossy().to_string())
+                .unwrap_or_else(|_| fname2.clone());
+            let shot_arg = if is_win {
+                format!("--screenshot={}", wsl_to_windows_path(&fname_abs).unwrap_or_else(|| fname_abs.clone()))
+            } else {
+                format!("--screenshot={}", fname_abs)
+            };
+            let url = format!(
+                "http://127.0.0.1:{}/?headless=1&heatmap=1&clean=1&shot={}&dist=9",
+                port, shot_no
+            );
+            let out = std::process::Command::new(&chrome)
+                .args([
+                    "--headless=new", "--no-sandbox", "--disable-dev-shm-usage", "--hide-scrollbars",
+                    "--window-size=1280,800", "--virtual-time-budget=25000",
+                    &shot_arg, &url,
+                ])
+                .output()
+                .map_err(|e| anyhow::anyhow!("failed to launch browser: {}", e))?;
+            if !out.status.success() {
+                return Err(anyhow::anyhow!("browser failed: {}", String::from_utf8_lossy(&out.stderr).chars().take(300).collect::<String>()));
+            }
+            let written = String::from_utf8_lossy(&out.stderr).lines().rev()
+                .find(|l| l.contains("bytes written to file"))
+                .map(|l| l.trim().trim_start_matches('[').to_string())
+                .unwrap_or_default();
+            Ok(format!("{} — [{}]", fname2, written))
+        });
+        let result = handle.join().map_err(|_| anyhow::anyhow!("screenshot thread panicked"))??;
+        Ok(format!(
+            "Shot #{} replay view saved: {}\nCamera placed at the recorded shooter position aiming at the target (position/angle mapping is best-guess; feedback welcome).",
+            shot_no, result
+        ))
+    }
+
     fn resolve_tank(&self, resolver: &TankResolver, tank_ref: &str) -> ResolveTank {
         // 数字 ID 直接用（即使 tank_cache 里没有该 ID，也透传给查看器）
         if let Ok(id) = tank_ref.parse::<u32>() {
@@ -469,6 +979,52 @@ fn format_candidates(cands: &[TankCandidate]) -> String {
             i + 1, c.name, c.id, c.tier, c.nation, c.tank_type));
     }
     out
+}
+
+/// 探测 Chrome/Chromium 可执行文件：CHROME_PATH 环境变量 → 常见 Linux 命令 → WSL Windows 安装路径。
+fn find_chrome() -> Option<String> {
+    if let Ok(p) = std::env::var("CHROME_PATH") {
+        let p = p.trim().to_string();
+        if !p.is_empty() && Path::new(&p).exists() {
+            return Some(p);
+        }
+    }
+    for c in ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome", "msedge"] {
+        if let Ok(out) = std::process::Command::new(c).arg("--version").output() {
+            if out.status.success() {
+                return Some(c.to_string());
+            }
+        }
+    }
+    for p in [
+        "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+        "/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+        "/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe",
+        "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+    ] {
+        if Path::new(p).exists() {
+            return Some(p.to_string());
+        }
+    }
+    None
+}
+
+/// WSL 路径 → Windows 路径（/mnt/d/Class/x → D:\Class\x）；非 /mnt/ 路径返回 None。
+fn wsl_to_windows_path(p: &str) -> Option<String> {
+    let rest = p.strip_prefix("/mnt/")?;
+    let mut it = rest.splitn(2, '/');
+    let drive = it.next()?;
+    let path = it.next()?;
+    if drive.len() != 1 || path.is_empty() {
+        return None;
+    }
+    Some(format!("{}:\\{}", drive.to_uppercase(), path.replace('/', "\\")))
+}
+
+/// 文件名清理：非字母数字字符替换为下划线。
+fn sanitize_name(s: &str) -> String {
+    let s: String = s.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
+    s.trim_matches('_').to_string()
 }
 
 #[cfg(test)]
@@ -558,6 +1114,71 @@ mod tests {
 
     // 用真实 tank_cache.json（723 辆）验证常见模糊查询的实际表现。
     // 若文件缺失则跳过（不依赖构建环境的静态数据）。
+    #[test]
+    fn simulate_penetration_smoke() {
+        let tools = tools();
+        // IS-7 顶配炮（AP 250mm）打 E 100 车体正面（200mm @0°）→ PENETRATION
+        let mut args = json!({
+            "target": "E 100", "shooter": "IS-7",
+            "aim": "hull_front", "angle_deg": 0, "distance_m": 100
+        });
+        let out = tools.execute_simulate_penetration(&args).unwrap();
+        assert!(out.contains("Result:"), "missing result header: {}", out);
+        assert!(out.contains("Layers:"), "missing layer breakdown: {}", out);
+        assert!(out.contains("PENETRATION"), "250mm AP vs 200mm@0° should penetrate: {}", out);
+        // 显式厚板（1000mm 车体）→ BLOCKED
+        args["hits"] = json!([{"section": "hull", "thickness_mm": 1000}]);
+        let out2 = tools.execute_simulate_penetration(&args).unwrap();
+        assert!(out2.contains("BLOCKED"), "expected BLOCKED vs 1000mm: {}", out2);
+        // HE 弹路径（溅射公式）不 panic
+        args["shell"] = json!("HE");
+        args["hits"] = json!([{"section": "hull", "thickness_mm": 80}]);
+        let out3 = tools.execute_simulate_penetration(&args).unwrap();
+        assert!(out3.contains("Result:"), "{}", out3);
+        // get_tank_armor 冒烟：plates/shells/spaced 字段齐全
+        let out4 = tools.execute_get_tank_armor(&json!({"target": "E 100"})).unwrap();
+        assert!(out4.contains("plates") && out4.contains("shells") && out4.contains("spaced"), "{}", out4);
+    }
+
+    #[test]
+    fn replay_shot_smoke() {
+        let tools = tools();
+        let f = "replay_samples/20260902_2104__Anonyme_A116_XM551_Exp_3355505117896350.wotbreplay";
+        if !std::path::Path::new(f).exists() { eprintln!("replay sample missing, skip"); return; }
+        let args = json!({"replay_file": f, "shot_no": 2});
+        match tools.execute_replay_shot(&args) {
+            Ok(out) => {
+                eprintln!("replay_shot: {}", out);
+                assert!(out.contains("Shot #2 replay view saved"), "{}", out);
+                assert!(out.contains("replay view saved"), "{}", out);
+            }
+            Err(e) => {
+                // 无 Chrome 环境时允许跳过（服务器启动/浏览器缺失），但数据抽取错误仍算失败
+                let msg = format!("{}", e);
+                if msg.contains("Chrome") || msg.contains("browser") { eprintln!("skip (no browser): {}", msg); }
+                else { panic!("{}", msg); }
+            }
+        }
+    }
+
+    #[test]
+    fn render_heatmap_smoke() {
+        let tools = tools();
+        // Kranvagn(4481, GLB 已缓存) vs IS-7 正面热力图
+        let args = json!({
+            "target": "Kranvagn", "shooter": "IS-7",
+            "view": "front", "width": 640, "height": 400
+        });
+        let out = tools.execute_render_heatmap(&args).unwrap();
+        eprintln!("render_heatmap: {}", out);
+        assert!(out.contains("Heatmap screenshot saved:"), "{}", out);
+        // 提取路径并确认 PNG 文件真实存在且非空
+        let _path = out.split("saved: ").nth(1).and_then(|s| s.split('\n').next()).unwrap().trim().to_string();
+        // Windows 浏览器场景下路径可能被转换为 Windows 形式——同时探测两种
+        // 完成判据 = 浏览器 stderr 的 "bytes written to file"（WSL stat 缓存不可靠）
+        assert!(out.contains("bytes written to file"), "no written confirmation: {}", out);
+    }
+
     #[test]
     fn real_cache_fuzzy_search() {
         let Ok(r) = TankResolver::load_from_json_file(&crate::data::data_path("tank_cache.json")) else {

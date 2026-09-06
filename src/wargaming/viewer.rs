@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::path::Path;
 use crate::wargaming::tank_resolver::TankResolver;
-use crate::wargaming::dvpl::{DvplFile, CollisionData, ArmorModel};
+use crate::wargaming::dvpl::{DvplFile, ArmorModel};
 use crate::wargaming::penetration::{self, PenetrationRequest};
 
 const GLB_CACHE_DIR: &str = "glb_cache";
@@ -44,39 +44,6 @@ fn load_armor_model(tank_id: u32) -> Option<ArmorModel> {
                 if let Ok(dvpl) = DvplFile::read(Path::new(&filepath)) {
                     let text = String::from_utf8_lossy(&dvpl.data);
                     return ArmorModel::parse_from_xml(&text);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// 从游戏安装目录加载某坦克的碰撞数据（优先 game_data/，回退游戏文件）。
-fn load_collision_data(_resolver: &TankResolver, tank_id: u32) -> Option<CollisionData> {
-    // Prefer pre-extracted portable data (no game install required)
-    if let Some(crate::wargaming::game_extract::TankGameData { collision: Some(c), .. }) =
-        crate::wargaming::game_extract::load_game_data(tank_id, &crate::data::data_dir().join("game_data"))
-    {
-        return Some(c);
-    }
-
-    let dev_name = find_dev_name(tank_id)?;
-    
-    let game_dirs = [
-        "/mnt/d/SteamLibrary/steamapps/common/World of Tanks Blitz/Data",
-        "D:/SteamLibrary/steamapps/common/World of Tanks Blitz/Data",
-    ];
-    
-    let nations = ["ussr", "usa", "germany", "uk", "japan", "china", "france", "european", "other"];
-    
-    for game_dir in &game_dirs {
-        for nation in &nations {
-            let filepath = format!("{}/3d/Tanks/Parameters/{}/{}.yaml.dvpl", game_dir, nation, dev_name);
-            if Path::new(&filepath).exists() {
-                if let Ok(dvpl) = DvplFile::read(Path::new(&filepath)) {
-                    let text = String::from_utf8_lossy(&dvpl.data);
-                    let text_ref: &str = &text;
-                    return CollisionData::parse_from_yaml(text_ref);
                 }
             }
         }
@@ -181,23 +148,24 @@ pub fn build_viewer_router(
         .route("/api/tank_image/{tank_id}", get(tank_image_handler))
         .route("/api/shells/{tank_id}", get(shells_handler))
         .route("/api/penetrate", post(penetrate_handler))
+        .route("/api/hold", get(crate::wargaming::heatmap_ready::hold_handler))
+        .route("/api/ready", get(crate::wargaming::heatmap_ready::ready_handler))
         .with_state(())
 }
 
 /// 3D 模型代理：`glb_cache/` 有则直接返回，否则从 BlitzKit CDN 下载并落盘。
 /// 仅允许 collision.glb / model.glb 两个文件名。
-pub(crate) async fn glb_handler(
-    axum::extract::Path((tank_id, filename)): axum::extract::Path<(u32, String)>,
-) -> Response {
-    if !GLB_FILES.contains(&filename.as_str()) {
-        return (axum::http::StatusCode::BAD_REQUEST, "invalid GLB filename").into_response();
+/// 确保 GLB 已缓存（glb_cache/ 优先，否则 BlitzKit CDN 下载落盘），返回字节。
+/// 供 glb_handler 与热力图渲染器共用。
+pub(crate) async fn ensure_glb_bytes(tank_id: u32, filename: &str) -> Result<Vec<u8>, String> {
+    if !GLB_FILES.contains(&filename) {
+        return Err(format!("invalid GLB filename: {}", filename));
     }
-
     // 1. Serve from local cache
     let cache_dir = Path::new(GLB_CACHE_DIR).join(tank_id.to_string());
-    let cache_path = cache_dir.join(&filename);
+    let cache_path = cache_dir.join(filename);
     if let Ok(bytes) = std::fs::read(&cache_path) {
-        return glb_response(bytes);
+        return Ok(bytes);
     }
 
     // 2. Download from BlitzKit CDN, persist to cache, serve
@@ -222,7 +190,7 @@ pub(crate) async fn glb_handler(
                             Ok(_) => eprintln!("[glb-cache] cached {} ({} bytes)", cache_path.display(), vec.len()),
                             Err(e) => eprintln!("[glb-cache] cache write failed: {}", e),
                         }
-                        return glb_response(vec);
+                        return Ok(vec);
                     }
                     Err(e) => last_err = Some(format!("read body failed: {}", e)),
                 }
@@ -233,10 +201,107 @@ pub(crate) async fn glb_handler(
         eprintln!("[glb-cache] attempt failed, retrying... ({})", last_err.clone().unwrap_or_default());
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
-    (
-        axum::http::StatusCode::BAD_GATEWAY,
-        format!("BlitzKit CDN unreachable: {} (model not in glb_cache/)", last_err.unwrap_or_default()),
-    ).into_response()
+    Err(format!("BlitzKit CDN unreachable: {} (model not in glb_cache/)", last_err.unwrap_or_default()))
+}
+
+/// 启动 3D 查看器服务器（不打开浏览器），返回实际端口。
+/// 供 Agent 截图工具使用：配合 URL 参数（heatmap=1&clean=1&...）实现无头热力图渲染。
+pub async fn start_viewer_server(tank_resolver: TankResolver, tank_id: u32, shooter_id: u32) -> anyhow::Result<u16> {
+    start_viewer_server_with_data(tank_resolver, tank_id, Some(shooter_id), None).await
+}
+
+/// 启动查看器服务器并可选注入射击复现数据（/api/replay_shot）。
+/// 从回放文件直接启动"射击复现"查看器：解析回放 → 抽取该发复现数据 →
+/// 注入服务器（/api/replay_shot），目标坦克 = 被命中车辆。返回端口。
+pub async fn start_viewer_server_for_replay(
+    replay_path: &std::path::Path,
+    tank_resolver: TankResolver,
+    shot_no: usize,
+) -> anyhow::Result<u16> {
+    use wotbreplay_parser::replay::Replay;
+    let mut replay = Replay::open(std::fs::File::open(replay_path)?)?;
+    let meta = replay.read_meta().ok();
+    let data = replay.read_data()?;
+    let raw_packets: Vec<(u32, f32, &[u8])> = data.packets.iter().map(|pkt| {
+        let t = match &pkt.payload {
+            wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate { .. } => 0,
+            wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
+            wotbreplay_parser::models::data::payload::Payload::Unknown { packet_type } => *packet_type,
+        };
+        (t, pkt.clock_secs, &pkt.raw_payload[..])
+    }).collect();
+
+    let timeline = crate::replay::combat::CombatTimeline::parse_packets(&raw_packets);
+    let author_eid = *timeline.entity_names.iter()
+        .find(|(eid, _)| timeline.events.iter().any(|e|
+            e.entity_id == **eid && matches!(e.event_type, crate::replay::combat::CombatEventType::DamageCounter { .. })))
+        .map(|(eid, _)| eid)
+        .unwrap_or(&0);
+    let shots = timeline.infer_shots(author_eid);
+    if shots.is_empty() {
+        return Err(anyhow::anyhow!("No shot events detected in this replay."));
+    }
+    let author_nickname = meta.as_ref().map(|m| m.player_name.clone()).unwrap_or_default();
+    let author_player_eid = if author_nickname.is_empty() { 0 } else {
+        timeline.entity_names.iter()
+            .find(|(_, name)| name.as_str() == author_nickname)
+            .map(|(eid, _)| *eid)
+            .unwrap_or(0)
+    };
+    let replay_data = crate::replay::combat::extract_shot_replays(&raw_packets, author_player_eid, &shots);
+    if shot_no == 0 || shot_no > replay_data.len() {
+        return Err(anyhow::anyhow!("shot {} out of range (1..={})", shot_no, replay_data.len()));
+    }
+    let shot = &replay_data[shot_no - 1];
+
+    // 目标/射手坦克 ID：battle_results 按昵称关联
+    let br = replay.read_battle_results().ok();
+    let tank_of = |nick: &str| -> Option<u32> {
+        let br = br.as_ref()?;
+        br.players.iter().find(|p| p.info.nickname == nick)
+            .and_then(|p| br.player_results.iter().find(|pr| pr.info.account_id == p.account_id))
+            .map(|pr| pr.info.tank_id)
+    };
+    let target_tank = tank_of(&shot.target_name);
+    // 射手坦克：优先 battle_results 按作者昵称查找（与目标同路径、同 ID 空间）；
+    // meta.tank_id 可能是车库/账号域的 ID，仅作回退。
+    let shooter_tank = tank_of(&author_nickname)
+        .or_else(|| meta.as_ref().map(|m| m.tank_id as u32).filter(|v| *v > 0));
+    eprintln!("[replay_shot] shot={}_{} target_name={} target_tank={:?} shooter_tank={:?} target_ang={:?}",
+        shot_no, shot.damage, shot.target_name, target_tank, shooter_tank, shot.target_ang);
+
+    // 目标坦克找不到时回退到作者坦克（至少能看到装甲）
+    let viewed_tank = target_tank.or(shooter_tank).unwrap_or(0);
+    start_viewer_server_with_data(tank_resolver, viewed_tank, shooter_tank, Some(serde_json::to_value(&replay_data)?)).await
+}
+
+pub async fn start_viewer_server_with_data(
+    tank_resolver: TankResolver,
+    tank_id: u32,
+    shooter_id: Option<u32>,
+    replay_shots: Option<serde_json::Value>,
+) -> anyhow::Result<u16> {
+    let mut app = build_viewer_router(tank_resolver, tank_id, shooter_id, "");
+    if let Some(shots) = replay_shots {
+        app = app.route("/api/replay_shot", get(move || {
+            let shots = shots.clone();
+            async move { Json(shots) }
+        }));
+    }
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await?;
+    let port = listener.local_addr()?.port();
+    eprintln!("[viewer] serving tank {} (shooter {:?}) on http://127.0.0.1:{} (headless)", tank_id, shooter_id, port);
+    tokio::spawn(async move { let _ = axum::serve(listener, app).await; });
+    Ok(port)
+}
+
+pub(crate) async fn glb_handler(
+    axum::extract::Path((tank_id, filename)): axum::extract::Path<(u32, String)>,
+) -> Response {
+    match ensure_glb_bytes(tank_id, &filename).await {
+        Ok(bytes) => glb_response(bytes),
+        Err(msg) => (axum::http::StatusCode::BAD_GATEWAY, msg).into_response(),
+    }
 }
 
 fn glb_response(bytes: Vec<u8>) -> Response {
@@ -341,15 +406,10 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
         .and_then(|s| serde_json::from_str::<Value>(&s).ok())
         .and_then(|v| v.get(tank_id.to_string()).cloned());
 
-    // Armor model + collision from portable game_data/ extraction (fallback: game install)
-    let portable = crate::wargaming::game_extract::load_game_data(tank_id, &crate::data::data_dir().join("game_data"));
-    let (armor_model, collision) = match &portable {
-        Some(gd) => (gd.armor_model.clone(), gd.collision.clone()),
-        None => {
-            let armor_model = load_armor_model(tank_id);
-            let collision = load_collision_data(&resolver, tank_id);
-            (armor_model, collision)
-        }
+    // Armor model from portable game_data/ extraction (fallback: game install)
+    let armor_model = match crate::wargaming::game_extract::load_game_data(tank_id, &crate::data::data_dir().join("game_data")) {
+        Some(gd) => gd.armor_model.clone(),
+        None => load_armor_model(tank_id),
     };
 
     // Gun angles from models.pb data
@@ -388,23 +448,31 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
             "penetration": s.penetration,
             "damage": s.damage,
             "module_damage": s.module_damage,
+            "explosion_radius": s.explosion_radius,
         })).collect::<Vec<_>>()
     }).unwrap_or_default();
 
     let armor_model_val = armor_model.as_ref().map(|m| serde_json::to_value(m).unwrap_or(json!(null)));
-    let collision_val = collision.as_ref().map(|c| json!({
-        "hull_bbox": bbox_to_json(&c.hull_bbox),
-        "turret_bbox": bbox_to_json(&c.turret_bbox),
-        "gun_bbox": bbox_to_json(&c.gun_bbox),
-        "chassis_bbox": bbox_to_json(&c.chassis_bbox),
-        "avg_thickness_hull": c.average_thickness_hull,
-        "hull_points": c.hull_points,
-        "turret_points": c.turret_points,
-        "gun_points": c.gun_points,
-    }));
 
     let configs = build_configs(tank_id);
     let caliber = configs.first().and_then(|c| c.get("caliber")).and_then(|v| v.as_u64()).unwrap_or(120) as u32;
+    // 车体装甲板 spaced 列表（models.pb ModelDefinition.armor.spaced，BlitzKit 分类权威）
+    let hull_spaced = crate::wargaming::blitzkit::model_info(tank_id)
+        .map(|m| m.hull_spaced)
+        .unwrap_or_default();
+    // 模型原点（models.pb，DAVA→GLB correctZY: (x,z,y)）——装甲节点定位基准，
+    // 对齐 BlitzKit SpacedArmorScene 的 hullOrigin/turretOrigin 分组装配。
+    let model_origins = crate::wargaming::blitzkit::model_info(tank_id)
+        .and_then(|m| match (m.track_origin, m.turret_origin) {
+            (Some(tk), Some(tu)) => Some(json!({
+                "track": [tk[0], tk[2], tk[1]],
+                "turret": [tu[0], tu[2], tu[1]],
+            })),
+            _ => None,
+        });
+    // 初始炮塔姿态（models.pb initial_turret_rotation，度；部分车辆才有）
+    let initial_turret_rotation = crate::wargaming::blitzkit::model_info(tank_id)
+        .and_then(|m| m.initial_turret_rotation);
 
     let ga = gun_angles.as_ref();
     json!({
@@ -417,8 +485,10 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
         "visual_model_url": format!("{}/glb/{}/model.glb", base_prefix, tank_id),
         "armor": armor,
         "armor_plates": armor_plates.unwrap_or(json!(null)),
+        "hull_spaced": hull_spaced,
+        "model_origins": model_origins,
+        "initial_turret_rotation": initial_turret_rotation,
         "armor_model": armor_model_val,
-        "collision": collision_val,
         "caliber": caliber,
         "shells": shells,
         "configs": configs,
@@ -520,11 +590,11 @@ pub(crate) fn build_configs(tank_id: u32) -> Vec<Value> {
             .map(|t| t.model_node)
             .or_else(|| Some((ti as u32) + 1))
     };
-    // 定位某主炮的权威模型节点号。
-    let gun_model_node = |tmod: u32, gmod: u32| -> Option<u32> {
+    // 定位某主炮的权威模型节点号 + GunModelDefinition 的 thickness/mask/spaced（对齐 BlitzKit）。
+    let gun_model_info = |tmod: u32, gmod: u32| -> Option<(u32, Option<f32>, Option<f32>, Vec<u32>)> {
         tmod_info.as_ref().and_then(|mi| mi.turrets.iter().find(|t| t.module_id == tmod))
             .and_then(|t| t.guns.iter().find(|g| g.gun_module_id == gmod))
-            .map(|g| g.model_node)
+            .map(|g| (g.model_node, g.thickness, g.mask, g.gun_spaced.clone()))
     };
 
     let mut configs = Vec::new();
@@ -540,9 +610,29 @@ pub(crate) fn build_configs(tank_id: u32) -> Vec<Value> {
             .unwrap_or(ti as u32);
         for gun in &tur.guns {
             // gun_index = 该主炮模型节点号在升序列表中的稠密下标；无权威映射则按 module 去重。
-            let gun_index = gun_model_node(tur.module_id, gun.module_id)
-                .and_then(|n| gun_dense.get(&n).copied())
+            let (gun_node, gun_thickness, gun_mask, gun_spaced) = gun_model_info(tur.module_id, gun.module_id)
+                .unwrap_or((u32::MAX, None, None, Vec::new()));
+            let gun_index = if gun_node != u32::MAX {
+                gun_dense.get(&gun_node).copied()
+            } else { None }
                 .unwrap_or_else(|| *gun_idx_by_module.get(&gun.module_id).unwrap_or(&0));
+            // 该炮塔的 spaced 列表（models.pb TurretModelDefinition.armor.spaced）
+            let turret_spaced = tmod_info.as_ref()
+                .and_then(|mi| mi.turrets.iter().find(|t| t.module_id == tur.module_id))
+                .map(|t| t.turret_spaced.clone())
+                .unwrap_or_default();
+            // 火炮原点（models.pb TurretModelDefinition.gun_origin，DAVA→GLB correctZY: (x,z,y)）
+            let gun_origin = tmod_info.as_ref()
+                .and_then(|mi| mi.turrets.iter().find(|t| t.module_id == tur.module_id))
+                .and_then(|t| t.gun_origin)
+                .map(|d| [d[0], d[2], d[1]]);
+            // 炮塔水平射界 + 炮管俯仰限制（models.pb，对齐 BlitzKit applyPitchYawLimits）
+            let turret_info = tmod_info.as_ref()
+                .and_then(|mi| mi.turrets.iter().find(|t| t.module_id == tur.module_id));
+            let yaw_limits = turret_info.and_then(|t| t.yaw_limits.clone());
+            let pitch_limits = turret_info
+                .and_then(|t| t.guns.iter().find(|g| g.gun_module_id == gun.module_id))
+                .and_then(|g| g.pitch_limits.clone());
             let name = if gun.name.is_empty() { format!("gun_{}", gun_index) } else { gun.name.clone() };
             let caliber = parse_gun_caliber(&name).map(|c| c.round() as u32).unwrap_or(120);
             // 瞄准时间(aim) 与 百米精度(dispersion)：直接来自 tanks.pb（语义正确）
@@ -559,8 +649,15 @@ pub(crate) fn build_configs(tank_id: u32) -> Vec<Value> {
             let shells: Vec<Value> = gun.shells.iter().map(|s| json!({
                 "type": s.shell_type,
                 "penetration": s.penetration,
+                "penetration_far": s.penetration_far,
                 "damage": s.damage,
                 "module_damage": s.module_damage,
+                "explosion_radius": s.explosion_radius,
+                "velocity": s.velocity,
+                "range": s.range,
+                "caliber": s.caliber,
+                "normalization": s.normalization,
+                "ricochet": s.ricochet,
             })).collect();
             // 标准弹药伤害 = AP（标准弹）；DPM 以此为基准。无 AP 时回退最高血伤弹。
             let ap_damage = gun.shells.iter()
@@ -583,6 +680,18 @@ pub(crate) fn build_configs(tank_id: u32) -> Vec<Value> {
                 "shells": shells,
                 "turret_index": turret_index,
                 "gun_index": gun_index,
+                // 炮管外部模块：厚度 + 掩体位置（models.pb GunModelDefinition，对齐 BlitzKit）
+                "gun_thickness": gun_thickness,
+                "gun_mask": gun_mask,
+                // 装甲板 spaced 分类（models.pb 权威，对齐 BlitzKit resolveArmor）：
+                // 炮管安装甲普遍为 spaced——穿透它不算击穿坦克，必须继续判定后面的主装甲。
+                "gun_spaced": gun_spaced,
+                "turret_spaced": turret_spaced,
+                // 火炮原点（correctZY 后的 GLB 坐标，装甲定位用，对齐 BlitzKit SpacedArmorScene）
+                "gun_origin": gun_origin,
+                // 射界（models.pb，对齐 BlitzKit applyPitchYawLimits）
+                "yaw_limits": yaw_limits,
+                "pitch_limits": pitch_limits,
                 "turret_name": turret_name,
                 "reload_time": reload_time,
                 "aim_time": aim_time,
@@ -599,6 +708,8 @@ pub(crate) fn build_configs(tank_id: u32) -> Vec<Value> {
                 // 模型里实际可切换的 gun/turret 组数（前端据此 clamp，避免配置数超出模型节点时错位）
                 "model_gun_count": model_guns.len(),
                 "model_turret_count": model_turrets.len(),
+                "engines": tank.engines.clone(),
+                "weight": tank.weight,
             }));
             count += 1;
         }
@@ -637,16 +748,6 @@ fn parse_gun_caliber(name: &str) -> Option<f64> {
     num.parse::<f64>().ok().map(|v| v * unit_mul)
 }
 
-fn bbox_to_json(bbox: &Option<crate::wargaming::dvpl::BoundingBox>) -> Value {
-    match bbox {
-        Some(b) => json!({
-            "min": [b.min[0], b.min[1], b.min[2]],
-            "max": [b.max[0], b.max[1], b.max[2]],
-        }),
-        None => Value::Null,
-    }
-}
-
 /// Tank list enriched with tier/nation/type metadata (merged from tanks.pb) for filtering.
 /// 坦克富元数据列表（id/name/tier/nation/type），供图形化筛选器使用。
 pub(crate) async fn tank_filter_handler() -> Json<Value> {
@@ -676,6 +777,7 @@ pub(crate) async fn shells_handler(axum::extract::Path(tank_id): axum::extract::
                 "penetration": s.penetration,
                 "damage": s.damage,
                 "module_damage": s.module_damage,
+                "explosion_radius": s.explosion_radius,
             })).collect();
             json!({ "caliber": caliber_mm, "shells": shells })
         }))
@@ -841,9 +943,15 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     </div>
     <div id="view-toggle">
         <button id="collision-btn">Show Collision</button>
+        <button id="penetration-btn">穿透热力图</button>
     </div>
     <div id="tank-selectors">
         <div class="sel-row" id="config-row" style="display:none;"><label id="config-label">Config:</label><select id="config-select"></select></div>
+        <div class="sel-row">
+            <label>Equip:</label>
+            <label style="width:auto;display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78em;"><input type="checkbox" id="eq-calibrated"> Calib.Shells</label>
+            <label style="width:auto;display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78em;"><input type="checkbox" id="eq-enhanced"> Enh.Armor</label>
+        </div>
         <div class="sel-row"><label id="shooter-label">Shooter:</label><button class="tank-btn" id="shooter-select">—</button></div>
         <div class="sel-row"><label id="target-label">Target:</label><button class="tank-btn" id="target-select">—</button></div>
     </div>
@@ -885,12 +993,29 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+        // ---------- 无头截图就绪门控 ----------
+        // headless=1 时，立即发起长轮询 XHR 扣住 Chrome 虚拟时间（pending XHR 阻止
+        // virtual time 推进，而 GLTFLoader 的 fetch() 不会）——模型加载/热力图渲染
+        // 完成后（渲染 5 帧后 fetch /api/ready）服务器释放 hold，虚拟时间才继续，
+        // 截图在就绪之后进行。SESS 由本页生成，hold/ready 配对使用。
+        const SESS = Math.random().toString(36).slice(2);
+        {
+            const q0 = new URLSearchParams(location.search);
+            if (q0.get('headless') === '1' && SESS) {
+                const holdXhr = new XMLHttpRequest();
+                holdXhr.open('GET', '/api/hold?sess=' + encodeURIComponent(SESS), true);
+                holdXhr.send();
+            }
+        }
+        let heatFrames = 0, heatReadySent = false;
+
         let scene, camera, renderer, controls;
         let raycaster, mouse;
         let tankModel = null, armorModel = null, tankData;   // tankData = target tank (model/armor/info)
         let shooterData = null;                              // shooter tank (caliber/shells)
         let shooterShells = [], shooterCaliber = 120;
         let selectedShell = null;
+        let penetrationMode = false;   // 实时穿透热力图模式开关（animate/切弹/按钮共用）
         let moduleMeshes = [];
 
         function tidyTrajectory() {
@@ -920,10 +1045,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             return null;
         }
 
-        // 0/负厚度或缺失的板是游戏里的"装饰性/非碰撞"网格，不是有效装甲：
-        // 不应参与穿透判定，也不应作为阻挡面渲染。
+        // 装甲板厚度检查：缺失/null 的板是装饰性非碰撞网格（不参与判定）。
+        // 0mm 板是有效装甲板（0 厚度间隙/壳体：穿透后继续到后层，由后端处理 eff=0）。
         function isRealArmorThickness(t) {
-            return typeof t === 'number' && t > 0;
+            return typeof t === 'number' && t >= 0;
         }
 
         function thicknessToColor(t) {
@@ -935,13 +1060,756 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             return 0x228B22;
         }
 
+        // ================= 实时穿透热力图（移植 BlitzKit PrimaryArmorScene 着色逻辑） =================
+        // 用 GLSL fragment shader 逐像素计算当前视角下该装甲面的击穿概率并着色：
+        //   - 绿色 = 稳定击穿；红色 = 稳定挡住；中间渐变 = 概率过渡
+        //   - 跳弹(角度≥ricochet 且不满足三倍口径规则) → 蓝紫色高亮
+        // 顶点/优化资源需要的 uniforms：thickness/penetration/caliber/ricochet/normalization。
+        const PBR_VERT = `
+            varying vec3 vNormal;
+            varying vec3 vViewPos;
+            void main() {
+              vec4 mv = modelViewMatrix * vec4(position, 1.0);
+              vViewPos = mv.xyz;
+              vNormal = normalMatrix * normal;
+              gl_Position = projectionMatrix * mv;
+            }
+        `;
+        const PBR_FRAG = `
+            precision mediump float;
+            varying vec3 vNormal;
+            varying vec3 vViewPos;
+            uniform float thickness;
+            uniform float penetration;
+            uniform float caliber;
+            uniform float ricochet;
+            uniform float normalization;
+            uniform float opacity;
+            uniform bool isExplosive;   // HEAT 或 HE（BlitzKit isExplosive）
+            uniform bool canSplash;     // 仅 HE（BlitzKit canSplash）
+            uniform float damage;
+            uniform float explosionRadius;
+            uniform vec2 resolution;
+            uniform float metersPerUnit;   // 视空间单位 → 米（BlitzKit 模型原生=米，本地缩放到 6 单位需换算）
+            uniform sampler2D spacedArmorBuffer;   // R=外部/间隙甲 thickness/penetration, alpha!=0 表示有覆盖
+            uniform highp sampler2D spacedArmorDepth; // 深度（HE 溅射用）
+            uniform mat4 inverseProjectionMatrix;
+            float getDist(vec2 coord, float depth) {
+              vec4 clip = vec4(coord * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+              vec4 eye = inverseProjectionMatrix * clip;
+              return length(eye.xyz / eye.w);
+            }
+            void main() {
+              vec2 sc = gl_FragCoord.xy / resolution;
+              vec4 spacedData = texture2D(spacedArmorBuffer, sc);
+              bool underSpaced = spacedData.a != 0.0;
+              // 装甲几何已转非索引并按面重算法线（每三角形三顶点法线相同），
+              // 插值结果 = 精确面法线，与弹道 raycast 的 face.normal 一致。
+              // abs() 抵消碰撞壳内表面/背面法线的反向（穿透厚度相同）。
+              float angle = acos(clamp(abs(dot(normalize(vNormal), -normalize(vViewPos))), -1.0, 1.0));
+
+
+              bool threeCal = caliber > thickness * 3.0 || underSpaced;
+              bool mayRicochet = angle >= ricochet;
+              float penChance = -1.0;
+              float splashChance = 0.0;
+              bool ricocheted = false;
+              if (!threeCal && mayRicochet) {
+                penChance = 0.0; ricocheted = true;
+              } else {
+                float ratio = thickness > 0.0 ? caliber / thickness : 0.0;
+                bool twoCal = ratio > 2.0;
+                float norm = twoCal ? (1.4 * normalization * caliber) / (2.0 * thickness) : normalization;
+                float finalThick = thickness / cos(max(0.0, angle - norm));
+                float rem = penetration;
+                if (underSpaced) {
+                  float spacedThick = spacedData.r * penetration;
+                  rem -= spacedThick;
+                  if (isExplosive && rem > 0.0) {
+                    float spacedDist = getDist(sc, texture2D(spacedArmorDepth, sc).r);
+                    float primaryDist = getDist(sc, gl_FragCoord.z);
+                    // 深度反投影得到的是视空间单位距离；BlitzKit 模型原生单位=米可直接使用，
+                    // 本地模型缩放到 6 单位（applyModelTransforms），需乘 metersPerUnit 换算回米。
+                    float distArmor = (primaryDist - spacedDist) * metersPerUnit;
+                    if (canSplash) {
+                      float finalDamage = 0.5 * damage * (1.0 - distArmor / explosionRadius) - 1.1 * (finalThick + spacedThick);
+                      splashChance = step(0.0, finalDamage);
+                      penChance = 0.0;
+                    } else {
+                      // HEAT：间隙空气衰减（对齐 BlitzKit isExplosive && !canSplash 分支）
+                      rem -= 0.5 * rem * distArmor;
+                    }
+                  }
+                }
+                if (penChance < 0.0) {
+                  rem = max(0.0, rem);
+                  float delta = finalThick - rem;
+                  float rand = rem * 0.05;
+                  penChance = clamp(1.0 - (delta + rand) / (2.0 * rand), 0.0, 1.0);
+                  if (canSplash && damage > 0.0) {
+                    float splash = 0.5 * damage - 1.1 * finalThick;
+                    splashChance = step(0.0, splash);
+                  }
+                }
+              }
+              float alpha = 0.75;
+              vec3 base = vec3(1.0, splashChance * 0.392, 0.0);
+              if (ricocheted) base = vec3(1.0, base.g, 1.0);
+              float fall = 1.0 - penChance * penChance;
+              float gain = 1.0 - (penChance - 1.0) * (penChance - 1.0);
+              gl_FragColor = vec4(fall * base + gain * vec3(0.0, 1.0, 0.0), alpha);
+              gl_FragColor.a *= opacity;
+            }
+        `;
+
+        // ============ 穿透热力图：完整对齐 BlitzKit SpacedArmorScene 机制 ============
+        // BlitzKit 结构（来自 Armor/index.tsx 的 useFrame）：
+        //   spacedArmorScene(独立 THREE.Scene) —— 单个 gl.render 用 renderOrder 排序：
+        //       0: 主装甲 omit（colorWrite:false, depthWrite:true）——只为 RT 写深度，供遮挡判断
+        //       1-2: 间隙甲 additive（depthWrite:false，写 R=thickness/penetration）
+        //       3-4: 外部模块（3=depth 写入, 4=additive 写 R）
+        //       5: 间隙甲 depth 写入
+        //   渲染到 spacedArmorRenderTarget（autoClear=true，每帧重建）
+        //   primaryArmorScene —— 主装甲着色 shader（renderOrder 1），读 RT，渲染到屏幕。
+        // 关键：omit 与 additive 是两个独立 THREE.Mesh（一个节点产两个 mesh），renderOrder 排序，
+        //     在【单次】 gl.render 内完成，深度缓冲贯穿所有 renderOrder → 后侧/被遮挡模块被正确剔除。
+        //     渲染顺序（BlitzKit useFrame）：
+        //       gl.autoClear=true; setRenderTarget(rt); gl.render(spacedArmorScene, camera);
+        //       gl.autoClear=false; setRenderTarget(null); gl.render(scene, camera);
+        //       gl.clearDepth(); gl.render(primaryArmorScene, camera);
+        let penetrationRT = null;
+        function ensurePenetrationRT() {
+            if (!penetrationRT) {
+                const c = renderer.domElement;
+                penetrationRT = new THREE.WebGLRenderTarget(c.width, c.height, {
+                    depthTexture: new THREE.DepthTexture(c.width, c.height),
+                });
+            }
+            const cx = renderer.domElement;
+            penetrationRT.setSize(cx.width, cx.height);
+            return penetrationRT;
+        }
+        // 每帧渲染 spacedArmorScene 前重建 RT：尺寸变化时重建深度纹理（BlitzKit 逻辑）。
+        function syncPenetrationRT() {
+            const rt = ensurePenetrationRT();
+            const c = renderer.domElement;
+            const w = c.width, h = c.height;
+            if (!rt.depthTexture || rt.depthTexture.width !== w || rt.depthTexture.height !== h) {
+                if (rt.depthTexture) rt.depthTexture.dispose();
+                rt.depthTexture = new THREE.DepthTexture(w, h);
+            }
+            rt.setSize(w, h);
+            return rt;
+        }
+
+        // 角色 mesh 列表：primary(主装甲,着色) / spaced(间隙甲) / external(外部模块)。
+        let primaryMeshes = [], spacedMeshes = [], externalMeshes = [];
+        // 当前激活炮的掩体裁剪面（mask 数值可用时构建；THREE.Plane，世界空间）。
+        // 持久平面对象：材质 clippingPlanes 引用它，逐帧原地更新即可跟随炮塔旋转/炮管俯仰
+        // （新建对象会使已构建材质的引用失效）。
+        let gunClipPlane = null;
+        const _gunClipPlaneObj = new THREE.Plane();
+        // 炮口世界坐标（视空间 6 单位制）：炮管包围盒沿炮轴的远端中点。
+        // 用于点击判定的命中距离（× worldMetersPerUnit 换算回米，对齐 BlitzKit 单位）。
+        let gunMuzzleWorld = null;
+        // 装甲旋转枢轴（alignArmorModules 按 models.pb 原点写入：track+turret / track+turret+gun）。
+        // updateTurretGun 以此为炮塔/炮管的旋转中心（对齐 BlitzKit 旋转语义）。
+        let armorPivotTurret = null, armorPivotGun = null;
+        // 计算激活炮的炮口位置与掩体裁剪面。裁剪面对齐 BlitzKit 的**数值公式**：
+        //   maskOrigin = mask + trackY + turretY + gunY   (glb y = 前向分量之和，模型本地)
+        //   平面法线 = 炮管轴向（炮口方向），过 模型原点 + 炮轴 × maskOrigin
+        //   → 面后侧的炮根/炮尾段被 discard（BlitzKit: Plane((0,0,-1), -maskOrigin)）。
+        // 注意：不能依赖 gun_0X_mask 网格存在——部分车辆（如 Kranvagn）mask 是纯数值，
+        // model.glb 无 mask 网格，旧实现此时丢失裁剪面 → 炮尾段被错误判定为 gun barrel。
+        function computeGunClipPlane() {
+            gunClipPlane = null;
+            gunMuzzleWorld = null;
+            const act = activeGunNumber();
+            const cfg = currentConfig();
+            if (act == null || !tankModel) return;
+            const hasMask = cfg && typeof cfg.gun_mask === 'number';
+            tankModel.updateMatrixWorld(true);
+            // 炮管方向（鲁棒）：取【激活炮】几何最长的网格（按父节点 gun_0X 精确过滤，
+            // 避免多炮模型误选备用炮管），世界包围盒长轴，指向远离车体中心的一端（炮口方向）。
+            const gunPrefix = 'gun_' + String(act).padStart(2, '0');
+            let barrel = null, barrelLen = 0;
+            tankModel.traverse(function(n){
+                if (!n.isMesh) return;
+                const pn = n.parent && n.parent.name || '';
+                if (pn !== gunPrefix) return;
+                if (!n.geometry.boundingBox) n.geometry.computeBoundingBox();
+                const b = n.geometry.boundingBox;
+                const len = Math.max(b.max.x-b.min.x, b.max.y-b.min.y, b.max.z-b.min.z);
+                if (len > barrelLen) { barrelLen = len; barrel = n; }
+            });
+            let dir = new THREE.Vector3(0, 1, 0);
+            if (barrel) {
+                const wb = new THREE.Box3().setFromObject(barrel);
+                const sz = new THREE.Vector3(); wb.getSize(sz);
+                let axis = 'x';
+                if (sz.y >= sz.x && sz.y >= sz.z) axis = 'y';
+                else if (sz.z >= sz.x && sz.z >= sz.y) axis = 'z';
+                const a = wb.min.clone(), b2 = wb.max.clone();
+                if (axis === 'x') { a.y = b2.y = (wb.min.y+wb.max.y)/2; a.z = b2.z = (wb.min.z+wb.max.z)/2; }
+                if (axis === 'y') { a.x = b2.x = (wb.min.x+wb.max.x)/2; a.z = b2.z = (wb.min.z+wb.max.z)/2; }
+                if (axis === 'z') { a.x = b2.x = (wb.min.x+wb.max.x)/2; a.y = b2.y = (wb.min.y+wb.max.y)/2; }
+                const origin = new THREE.Vector3(0, 0, 0);
+                // 炮口方向判定：以 models.pb 火炮原点（炮耳轴）为基准——炮管两端中距耳轴
+                // 更远的一端为炮口。旧实现按"远离世界原点"判向，而模型包围盒中心经居中
+                // 后恰在原点，两端等距导致方向随机反转（裁剪面保留炮尾侧、裁掉炮口侧，
+                // 炮尾段仍有 gun barrel 判定）。
+                const mo0 = tankData && tankData.model_origins;
+                const cfg0 = currentConfig();
+                let gunOriginWorld = null;
+                if (mo0 && mo0.track && mo0.turret && cfg0 && cfg0.gun_origin) {
+                    const g = new THREE.Vector3(
+                        mo0.track[0] + mo0.turret[0] + cfg0.gun_origin[0],
+                        mo0.track[1] + mo0.turret[1] + cfg0.gun_origin[1],
+                        mo0.track[2] + mo0.turret[2] + cfg0.gun_origin[2]);
+                    gunOriginWorld = tankModel.localToWorld(g);
+                }
+                if (gunOriginWorld) {
+                    const dA = a.distanceToSquared(gunOriginWorld);
+                    const dB = b2.distanceToSquared(gunOriginWorld);
+                    dir = (dA > dB) ? a.sub(b2) : b2.sub(a);
+                } else {
+                    dir = (a.distanceToSquared(origin) > b2.distanceToSquared(origin)) ? a.sub(b2) : b2.sub(a);
+                }
+                dir.normalize();
+                // 炮口 = 炮管包围盒沿 dir 的远端中点（dir 为轴对齐单位向量）
+                const center = wb.getCenter(new THREE.Vector3());
+                const halfAlongDir = (Math.abs(dir.x)*sz.x + Math.abs(dir.y)*sz.y + Math.abs(dir.z)*sz.z) / 2;
+                gunMuzzleWorld = center.add(dir.clone().multiplyScalar(halfAlongDir));
+            }
+            if (!hasMask) return;
+            // ---- 裁剪面：models.pb 数值公式（对齐 BlitzKit maskOrigin）----
+            // mask 数值为 proto required 字段、723/723 全覆盖；旧"mask 网格包围盒"回退
+            // 已移除（部分车辆如 Kranvagn 无 mask 网格，曾导致裁剪面丢失）。
+            const mo = tankData && tankData.model_origins;
+            if (!(mo && mo.track && mo.turret && cfg.gun_origin && barrel)) return;
+            // glb y = 前向分量：maskOrigin = mask + trackY + turretY + gunY（模型本地单位）
+            const maskOriginModel = cfg.gun_mask + mo.track[1] + mo.turret[1] + cfg.gun_origin[1];
+            // 模型原点的世界坐标 + 炮轴方向 × (模型本地距离 / worldMetersPerUnit → 世界距离)
+            const originWorld = new THREE.Vector3(); tankModel.localToWorld(originWorld.set(0, 0, 0));
+            const mpu = worldMetersPerUnit || 1;
+            const point = originWorld.add(dir.clone().multiplyScalar(maskOriginModel / mpu));
+            gunClipPlane = _gunClipPlaneObj.setFromNormalAndCoplanarPoint(dir, point);
+        }
+        function collectPenetrationMeshes() {
+            primaryMeshes = []; spacedMeshes = [];
+            armorModel.traverse(function(node) {
+                if (!node.isMesh) return;
+                // 隐藏网格与非激活配置的炮塔/炮管装甲（configHidden）不进热力图
+                // （对齐 BlitzKit：两场景只渲染当前 model_id 对应的装甲节点）。
+                if (node.visible === false || node.userData.configHidden) return;
+                const sec = node.userData.armorSection;
+                if (sec === 'deco') return;
+                if (sec === 'spaced') spacedMeshes.push(node);
+                else primaryMeshes.push(node);
+            });
+            // 外部模块筛选（对齐 BlitzKit SpacedArmorScene 的 gun external 逻辑）：
+            //   - 只取当前激活配置的炮（多炮管车不渲染未选中的炮管）
+            //   - 该炮定义了 mask：包含 gun_0X* 全部网格（炮管+掩体外观），按掩体面裁剪
+            //   - 未定义 mask：只取精确 gun_0X 节点的网格（炮管本体）——判定范围与视觉一致
+            externalMeshes = [];
+            const act = activeGunNumber();
+            const cfg = currentConfig();
+            const hasMask = cfg && typeof cfg.gun_mask === 'number';
+            computeGunClipPlane();
+            moduleMeshes.forEach(function(node) {
+                if (!node.isMesh) return;
+                if (node.visible === false) return;
+                if (node.userData.gunConfig != null && act != null && node.userData.gunConfig !== act) return;
+                if (node.userData.gunMaskPart && !hasMask) return;
+                externalMeshes.push(node);
+            });
+        }
+
+        // ---------- 材质 ----------
+        // omit：只写深度（BlitzKit renderOrder 0/3/5）。
+        const omitMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthTest: true, depthWrite: true });
+        // 主装甲 exclude 材质：只写深度、不写颜色（BlitzKit PrimaryArmorSceneComponent 的 excludeMaterial，
+        // renderOrder 0）。用于遮挡后侧/背面装甲板，避免透视看到被遮挡板 & 透明闪烁。
+        const excludeMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthTest: true, depthWrite: true });
+        // 主装甲着色材质（读 RT）。
+        function penetrationMaterial(thickness) {
+            return new THREE.ShaderMaterial({
+                vertexShader: PBR_VERT, fragmentShader: PBR_FRAG,
+                transparent: true, depthWrite: false,
+                uniforms: {
+                    thickness: { value: thickness },
+                    penetration: { value: 200 },
+                    caliber: { value: 120 },
+                    ricochet: { value: 70.0 * Math.PI / 180 },
+                    normalization: { value: 5.0 * Math.PI / 180 },
+                    isExplosive: { value: false },
+                    canSplash: { value: false },
+                    damage: { value: 0 },
+                    explosionRadius: { value: 0 },
+                    resolution: { value: new THREE.Vector2(1, 1) },
+                    metersPerUnit: { value: 1 },
+                    opacity: { value: 1 },
+                    spacedArmorBuffer: { value: emptySpacedTexture() },
+                    spacedArmorDepth: { value: null },
+                    inverseProjectionMatrix: { value: null },
+                },
+            });
+        }
+        // 外部模块（履带/负重轮/炮管）：flat，Additive 写 R=thickness/penetration。
+        // 需支持掩体裁剪面：ShaderMaterial 必须 clipping:true 且 shader 包含 clipping chunks
+        // （对齐 BlitzKit SpacedArmorSubExternal 的 shader 与材质设置）。
+        const EXTERNAL_VERT = `
+            #include <clipping_planes_pars_vertex>
+            void main() {
+              #include <begin_vertex>
+              #include <project_vertex>
+              #include <clipping_planes_vertex>
+            }
+        `;
+        const EXTERNAL_FRAG = `
+            uniform float thickness;
+            uniform float penetration;
+            #include <clipping_planes_pars_fragment>
+            void main() {
+              #include <clipping_planes_fragment>
+              gl_FragColor = vec4(thickness / max(penetration, 1.0), 0.0, 0.0, 1.0);
+            }
+        `;
+        function externalMaterial(thickness, penetration, clip) {
+            return new THREE.ShaderMaterial({
+                vertexShader: EXTERNAL_VERT, fragmentShader: EXTERNAL_FRAG,
+                // 注意：不可设 transparent:true——three.js 会把它挪进 transparent 渲染列表，
+                // 而 opaque 列表永远先渲染，导致 RT 内深度 pass(3/5) 先于着色 pass(2/4) 执行，
+                // 被外部模块遮挡的间隙甲/附加装甲的 R 消耗会被错误剔除。
+                // BlitzKit 的 SubSpaced/SubExternal 着色材质同样不设 transparent（保持 opaque）。
+                depthWrite: false, depthTest: true,
+                blending: THREE.AdditiveBlending,
+                clipping: clip != null,
+                clippingPlanes: clip ? [clip] : null,
+                uniforms: { thickness: { value: thickness }, penetration: { value: penetration || 200 } },
+            });
+        }
+        // 间隙甲：带角度/转正/三倍口径，Additive 写 R=finalThickness/penetration。
+        const SPACED_VERT = PBR_VERT;
+        const SPACED_FRAG = `
+            precision mediump float;
+            varying vec3 vNormal;
+            varying vec3 vViewPos;
+            uniform float thickness;
+            uniform float penetration;
+            uniform float caliber;
+            uniform float ricochet;
+            uniform float normalization;
+            void main() {
+              // 与主装甲 shader 同式：单位向量点积（abs 抵消双面法线反向）。
+              // BlitzKit SubSpaced_frag.glsl: acos(dot(vNormal, -vViewPosition)/length(vViewPosition))
+              float angle = acos(clamp(abs(dot(normalize(vNormal), -normalize(vViewPos))), -1.0, 1.0));
+              bool threeCal = caliber > thickness * 3.0;
+              if (!threeCal && angle >= ricochet) { gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); return; }
+              bool twoCal = caliber > thickness * 2.0 && thickness > 0.0;
+              float norm = twoCal ? (1.4 * normalization * caliber) / (2.0 * thickness) : normalization;
+              float finalThick = thickness / cos(max(0.0, angle - norm));
+              gl_FragColor = vec4(finalThick / max(penetration, 1.0), 0.0, 0.0, 1.0);
+            }
+        `;
+        function spacedMaterial(thickness, penetration) {
+            return new THREE.ShaderMaterial({
+                vertexShader: SPACED_VERT, fragmentShader: SPACED_FRAG,
+                // 不可设 transparent:true（见 externalMaterial 注释）——RT 内必须保持
+                // opaque 列表以让 renderOrder 严格决定 0→2→3→4→5 的执行顺序（对齐 BlitzKit）。
+                depthWrite: false, depthTest: true,
+                blending: THREE.AdditiveBlending,
+                uniforms: {
+                    thickness: { value: thickness }, penetration: { value: penetration || 200 },
+                    caliber: { value: 120 }, ricochet: { value: 70 * Math.PI / 180 }, normalization: { value: 5 * Math.PI / 180 },
+                },
+            });
+        }
+        // 装备修正（对齐 BlitzKit）：Calibrated Shells 穿深 ×1.06(AP/APCR)/×1.07(HEAT/HE)、
+        // Enhanced Armor 装甲厚度 ×1.04。同时作用于热力图 uniforms 与点击判定请求。
+        // 弹种类型归一化：tanks.pb 原始串（hc_premium/ap_cr*/he_premium/ap_premium）
+        // → BlitzKit ShellType（heat/apcr/he/ap）。BlitzKit 在解析 pb 时即映射为枚举，
+        // 前端所有弹种判断（isExplosive/canSplash/装备系数/跳弹角）必须基于归一化后
+        // 的类型——直接比较原始串会导致 HEAT 间隙衰减、HE 溅射等分支永不触发。
+        function shellTypeOf(sh) {
+            const t = ((sh && sh.type) || '').toLowerCase();
+            if (t === 'hc' || t === 'hc_premium' || t === 'heat') return 'heat';
+            if (t === 'ap_cr' || t === 'ap_cr_premium' || t === 'apcr') return 'apcr';
+            if (t === 'he' || t === 'he_premium') return 'he';
+            if (t === 'ap' || t === 'ap_premium') return 'ap';
+            return t;
+        }
+        // 弹种正式显示名（开发名 ap_cr/hc_premium → APCR/HEAT）
+        const SHELL_LABEL = { ap: 'AP', apcr: 'APCR', heat: 'HEAT', he: 'HE' };
+        function shellLabel(s) { return SHELL_LABEL[shellTypeOf(s)] || (s && s.type) || '?'; }
+        // Calibrated Shells 穿深系数（分弹种，对齐 BlitzKit resolvePenetrationCoefficient）
+        function shellPenMul(s) {
+            const calEl = document.getElementById('eq-calibrated');
+            if (!(calEl && calEl.checked)) return 1.0;
+            const t = shellTypeOf(s);
+            return (t === 'ap' || t === 'apcr') ? 1.06 : 1.07;
+        }
+        // 弹种选项文本：正式名 + 联动 Calib.Shells 的穿深
+        function shellOptionText(s) {
+            const pen = Math.round((s.penetration || 0) * shellPenMul(s));
+            return `${shellLabel(s)} ${pen}mm / ${s.damage || 0}dmg`;
+        }
+        function equipmentCoeffs() {
+            const enhEl = document.getElementById('eq-enhanced');
+            const penMul = shellPenMul(selectedShell);
+            const thickMul = (enhEl && enhEl.checked) ? 1.04 : 1.0;
+            return { penMul, thickMul };
+        }
+        // Enhanced Armor 开关变化时按克隆上记录的基础厚度重设 thickness uniforms。
+        function updateHeatmapThickness() {
+            const { thickMul } = equipmentCoeffs();
+            const apply = function(obj) {
+                if (!obj) return;
+                obj.traverse(function(node){
+                    if (!node.isMesh || !node.material || !node.material.uniforms) return;
+                    const u = node.material.uniforms;
+                    if (u.thickness && node.userData._baseThickness != null) {
+                        u.thickness.value = node.userData._baseThickness * thickMul;
+                    }
+                });
+            };
+            apply(spacedArmorScene); apply(primaryArmorScene);
+        }
+        // 外部模块/间隙甲"只写深度"材质（BlitzKit renderOrder 3/5，镂空简化几何）。
+        const externalDepthMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true, depthTest: true });
+        let _emptySpacedTex = null;
+        function emptySpacedTexture() {
+            if (!_emptySpacedTex) {
+                const d = new Uint8Array([0, 0, 0, 0]);
+                _emptySpacedTex = new THREE.DataTexture(d, 1, 1, THREE.RGBAFormat);
+                _emptySpacedTex.needsUpdate = true;
+            }
+            return _emptySpacedTex;
+        }
+        let penetrationActive = false;
+        // 单独场景：渲染进 RT 的"深度+外部/间隙甲"层（BlitzKit 的 spacedArmorScene）。
+        let spacedArmorScene = null;
+        let primaryArmorScene = null;
+        // 主装甲着色 mesh（读 RT 的材质装入 armorModel，直接在主 scene 渲染）。
+        // spacedArmorScene 中所有元素：primary-omit(order0) + spaced(additive2/depth5) + external(depth3/additive4)。
+
+        // 给定一个 armor/mesh，创建其"只写深度"克隆（记录 source，供每帧同步世界矩阵 → 跟随炮塔旋转/炮管俯仰）。
+        function addOmitClone(scene, src, renderOrder) {
+            const m = new THREE.Mesh(src.geometry, omitMaterial);
+            m.renderOrder = renderOrder;
+            m.userData._src = src;
+            src.updateWorldMatrix(true, false);
+            m.matrixAutoUpdate = false;
+            m.matrix.copy(src.matrixWorld);
+            scene.add(m);
+            return m;
+        }
+        // 给定一个 armor/mesh，创建其"着色"克隆（记录 source，供每帧同步世界矩阵）。
+        function addColorClone(scene, src, mat, renderOrder) {
+            const m = new THREE.Mesh(src.geometry, mat);
+            m.renderOrder = renderOrder;
+            m.userData._src = src;
+            src.updateWorldMatrix(true, false);
+            m.matrixAutoUpdate = false;
+            m.matrix.copy(src.matrixWorld);
+            scene.add(m);
+            return m;
+        }
+
+        // 构建 spacedArmorScene（进入热力图模式时调用一次）。
+        function buildSpacedArmorScene() {
+            if (!armorModel) return;
+            if (spacedArmorScene) spacedArmorScene.clear();
+            else spacedArmorScene = new THREE.Scene();
+            const pen = ((selectedShell && selectedShell.penetration) || 200) * equipmentCoeffs().penMul;
+            // 0: 主装甲 omit（写深度，排除后侧遮挡）——只需 hull/turret 非 spaced
+            primaryMeshes.forEach(function(node){ addOmitClone(spacedArmorScene, node, 0); });
+            // 2/5: 间隙甲 additive + depth
+            spacedMeshes.forEach(function(node){
+                const t = node.userData.armorThickness || 0;
+                const cm = addColorClone(spacedArmorScene, node, spacedMaterial(t, pen), 2);
+                cm.userData._baseThickness = t;
+                addOmitClone(spacedArmorScene, node, 5);
+            });
+            // 3/4: 外部模块 depth + additive
+            externalMeshes.forEach(function(node){
+                const t = node.userData.armorThickness || 20;
+                // 裁剪面作用于**整个 gun external 组件**（炮管+掩体，对齐 BlitzKit——其 clip
+                // 传给整个 SpacedArmorSceneComponent）；旧实现只裁掩体网格，炮管本体的
+                // 炮尾段（钻进炮塔的部分）会在 RT 中被错误判定。履带/负重轮不裁剪。
+                const clipped = node.userData.armorSection === 'gunBarrel' && gunClipPlane;
+                // 掩体部件 depth 克隆用 MeshBasicMaterial（原生支持 clipping），
+                // color 克隆的 ShaderMaterial 经 externalMaterial(…, clip) 启用 clipping chunks
+                const dmat = clipped
+                    ? (() => { const m = externalDepthMaterial.clone(); m.clippingPlanes = [gunClipPlane]; return m; })()
+                    : externalDepthMaterial;
+                const cmat = externalMaterial(t, pen, clipped ? gunClipPlane : null);
+                const od = addOmitClone(spacedArmorScene, node, 3);
+                od.material = dmat;
+                const cm2 = addColorClone(spacedArmorScene, node, cmat, 4);
+                cm2.userData._baseThickness = t;
+            });
+        }
+        // 构建 primaryArmorScene（进入热力图模式时调用一次）。
+        // 每个主装甲 mesh 生成两个克隆，与 BlitzKit PrimaryArmorSceneComponent 一致：
+        //   exclude(renderOrder 0, colorWrite:false, depthWrite:true) —— 只写正面深度，遮挡后侧/背面板
+        //   include(renderOrder 1, 穿透着色 shader) —— 读 RT，渲染到屏幕
+        // 渲染到屏幕前 gl.clearDepth()，让 exclude 的正面深度 cut 掉被遮挡/背面装甲板的颜色。
+        function buildPrimaryArmorScene() {
+            if (!armorModel) return;
+            if (primaryArmorScene) primaryArmorScene.clear();
+            else primaryArmorScene = new THREE.Scene();
+            primaryMeshes.forEach(function(node){
+                const t = node.userData.armorThickness;
+                addDepthExcludeClone(primaryArmorScene, node, 0);                        // 正面深度遮罩
+                const cm = addColorClone(primaryArmorScene, node, penetrationMaterial(t == null ? 0 : t), 1);  // 着色
+                cm.userData._baseThickness = t == null ? 0 : t;
+            });
+        }
+        // 主装甲"排除/深度"克隆（colorWrite:false, depthWrite:true）。
+        function addDepthExcludeClone(scene, src, renderOrder) {
+            const m = new THREE.Mesh(src.geometry, excludeMaterial);
+            m.renderOrder = renderOrder;
+            m.userData._src = src;
+            src.updateWorldMatrix(true, false);
+            m.matrixAutoUpdate = false;
+            m.matrix.copy(src.matrixWorld);
+            scene.add(m);
+            return m;
+        }
+        // 每帧同步：把 spacedArmorScene/primaryArmorScene 内所有克隆的世界矩阵从源节点刷新，
+        // 使热力图跟随炮塔旋转/炮管俯仰（BlitzKit 直接渲染活节点，故需手动同步 matrixWorld）。
+        function syncCloneMatrices(obj) {
+            if (!obj) return;
+            obj.traverse(function(node){
+                const src = node.userData && node.userData._src;
+                if (src) {
+                    src.updateWorldMatrix(true, false);
+                    node.matrix.copy(src.matrixWorld);
+                }
+            });
+        }
+        // 更新 spacedArmorScene 中所有材质的 uniforms（切弹/装备）。
+        function updateSpacedUniforms(sh) {
+            if (!spacedArmorScene) return;
+            const t = shellTypeOf(sh);
+            const isExplosive = t === 'he' || t === 'heat';
+            const { penMul } = equipmentCoeffs();
+            const pen = (sh.penetration || 0) * penMul;
+            const cal = sh.caliber || 120;
+            const norm = (sh.normalization != null ? sh.normalization : 5) * Math.PI / 180;
+            // BlitzKit：HE/HEAT 跳弹角强制 90°（isExplosive ? 90 : shell.ricochet）
+            const rico = (isExplosive ? 90 : (sh.ricochet != null ? sh.ricochet : 70)) * Math.PI / 180;
+            spacedArmorScene.traverse(function(node){
+                if (!node.isMesh || !node.material || !node.material.uniforms) return;
+                const u = node.material.uniforms;
+                if (u.penetration) u.penetration.value = pen;
+                if (u.caliber) u.caliber.value = cal;
+                if (u.ricochet) u.ricochet.value = rico;
+                if (u.normalization) u.normalization.value = norm;
+            });
+        }
+
+        // 释放热力图相关 WebGL 资源（材质/深度纹理），避免切弹/开关叠加泄漏 GPU 纹理与程序。
+        function disposeMaterial(mat) {
+            if (!mat) return;
+            if (mat.uniforms) {
+                for (const u of Object.values(mat.uniforms)) {
+                    const v = u && u.value;
+                    // 跳过共享的 1x1 空纹理（._emptySpacedTex 被多材质复用）与 RT 纹理
+                    if (v && v.isTexture && v !== _emptySpacedTex && !v.isRenderTargetTexture) v.dispose();
+                }
+            }
+            if (mat.map && mat.map.isTexture && mat.map !== _emptySpacedTex) mat.map.dispose();
+            mat.dispose();
+        }
+        function disposePenetrationResources() {
+            // primaryArmorScene 内所有 mesh 的材质（穿透着色 shader）
+            if (primaryArmorScene) {
+                primaryArmorScene.traverse(function(node){
+                    if (node.isMesh) { if (node.material && node.material.uniforms) disposeMaterial(node.material); }
+                });
+                primaryArmorScene.clear();
+            }
+            // spacedArmorScene 内所有 mesh 的材质
+            if (spacedArmorScene) {
+                spacedArmorScene.traverse(function(node){
+                    if (node.isMesh) { if (node.material && node.material.uniforms) disposeMaterial(node.material); }
+                });
+                spacedArmorScene.clear();
+            }
+            // RT + 深度纹理
+            if (penetrationRT) {
+                if (penetrationRT.depthTexture) penetrationRT.depthTexture.dispose();
+                penetrationRT.dispose();
+                penetrationRT = null;
+            }
+        }
+
+        // 进入/退出热力图模式。
+        // （重）构建热力图两个场景并刷新 uniforms——进入模式与切换配置时调用。
+        // 先释放旧资源，再按当前配置/弹种/装备重建（对齐 BlitzKit 的响应式重建）。
+        function rebuildHeatmapScenes() {
+            disposePenetrationResources();
+            collectPenetrationMeshes();
+            buildSpacedArmorScene();
+            buildPrimaryArmorScene();
+            const sh = selectedShell || (shooterShells[0]) || null;
+            if (sh) { updatePenetrationUniforms(sh); updateSpacedUniforms(sh); }
+            updateHeatmapThickness();
+            refreshPenetrationResolution();
+        }
+        function applyPenetrationMode(on) {
+            if (!armorModel) return;
+            if (!on) {
+                // 先释放热力图资源（材质/RT/深度纹理），防止 GPU 内存随开关/切弹累积泄漏
+                disposePenetrationResources();
+                if (tankModel) tankModel.visible = true;
+                // armorModel 恢复可见（射线检测用；材质透明不渲染）
+                armorModel.visible = true;
+                armorModel.traverse(function(node) {
+                    if (!node.isMesh) return;
+                    if (node.userData.armorSection === 'deco') { node.visible = false; return; }
+                    node.material = new THREE.MeshStandardMaterial({
+                        color: 0x444444, metalness: 0.3, roughness: 0.8,
+                        transparent: true, opacity: 0, depthWrite: false,
+                    });
+                });
+                moduleMeshes.forEach(function(node){ if (node.isMesh) node.visible = true; });
+                // 离开热力图：恢复默认 autoClear 与空渲染目标
+                renderer.autoClear = true;
+                renderer.setRenderTarget(null);
+                return;
+            }
+            // 视觉模型保持可见（对齐 BlitzKit：根场景渲染视觉坦克，热力图颜色为
+            // clearDepth 后叠加的半透明层）——炮管/履带等外部模块因而不消失
+            if (tankModel) tankModel.visible = true;
+            rebuildHeatmapScenes();
+            // armorModel 保持 visible=true（raycast 需要），但其材质为 transparent opacity:0 不绘制；
+            // 着色由 primaryArmorScene 单独渲染。
+            armorModel.visible = true;
+            // 外部模块源网格（履带/炮管/炮盾外观）保持可见——它们是视觉外观的一部分，
+            // RT 由其独立克隆渲染，不冲突；隐藏反而会使视觉坦克缺件（对齐 BlitzKit）。
+            externalMeshes.forEach(function(node){ node.visible = true; });
+            penetrationActive = true;
+        }
+
+        // 更新主装甲着色材质 uniforms（切弹/装备）。
+        function updatePenetrationUniforms(sh) {
+            const t = shellTypeOf(sh);
+            const isHE = t === 'he';
+            const isExplosive = isHE || t === 'heat';
+            const cal = sh.caliber || 120;
+            const { penMul } = equipmentCoeffs();
+            const pen = (sh.penetration || 0) * penMul;
+            const norm = (sh.normalization != null ? sh.normalization : 5) * Math.PI / 180;
+            const rico = (isExplosive ? 90 : (sh.ricochet != null ? sh.ricochet : 70)) * Math.PI / 180;
+            const applyTo = (node) => {
+                if (!node.isMesh || node.visible === false) return;
+                if (!node.material || !node.material.uniforms) return;
+                const u = node.material.uniforms;
+                if (u.penetration) u.penetration.value = pen;
+                if (u.caliber) u.caliber.value = cal;
+                if (u.ricochet) u.ricochet.value = rico;
+                if (u.normalization) u.normalization.value = norm;
+                if (u.isExplosive) u.isExplosive.value = isExplosive;
+                if (u.canSplash) u.canSplash.value = isHE;
+                if (u.damage) u.damage.value = sh.damage || 0;
+                if (u.explosionRadius) u.explosionRadius.value = sh.explosion_radius || 0;
+            };
+            if (primaryArmorScene) primaryArmorScene.traverse(function(node){ if (node.isMesh) applyTo(node); });
+        }
+        function refreshPenetrationResolution() {
+            const c = renderer.domElement;
+            const apply = (obj) => obj.traverse(function(node) {
+                if (node.isMesh && node.material && node.material.uniforms && node.material.uniforms.resolution) {
+                    node.material.uniforms.resolution.value.set(c.width, c.height);
+                    // 视空间单位 → 米换算系数（随目标模型加载更新）
+                    if (node.material.uniforms.metersPerUnit) {
+                        node.material.uniforms.metersPerUnit.value = worldMetersPerUnit || 1;
+                    }
+                }
+            });
+            if (primaryArmorScene) apply(primaryArmorScene);
+        }
+
+        // 每帧：把 spacedArmorScene 渲染进 RT，再把 RT 注入主装甲着色材质（BlitzKit useFrame）。
+        function renderSpacedArmorPass() {
+            if (!spacedArmorScene) return;
+            const rt = syncPenetrationRT();
+            // 同步克隆世界矩阵（接收源节点即时的炮塔/炮管变换）
+            syncCloneMatrices(spacedArmorScene);
+            // 裁剪面逐帧跟随炮塔旋转/炮管俯仰（原地更新持久平面对象——材质引用不变）
+            computeGunClipPlane();
+            // 注入 RT/深度/投影逆到主装甲着色材质（primaryArmorScene 内的穿透 shader）
+            const inject = (obj) => { obj.traverse(function(node){
+                if (node.isMesh && node.material && node.material.uniforms && node.material.uniforms.spacedArmorBuffer) {
+                    node.material.uniforms.spacedArmorBuffer.value = rt.texture;
+                    if (node.material.uniforms.spacedArmorDepth && rt.depthTexture) node.material.uniforms.spacedArmorDepth.value = rt.depthTexture;
+                    if (node.material.uniforms.inverseProjectionMatrix) node.material.uniforms.inverseProjectionMatrix.value = camera.projectionMatrixInverse;
+                }
+            }); };
+            if (primaryArmorScene) inject(primaryArmorScene);
+            // gl.autoClear=true; setRenderTarget(rt); gl.render(spacedArmorScene, camera)
+            renderer.autoClear = true;
+            renderer.setRenderTarget(rt);
+            renderer.setClearColor(0x000000, 0);
+            renderer.render(spacedArmorScene, camera);
+            // gl.autoClear=false; setRenderTarget(null) —— 主场景渲染由 animate 完成
+            renderer.autoClear = false;
+            renderer.setRenderTarget(null);
+        }
+
+        document.getElementById('penetration-btn').addEventListener('click', function() {
+            penetrationMode = !penetrationMode;
+            this.classList.toggle('active', penetrationMode);
+            this.textContent = penetrationMode ? '关闭热力图' : '穿透热力图';
+            applyPenetrationMode(penetrationMode);
+        });
+
+        // spaced 分类（对齐 BlitzKit resolveArmor：models.pb 的 armor.spaced 为权威）：
+        //   hull   → tankData.hull_spaced（回退 XML vehicleDamageFactor）
+        //   turret → 当前配置 turret_spaced（回退 XML）
+        //   gun    → 当前配置 gun_spaced（回退 XML）——炮管安装甲在 BlitzKit 数据中普遍为
+        //            spaced（间隙甲）：穿透它不算击穿坦克，炮弹必须继续判定后面的
+        //            车体/炮塔主装甲；非 spaced 的炮管板按主装甲（turret 语义）处理。
+        // 配置切换（炮塔/主炮变化）后需重新调用（turret/gun 的 spaced 列表随之变化）。
+        function retagSpacedSections(model) {
+            const root = model || armorModel;
+            if (!root) return;
+            const cfg = currentConfig();
+            const am = tankData.armor_model || {};
+            const hullSpaced = new Set((tankData.hull_spaced ?? am.hull?.spaced ?? []).map(String));
+            const turretSpaced = new Set((cfg?.turret_spaced ?? am.turret?.spaced ?? []).map(String));
+            const gunSpaced = new Set((cfg?.gun_spaced ?? am.gun?.spaced ?? []).map(String));
+            root.traverse(function(node) {
+                if (!node.isMesh) return;
+                const section = node.userData.armorSectionOrig;
+                if (section !== 'hull' && section !== 'turret' && section !== 'gun') return;
+                const plateId = String(node.userData.armorPlateId);
+                const spaced = (section === 'hull' && hullSpaced.has(plateId)) ||
+                               (section === 'turret' && turretSpaced.has(plateId)) ||
+                               (section === 'gun' && gunSpaced.has(plateId));
+                // spaced → 'spaced'（角度等效消耗，不阻止判定、穿透不算击穿坦克）；
+                // 其余 → 主装甲盒语义（gun 板归入 'turret'：角度等效、可跳弹、构成主装甲）。
+                node.userData.armorSection = spaced ? 'spaced' : (section === 'gun' ? 'turret' : section);
+            });
+        }
+
         function tagArmorPlates(model) {
-            const hullSpaced = new Set(tankData.armor_model?.hull?.spaced || []);
-            const turretSpaced = new Set(tankData.armor_model?.turret?.spaced || []);
-            const gunSpaced = new Set(tankData.armor_model?.gun?.spaced || []);
             model.traverse(function(node) {
                 if (!node.isMesh) return;
                 const name = node.name || '';
+                // 动态装甲双状态网格：只保留默认态 state_00，state_01 按装饰网格剔除。
+                // （BlitzKit 单 state 渲染；其两个场景对默认态的选择相反——spaced 场景默认
+                //   state_00、primary 场景默认 state_01——此处统一取 state_00，避免双份
+                //   装甲板叠加进 RT/着色层与点击判定。）
+                if (/state_01/.test(name)) {
+                    node.userData.armorSection = 'deco';
+                    node.userData.armorPlateId = '';
+                    node.userData.armorThickness = 0;
+                    return;
+                }
                 const m = name.match(/(hull|turret|gun)_\w*?_?armor_(\d+)/);
                 if (m) {
                     const section = m[1], plateId = m[2];
@@ -953,19 +1821,15 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                         node.userData.armorThickness = 0;
                         return;
                     }
-                    let actualSection = section;
-                    // spaced 板是 flat 累积层（不计伤害）。
-                    if (section === 'hull' && hullSpaced.has(plateId)) actualSection = 'spaced';
-                    if (section === 'turret' && turretSpaced.has(plateId)) actualSection = 'spaced';
-                    if (section === 'gun' && gunSpaced.has(plateId)) actualSection = 'spaced';
-                    // 炮盾(gun 非 spaced 板)是主装甲：走角度等效+跳弹，等价于 turret 的判定。
-                    // 记录原始 section 供 partName 显示；armorSection 用 'turret' 让后端按主装甲处理。
+                    // 记录原始 section / 板号 / 厚度；spaced vs 主装甲分类由
+                    // retagSpacedSections() 按 models.pb（回退 XML）完成。
                     node.userData.armorSectionOrig = section;
-                    node.userData.armorSection = (section === 'gun' && actualSection !== 'spaced') ? 'turret' : actualSection;
                     node.userData.armorPlateId = plateId;
                     node.userData.armorThickness = t;
+                    node.userData.armorSection = section;
                 }
             });
+            retagSpacedSections(model);
         }
 
         function tagModuleMeshes(model) {
@@ -974,21 +1838,37 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 if (!node.isMesh) return;
                 const parent = node.parent;
                 const parentName = parent ? (parent.name || '') : '';
-                if (parentName === 'chassis_track_L') {
+                // 履带/负重轮：沿祖先链匹配 chassis_track_* / chassis_wheel_*（对齐 BlitzKit
+                // 按节点名前缀判定——负重轮多为顶层节点，不在 chassis_track_L/R 之下）。
+                // 两者都按 External(track) 处理，厚度 = 对应侧履带厚度。
+                let trackNode = null;
+                for (let p = node; p; p = p.parent) {
+                    const nm = p.name || '';
+                    if (/^chassis_track_/.test(nm) || /^chassis_wheel_/.test(nm)) { trackNode = nm; break; }
+                }
+                if (trackNode) {
+                    const isRight = /(^|_)R(_|$)/.test(trackNode);
                     node.userData.armorSection = 'chassis';
-                    node.userData.armorPlateId = 'leftTrack';
-                    node.userData.armorThickness = getPlateThickness('chassis', 'leftTrack');
+                    node.userData.armorPlateId = isRight ? 'rightTrack' : 'leftTrack';
+                    node.userData.armorThickness = getPlateThickness('chassis', node.userData.armorPlateId);
                     moduleMeshes.push(node);
-                } else if (parentName === 'chassis_track_R') {
-                    node.userData.armorSection = 'chassis';
-                    node.userData.armorPlateId = 'rightTrack';
-                    node.userData.armorThickness = getPlateThickness('chassis', 'rightTrack');
-                    moduleMeshes.push(node);
-                } else if (/^gun_\d+/.test(parentName)) {
+                } else if (/^gun_\d+$/.test(parentName)) {
+                    // 炮管本体（父节点精确 gun_0X）——BlitzKit：无 mask 时外部模块只含此节点
                     node.userData.armorSection = 'gunBarrel';
                     node.userData.armorPlateId = 'gun';
                     node.userData.armorThickness = getPlateThickness('gunBarrel', 'gun');
+                    node.userData.gunMaskPart = false;
                     // 记录所属 gun 配置组序号(如 gun_04→4)，供按配置过滤 raycast 与可见性。
+                    const gm = parentName.match(/^gun_(\d+)/);
+                    node.userData.gunConfig = gm ? parseInt(gm[1], 10) : null;
+                    moduleMeshes.push(node);
+                } else if (/^gun_\d+_/.test(parentName)) {
+                    // 炮盾/掩体网格（父节点 gun_0X_mask* 等）——仅当该炮在 models.pb 定义了
+                    // mask 时才作为外部模块（并按掩体平面裁剪），否则不参与（对齐 BlitzKit）。
+                    node.userData.armorSection = 'gunBarrel';
+                    node.userData.armorPlateId = 'gun';
+                    node.userData.armorThickness = getPlateThickness('gunBarrel', 'gun');
+                    node.userData.gunMaskPart = true;
                     const gm = parentName.match(/^gun_(\d+)/);
                     node.userData.gunConfig = gm ? parseInt(gm[1], 10) : null;
                     moduleMeshes.push(node);
@@ -998,6 +1878,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
         // 模块装甲（炮塔/炮盾）与视觉模型的对齐统一由 alignArmorModules() 完成；
         // 车体(hull) 的 game points 恒接近 0，无需偏移，故不再对碰撞模型做预平移。
+        let worldMetersPerUnit = null;   // 场景单位→米换算系数（maxDim/6，随模型加载更新）
         function applyModelTransforms(model) {
             model.rotation.x = -Math.PI / 2;
             const box = new THREE.Box3().setFromObject(model);
@@ -1005,6 +1886,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             const size = box.getSize(new THREE.Vector3());
             const maxDim = Math.max(size.x, size.y, size.z);
             const scale = 6 / maxDim;
+            worldMetersPerUnit = maxDim / 6;
             model.scale.setScalar(scale);
             const box2 = new THREE.Box3().setFromObject(model);
             const center2 = box2.getCenter(new THREE.Vector3());
@@ -1022,184 +1904,57 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             alignArmorModules();
         }
 
-        // Align the armor/collision model's module armor (turret / gun) with the visual model.
-        // 某些车辆(如 E 100)的 collision.glb 将模块装甲放在模型原点附近，因此需要从
-        // 视觉模型对应节点推导偏移。
+        // Align the armor/collision model with the visual model —— models.pb 权威原点装配
+        // （对齐 BlitzKit SpacedArmorScene 的 hullOrigin/turretOrigin/gunOrigin 分组）。
         //
-        // 关键(多主炮通用)：炮盾(枪座/掩体)对应视觉模型的 `gun_0X_mask` 节点，而不是整个
-        // `gun_0X` 组——后者含长炮管，其包围盒中心偏向前方，会把 armor 炮盾错误拉向炮管中段。
-        // 因此 gun 的 armor 优先对齐到 `gun_0X_mask`(炮盾根部)；turret 对齐到 `turret_0X`。
+        // collision.glb 的装甲板顶点为 origin 相对坐标：
+        //   hull   = 顶点 + trackOrigin
+        //   turret = 顶点 + trackOrigin + turretOrigin
+        //   gun    = 顶点 + trackOrigin + turretOrigin + gunOrigin(每炮塔)
+        // BlitzKit 用 correctZY: DAVA(x,y,z) → GLB(x,z,y) 换算后分组装配（载荷已换算）。
+        // 实测验证：Jg.Pz. E 100 的 gun 板 raw z -0.47..0.58 +(0.317,2.375) → 1.9..2.95
+        // = 战斗室炮位高度 ✓；T-34 turret 板 +0.791 → 0.82..1.39 ✓。
+        // （旧"整体刚性桥接 + 包围盒中心匹配"退化方案已移除——models.pb 原点 723/723
+        //   全覆盖，回退路径不可达；历史方案见 backups/ 与 BlitzKit对照审查.md。）
         function alignArmorModules() {
             if (!armorModel || !tankModel) return;
+            // 强制回到基准位置(tankModel 变换)：本函数可能被 syncTransforms 或 applyConfig
+            // 等多条路径调用，先归零才能保证 installPivot 幂等不漂移。
+            armorModel.position.copy(tankModel.position);
             armorModel.updateMatrixWorld(true);
             tankModel.updateMatrixWorld(true);
 
-            // 取视觉模型某节点的几何包围盒中心（世界空间）。找不到返回 null。
-            const visualCenterOf = (namePrefix) => {
-                const root = tankModel.children[0] || tankModel;
-                let grp = null;
-                for (const c of root.children) { if ((c.name || '') === namePrefix) { grp = c; break; } }
-                if (!grp) return null;
-                const b = new THREE.Box3(); let any = false;
-                const isNonBody = (n) => /hide_elements|_nc|_switch/i.test(n.name || '');
-                (function walk(n) {
-                    if (isNonBody(n)) return;   // 跳过隐藏/动画/低模子树
-                    if (n.isMesh) { b.union(new THREE.Box3().setFromObject(n)); any = true; }
-                    n.children.forEach(walk);
-                })(grp);
-                return any ? b.getCenter(new THREE.Vector3()) : null;
+            const installPivot = (mesh, pivot) => {
+                if (!mesh.userData.origPos) mesh.userData.origPos = mesh.position.clone();
+                mesh.position.copy(mesh.userData.origPos).add(pivot);
+                // 关键：collectArmorNodes 会把 mesh 的 matrixAutoUpdate 设为 false(炮塔旋转
+                // 的矩阵冻结优化)，position 修改后 matrix 不会自动刷新——必须显式 updateMatrix，
+                // 否则旋转读到旧矩阵位置，armor 整体被抬高/错位。
+                mesh.updateMatrix();
             };
 
-            // 通病修复：无 `gun_0X_mask` 的坦克（如 112 Glacial），若把炮盾 armor 对齐到整根
-            // `gun_0X` 组（含长炮管）的几何中心，会被拉向炮管中段，导致炮盾错位。
-            // 此时应以"炮管根部"（炮塔侧一端）作锚点。这里返回视觉 gun 组的 bbox 在 z 上
-            // 更靠近炮塔中心的那一端（世界空间），用于对齐炮盾；有 mask 时仍优先用 mask 中心。
-            // 注意传入的可能是 `gun_01` / `gun_01_mask`，这里统一落到 `gun_01` 实体组（去除 _mask 后缀）。
-            const visualGunRootOf = (namePrefix) => {
-                const gunGroupName = namePrefix.replace(/_mask$/, '');
-                const root = tankModel.children[0] || tankModel;
-                let grp = null;
-                for (const c of root.children) { if ((c.name || '') === gunGroupName) { grp = c; break; } }
-                if (!grp) return null;
-                const b = new THREE.Box3(); let any = false;
-                const isNonBody = (n) => /hide_elements|_nc|_switch/i.test(n.name || '');
-                (function walk(n) {
-                    if (isNonBody(n)) return;
-                    if (n.isMesh) { b.union(new THREE.Box3().setFromObject(n)); any = true; }
-                    n.children.forEach(walk);
-                })(grp);
-                if (!any) return null;
-                const turretCenter = visualCenterOf(turretPrefixFor(gunGroupName));
-                const xMid = (b.min.x + b.max.x) / 2, yMid = (b.min.y + b.max.y) / 2;
-                if (turretCenter) {
-                    const zMin = Math.abs(b.min.z - turretCenter.z);
-                    const zMax = Math.abs(b.max.z - turretCenter.z);
-                    return new THREE.Vector3(xMid, yMid, zMin < zMax ? b.min.z : b.max.z);
-                }
-                return new THREE.Vector3(xMid, yMid, b.max.z);
-            };
-
-            // 由 gun 前缀推导其所属炮塔分组名（gun_01 → 找 turret_01；gun_02 → turret_02 …）。
-            const turretPrefixFor = (gunPrefix) => {
-                const m = gunPrefix.match(/^gun_(\d+)$/);
-                return m ? ('turret_' + m[1]) : null;
-            };
-
-            // 通病修复：部分坦克（如 112 Glacial）的碰撞炮塔 armor 只有壳体薄片、比视觉炮塔矮，
-            // 若按"几何中心"对齐会导致炮塔底部悬空（悬浮在车体上方）。因此对炮塔改用"底部对齐"：
-            // 让碰撞炮塔 armor 的底沿(min.y)对齐到视觉炮塔的底沿(min.y)，使炮塔坐上车体顶面。
-            // 对本来就贴地的坦克(IS-7/E-100 等)差值≈0，属幂等微调，不产生回归。
-            const visualBottomYOf = (namePrefix) => {
-                const root = tankModel.children[0] || tankModel;
-                let grp = null;
-                for (const c of root.children) { if ((c.name || '') === namePrefix) { grp = c; break; } }
-                if (!grp) return null;
-                const b = new THREE.Box3(); let any = false;
-                const isNonBody = (n) => /hide_elements|_nc|_switch/i.test(n.name || '');
-                (function walk(n) {
-                    if (isNonBody(n)) return;
-                    if (n.isMesh) { b.union(new THREE.Box3().setFromObject(n)); any = true; }
-                    n.children.forEach(walk);
-                })(grp);
-                return any ? b.min.y : null;
-            };
-
-            // 把给定 armor mesh 组对齐到视觉节点；`useGunRoot` 用炮管根部锚点，
-            // `alignBottom` 时按底沿(min.y)对齐（炮塔坐上车体），否则按几何中心对齐。
-            const alignGroup = (visualPrefix, meshes, useGunRoot, alignBottom) => {
-                let target;
-                if (useGunRoot) {
-                    target = visualGunRootOf(visualPrefix);
-                    if (!target) return;
-                    const b = new THREE.Box3();
-                    meshes.forEach(m => b.union(new THREE.Box3().setFromObject(m)));
-                    const deltaW = target.clone().sub(b.getCenter(new THREE.Vector3()));
-                    meshes.forEach(m => {
-                        if (!m.parent) return;
-                        const wp = new THREE.Vector3();
-                        m.getWorldPosition(wp);
-                        wp.add(deltaW);
-                        const lp = m.parent.worldToLocal(wp);
-                        m.position.copy(lp);
-                    });
-                    return;
-                }
-                if (alignBottom) {
-                    // 底部对齐：碰撞装甲组底沿(min.y)对齐到视觉节点底沿(min.y)，x/z 用中心对齐。
-                    const b = new THREE.Box3();
-                    meshes.forEach(m => b.union(new THREE.Box3().setFromObject(m)));
-                    const ac = b.getCenter(new THREE.Vector3());
-                    const visC = visualCenterOf(visualPrefix);
-                    if (!visC) return;
-                    const dx = visC.x - ac.x;
-                    const dz = visC.z - ac.z;
-                    const bottomTarget = visualBottomYOf(visualPrefix);
-                    if (bottomTarget == null) return;
-                    const dy = bottomTarget - b.min.y;
-                    meshes.forEach(m => {
-                        if (!m.parent) return;
-                        const wp = new THREE.Vector3();
-                        m.getWorldPosition(wp);
-                        wp.add(new THREE.Vector3(dx, dy, dz));
-                        const lp = m.parent.worldToLocal(wp);
-                        m.position.copy(lp);
-                    });
-                    return;
-                }
-                target = visualCenterOf(visualPrefix);
-                if (!target || !meshes.length) return;
-                const b = new THREE.Box3();
-                meshes.forEach(m => b.union(new THREE.Box3().setFromObject(m)));
-                const ac = b.getCenter(new THREE.Vector3());
-                const deltaW = target.clone().sub(ac);
-                meshes.forEach(m => {
-                    if (!m.parent) return;
-                    const wp = new THREE.Vector3();
-                    m.getWorldPosition(wp);
-                    wp.add(deltaW);
-                    const lp = m.parent.worldToLocal(wp);
-                    m.position.copy(lp);
-                });
-            };
-
-            // 按 armor 前缀收集对应的 armor mesh（匹配 `gun_0X_armor_` / `turret_0X_armor`）。
-            const armorMeshesByPrefix = (prefix) => {
-                const meshes = [];
-                armorModel.traverse(n => {
-                    if (n.isMesh && (n.name || '').startsWith(prefix + '_armor')) meshes.push(n);
-                });
-                return meshes;
-            };
-
-            // 逐前缀对齐：gun 优先对齐到 mask(炮盾)，turret/hull 对齐到自身组。
-            // 通病修复：某些坦克(如 112 Glacial / AC IV Sentinel / WZ-113G FT / A-32)的
-            // collision.glb 把 hull_armor 放在与原点的偏移处(z 轴差 >0.6)，而 hull 此前从不
-            // 对齐，导致碰撞车体整体与视觉模型错位。现对 hull 也做统一对齐；
-            // 对本来无偏移的坦克，delta≈0，属幂等操作，不产生回归。
-            const seen = new Set();
+            const mo = tankData && tankData.model_origins;
+            const cfgO = currentConfig();
+            if (!(mo && mo.track && mo.turret)) return;
+            const vTrack = new THREE.Vector3(mo.track[0], mo.track[1], mo.track[2]);
+            const vTurret = new THREE.Vector3(mo.turret[0], mo.turret[1], mo.turret[2]);
+            const pHull = vTrack.clone();
+            const pTurret = vTrack.clone().add(vTurret);
+            const pGun = (cfgO && cfgO.gun_origin)
+                ? pTurret.clone().add(new THREE.Vector3(cfgO.gun_origin[0], cfgO.gun_origin[1], cfgO.gun_origin[2]))
+                : pTurret.clone();
+            armorPivotTurret = pTurret.clone();
+            armorPivotGun = pGun.clone();
             armorModel.traverse(n => {
                 if (!n.isMesh) return;
-                const name = n.name || '';
-                const hm = name.match(/^(hull)_armor/);
-                const gm = name.match(/^(turret_\d+)_armor/);
-                const gg = name.match(/^(gun_\d+)_armor/);
-                const prefix = gm ? gm[1] : (gg ? gg[1] : (hm ? hm[1] : null));
-                if (!prefix || seen.has(prefix)) return;
-                seen.add(prefix);
-                const meshes = armorMeshesByPrefix(prefix);
-                if (!meshes.length) return;
-                const isGun = !!gg;
-                const isTurret = !!gm;
-                const isHull = !!hm;
-                const visPrefix = isGun ? prefix + '_mask' : prefix;
-                // 通病修复：gun 若没有独立 mask 节点（如 112 Glacial），对齐到整个 gun 组中心
-                // 会被长炮管拉偏；改用"炮管根部"（靠近炮塔侧端点）做锚点。有 mask 时仍用 mask 中心。
-                // turret/hull 用底部对齐，使碰撞车体/炮塔贴合地面与车体，避免悬浮或略微上浮。
-                const hasMask = isGun && !!visualCenterOf(visPrefix);
-                alignGroup(visPrefix, meshes, isGun && !hasMask, isTurret || isHull);
+                const nm = n.name || '';
+                if (/^turret_\d+_armor/.test(nm)) { installPivot(n, pTurret); }
+                else if (/^gun_\d+_armor/.test(nm)) { installPivot(n, pGun); }
+                else if (/^hull_armor/.test(nm)) { installPivot(n, pHull); }
             });
-        }
+            armorModel.updateMatrixWorld(true);
 
+        }
         function clearModels() {
             if (tankModel) { scene.remove(tankModel); tankModel = null; }
             if (armorModel) { scene.remove(armorModel); armorModel = null; }
@@ -1228,6 +1983,17 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             loader.load(tankData.model_url, function(gltf) {
                 armorModel = gltf.scene;
                 tagArmorPlates(armorModel);
+                // 重算装甲网格法线：碰撞壳的原始顶点法线不可靠（局部插值法线与几何面法线
+                // 不一致甚至反向），导致热力图把大角度等效厚误算成小角度（炮根绿色误判）。
+                // 转非索引几何后按面重算 → 每个碎片的插值法线 = 精确面法线，
+                // 与弹道 raycast 的 face.normal 完全一致（着色器内 abs() 抵消绕向差异）。
+                // 仅装甲模型处理；视觉模型法线保持原样用于 PBR 外观。
+                armorModel.traverse(function(node) {
+                    if (node.isMesh && node.geometry) {
+                        if (node.geometry.index) node.geometry = node.geometry.toNonIndexed();
+                        node.geometry.computeVertexNormals();
+                    }
+                });
                 // Keep visible for raycasting but make transparent so it doesn't render visually
                 armorModel.traverse(function(node) {
                     if (node.isMesh) {
@@ -1242,6 +2008,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 scene.add(armorModel);
                 syncTransforms();
                 applyConfig(currentConfigIdx);
+                applyUrlOptionsOnce();
             }, undefined, fail('armor model'));
 
             // Load visual model (visible)
@@ -1262,7 +2029,184 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 controls.update();
                 syncTransforms();
                 applyConfig(currentConfigIdx);
+                applyUrlOptionsOnce();
+                window.__DBG__ = { scene, tankModel, armorModel, tankData, THREE, controls };
             }, undefined, fail('tank model'));
+        }
+
+        // ---------- URL 参数自动化（供 Agent 无头截图 / 可分享的热力图链接） ----------
+        // 支持：heatmap=1（自动开启热力图）、clean=1（隐藏全部 UI 覆盖层）、
+        //       shell=N（弹种索引）、yaw=N / pitch=N（炮塔/炮管角度）、
+        //       az=N / dist=N / h=N（相机方位角/距离/高度）。
+        // 两个模型都就绪后应用一次（热力图依赖 armorModel）。
+        const QP = new URLSearchParams(location.search);
+        let urlApplied = false;
+        function applyUrlOptionsOnce() {
+            if (urlApplied || !tankModel || !armorModel) return;
+            urlApplied = true;
+            const num = (k) => { const v = parseFloat(QP.get(k)); return isNaN(v) ? null : v; };
+            const yaw = num('yaw'), pitch = num('pitch');
+            if (yaw !== null || pitch !== null) {
+                if (yaw !== null) currentTurretDeg = Math.max(-179, Math.min(179, yaw));
+                if (pitch !== null) currentGunDeg = pitch;
+                document.getElementById('turret-val').textContent = currentTurretDeg.toFixed(0) + '°';
+                document.getElementById('gun-val').textContent = currentGunDeg.toFixed(0) + '°';
+                updateTurretGun(currentTurretDeg, currentGunDeg);
+            }
+            // 射手坦克（射击复现时射手 ≠ 目标）：加载射手的弹种选择器
+            const shooterTank = parseInt(QP.get('shooter'), 10);
+            if (!isNaN(shooterTank) && shooterTank > 0) {
+                loadShooter(shooterTank);
+            }
+            const si = parseInt(QP.get('shell'), 10);
+            if (!isNaN(si) && shooterShells && si >= 0 && si < shooterShells.length) {
+                document.getElementById('shell-select').value = String(si);
+                selectedShell = shooterShells[si];
+                if (penetrationMode) updatePenetrationUniforms(selectedShell);
+            }
+            const view = QP.get('view');
+            const azOv = num('az'), distOv = num('dist'), hOv = num('h');
+            if (view || azOv !== null || hOv !== null || distOv !== null) {
+                // 炮线高度（世界单位）：gun 枢轴的 glb z × 模型缩放
+                const gunLine = (armorPivotGun ? armorPivotGun.z : 2.0) * (tankModel.scale.x || 1);
+                // 视角预设（对齐 BlitzKit 语义）：front/rear/left/right = 炮线高度的水平视角；
+                // hull_down = 低机位仰视炮塔（卖头视角）；top = 俯视
+                const P = ({
+                    front:       {az:0,   h:gunLine,     ty:gunLine,      d:4.8},
+                    rear:        {az:180, h:gunLine,     ty:gunLine,      d:4.8},
+                    left:        {az:90,  h:gunLine,     ty:gunLine,      d:4.8},
+                    right:       {az:270, h:gunLine,     ty:gunLine,      d:4.8},
+                    hull_down:   {az:0,   h:1.1,         ty:gunLine+0.3,  d:5.0},
+                    top:         {az:0,   h:gunLine+12,  ty:0.6,          d:7.0},
+                    front_left:  {az:45,  h:gunLine,     ty:gunLine,      d:5.2},
+                    front_right: {az:315, h:gunLine,     ty:gunLine,      d:5.2},
+                    rear_left:   {az:135, h:gunLine,     ty:gunLine,      d:5.2},
+                    rear_right:  {az:225, h:gunLine,     ty:gunLine,      d:5.2},
+                })[view] || {az:0, h:gunLine, ty:gunLine, d:4.8};
+                const d = distOv !== null ? distOv : P.d;
+                const a = (azOv !== null ? azOv : P.az) * Math.PI / 180;
+                const h = hOv !== null ? hOv : P.h;
+                const ty = num('ty') !== null ? num('ty') : P.ty;
+                camera.position.set(Math.sin(a) * d, h, -Math.cos(a) * d);
+                controls.target.set(0, ty, 0);
+                controls.update();
+            }
+            if (QP.get('heatmap') === '1' && !penetrationMode) {
+                penetrationMode = true;
+                const btn = document.getElementById('penetration-btn');
+                btn.classList.add('active'); btn.textContent = '关闭热力图';
+                applyPenetrationMode(true);
+            }
+            // 射击复现：shot=N 时从 /api/replay_shot 取该发数据，相机摆到射手 POV，
+            // 热力图就绪后自动执行该发的射线判定（trajectoria + 结果面板）。
+            // 弹种选择器保留——切换弹种后自动重跑判定。
+            const shotNo = parseInt(QP.get('shot'), 10);
+            const isShotReplay = !isNaN(shotNo);
+            if (isShotReplay) {
+                fetch('/api/replay_shot').then(r => {
+                    if (!r.ok) { console.warn('[shot-replay] fetch failed:', r.status); throw new Error('HTTP '+r.status); }
+                    return r.json();
+                }).then(d => {
+                    const shots = d.shots || d;
+                    const s = (Array.isArray(shots) ? shots : []).find(x => x.index === shotNo);
+                    if (!s) { console.warn('[shot-replay] shot', shotNo, 'not found'); return; }
+                    const sp = s.shooter_pos, tp = s.target_pos;
+                    const scl = tankModel.scale.x || 1;
+                    const dxE = sp[0] - tp[0], dzN = sp[2] - tp[2];
+                    // 相机距离受 OrbitControls.maxDistance(30) 限制
+                    const distH = Math.min(Math.sqrt(dxE*dxE + dzN*dzN) * scl, (controls.maxDistance || 30) - 1);
+                    const gunLine = (armorPivotGun ? armorPivotGun.z : 2.0) * scl;
+                    // ===== 模型保持默认朝向（车头 -Z），相机做相对调整 =====
+                    // 数学等价于"模型旋转 hullYaw + 相机绝对方位"，但改为：
+                    // 模型不动 → 相机相对方位 = (绝对方位 − hullYaw)，炮塔相对角同理。
+                    // 轴映射（弹道方向验证 9/10 ≤1.1°）：回放 x=东,y=高,z=南 全直通。
+                    const ta = s.target_ang || [0, 0, 0];
+                    const hullYaw = ta[0] || 0;
+                    // 目标→射手绝对方位（atan2 北=0 顺时针）→ 减 hullYaw 转为相对车头
+                    const absBearingToShooter = Math.atan2(dxE, dzN);
+                    const relBearing = absBearingToShooter - hullYaw;
+                    // 相机高度：目标炮线 + 俯仰角×压缩后距离。
+                    // 高度差不能直接用 dy×scl——水平距离被 clamp 到 maxDistance 时，
+                    // 俯仰角会被放大（真实 -8° 变 -14°，相机陷入地下）。
+                    // 正确做法：按真实几何算俯仰角，再乘压缩后的 distH。
+                    const realDist = Math.sqrt(dxE*dxE + dzN*dzN) * scl;
+                    const dipAngle = Math.atan2(sp[1] - tp[1], Math.sqrt(dxE*dxE + dzN*dzN) || 1);
+                    const h = gunLine + Math.tan(dipAngle) * distH;
+                    camera.position.set(Math.sin(relBearing) * distH, h, -Math.cos(relBearing) * distH);
+                    controls.target.set(0, gunLine, 0);
+                    controls.update();
+                    __shotRayOrigin = new THREE.Vector3(Math.sin(relBearing) * distH, h, -Math.cos(relBearing) * distH);
+                    // ===== 炮塔：绝对朝向 → 相对车体（模型未旋转 → 相对 = 绝对 − hullYaw） =====
+                    const turretAbs = (typeof s.target_turret_yaw === 'number') ? s.target_turret_yaw : 0;
+                    let turretDeg = -(turretAbs - hullYaw) * 180 / Math.PI;
+                    turretDeg = ((turretDeg + 180) % 360 + 360) % 360 - 180;
+                    currentTurretDeg = Math.max(-179, Math.min(179, turretDeg));
+                    // 炮管俯仰：type=32 pitch（回退 hull pitch）
+                    const gp = (typeof s.target_gun_pitch === 'number' && s.target_gun_pitch !== 0)
+                        ? s.target_gun_pitch : (ta[1] || 0);
+                    currentGunDeg = Math.max(-25, Math.min(15, gp * 180 / Math.PI));
+                    updateTurretGun(currentTurretDeg, currentGunDeg);
+                    console.log('[shot-replay] camera=', camera.position.toArray().map(v=>v.toFixed(2)),
+                        'absBearing=', (absBearingToShooter*180/Math.PI).toFixed(1),
+                        'relBearing=', (relBearing*180/Math.PI).toFixed(1),
+                        'turret=', currentTurretDeg.toFixed(1), 'gunPitch=', currentGunDeg.toFixed(1));
+                    const st = document.getElementById('turret-controls');
+                    if (st) { st.innerHTML = '<div class="ctrl-row"><b>Shot #' + s.index + '</b></div>' +
+                        '<div class="ctrl-row">DMG ' + s.damage + (s.is_kill ? ' · KILL' : '') + ' · ' + (s.target_name||'') + '</div>'; }
+                    // 弹道两点 → 射线方向（标记球 + doPenetrationCheck 共用）
+                    __shotRayOrigin = new THREE.Vector3(Math.sin(bearing) * distH, h, -Math.cos(bearing) * distH);
+                    // 射线终点：弹道方向可用 → 沿方向穿过模型（raycast 截断取真实命中）；
+                    // 否则用弹着点坐标（<6m 过滤后）。
+                    let targetPoint;
+                    if (aimDir) {
+                        targetPoint = __shotRayOrigin.clone()
+                            .add(new THREE.Vector3(aimDir.x, aimDir.y, aimDir.z).multiplyScalar(distH * 3));
+                    } else {
+                        targetPoint = new THREE.Vector3(aimTarget.x, aimTarget.y, aimTarget.z);
+                        if (armorModel) {
+                            const bbArmor = new THREE.Box3().setFromObject(armorModel);
+                            if (!bbArmor.containsPoint(targetPoint)) {
+                                targetPoint.clamp(bbArmor.min, bbArmor.max);
+                            }
+                        }
+                    }
+                    // 标记球位置 = 弹着点（模型局部坐标，非射线远端！）
+                    // aimTarget <6m 过滤通过时用弹着点，否则放射线与模型的交点近似（中心）。
+                    const markerPoint = (aimTarget.x !== 0 || aimTarget.y !== 0 || aimTarget.z !== 0)
+                        ? new THREE.Vector3(aimTarget.x, aimTarget.y, aimTarget.z)
+                        : new THREE.Vector3(0, gunLine, 0);
+                    // 射线终点延伸到模型对面（沿 origin→target 方向加倍距离）
+                    const rayDir = targetPoint.clone().sub(__shotRayOrigin);
+                    __shotRayTarget = __shotRayOrigin.clone().add(rayDir.multiplyScalar(2));
+                    // 【命中点可视化标注】：在弹着点位置放一个红色标记球（半透明，随炮塔旋转需重算暂不支持——静态标注）
+                    if (window.__hitMarker) { scene.remove(window.__hitMarker); window.__hitMarker = null; }
+                    const markerGeo = new THREE.SphereGeometry(0.08, 16, 12);
+                    const markerMat = new THREE.MeshBasicMaterial({ color: 0xff2222, transparent: true, opacity: 0.9, depthTest: false });
+                    const marker = new THREE.Mesh(markerGeo, markerMat);
+                    marker.position.copy(markerPoint);
+                    marker.renderOrder = 999;
+                    scene.add(marker);
+                    window.__hitMarker = marker;
+                    // 外圈环（更醒目，与球同心：环是球的子节点，position(0,0,0) 即球心）
+                    const ringGeo = new THREE.RingGeometry(0.12, 0.18, 24);
+                    const ringMat = new THREE.MeshBasicMaterial({ color: 0xff2222, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthTest: false });
+                    const ring = new THREE.Mesh(ringGeo, ringMat);
+                    ring.lookAt(camera.position);
+                    marker.add(ring);
+                    window.__hitMarkerRing = ring;
+
+                    setTimeout(() => {
+                        doPenetrationCheck(0, 0);
+                        __shotRayOrigin = null; __shotRayTarget = null;
+                    }, 600);
+                }).catch(e => console.warn('replay_shot fetch failed', e));
+            }
+            if (QP.get('clean') === '1' && !isShotReplay) {
+                // 仅在非复现模式的纯净截图中隐藏 UI；射击复现模式保留完整查看器窗口
+                ['info-panel','shell-selector','view-toggle','tank-selectors','turret-controls','controls-hint','loading'].forEach(id => {
+                    const el = document.getElementById(id); if (el) el.style.display = 'none';
+                });
+            }
         }
 
         function updateInfoPanel() {
@@ -1286,9 +2230,13 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             tidyTrajectory();
             tankData = await (await fetch('/api/tank/' + tid)).json();
             // 支持 URL ?config=N 指定初始模块（百科详情联动 3D 检视用）。
+            // 默认配置对齐 BlitzKit tankToDuelMember 的 turrets.at(-1).guns.at(-1)
+            // （最后一座炮塔的最后一门炮 = 顶层配置）——顶层炮的穿深/转正等与底层不同，
+            // 热力图着色（如临界等效厚度的颜色）因此以顶层配置为准。
             const q = new URLSearchParams(location.search);
             const wantCfg = parseInt(q.get('config'), 10);
-            currentConfigIdx = (Number.isInteger(wantCfg) && wantCfg >= 0 && wantCfg < tankData.configs.length) ? wantCfg : 0;
+            const defaultCfg = Math.max(0, (tankData.configs ? tankData.configs.length : 1) - 1);
+            currentConfigIdx = (Number.isInteger(wantCfg) && wantCfg >= 0 && wantCfg < tankData.configs.length) ? wantCfg : defaultCfg;
             setupConfigSelect();
             updateInfoPanel();
             loadModels();
@@ -1341,6 +2289,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             applyConfigVisible(tankModel, cfg.gun_index, cfg.turret_index);
             // Armor model: hide non-selected gun/turret config armor meshes.
             applyArmorConfigVisible(cfg);
+            // spaced 分类跟随当前配置（turret_spaced/gun_spaced 随炮塔/主炮变化）
+            retagSpacedSections();
             // Align armor module (turret/gun) with the visual model (fixes missing points).
             alignArmorModules();
             // Reset turret/gun matrices for the newly active nodes.
@@ -1348,7 +2298,6 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             armorOrigMatrices = null;
             collectTurretGunNodes();
             collectArmorNodes();
-            computePivots();
             // 重放当前炮塔/主炮角度：切换配置后 pivot 已更新，需把已有的旋转/俯仰重新应用，
             // 否则配置切换会丢失用户当前调整的炮塔/炮管角度。
             updateTurretGun(currentTurretDeg, currentGunDeg);
@@ -1360,6 +2309,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 populateShellSelector(shooterShells);
                 selectedShell = shooterShells.length ? shooterShells[0] : null;
             }
+
+            // 热力图开启时按新配置重建 RT/着色场景（对齐 BlitzKit：两场景随配置响应式重建）。
+            // 放在弹种更新之后，保证重建时 selectedShell 已是新配置的弹。
+            if (penetrationMode && armorModel) rebuildHeatmapScenes();
         }
 
         // For the (hidden) collision/armor model, show only the selected config's
@@ -1396,7 +2349,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             shells.forEach((s, i) => {
                 const opt = document.createElement('option');
                 opt.value = i;
-                opt.textContent = `${s.type || s.name || '?'} ${s.penetration || 0}mm / ${s.damage || 0}dmg`;
+                opt.textContent = shellOptionText(s);
                 sel.appendChild(opt);
             });
             selectedShell = shells.length > 0 ? shells[0] : null;
@@ -1580,6 +2533,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
+            // 材质级裁剪面（炮管外部模块的 mask 平面，对齐 BlitzKit clippingPlanes）
+            renderer.localClippingEnabled = true;
             document.getElementById('canvas-container').appendChild(renderer.domElement);
             // 提升环境亮度：ACES 色调映射 + 曝光增益，避免高光过曝的同时让整体更明亮。
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -1622,8 +2577,29 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 const idx = parseInt(this.value);
                 if (shooterShells && idx < shooterShells.length) {
                     selectedShell = shooterShells[idx];
+                    // 热力图模式下切弹需刷新 uniforms / 精度
+                    if (penetrationMode) updatePenetrationUniforms(selectedShell);
+                    // 射击复现模式：切弹后重跑判定（不同弹种穿深/类型不同）
+                    if (QP.get('shot')) doPenetrationCheck(0, 0);
                 }
             });
+
+            // 装备修正开关：影响点击判定请求与热力图 uniforms（对齐 BlitzKit 装备系统）
+            const onEquipmentChange = function() {
+                // 弹种选项文本联动（显示穿深随 Calib.Shells 变化）
+                const sel = document.getElementById('shell-select');
+                for (let i = 0; i < sel.options.length; i++) {
+                    if (shooterShells && i < shooterShells.length) {
+                        sel.options[i].textContent = shellOptionText(shooterShells[i]);
+                    }
+                }
+                if (!penetrationMode) return;
+                const sh = selectedShell || (shooterShells[0]) || null;
+                if (sh) { updatePenetrationUniforms(sh); updateSpacedUniforms(sh); }
+                updateHeatmapThickness();
+            };
+            document.getElementById('eq-calibrated').addEventListener('change', onEquipmentChange);
+            document.getElementById('eq-enhanced').addEventListener('change', onEquipmentChange);
 
             // Configuration selector change (turret/gun config)
             document.getElementById('config-select').addEventListener('change', function() {
@@ -1680,8 +2656,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 }
             });
 
-            // Click handler: distinguish click vs drag on mouseup (click fires after mouseup,
-            // and mouseup resets isDragging, so we decide here whether it was a real click)
+            // ---------- 实时穿透热力图模式（移植 BlitzKit 着色） ----------
             renderer.domElement.addEventListener('mousedown', function(e) {
                 if (e.button === 0) {
                     mouseDownPos = { x: e.clientX, y: e.clientY };
@@ -1717,14 +2692,63 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             });
             window.addEventListener('mousemove', function(e) {
                 if (!rmbDown) return;
-                const tLeft = tankData.turret_traverse_left ?? 180;
-                const tRight = tankData.turret_traverse_right ?? 180;
-                const gDep = tankData.gun_depression ?? 8;
-                const gEle = tankData.gun_elevation ?? 20;
                 const dx = e.clientX - rmbStartX;
                 const dy = e.clientY - rmbStartY;
-                currentTurretDeg = Math.max(-tLeft, Math.min(tRight, rmbStartTurret + dx * 0.5));
-                currentGunDeg = Math.max(-gDep, Math.min(gEle, rmbStartGun - dy * 0.5));
+                // 对齐 BlitzKit applyPitchYawLimits：先钳制炮塔水平射界（yaw_limits，注意
+                // BlitzKit 对 pb 值取负：clamp 到 [−max, −min]），再按炮塔朝向解析俯仰限制
+                // （front/back 极值 + transition 过渡插值，默认 20°）。
+                const norm180 = (a) => ((a + 180) % 360 + 360) % 360 - 180;
+                // yaw_limits/pitch_limits 都是每配置字段（configs[]），必须从 currentConfig() 取——
+                // 读 tankData 层会恒为 undefined，导致限位射界车辆错误地获得全向旋转
+                const yl = currentConfig()?.yaw_limits;
+                const pl = currentConfig()?.pitch_limits;
+                let yawDeg = rmbStartTurret + dx * 0.5;
+                if (yl) {
+                    // 全周射界（跨度 ≥360°）：不钳制，允许转整圈（俯仰解析内部自带归一化）
+                    if (yl.max - yl.min < 360) {
+                        yawDeg = norm180(Math.max(-yl.max, Math.min(-yl.min, yawDeg)));
+                    }
+                } else {
+                    const tLeft = tankData.turret_traverse_left ?? 180;
+                    const tRight = tankData.turret_traverse_right ?? 180;
+                    // 左右各 180° = 全周：自由旋转（不钳制在 ±180 卡住）；角度自由累加，
+                    // 俯仰 front/back 解析内部自带归一化，不受累计值影响
+                    if (!(tLeft >= 180 && tRight >= 180)) {
+                        yawDeg = Math.max(-tLeft, Math.min(tRight, yawDeg));
+                    }
+                }
+                let pitchDeg = rmbStartGun - dy * 0.5;
+                // pitch_limits 为 proto required 字段（723/723 覆盖）——旧单一 depression/
+                // elevation 回退分支已移除
+                let lower = -pl.max, upper = -pl.min;
+                const transition = pl.transition || 20;
+                if (pl.back) {
+                    const yawRotatedAbs = Math.abs(norm180(yawDeg - 180));
+                    if (yawRotatedAbs <= pl.back.range / 2 + transition) {
+                        if (yawRotatedAbs <= pl.back.range / 2) {
+                            lower = -pl.back.max; upper = -pl.back.min;
+                        } else {
+                            const tp = (yawRotatedAbs - pl.back.range / 2) / transition;
+                            lower = -((1 - tp) * pl.back.max + tp * pl.max);
+                            upper = -((1 - tp) * pl.back.min + tp * pl.min);
+                        }
+                    }
+                }
+                if (pl.front) {
+                    const yawAbs = Math.abs(norm180(yawDeg));
+                    if (yawAbs <= pl.front.range / 2 + transition) {
+                        if (yawAbs <= pl.front.range / 2) {
+                            lower = -pl.front.max; upper = -pl.front.min;
+                        } else {
+                            const tp = (yawAbs - pl.front.range / 2) / transition;
+                            lower = -((1 - tp) * pl.front.max + tp * pl.max);
+                            upper = -((1 - tp) * pl.front.min + tp * pl.min);
+                        }
+                    }
+                }
+                pitchDeg = Math.max(lower, Math.min(upper, pitchDeg));
+                currentTurretDeg = yawDeg;
+                currentGunDeg = pitchDeg;
                 document.getElementById('turret-val').textContent = currentTurretDeg.toFixed(0) + '°';
                 document.getElementById('gun-val').textContent = currentGunDeg.toFixed(0) + '°';
                 updateTurretGun(currentTurretDeg, currentGunDeg);
@@ -1763,39 +2787,41 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         // (e.g. [gun_04, gun_04_mask, gun_04_mask_nc, ...]). Group index == config gun_index.
         let configGunGroups = [];
         let configTurretNodes = [];// all turret_0X root nodes (visual model), sorted by number
-        // Pivots in model-local (frame) coordinates, derived from the visual model geometry so the
-        // turret/gun rotate about their own center (no drift) even when the vehicle lacks points.
-        let turretPivotLocal = null, gunPivotLocal = null;
 
-        // Collect gun / turret configuration node groups from a model's root group.
+        // Collect gun / turret configuration node groups from the model.
         // A gun config is identified by the "gun_0X" prefix shared by all its variant nodes
         // (gun_0X, gun_0X_mask, gun_0X_mask_cap, gun_0X_nc, ...), so rotating the gun moves the
         // barrel AND the gun mask (gun root) together.
+        // 收集方式对齐 BlitzKit：按节点名前缀在**整棵树**上筛选（其 Object.values(gltf.nodes)
+        // + isCurrentGun/isCurrentTurret 前缀过滤）——不依赖单一根组。model.glb 存在两种布局：
+        // 单根（如 T28 Defender：根组包裹全部部件）与多根（如 Kranvagn：部件直接平铺为
+        // 场景子节点）；旧实现取 model.children[0] 当唯一根，多根场景会收集为空，
+        // 导致炮塔/炮管不跟随旋转、未选配置部件（多余件）保持可见。
         function collectConfigNodes(model) {
             configGunGroups = [];
             configTurretNodes = [];
             if (!model) return;
-            const root = model.children[0] || model;
             const byGroup = new Map(); // groupNum -> nodes[]
-            for (const child of root.children) {
-                const nm = child.name || '';
+            const turrets = [];
+            model.traverse(function(n) {
+                const nm = n.name || '';
                 const gm = nm.match(/^gun_(\d+)/);
                 const tm = nm.match(/^turret_(\d+)$/);
                 if (gm) {
                     const g = parseInt(gm[1], 10);
                     if (!byGroup.has(g)) byGroup.set(g, []);
-                    byGroup.get(g).push(child);
+                    byGroup.get(g).push(n);
                 } else if (tm) {
-                    configTurretNodes.push(child);
+                    turrets.push(n);
                 }
-            }
+            });
             // Sort groups by number; each group sorted by name.
             const keys = Array.from(byGroup.keys()).sort((a, b) => a - b);
             for (const k of keys) {
                 const arr = byGroup.get(k).sort((a, b) => ((a.name||'') < (b.name||'') ? -1 : 1));
                 configGunGroups.push(arr);
             }
-            configTurretNodes.sort((a, b) => (a.name.match(/\d+/)?.[0]|0) - (b.name.match(/\d+/)?.[0]|0));
+            configTurretNodes = turrets.sort((a, b) => (a.name.match(/\d+/)?.[0]|0) - (b.name.match(/\d+/)?.[0]|0));
         }
 
         // Show only the selected gun/turret config group; hide the whole subtree of siblings.
@@ -1811,28 +2837,16 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         }
 
         function collectTurretGunNodes() {
-            if (!tankModel) return;
-            // Find root node (first child of scene)
-            const root = tankModel.children[0];
-            if (!root) return;
+            if (!tankModel || !configTurretNodes.length) return;
             const cfg = currentConfig();
-            // Active gun = gun node matching config's gun_index; turret = config's turret_index.
-            // Fall back to legacy gun_01 / turret naming if no gun_0X / turret_0X pattern was found.
-            if (configTurretNodes.length) {
-                turretNode = configTurretNodes[cfg.turret_index % configTurretNodes.length] || null;
-            } else {
-                turretNode = root.children.find(c => c.name === 'turret_01' || c.name === 'turret') || null;
-            }
-            // Active gun config group = all sibling nodes sharing the gun_0X prefix (barrel + mask/gun root).
+            // Active gun = gun node matching config's gun_index; turret = config's turret_index
+            // （configTurretNodes/configGunGroups 由 collectConfigNodes 全树收集）。
+            turretNode = configTurretNodes[cfg.turret_index % configTurretNodes.length] || null;
             if (configGunGroups.length) {
                 const grp = configGunGroups[cfg.gun_index % configGunGroups.length];
                 gunNodesList = grp || [];
-                // Primary barrel node = the exact "gun_0X" node (not _mask / _nc variants).
-                const primary = grp.find(n => /^gun_\d+$/.test(n.name || ''));
-                // The non-mask members (mask/cap) should follow the gun rotation too -> keep them in the list.
             } else {
-                // Legacy: group any gun_01-prefixed siblings.
-                gunNodesList = root.children.filter(c => (c.name || '').startsWith('gun_01'));
+                gunNodesList = [];
             }
             origMatrices = new Map();
             if (turretNode) {
@@ -1847,111 +2861,35 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             }
         }
 
-        // Derive turret/gun rotation pivots (model-local frame) from the visual model geometry.
-        // Rotating about an object's own center keeps it from drifting. Called after config switch.
-        function computePivots() {
-            turretPivotLocal = null;
-            gunPivotLocal = null;
-            if (!tankModel) return;
-            const root = tankModel.children[0] || tankModel;
-            root.updateMatrixWorld(true);
-            const cfg = currentConfig();
-            if (!cfg) return;
-
-            // 计算某节点的"本体"包围盒（跳过 hide_elements / _nc / _switch 等非本体子树）。
-            // 这类子树会含炮塔外壳/隐藏件等延伸几何，把包围盒中心拉偏，导致 pivot 漂移
-            // （如 114 SP2 的 turret_01_nc 炮塔外壳 Z 延伸到 5.81）。
-            const isNonBody = (n) => /hide_elements|_nc|_switch|_cap/i.test(n.name || '');
-            const bodyBoxOf = (node) => {
-                const b = new THREE.Box3();
-                let any = false;
-                (function walk(n) {
-                    if (isNonBody(n)) return;
-                    if (n.isMesh) { b.union(new THREE.Box3().setFromObject(n)); any = true; }
-                    n.children.forEach(walk);
-                })(node);
-                return any ? b : null;
-            };
-            const bodyBoxUnion = (nodes) => {
-                const b = new THREE.Box3(); let any = false;
-                (nodes || []).forEach(n => {
-                    const sub = bodyBoxOf(n);
-                    if (sub) { b.union(sub); any = true; }
-                });
-                return any ? b : null;
-            };
-
-            const centerLocalOf = (nodes) => {
-                const b = bodyBoxUnion(nodes);
-                if (!b) return null;
-                const wc = b.getCenter(new THREE.Vector3());
-                return root.worldToLocal(wc.clone());
-            };
-            // Gun pivot should be the gun ROOT (the base that attaches to the turret), not the
-            // barrel's geometric center, so pitch rotates the barrel in place. We pick the bbox
-            // end (in Z) that is closest to the turret center, which works regardless of which
-            // direction the gun points.
-            const turretCenterW = (() => {
-                if (!configTurretNodes.length) return null;
-                const t = configTurretNodes[cfg.turret_index % configTurretNodes.length];
-                const b = bodyBoxOf(t);
-                return b ? b.getCenter(new THREE.Vector3()) : null;
-            })();
-            const gunRootLocalOf = (nodes) => {
-                const b = bodyBoxUnion(nodes);
-                if (!b) return null;
-                let wc;
-                const xMid = (b.min.x + b.max.x) / 2, yMid = (b.min.y + b.max.y) / 2;
-                if (turretCenterW) {
-                    const zMin = Math.abs(b.min.z - turretCenterW.z);
-                    const zMax = Math.abs(b.max.z - turretCenterW.z);
-                    wc = new THREE.Vector3(xMid, yMid, zMin < zMax ? b.min.z : b.max.z);
-                } else {
-                    wc = new THREE.Vector3(xMid, yMid, b.max.z);
-                }
-                return root.worldToLocal(wc.clone());
-            };
-
-            // Turret pivot: the turret group's own center. Rotating about local Z (vertical).
-            const turGroup = configTurretNodes.length
-                ? [configTurretNodes[cfg.turret_index % configTurretNodes.length]] : null;
-            const turLocal = centerLocalOf(turGroup);
-            if (turLocal) turretPivotLocal = turLocal;
-
-            // Gun pivot: the gun config group's root (base) so pitch keeps the root fixed.
-            const gunGroup = configGunGroups.length
-                ? configGunGroups[cfg.gun_index % configGunGroups.length] : null;
-            const gunLocal = gunRootLocalOf(gunGroup);
-            if (gunLocal) gunPivotLocal = gunLocal;
-        }
-
         function updateTurretGun(turretDeg, gunDeg) {
             if (!tankModel) return;
             if (!origMatrices) collectTurretGunNodes();
             if (!origMatrices) return;
 
-            // 枢轴（旋转中心）优先级：
-            //   1) 游戏权威枢轴点 collision.turret_points / gun_points（经 (x,-y,-z) 变换）
-            //      —— 这是炮塔旋转轴 / 炮管俯仰轴（炮塔根部），转动时不漂移；
-            //   2) 由视觉几何推导的 turretPivotLocal / gunPivotLocal；
-            //   3) 默认值兜底。
-            const col = tankData.collision;
-            const tPts = col?.turret_points;
-            const gPts = col?.gun_points;
-            const tPivot = tPts
-                ? new THREE.Vector3(tPts[0], -tPts[1], -tPts[2])
-                : (turretPivotLocal ? turretPivotLocal.clone() : new THREE.Vector3(0, 0, 1.7));
-            const gPivot = gPts
-                ? new THREE.Vector3(gPts[0], -gPts[1], -gPts[2])
-                : (gunPivotLocal ? gunPivotLocal.clone() : new THREE.Vector3(0, 0, 2.0));
+            // 旋转枢轴（对齐 BlitzKit——其旋转枢轴只取 models.pb 原点，
+            // 由 alignArmorModules 写入：track+turret / track+turret+gun 原点）
+            const tPivot = armorPivotTurret ? armorPivotTurret.clone() : new THREE.Vector3(0, 0, 1.7);
+            const gPivot = armorPivotGun ? armorPivotGun.clone() : new THREE.Vector3(0, 0, 2.0);
 
             const tr = THREE.MathUtils.degToRad(turretDeg);
             const gr = THREE.MathUtils.degToRad(gunDeg);
 
-            // Turret rotation matrix: translate(P_t) * rotateZ(angle) * translate(-P_t)
+            // 炮塔旋转矩阵：translate(P_t) * rotateZ(angle) * translate(-P_t)
+            // 初始炮塔姿态（models.pb initial_turret_rotation，度，取负）：对齐 BlitzKit
+            // useTankTransform 的 Euler(initialPitch, initialRoll, yaw+initialYaw, XYZ) 组合
+            // —— R_x(ip)·R_y(ir)·R_z(yaw+iy) = (R_x(ip)·R_y(ir)·R_z(iy))·R_z(yaw)。
+            let turretRot = new THREE.Matrix4().makeRotationZ(tr);
+            const itr = tankData.initial_turret_rotation;
+            if (itr) {
+                turretRot = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(
+                    -THREE.MathUtils.degToRad(itr.pitch),
+                    -THREE.MathUtils.degToRad(itr.roll),
+                    tr - THREE.MathUtils.degToRad(itr.yaw),
+                    'XYZ'));
+            }
             const mTurret = new THREE.Matrix4();
             mTurret.makeTranslation(tPivot.x, tPivot.y, tPivot.z);
-            mTurret.multiply(new THREE.Matrix4().makeRotationZ(tr));
+            mTurret.multiply(turretRot);
             mTurret.multiply(new THREE.Matrix4().makeTranslation(-tPivot.x, -tPivot.y, -tPivot.z));
 
             // Gun rotation matrix (composed with turret): M_turret * translate(P_g) * rotateX(angle) * translate(-P_g)
@@ -2060,6 +2998,18 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         let mouseDownPos = null, isDragging = false;
         function onClick(event) {
             if (!armorModel) return;
+            // NDC 坐标由 event 计算
+            const rect = renderer.domElement.getBoundingClientRect();
+            const ndcX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            const ndcY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            doPenetrationCheck(ndcX, ndcY);
+        }
+
+        /// 射击判定核心（从 NDC 坐标发射射线）：onClick 与射击复现共用。
+        let __shotRayOrigin = null;   // 射击复现：射线起点（射手方向，固定距离）
+        let __shotRayTarget = null;   // 射击复现：射线终点（瞄准点）
+        function doPenetrationCheck(ndcX, ndcY) {
+            if (!armorModel) return;
 
             // Ensure all config-active armor meshes are visible for raycasting,
             // but do NOT re-show meshes hidden by a config switch.
@@ -2071,22 +3021,32 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             });
             // 仅保留当前配置激活的炮管(履带/chassis 始终保留)。未选中的炮管需剔除：
             // 不强制显示、不参与 raycast，避免多主炮车辆出现重叠炮管的碰撞判定。
+            // 对齐 BlitzKit：掩体部件(gun_0X_mask*)仅在该炮定义了 mask 时作为外部模块
+            // （判定范围与视觉一致），命中点在掩体平面之后的按 discardClippingPlane 丢弃。
             const activeGun = activeGunNumber();
+            const cfgForGun = currentConfig();
+            const gunHasMask = cfgForGun && typeof cfgForGun.gun_mask === 'number';
+            computeGunClipPlane();
             const activeModules = activeGun == null
                 ? moduleMeshes   // 无法确定激活炮(如 configGunGroups 未填充)时退化为全部保留
                 : moduleMeshes.filter(m => {
                     if (m.userData.gunConfig != null) return m.userData.gunConfig === activeGun;
                     return true;
-                });
+                }).filter(m => !(m.userData.gunMaskPart && !gunHasMask));
             for (const mesh of activeModules) {
                 if (mesh.visible === false) mesh.visible = true;
             }
 
-            const rect = renderer.domElement.getBoundingClientRect();
-            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-            raycaster.setFromCamera(mouse, camera);
+            if (__shotRayOrigin && __shotRayTarget) {
+                // 射击复现模式：用保存的射线参数（不依赖相机位置——
+                // OrbitControls damping/maxDistance 会干扰 camera.position）
+                const dir = __shotRayTarget.clone().sub(__shotRayOrigin).normalize();
+                raycaster.set(__shotRayOrigin.clone(), dir);
+            } else {
+                mouse.x = ndcX;
+                mouse.y = ndcY;
+                raycaster.setFromCamera(mouse, camera);
+            }
             const objects = [armorModel, ...activeModules];
             const intersects = raycaster.intersectObjects(objects, true);
             const armorHits = [];
@@ -2099,6 +3059,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 if (hit.object.userData.configHidden) continue;
                 // 0 厚度的装饰性非装甲网格（如 hull/turret_armor_8 等）：不参与穿透判定。
                 if (hit.object.userData.armorSection === 'deco') continue;
+                // 炮管外部模块的掩体裁剪（BlitzKit discardClippingPlane）：命中点在掩体平面
+                // 之后（炮根侧，钻进炮塔的部分）不算外部模块命中。
+                if (hit.object.userData.armorSection === 'gunBarrel' && gunClipPlane &&
+                    gunClipPlane.distanceToPoint(hit.point) < 0) continue;
                 let section = null, plateId = null, thickness = null;
                 if (hit.object.userData.armorSection) {
                     section = hit.object.userData.armorSection;
@@ -2135,6 +3099,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             }
 
             if (armorHits.length === 0) {
+                console.warn('[shot-replay] check: 0 armor hits, intersects=' + intersects.length);
                 document.getElementById('click-info').style.display = 'none';
                 document.getElementById('traj-info').style.display = 'none';
                 trajInfoPos = null;
@@ -2146,30 +3111,54 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             const point = first.point;
             const viewDir = camera.position.clone().sub(point).normalize();
 
+            // 命中距离（米，对齐 BlitzKit 世界单位）：炮口世界坐标 → 命中点，× worldMetersPerUnit
+            // 换算回真实米数。炮管几何不可用时回退为相机到命中点的真实米数（不再乘 10 伪系数）。
+            // 注意：旧实现=相机距离×10，随缩放变化且单位失真；现缩放相机不改变判定结果。
+            const dist = (gunMuzzleWorld
+                ? point.distanceTo(gunMuzzleWorld)
+                : point.distanceTo(camera.position)) * (worldMetersPerUnit || 1);
+
             // Send to Rust backend for unified penetration calculation
-            const shellType = selectedShell ? (selectedShell.type || '').toLowerCase() : '';
+            const shellType = shellTypeOf(selectedShell);
             const pen = selectedShell ? (selectedShell.penetration || 0) : 0;
+            const penFar = selectedShell ? (selectedShell.penetration_far || 0) : 0;
+            const shellRange = selectedShell ? (selectedShell.range || 0) : 0;
             const dmg = selectedShell ? (selectedShell.damage || 0) : 0;
             const modDmg = selectedShell ? (selectedShell.module_damage || 0) : 0;
             const caliber = shooterCaliber || (shooterData && shooterData.caliber) || tankData.caliber || 120;
             const isHE = shellType === 'he';
+            // 装备开关（对齐 BlitzKit 装备系统）：同时作用于点击判定与热力图 uniforms。
+            // 注意：跳弹后的二次请求不能重复传 calibrated_shells（剩余穿深已含系数），
+            // 但 enhanced_armor 影响装甲厚度，需要继承。
+            const eqCal = !!(document.getElementById('eq-calibrated') && document.getElementById('eq-calibrated').checked);
+            const eqEnh = !!(document.getElementById('eq-enhanced') && document.getElementById('eq-enhanced').checked);
+            // 轨迹面板显示的穿深 = 校准后穿深（与后端判定一致）
+            const penDisp = pen * shellPenMul(selectedShell);
+            // 命中点坐标换算为米（对齐 BlitzKit：其世界坐标原生=米）。后端 HEAT 逐层间隙
+            // 衰减与 HE 溅射距离都基于这些点计算，不换算会因模型缩放(6单位)而失真。
+            const mpu = worldMetersPerUnit || 1;
 
             const req = {
                 shell_type: shellType,
                 penetration: pen,
+                penetration_far: penFar > 0 ? penFar : null,
+                range: shellRange > 0 ? shellRange : null,
+                distance: dist,
                 caliber: caliber,
                 damage: dmg,
                 module_damage: modDmg,
-                explosion_radius: isHE ? 3.0 : 0,
-                calibrated_shells: false,
-                enhanced_armor: false,
+                // HE 爆炸半径：tanks.pb field 12（每弹不同）；旧数据缺失时回退 3.0
+                explosion_radius: isHE ? ((selectedShell && selectedShell.explosion_radius) || 3.0) : 0,
+                calibrated_shells: eqCal,
+                enhanced_armor: eqEnh,
+                allow_ricochet: true,
                 view_dir: [viewDir.x, viewDir.y, viewDir.z],
                 hits: armorHits.map(ah => ({
                     section: ah.section,
                     plate_id: ah.plateId,
                     thickness: ah.thickness,
                     normal: [ah.normal.x, ah.normal.y, ah.normal.z],
-                    point: [ah.point.x, ah.point.y, ah.point.z],
+                    point: [ah.point.x * mpu, ah.point.y * mpu, ah.point.z * mpu],
                     part_name: ah.partName,
                 })),
             };
@@ -2244,33 +3233,35 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                         if (ricHits.length > 0) {
                             const ricReq = {
                                 shell_type: shellType, penetration: res.ricochet_remaining_pen, caliber: caliber,
+                                enhanced_armor: eqEnh,
+                                allow_ricochet: false,
                                 view_dir: [reflect.x, reflect.y, reflect.z],
-                                hits: ricHits.map(ah => ({ section: ah.section, plate_id: ah.plateId, thickness: ah.thickness, normal: [ah.normal.x, ah.normal.y, ah.normal.z], point: [ah.point.x, ah.point.y, ah.point.z], part_name: ah.partName })),
+                                hits: ricHits.map(ah => ({ section: ah.section, plate_id: ah.plateId, thickness: ah.thickness, normal: [ah.normal.x, ah.normal.y, ah.normal.z], point: [ah.point.x * mpu, ah.point.y * mpu, ah.point.z * mpu], part_name: ah.partName })),
                             };
                             fetch('/api/penetrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ricReq) })
                                 .then(r => r.ok ? r.json() : null).then(ricRes => {
                                     if (ricRes) {
                                         const ricLayers = ricRes.layers.map(l => ({ point: ricHits.find(ah => ah.partName === l.part_name)?.point || lastLayer.point, name: l.part_name, thickness: l.thickness, eff: l.effective, remainBefore: l.remaining_before, penetrated: l.penetrated, ricochet: l.ricochet, seg: 1 }));
                                         const combined = { result: 'RICOCHET → ' + ricRes.result, total_effective: res.total_effective, layers: [...trajLayers, ...ricLayers] };
-                                        showTrajectory(point, combined.result, combined.total_effective, combined.layers, pen, dmg, modDmg);
-                                    } else { showTrajectory(point, res.result, res.total_effective, trajLayers, pen, dmg, modDmg); }
-                                }).catch(() => { showTrajectory(point, res.result, res.total_effective, trajLayers, pen, dmg, modDmg); });
+                                        showTrajectory(point, combined.result, combined.total_effective, combined.layers, penDisp, dmg, modDmg);
+                                    } else { showTrajectory(point, res.result, res.total_effective, trajLayers, penDisp, dmg, modDmg, dist); }
+                                }).catch(() => { showTrajectory(point, res.result, res.total_effective, trajLayers, penDisp, dmg, modDmg, dist); });
                             return;
                         }
                     }
                 }
 
-                showTrajectory(point, res.result, res.total_effective, trajLayers, pen, dmg, modDmg);
+                showTrajectory(point, res.result, res.total_effective, trajLayers, penDisp, dmg, modDmg, dist);
             }).catch(err => {
                 console.error('Penetration API error:', err);
                 // Fallback: show basic result without API
-                showTrajectory(point, 'ERROR', 0, [], pen, dmg, modDmg);
+                showTrajectory(point, 'ERROR', 0, [], penDisp, dmg, modDmg, dist);
             });
         }
 
         let trajGroup = null;
         let trajInfoPos = null;
-        function showTrajectory(firstPoint, result, totalEff, layers, penVal, dmgVal, modDmgVal) {
+        function showTrajectory(firstPoint, result, totalEff, layers, penVal, dmgVal, modDmgVal, distVal) {
             if (trajGroup) scene.remove(trajGroup);
             trajGroup = new THREE.Group();
 
@@ -2347,7 +3338,11 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 if (hp > 0) return `HP Dmg ${hp.toFixed(0)} / Module ${md.toFixed(0)}`;
                 return '';
             })();
-            html += `<div style="font-size:13px;color:#8ab;margin-bottom:8px;">Eff ${totalEff.toFixed(0)}mm · Pen ${penVal}mm · Remain ${Math.max(0, penVal - totalEff).toFixed(0)}mm · ${layers.length} layers${dmgLine ? ' · <span style="color:#FFB74D;">' + dmgLine + '</span>' : ''}</div>`;
+            const decayedPen = layers.length && layers[0].remainBefore != null ? layers[0].remainBefore : null;
+            const distPart = (typeof distVal === 'number' && distVal > 0)
+                ? ` · <span style="color:#9fc3e8;">Dist ${distVal.toFixed(0)}m</span>` + (decayedPen != null && Math.abs(decayedPen - penVal) > 0.5 ? ` · Pen@${distVal.toFixed(0)}m <span style="color:#FFD29B;">${decayedPen.toFixed(1)}</span>` : '')
+                : '';
+            html += `<div style="font-size:13px;color:#8ab;margin-bottom:8px;">Eff ${totalEff.toFixed(0)}mm · Pen ${penVal}mm${distPart} · Remain ${Math.max(0, (decayedPen??penVal) - totalEff).toFixed(0)}mm · ${layers.length} layers${dmgLine ? ' · <span style="color:#FFB74D;">' + dmgLine + '</span>' : ''}</div>`;
             html += `<div style="border-top:1px solid rgba(255,255,255,0.1);margin-bottom:6px;"></div>`;
             for (let i = 0; i < layers.length; i++) {
                 const l = layers[i];
@@ -2387,7 +3382,29 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         function animate() {
             requestAnimationFrame(animate);
             controls.update();
-            renderer.render(scene, camera);
+            if (penetrationMode && armorModel) {
+                if (SESS && heatFrames < 5) {
+                    heatFrames++;
+                    if (heatFrames === 5 && !heatReadySent) {
+                        heatReadySent = true;
+                        fetch('/api/ready?sess=' + encodeURIComponent(SESS)).catch(()=>{});
+                        // 注意：不能停止 RAF 循环——渲染停止后 WebGL 画布在无头截图
+                        // 重新合成时会丢失内容（空场景）。保持渲染直到预算耗尽。
+                    }
+                }
+                // 视角/分辨率随时可能变，热力图逐帧刷新 resolution（着色像素正确）
+                refreshPenetrationResolution();
+                // 对齐 BlitzKit useFrame() 序列（Armor/index.tsx）：
+                //   1. autoClear=true;  setRenderTarget(rt);  render(spacedArmorScene, camera)
+                //   2. autoClear=false; setRenderTarget(null); render(scene, camera)   —— 地面/背景
+                //   3. clearDepth();                          render(primaryArmorScene, camera) —— 主装甲着色(读 RT)
+                renderSpacedArmorPass();
+                renderer.render(scene, camera);                       // 背景/网格（autoClear 已置 false）
+                renderer.clearDepth();                                 // 清除深度，让 exclude 深度遮罩生效
+                if (primaryArmorScene) { syncCloneMatrices(primaryArmorScene); renderer.render(primaryArmorScene, camera); }
+            } else {
+                renderer.render(scene, camera);
+            }
             if (trajInfoPos) updateTrajInfoPos();
         }
 

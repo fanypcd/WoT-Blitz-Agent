@@ -229,6 +229,12 @@ enum Commands {
         /// Output JSON instead of text
         #[arg(short, long)]
         json: bool,
+        /// Dump raw packet analysis (type/sub histograms + per-shot packet windows) for reverse engineering
+        #[arg(long)]
+        dump: bool,
+        /// Write per-shot replay data (positions/orientations) as JSON to this path
+        #[arg(long)]
+        shots_json: Option<PathBuf>,
     },
 }
 
@@ -881,7 +887,7 @@ fn main() -> Result<()> {
             resolver.save_to_json_file(&output)?;
             eprintln!("Saved to: {}", output.display());
         }
-        Commands::Combat { file, json } => {
+        Commands::Combat { file, json, dump: _, shots_json } => {
         // combat：解码单场数据包事件流 + 推断每发射击
             use wotbreplay_parser::replay::Replay;
             use std::fs::File;
@@ -905,27 +911,47 @@ fn main() -> Result<()> {
 
             let timeline = CombatTimeline::parse_packets(&raw_packets);
 
+            // 射击事件 + 复现数据：解析即产出（两个输出分支共用）
+            let author_eid = *timeline.entity_names.iter()
+                .find(|(eid, _)| {
+                    timeline.events.iter().any(|e| 
+                        e.entity_id == **eid && matches!(e.event_type, CombatEventType::DamageCounter { .. }))
+                })
+                .map(|(eid, _)| eid)
+                .unwrap_or(&0);
+            let shots = timeline.infer_shots(author_eid);
+            let shot_replay = crate::replay::combat::extract_shot_replays_auto(
+                &raw_packets, &file.file_name().and_then(|n| n.to_str()).unwrap_or(""), &shots);
+
             if json {
-                let json = serde_json::to_string_pretty(&timeline)?;
-                println!("{}", json);
+                let combined = serde_json::json!({
+                    "timeline": timeline,
+                    "shots": shots,
+                    "shot_replay": shot_replay,
+                });
+                println!("{}", serde_json::to_string_pretty(&combined)?);
             } else {
                 println!("\n========================================================");
                 println!("  Combat Event Analysis: {}", file.display());
                 println!("========================================================");
                 timeline.print_timeline();
 
-                // Infer and print shot events
-                let author_eid = *timeline.entity_names.iter()
-                    .find(|(eid, _)| {
-                        timeline.events.iter().any(|e| 
-                            e.entity_id == **eid && matches!(e.event_type, CombatEventType::DamageCounter { .. }))
-                    })
-                    .map(|(eid, _)| eid)
-                    .unwrap_or(&0);
-
-                let shots = timeline.infer_shots(author_eid);
                 timeline.print_shots(&shots);
                 println!("\n========================================================");
+                // 射击复现数据：解析即产出（作者实体由文件名内昵称自动匹配）
+                let shot_replay = crate::replay::combat::extract_shot_replays_auto(&raw_packets, &file.file_name().and_then(|n| n.to_str()).unwrap_or(""), &shots);
+                if let Some(path) = shots_json {
+                    std::fs::write(&path, serde_json::to_string_pretty(&shot_replay)?)?;
+                    println!("Shot replay data written: {} ({} shots)", path.display(), shot_replay.len());
+                }
+                if json {
+                    let combined = serde_json::json!({
+                        "timeline": timeline,
+                        "shots": shots,
+                        "shot_replay": shot_replay,
+                    });
+                    println!("{}", serde_json::to_string_pretty(&combined)?);
+                }
             }
         }
     }

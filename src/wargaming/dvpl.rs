@@ -128,6 +128,10 @@ pub struct CollisionData {
     pub turret_points: Option<[f32; 3]>,
     #[serde(default)]
     pub gun_points: Option<[f32; 3]>,
+    /// 车体相对底盘的位置（来自 item_defs XML 的 `<hullPosition>`）。
+    /// visual 模型中车体即放在此位置，是 collision 坐标与 visual 坐标之间的权威桥梁。
+    #[serde(default)]
+    pub hull_position: Option<[f32; 3]>,
 }
 
 /// 从游戏 XML 解析出的完整装甲模型（hull / turret / gun / chassis 各部件）。
@@ -319,11 +323,20 @@ fn parse_gun_armor(text: &str) -> Option<SectionArmor> {
     let armor_block = &guns_section[armor_start + 7..armor_start + armor_end];
 
     let mut plates = std::collections::BTreeMap::new();
+    let mut spaced = std::collections::BTreeSet::new();
     let re = regex::Regex::new(r"<armor_(\d+)>\s*(\d+(?:\.\d+)?)").ok()?;
     for cap in re.captures_iter(armor_block) {
         let plate_id = cap.get(1).unwrap().as_str().to_string();
         let thickness: f32 = cap.get(2).unwrap().as_str().parse().unwrap_or(0.0);
-        plates.insert(plate_id, thickness);
+        plates.insert(plate_id.clone(), thickness);
+        // 与 parse_section_armor 一致：板内容含 vehicleDamageFactor → spaced 附加装甲
+        let plate_end = armor_block[cap.get(0).unwrap().end()..].find(&format!("</armor_{}>", plate_id));
+        if let Some(end_pos) = plate_end {
+            let plate_content = &armor_block[cap.get(0).unwrap().end()..cap.get(0).unwrap().end() + end_pos];
+            if plate_content.contains("vehicleDamageFactor") {
+                spaced.insert(plate_id);
+            }
+        }
     }
 
     // Parse <gun>N</gun> barrel armor value
@@ -342,7 +355,7 @@ fn parse_gun_armor(text: &str) -> Option<SectionArmor> {
             sides: "armor_1".to_string(),
             rear: "armor_1".to_string(),
         },
-        spaced: std::collections::BTreeSet::new(),
+        spaced,
     })
 }
 
@@ -384,6 +397,7 @@ impl CollisionData {
             hull_points: None,
             turret_points: None,
             gun_points: None,
+            hull_position: None,
         };
 
         // 定位 collision 节并逐个解析各部件
@@ -466,4 +480,3 @@ fn parse_float_array(s: &str) -> Option<[f32; 3]> {
         None
     }
 }
-

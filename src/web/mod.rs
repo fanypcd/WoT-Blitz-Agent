@@ -60,12 +60,15 @@ pub async fn serve(config_path: std::path::PathBuf) -> anyhow::Result<()> {
         .route("/api/usage", get(usage_get))
         .route("/api/player/{nickname}", get(player_handler))
         .route("/api/scan", post(scan_handler))
+        .route("/api/replay/shots", post(replay_shots_handler))
         .route("/api/snapshot", post(snapshot_handler))
         .route("/api/prematch", post(prematch_handler))
         .route("/api/tanks", get(tanks_handler))
         .route("/api/tank_detail/{tank_id}", get(tank_detail_handler))
         .route("/api/tank_image/{tank_id}", get(tank_image_handler))
         .route("/api/vendor/{*path}", get(vendor_handler))
+        // Agent 生成的热力图/截图（render_heatmap 工具输出），供聊天内嵌图片
+        .route("/screenshots/{*path}", get(screenshots_handler))
         // 内嵌 3D 装甲检视：页面入口 + 其 API/模型路由（复用 3D 查看器 handler）。
         .route("/armor_view/view/{tank_id}", get(armor_view_handler))
         .route("/armor_view/", get(armor_view_root))
@@ -76,9 +79,10 @@ pub async fn serve(config_path: std::path::PathBuf) -> anyhow::Result<()> {
         .route("/armor_view/api/tank_image/{tank_id}", get(crate::wargaming::viewer::tank_image_handler))
         .route("/armor_view/api/shells/{tank_id}", get(crate::wargaming::viewer::shells_handler))
         .route("/armor_view/api/penetrate", post(crate::wargaming::viewer::penetrate_handler))
+        .route("/armor_view/api/replay_shot", get(replay_shots_embedded_handler))
         .with_state(state);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 0));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 18999));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let local_addr = listener.local_addr()?;
     let url = format!("http://127.0.0.1:{}", local_addr.port());
@@ -101,8 +105,13 @@ async fn tank_detail_page_handler(axum::extract::Path(_tank_id): axum::extract::
 }
 
 /// 内嵌 3D 装甲检视页面（tank_id 从路径取），供坦克百科详情弹窗用 iframe 加载。
-async fn armor_view_handler(axum::extract::Path(tank_id): axum::extract::Path<u64>) -> Html<String> {
-    Html(crate::wargaming::viewer::viewer_index_html(tank_id as u32, tank_id as u32, "/armor_view"))
+async fn armor_view_handler(
+    axum::extract::Path(tank_id): axum::extract::Path<u64>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Html<String> {
+    // 射手坦克可独立指定（射击复现时射手 ≠ 目标）
+    let shooter = q.get("shooter").and_then(|v| v.parse::<u32>().ok()).unwrap_or(tank_id as u32);
+    Html(crate::wargaming::viewer::viewer_index_html(tank_id as u32, shooter, "/armor_view"))
 }
 
 /// `/armor_view/` 根：重定向到默认坦克（IS-7）的检视页。
@@ -483,6 +492,87 @@ async fn prematch_handler(
 
 /// 全部坦克列表：id/名称/等级/国家/类型/血量/装甲摘要/主炮穿深，供百科网格与筛选。
 /// 数据源：tanks.pb（运行时解析，元数据/名称）+ tank_cache.json（属性）。
+/// 解析单个回放文件，返回每发射击的复现数据（双方位置/朝向/伤害/目标）。
+/// POST { file: "..." } → [{ index, time_s, damage, target_name, is_kill, shooter_pos, shooter_ang, target_pos, target_ang }]
+static LAST_REPLAY_SHOTS: std::sync::OnceLock<std::sync::Mutex<Value>> = std::sync::OnceLock::new();
+
+async fn replay_shots_handler(axum::Json(body): axum::Json<Value>) -> Response {
+    let file = body["file"].as_str().unwrap_or("").trim().to_string();
+    if file.is_empty() {
+        return (axum::http::StatusCode::BAD_REQUEST, "missing file").into_response();
+    }
+    let path = std::path::PathBuf::from(&file);
+    if !path.exists() {
+        return (axum::http::StatusCode::NOT_FOUND, format!("replay not found: {}", file)).into_response();
+    }
+
+    use wotbreplay_parser::replay::Replay;
+    let f = match std::fs::File::open(&path) {
+        Ok(f) => f,
+        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("open failed: {}", e)).into_response(),
+    };
+    let mut replay = match Replay::open(f) {
+        Ok(r) => r,
+        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("open failed: {}", e)).into_response(),
+    };
+    let meta = replay.read_meta().ok();
+    let author_tank_id = meta.as_ref().map(|m| m.tank_id as u32).unwrap_or(0);
+    let data = match replay.read_data() {
+        Ok(d) => d,
+        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("read_data failed: {}", e)).into_response(),
+    };
+    let raw_packets: Vec<(u32, f32, &[u8])> = data.packets.iter().map(|pkt| {
+        let t = match &pkt.payload {
+            wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate { .. } => 0,
+            wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
+            wotbreplay_parser::models::data::payload::Payload::Unknown { packet_type } => *packet_type,
+        };
+        (t, pkt.clock_secs, &pkt.raw_payload[..])
+    }).collect();
+
+    eprintln!("[replay_shots] file={}", file);
+    eprintln!("[replay_shots] packets={}", raw_packets.len());
+    let timeline = crate::replay::combat::CombatTimeline::parse_packets(&raw_packets);
+    eprintln!("[replay_shots] entities={}", timeline.entity_count);
+    let author_eid = *timeline.entity_names.iter()
+        .find(|(eid, _)| timeline.events.iter().any(|e|
+            e.entity_id == **eid && matches!(e.event_type, crate::replay::combat::CombatEventType::DamageCounter { .. })))
+        .map(|(eid, _)| eid)
+        .unwrap_or(&0);
+    let shots = timeline.infer_shots(author_eid);
+    eprintln!("[replay_shots] author_eid={:08x} shots={}", author_eid, shots.len());
+    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let shot_replay = crate::replay::combat::extract_shot_replays_auto(&raw_packets, file_name, &shots);
+    eprintln!("[replay_shots] shot_replay={}", shot_replay.len());
+
+    // 目标坦克 ID：battle_results 按目标昵称关联（供 3D 查看器打开正确目标车辆）
+    let br = replay.read_battle_results().ok();
+    let tank_of = |nick: &str| -> Option<u32> {
+        let br = br.as_ref()?;
+        br.players.iter().find(|p| p.info.nickname == nick)
+            .and_then(|p| br.player_results.iter().find(|pr| pr.info.account_id == p.account_id))
+            .map(|pr| pr.info.tank_id)
+    };
+    let enriched: Vec<Value> = shot_replay.iter().map(|s| {
+        let mut v = serde_json::to_value(s).unwrap_or(json!(null));
+        if let Some(tid) = tank_of(&s.target_name) { v["target_tank_id"] = json!(tid); }
+        v
+    }).collect();
+    let v = json!({
+        "shots": enriched,
+        "author_tank_id": author_tank_id,
+    });
+    *LAST_REPLAY_SHOTS.get_or_init(|| std::sync::Mutex::new(json!([]))).lock().unwrap() = v.clone();
+
+    Json(v).into_response()
+}
+
+/// 内嵌 3D 查看器的复现数据端点：返回最近一次解析的射击复现数据。
+async fn replay_shots_embedded_handler() -> Response {
+    let v = LAST_REPLAY_SHOTS.get_or_init(|| std::sync::Mutex::new(json!([]))).lock().unwrap().clone();
+    Json(v).into_response()
+}
+
 async fn tanks_handler() -> Response {
     let cache: Value = std::fs::read_to_string(crate::data::data_path("tank_cache.json")).ok()
         .and_then(|s| serde_json::from_str::<Value>(&s).ok())
@@ -600,6 +690,23 @@ fn image_response(bytes: Vec<u8>) -> Response {
 // ---------- 前端静态资源（Chart.js 等，本地 vendored）----------
 
 /// 提供 `web/vendor/` 下的静态文件（带路径穿越防护）。
+/// Agent 工具生成的截图（screenshots/ 目录，render_heatmap 输出）。
+async fn screenshots_handler(axum::extract::Path(path): axum::extract::Path<String>) -> Response {
+    if path.contains("..") || path.contains('/') || path.contains('\\') {
+        return (axum::http::StatusCode::BAD_REQUEST, "invalid path").into_response();
+    }
+    let full = std::path::Path::new("screenshots/").join(&path);
+    match std::fs::read(&full) {
+        Ok(bytes) => {
+            let ct = if path.ends_with(".png") { "image/png" }
+                else if path.ends_with(".jpg") || path.ends_with(".jpeg") { "image/jpeg" }
+                else { "application/octet-stream" };
+            ([(axum::http::header::CONTENT_TYPE, ct)], bytes).into_response()
+        }
+        Err(_) => (axum::http::StatusCode::NOT_FOUND, format!("screenshot not found: {}", path)).into_response(),
+    }
+}
+
 async fn vendor_handler(axum::extract::Path(path): axum::extract::Path<String>) -> Response {
     if path.contains("..") {
         return (axum::http::StatusCode::BAD_REQUEST, "invalid path").into_response();
