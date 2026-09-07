@@ -2173,7 +2173,6 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                         x: ap2[0] * scl, y: ap2[1] * scl, z: ap2[2] * scl
                     };
                     // ===== 炮塔：绝对朝向 → 相对车体（模型未旋转 → 相对 = 绝对 − hullYaw） =====
-                    // ===== 炮塔：绝对朝向 → 相对车体（模型未旋转 → 相对 = 绝对 − hullYaw） =====
                     const turretAbs = (typeof s.target_turret_yaw === 'number') ? s.target_turret_yaw : 0;
                     let turretDeg = -(turretAbs - hullYaw) * 180 / Math.PI;
                     turretDeg = ((turretDeg + 180) % 360 + 360) % 360 - 180;
@@ -2190,22 +2189,38 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                     const st = document.getElementById('turret-controls');
                     if (st) { st.innerHTML = '<div class="ctrl-row"><b>Shot #' + s.index + '</b></div>' +
                         '<div class="ctrl-row">DMG ' + s.damage + (s.is_kill ? ' · KILL' : '') + ' · ' + (s.target_name||'') + '</div>'; }
-                    // 弹道两点 → 射线方向（标记球 + doPenetrationCheck 共用）
-                    __shotRayOrigin = new THREE.Vector3(Math.sin(bearing) * distH, h, -Math.cos(bearing) * distH);
-                    // 射线终点：弹道方向可用 → 沿方向穿过模型（raycast 截断取真实命中）；
-                    // 否则用弹着点坐标（<6m 过滤后）。
-                    // 射线终点：aimDir 可用 → 沿弹道方向穿过模型（raycast 截断取命中）；
-                    // 否则直接用弹着点偏移（无保守 clamp，按原始计算值渲染）
-                    const targetPoint = (aimDir)
-                        ? __shotRayOrigin.clone()
-                            .add(new THREE.Vector3(aimDir.x, aimDir.y, aimDir.z).multiplyScalar(distH * 3))
-                        : new THREE.Vector3(aimTarget.x, aimTarget.y, aimTarget.z);
-                    // 射线终点延伸到模型对面（沿 origin→target 方向加倍距离）
+                    // 射线终点 = aimTarget（弹着点在车体坐标系中的偏移，viewer 系）
+                    // 弹着点已由 Rust 端计算（0x14 弹着点 - 目标位置@开火），轴映射全直通
+                    // 射线从 origin（射手方向）射向 aimTarget（命中点），穿过模型
+                    const targetPoint = new THREE.Vector3(aimTarget.x, aimTarget.y + gunLine, aimTarget.z);
+                    // 延伸到模型对面（沿 origin→target 方向加倍距离，确保 raycast 穿透）
                     const rayDir = targetPoint.clone().sub(__shotRayOrigin);
                     __shotRayTarget = __shotRayOrigin.clone().add(rayDir.multiplyScalar(2));
                     // 命中点标记在 doPenetrationCheck 成功后渲染（位置 = raycast 实际命中点）
 
                     setTimeout(() => {
+                        // 射击复现：先在计算的弹着点位置渲染标记球（始终显示）
+                        if (window.__hitMarker) { scene.remove(window.__hitMarker); window.__hitMarker = null; }
+                        const mg = new THREE.SphereGeometry(0.12, 16, 12);
+                        const mm = new THREE.MeshBasicMaterial({ color: 0xff2222, transparent: true, opacity: 0.9, depthTest: false });
+                        const mk = new THREE.Mesh(mg, mm);
+                        mk.position.set(aimTarget.x, aimTarget.y + gunLine, aimTarget.z);
+                        mk.renderOrder = 999;
+                        scene.add(mk);
+                        window.__hitMarker = mk;
+                        const rg = new THREE.RingGeometry(0.18, 0.26, 24);
+                        const rm = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthTest: false });
+                        const rn = new THREE.Mesh(rg, rm);
+                        rn.lookAt(camera.position);
+                        mk.add(rn);
+                        // 显示调试坐标
+                        const st2 = document.getElementById('turret-controls');
+                        if (st2) {
+                            st2.innerHTML += '<div class="ctrl-row" style="color:#0f0;font-size:10px;">' +
+                                'aim(' + aimTarget.x.toFixed(2) + ',' + aimTarget.y.toFixed(2) + ',' + aimTarget.z.toFixed(2) + ')' +
+                                ' rayO(' + __shotRayOrigin.toArray().map(v=>v.toFixed(1)) + ')' +
+                                '</div>';
+                        }
                         doPenetrationCheck(0, 0);
                         __shotRayOrigin = null; __shotRayTarget = null;
                     }, 600);
