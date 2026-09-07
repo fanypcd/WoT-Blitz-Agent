@@ -462,7 +462,6 @@ pub fn extract_shot_replays(
     author_player_eid: u32,
     shots: &[ShotEvent],
 ) -> Vec<ShotReplayData> {
-    // 收集所有作者的开火事件（0x1d）：包含未击穿的射击
     let mut all_fires: Vec<(f32, u32, f32)> = Vec::new();  // (fire_time, fire_counter, hit_time)
     for (_, clock, p) in packets {
         if *clock == 0.0 { continue; }
@@ -566,7 +565,7 @@ pub fn extract_shot_replays(
         // 弹着点不在目标附近 = miss → 不消费 ShotEvent。
         if target_eid.is_some() && se_cursor < shots.len() {
             let se = &shots[se_cursor];
-            if se.timestamp > fire_time {
+            if se.timestamp >= fire_time - 0.1 {  // 容差：近距射击时 fire/伤害几乎同时
                 damage = se.damage;
                 target_name = se.target_name.clone();
                 is_kill = se.is_kill;
