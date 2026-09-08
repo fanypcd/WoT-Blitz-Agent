@@ -12,12 +12,6 @@ use tokio::sync::Mutex;
 
 use crate::agent::{Agent, AgentEvent};
 
-// =====================================================================
-//  Web 图形界面后端（axum 服务器）
-//  提供 Agent 对话（SSE 事件流）、玩家/回放/对比/前瞻/配置/用量等面板 API，
-//  以及与 CLI 共用的业务逻辑。`wotb-agent web` 启动。
-// =====================================================================
-
 /// 一个运行中的 Agent 会话：Agent 本体 + 已产生事件的队列。
 /// 事件队列被 `Mutex` 保护，供对话任务写入、前端轮询读取。
 struct Session {
@@ -39,16 +33,13 @@ pub async fn serve(config_path: std::path::PathBuf) -> anyhow::Result<()> {
         sessions: Arc::new(Mutex::new(HashMap::new())),
     };
 
-    // 坦克解析器（供内嵌 3D 装甲检视）。
     let viewer_resolver = crate::wargaming::tank_resolver::TankResolver::load_from_json_file(
         crate::data::data_path("tank_cache.json").as_path(),
     )
     .ok()
     .unwrap_or_default();
-    // 让 3D 查看器 handler 用全局 resolver（惰性加载 tank_cache.json）。
     crate::wargaming::viewer::set_global_resolver(viewer_resolver);
 
-    // 注册所有路由
     let app = Router::new()
         .route("/", get(index_handler))
         .route("/tank/{tank_id}", get(tank_detail_page_handler))
@@ -67,9 +58,7 @@ pub async fn serve(config_path: std::path::PathBuf) -> anyhow::Result<()> {
         .route("/api/tank_detail/{tank_id}", get(tank_detail_handler))
         .route("/api/tank_image/{tank_id}", get(tank_image_handler))
         .route("/api/vendor/{*path}", get(vendor_handler))
-        // Agent 生成的热力图/截图（render_heatmap 工具输出），供聊天内嵌图片
         .route("/screenshots/{*path}", get(screenshots_handler))
-        // 内嵌 3D 装甲检视：页面入口 + 其 API/模型路由（复用 3D 查看器 handler）。
         .route("/armor_view/view/{tank_id}", get(armor_view_handler))
         .route("/armor_view/", get(armor_view_root))
         .route("/armor_view/glb/{tank_id}/{filename}", get(crate::wargaming::viewer::glb_handler))
@@ -109,7 +98,6 @@ async fn armor_view_handler(
     axum::extract::Path(tank_id): axum::extract::Path<u64>,
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Html<String> {
-    // 射手坦克可独立指定（射击复现时射手 ≠ 目标）
     let shooter = q.get("shooter").and_then(|v| v.parse::<u32>().ok()).unwrap_or(tank_id as u32);
     Html(crate::wargaming::viewer::viewer_index_html(tank_id as u32, shooter, "/armor_view"))
 }
@@ -125,8 +113,6 @@ async fn armor_tank_data_handler(axum::extract::Path(tank_id): axum::extract::Pa
     Json(crate::wargaming::viewer::tank_data_value_prefixed(tank_id as u32, "/armor_view"))
 }
 
-// ---------- Agent 对话 ----------
-
 /// 发起一次对话：创建（或复用）会话，后台启动 Agent 循环，返回 session_id。
 async fn chat_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -138,7 +124,6 @@ async fn chat_handler(
         return (axum::http::StatusCode::BAD_REQUEST, "empty message").into_response();
     }
 
-    // 取或建该会话的 Agent（tokio Mutex，跨 await 持锁保证单会话串行）
     {
         let mut guard = state.sessions.lock().await;
         if !guard.contains_key(&session_id) {
@@ -157,7 +142,6 @@ async fn chat_handler(
         }
     }
 
-    // 后台任务驱动 Agent 循环，事件写入会话队列（用 try_lock 避免卡住循环）
     let state2 = state.clone();
     let (s_id, msg) = (session_id.clone(), text);
     tokio::spawn(async move {
@@ -205,8 +189,6 @@ async fn chat_cancel_handler(
     Json(json!({ "status": "cancelling" })).into_response()
 }
 
-// ---------- 会话 ----------
-
 /// 读取某会话的消息历史（不含系统提示）。
 async fn session_get(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -222,8 +204,6 @@ async fn session_get(
     Json(json!({ "messages": history })).into_response()
 }
 
-// ---------- 配置 / 用量 ----------
-
 /// 读取当前配置（返回给设置页）。
 async fn config_get(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -235,7 +215,6 @@ async fn config_get(
                      "thinking_mode": c.llm.thinking_mode,
                      "max_tokens": c.llm.max_tokens,
                      "budget": c.llm.budget,
-                     // 仅回显是否已设置 key，不回显明文，避免泄露。
                      "api_key_set": !c.llm.api_key.is_empty() },
             "wg_api": { "server": c.wg_api.server },
             "replay": { "replay_dir": c.replay.replay_dir },
@@ -287,8 +266,6 @@ async fn usage_get(
     })).into_response()
 }
 
-// ---------- 玩家查询 ----------
-
 /// 按昵称查询玩家战绩（返回前 10 个匹配玩家的统计）。
 async fn player_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -324,8 +301,6 @@ async fn player_handler(
     }
 }
 
-// ---------- 回放扫描 ----------
-
 /// 按模式/日期扫描回放目录，返回聚合报告 JSON。
 async fn scan_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -342,7 +317,6 @@ async fn scan_handler(
 
     let res = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
         let filter = crate::replay::scanner::ScanFilter::from_mode(&mode, days);
-        // 复用坦克解析器（若 tank_cache.json 存在）以翻译坦克名
         let resolver = crate::wargaming::tank_resolver::TankResolver::load_from_json_file(
             crate::data::data_path("tank_cache.json").as_path()).ok();
         let scanner = match &resolver {
@@ -360,8 +334,6 @@ async fn scan_handler(
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     }
 }
-
-// ---------- 快照 ----------
 
 /// 快照操作：take（采集）/ list（列出）/ diff（新旧差值）。
 async fn snapshot_handler(
@@ -419,8 +391,6 @@ async fn snapshot_handler(
     }
 }
 
-// ---------- 对局前瞻 ----------
-
 /// 对局前瞻：批量查玩家战绩，或用回放提取双方阵容后分析强度。
 async fn prematch_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -442,7 +412,6 @@ async fn prematch_handler(
         let mut threat = String::new();
         let mut my_avg: Option<f64> = None;
 
-        // 若传入回放，则解析出双方阵容
         if let Some(rp) = &replay {
             let resolver = crate::wargaming::tank_resolver::TankResolver::load_from_json_file(
                 crate::data::data_path("tank_cache.json").as_path()).ok();
@@ -487,8 +456,6 @@ async fn prematch_handler(
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     }
 }
-
-// ---------- 坦克百科（Tankopedia）----------
 
 /// 全部坦克列表：id/名称/等级/国家/类型/血量/装甲摘要/主炮穿深，供百科网格与筛选。
 /// 数据源：tanks.pb（运行时解析，元数据/名称）+ tank_cache.json（属性）。
@@ -632,12 +599,10 @@ async fn tank_detail_handler(axum::extract::Path(tank_id): axum::extract::Path<u
     let is_premium = info.get("is_premium").and_then(|v| v.as_bool()).unwrap_or(false);
 
     let armor = info.get("armor").cloned();
-    // 弹种（默认配置/第一个炮塔）
     let shells: Vec<Value> = info.get("shells").and_then(|v| v.as_array()).cloned().unwrap_or_default();
     let dmg_max = shells.iter().filter_map(|s| s.get("damage").and_then(|d| d.as_f64())).fold(f64::NEG_INFINITY, f64::max);
     let dmg_max = if dmg_max.is_finite() { Some(dmg_max as u64) } else { None };
 
-    // 选配模块（炮塔/主炮）配置：复用 3D 查看器的 configs（含口径/弹种/装填/瞄准/散布/DPM/旋转/视野）。
     let configs: Vec<Value> = crate::wargaming::viewer::build_configs(tank_id as u32);
 
     Json(json!({
@@ -694,8 +659,6 @@ fn image_response(bytes: Vec<u8>) -> Response {
         bytes,
     ).into_response()
 }
-
-// ---------- 前端静态资源（Chart.js 等，本地 vendored）----------
 
 /// 提供 `web/vendor/` 下的静态文件（带路径穿越防护）。
 /// Agent 工具生成的截图（screenshots/ 目录，render_heatmap 输出）。

@@ -1,12 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-// =====================================================================
-//  战斗事件解码（自主逆向）
 //  回放的 `data.wotreplay` 数据包流里，type=7 的事件包有多种子类型
-//  （生命值变化、死亡、累计伤害、游戏时钟等）。本模块负责把这些
-//  原始包解码成结构化事件，并据此推断"每发射击"。
-// =====================================================================
 
 /// 一条战斗事件（时间 + 实体 + 类型 + 数值）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,9 +65,7 @@ fn extract_entity_names(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, String> {
         if *pkt_type != 5 || payload.len() < 60 {
             continue;
         }
-        // Entity ID is at offset 0 (first 4 bytes)
         let eid = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
-        // Nickname is at offset 57: 1-byte length + ASCII string
         let offset = 57;
         if offset >= payload.len() {
             continue;
@@ -95,9 +88,7 @@ impl CombatTimeline {
     pub fn parse_packets(packets: &[(u32, f32, &[u8])]) -> Self {
         let entity_names = extract_entity_names(packets);
         let mut events = Vec::new();
-        // 记录各实体最近一次生命值（用于计算 damage_taken = 前值 - 现值）
         let mut entity_health: HashMap<u32, u16> = HashMap::new();
-        // 记录已死亡的实体（用于统计死亡数、判断击杀）
         let mut death_entities = std::collections::HashSet::new();
 
         for (pkt_type, clock, payload) in packets {
@@ -106,13 +97,11 @@ impl CombatTimeline {
                 continue;
             }
 
-            // 前 4 字节 = 实体 ID，接着 4 字节 = 子类型
             let entity_id = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
             let sub_type = u32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);
             let entity_name = entity_names.get(&entity_id).cloned().unwrap_or_else(|| format!("0x{:08x}", entity_id));
 
             let event = match sub_type {
-                // sub=1：死亡
                 1 => {
                     death_entities.insert(entity_id);
                     CombatEvent {
@@ -123,14 +112,12 @@ impl CombatTimeline {
                         value: 0,
                     }
                 }
-                // sub=3：生命值变化（偏移 12..14 是当前血量）
                 3 => {
                     let health = if payload.len() >= 14 {
                         u16::from_le_bytes([payload[12], payload[13]])
                     } else {
                         0
                     };
-                    // 用上一帧血量减去当前血量得到"本次受击伤害"
                     let prev = entity_health.get(&entity_id).copied().unwrap_or(health);
                     let damage_taken = prev.saturating_sub(health);
                     entity_health.insert(entity_id, health);
@@ -142,7 +129,6 @@ impl CombatTimeline {
                         value: damage_taken as u32,
                     }
                 }
-                // sub=10：作者累计伤害计数器（偏移 12..16 是累计伤害）
                 10 => {
                     let cum_dmg = if payload.len() >= 16 {
                         u32::from_le_bytes([payload[12], payload[13], payload[14], payload[15]])
@@ -157,7 +143,6 @@ impl CombatTimeline {
                         value: cum_dmg,
                     }
                 }
-                // sub=9：游戏时钟（偏移 12..16 是进度浮点）
                 9 => {
                     let progress = if payload.len() >= 16 {
                         f32::from_le_bytes([payload[12], payload[13], payload[14], payload[15]])
@@ -172,7 +157,6 @@ impl CombatTimeline {
                         value: 0,
                     }
                 }
-                // sub=4：状态更新（偏移 12..14）
                 4 => {
                     let (state, data) = if payload.len() >= 14 {
                         (payload[12], payload[13])
@@ -187,7 +171,6 @@ impl CombatTimeline {
                         value: 0,
                     }
                 }
-                // sub=2：通用数据更新（偏移 12..14）
                 2 => {
                     let data = if payload.len() >= 14 {
                         u16::from_le_bytes([payload[12], payload[13]])
@@ -213,7 +196,6 @@ impl CombatTimeline {
             events.push(event);
         }
 
-        // 作者累计伤害的最大值即为全场追踪到的总伤害
         let total_damage_tracked = events.iter()
             .filter_map(|e| match &e.event_type {
                 CombatEventType::DamageCounter { cumulative_damage } => Some(*cumulative_damage),
@@ -300,7 +282,6 @@ impl CombatTimeline {
         let health = self.health_timeline();
         let deaths = self.death_events();
 
-        // 1) 找出作者伤害计数器的每次递增（递增差值 = 单发伤害）
         let mut dmg_increases: Vec<(f32, u32)> = Vec::new();
         let mut last_cum = 0u32;
         for e in &self.events {
@@ -315,11 +296,6 @@ impl CombatTimeline {
         let mut shots = Vec::new();
         let mut prev_dc_time = 0.0f32;
         for (dc_time, dc_delta) in &dmg_increases {
-            // 2) 确定性目标匹配：HP 下降事件必须落在因果区间 (max(prev_dc, dc−3s), dc] 内——
-            //    a) 服务器先扣目标血量（HP 包），再更新射手的伤害计数器（DC 包）→ t ≤ dc
-            //    b) 两次 DC 之间不重叠 → t > prev_dc
-            //    c) 弹丸飞行时间物理上限 3s → t > dc − 3s
-            //    区间内多候选（穿透溅射多目标）时取伤害最接近者（同一弹丸的分配）。
             let window_lo = prev_dc_time.max(*dc_time - 3.0);
             let nearby: Vec<&(f32, u32, String, u16, u16)> = health.iter()
                 .filter(|(t, eid, _, _, _)| {
@@ -327,7 +303,6 @@ impl CombatTimeline {
                 })
                 .collect();
 
-            // 唯一目标直接用；多个候选时选受击伤害与本次伤害最接近的那个
             let target = if nearby.len() == 1 {
                 Some(nearby[0])
             } else if nearby.len() > 1 {
@@ -339,7 +314,6 @@ impl CombatTimeline {
             };
             prev_dc_time = *dc_time;
 
-            // 3) 若目标在本次射击后 1 秒内死亡，则判定为击杀
             let is_kill = if let Some((_, target_eid, _, _, _)) = target {
                 deaths.iter().any(|(d_time, d_eid, _)|
                     *d_eid == *target_eid && (*d_time - dc_time).abs() < 1.0)
@@ -442,6 +416,8 @@ pub struct ShotReplayData {
     pub fire_time: f32,
     /// shotId——method29 发射 ↔ method20 终点 确定性配对键
     pub shot_id: u32,
+    /// 弹药槽位——type=28 选择状态在发射时刻的值（3D 视图弹种选择器索引用）
+    pub shell_slot: u32,
     /// 兼容旧字段：= type32_turret_yaw（曾误标为"来袭方向"，实为受击者炮塔角）。
     pub incoming_yaw: f32,
     /// 兼容旧字段：= target_gun_pitch（曾误标为"来袭俯角"，实为受击者炮管俯仰）。
@@ -582,6 +558,20 @@ pub fn extract_shot_replays(
     }
     hit_results.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
 
+    // ③' 同钟同受击者合并：一发命中可能产生多条结果消息（多次装甲交互——
+    // （WotbTools hit-resolution 同原则：同钟重复记录计为一次命中事件。）
+    let mut merged38: Vec<(f32, u32, u16)> = Vec::new();
+    for (c, v, f) in hit_results {
+        if let Some(last) = merged38.last_mut() {
+            if (last.0 - c).abs() <= 0.05 && last.1 == v {
+                last.2 |= f;   // 结果位并集
+                continue;
+            }
+        }
+        merged38.push((c, v, f));
+    }
+    let hit_results = merged38;
+
     // ④ 构建 entity_id → name 映射
     let names = extract_entity_names(packets);
 
@@ -601,12 +591,47 @@ pub fn extract_shot_replays(
         None => anyhow::bail!("未找到 avatar 实体（pos 全零的 type=10 缺失），无法解析射手炮管俯仰"),
     };
 
+    // ⑤' 弹药选择时间线（type=28，payload=u32 LE 槽位；录像者本人的选择状态）
+    let mut ammo_selects: Vec<(f32, u32)> = Vec::new();
+    for (t, clock, p) in packets {
+        if *t != 28 || p.len() < 4 { continue; }
+        ammo_selects.push((*clock, u32::from_le_bytes([p[0], p[1], p[2], p[3]])));
+    }
+    ammo_selects.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
+
     // ⑥ 游标
     let hp_events = parse_hp_events(packets);   // method1 血量事件（全实体，按时钟排序）
+    // ⑥' 确定性伤害降幅区间（参考 WotbTools PlaybackCombatReconstruction.deriveLosses）：
+    struct DmgLoss { victim: u32, t_prev: f32, t_cur: f32, dmg: u32, hp_cur: u16 }
+    let mut dmg_losses: Vec<DmgLoss> = Vec::new();
+    {
+        let mut by_victim: std::collections::HashMap<u32, Vec<&HpEvent>> = std::collections::HashMap::new();
+        for e in &hp_events { by_victim.entry(e.victim).or_default().push(e); }
+        for (victim, evs) in &by_victim {
+            let mut samples: Vec<(f32, u16, u32, u8)> = Vec::new();
+            let mut i = 0usize;
+            while i < evs.len() {
+                let t = evs[i].clock; let hp = evs[i].hp;
+                let mut conflict = false; let mut j = i + 1;
+                while j < evs.len() && (evs[j].clock - t).abs() <= 1e-6 {
+                    if evs[j].hp != hp { conflict = true; }
+                    j += 1;
+                }
+                if !conflict { samples.push((t, hp, evs[i].source, evs[i].cause)); }
+                i = j;
+            }
+            for w in 1..samples.len() {
+                let (tp, hpp, _, _) = samples[w - 1];
+                let (tc, hpc, srcc, causec) = samples[w];
+                if hpc < hpp && srcc == author_player_eid && causec == 0 {
+                    dmg_losses.push(DmgLoss { victim: *victim, t_prev: tp, t_cur: tc, dmg: (hpp - hpc) as u32, hp_cur: hpc });
+                }
+            }
+        }
+        dmg_losses.sort_by(|a, b| a.t_cur.partial_cmp(&b.t_cur).unwrap());
+    }
     // 作者伤害计数器（type=7 sub=10）增量序列——首次命中（血量链无前值）兜底。
-    // 计数器挂在 avatar 实体上（每场回放仅一个），无需 eid 过滤；
     // 含撞击/火伤等非弹伤害增量——与 method1 cause≠0 且涉及作者的事件同批
-    // （|Δclock|≤0.3s）的增量剔除，剩下的按顺序与造成伤害的命中一一对应。
     let non_shell_ticks: Vec<f32> = hp_events.iter()
         .filter(|e| e.cause != 0 && (e.source == author_player_eid || e.victim == author_player_eid))
         .map(|e| e.clock)
@@ -637,7 +662,6 @@ pub fn extract_shot_replays(
         let shot_id = l.shot_id;
         let ctx = format!("shot #{} (shotId={}, t={:.2}s)", i + 1, shot_id, fire_time);
 
-        // 射手状态 @ 开火时刻
         let (sp, sa) = entity_state_at(packets, author_player_eid, fire_time)
             .ok_or_else(|| anyhow::anyhow!("{ctx}: 射手 type=10 状态快照缺失"))?;
 
@@ -646,9 +670,13 @@ pub fn extract_shot_replays(
         let (end_time, ball_b) = endpoints.get(&shot_id).cloned()
             .ok_or_else(|| anyhow::anyhow!("{ctx}: method20 弹道终点缺失（shotId 无配对）"))?;
 
+        // ⑦' 弹药槽位：发射时刻的最后选择（type=28 时间线 ≤ fire_time 的最新值）
+        let mut shell_slot: u32 = 0;
+        for (t_sel, slot) in &ammo_selects {
+            if *t_sel <= fire_time { shell_slot = *slot; } else { break; }
+        }
+
         // ⑧ 目标实体：method38 victimVehicleId（服务器权威，确定性）
-        //    配对：method38 clock ≈ 弹道终点 clock（命中时刻）；窗口内多条 = 歧义 → 报错；
-        //    窗口内无 method38 = miss（弹道终点在地面/障碍物）
         let mut target_eid: Option<u32> = None;
         let mut damage = 0u32;
         let mut target_name = String::new();
@@ -676,57 +704,35 @@ pub fn extract_shot_replays(
             hr_cursor = j + 1;
         }
 
-        // target_name：有 target_eid 时从 entity_names 查（max_hp 兜底需要昵称）
         if let Some(teid) = target_eid {
             target_name = names.get(&teid)
                 .ok_or_else(|| anyhow::anyhow!("{ctx}: 受击者实体 {teid} 不在 type=5 名册中"))?
                 .clone();
         }
 
-        // 伤害归属（确定性）：击穿 0x0010 / HE 爆炸 0x1000 → method1 血量事件
-        // 三键过滤：victim=method38 受击者 ∧ source=作者 ∧ cause=0（炮弹直击）——
-        // 撞击(2)/火伤(1) 等非弹伤害被 cause 天然排除，无时间窗口猜测。
-        // 伤害 = 受害者血量链前值 − 事件后血量；前值 = 该受害者此前最近的 method1
-        // 记录（任意来源）；无前记录 = 满血开战（max_hp 兜底，缺失则报错）。
+        // 伤害归属（确定性，WotbTools deriveLosses 同款）：击穿 0x0010 / HE 爆炸 0x1000 →
         if hit && hit_flags & (0x0010 | 0x1000) != 0 {
             let victim = target_eid.unwrap_or(0);
-            let cands: Vec<(usize, u16)> = hp_events.iter().enumerate()
-                .filter(|(_, e)| e.victim == victim && e.source == author_player_eid && e.cause == 0
-                    && (e.clock - end_time).abs() <= 0.5)
-                .map(|(i, e)| (i, e.hp))
+            let containing: Vec<&DmgLoss> = dmg_losses.iter()
+                .filter(|l| l.victim == victim && l.t_prev < end_time && end_time <= l.t_cur + 1e-6)
                 .collect();
-            if cands.is_empty() {
-                anyhow::bail!("{ctx}: 击穿/HE 命中但无 method1 血量事件配对（victim={victim}）");
+            if containing.len() > 1 {
+                anyhow::bail!("{ctx}: 伤害归属歧义（{} 个血量降幅区间包含命中时刻）", containing.len());
             }
-            if cands.len() > 1 {
-                anyhow::bail!("{ctx}: method1 血量事件配对歧义（{} 条）", cands.len());
-            }
-            let (hidx, hp_after) = cands[0];
-            // 前值：该受害者在此事件之前最近的 method1 记录（任意来源）
-            let hp_before = hp_events[..hidx].iter().rev()
-                .find(|e| e.victim == victim)
-                .map(|e| e.hp as u32);
-            // 计数器增量：顺序消费（计数器含全部伤害来源，过滤非弹后与伤害命中一一对应）
-            let dc_delta = if dc_cursor < dc_increments.len() {
-                Some(dc_increments[dc_cursor].1)
-            } else { None };
-            match hp_before {
-                Some(prev) if prev >= hp_after as u32 => {
-                    damage = prev - hp_after as u32;
-                }
-                _ => {
-                    // 首次命中（血量链无前值，链前值低于事件后=修理/回复等）：
-                    // 伤害 = 计数器增量（服务器记账 = "初始血量扣减"的结果，不依赖百科）
-                    damage = dc_delta.ok_or_else(|| anyhow::anyhow!(
-                        "{ctx}: 血量链无前值且计数器增量已耗尽，伤害归属失败"))?;
+            let dc_delta = dc_increments.get(dc_cursor).map(|x| x.1);
+            if dc_delta.is_some() { dc_cursor += 1; }
+            match containing.first() {
+                Some(l) => { damage = l.dmg; }
+                None => {
+                    // ② 计数器亦无增量 = 服务器未记账 HP 伤害（模块-only 击穿等）→ 0
+                    damage = dc_delta.unwrap_or(0);
                 }
             }
-            is_kill = hp_after == 0;
-            dc_cursor += 1;
+            is_kill = containing.first().map(|l| l.hp_cur == 0).unwrap_or(false)
+                || hit_flags & 0x0001 != 0;
         }
 
         // ⑨ 目标位置与姿态 @ 【命中时刻】（method20 终点 clock = 服务器精确命中时刻；
-        // miss 无终点，回退开火时刻）。模型渲染的就是命中时刻的目标，数据锚点必须同时刻。
         let state_time = if hit { end_time } else { fire_time };
         let (tp, ta) = if hit {
             target_eid.and_then(|eid| entity_state_at(packets, eid, state_time))
@@ -783,9 +789,6 @@ pub fn extract_shot_replays(
             .ok_or_else(|| anyhow::anyhow!("{ctx}: 射手炮管俯仰（type=7 prop9）缺失"))?;
 
         // ⑬ aim_point / launch_point_rel = 相对【命中时刻】目标位置（type10 接地高度）的偏移
-        // 模型渲染命中时刻的目标（位姿 @ state_time），数据锚点用同一时刻——
-        // 目标在开火→命中之间移动时，fire_time 锚点会使标记/相机相对模型错位。
-        // 仅命中（有目标实体）时计算——miss 无目标基准，保持全零（viewer 不建射线）
         let (aim_point_val, launch_point_rel) = if ball_b != [0.0; 3] && target_eid.is_some() {
             let rel = |p: [f32; 3]| [p[0] - tp[0], p[1] - tp[1], p[2] - tp[2]];
             (rel(ball_b), rel(ball_a))
@@ -812,6 +815,7 @@ pub fn extract_shot_replays(
             ball_b,
             launch_velocity: l.vel,
             hit_flags,
+            shell_slot,
             fire_time,
             shot_id,
             incoming_yaw: 0.0,

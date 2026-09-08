@@ -1,8 +1,3 @@
-// =====================================================================
-//  WoTB 回放分析 Agent — CLI 入口
-//  用 clap 解析子命令并分发执行。部分命令（view/web）需要异步 Tokyo 运行时，
-//  其余为同步单步操作。
-// =====================================================================
 
 mod models;
 mod replay;
@@ -242,7 +237,6 @@ enum Commands {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // View（3D 查看器）需要 async 运行时（axum 服务器）
     if let Commands::View { tank_id, tank_cache } = &cli.command {
         let tank_id = *tank_id;
         let tank_cache = tank_cache.clone();
@@ -262,7 +256,6 @@ fn main() -> Result<()> {
         });
     }
 
-    // Web 图形界面同样需要 async 运行时
     if let Commands::Web { config, .. } = &cli.command {
         let config_path = config.clone();
         return tokio::runtime::Runtime::new()?.block_on(async {
@@ -270,10 +263,8 @@ fn main() -> Result<()> {
         });
     }
 
-    // 其余命令按名称分发
     match cli.command {
         Commands::ParseGame { dev_name, game_dir } => {
-        // parse-game：解析单辆坦克的游戏 DVPL（碰撞 YAML + 装甲 XML），打印到 stdout
             use crate::wargaming::dvpl::{DvplFile, CollisionData};
 
             let game_dir = crate::wargaming::game_extract::resolve_game_dir(game_dir.as_deref())?;
@@ -333,7 +324,6 @@ fn main() -> Result<()> {
                 eprintln!("YAML file not found in any nation directory.");
             }
 
-            // Also load and display XML DVPL armor data
             for nation in &nations {
                 let xml_path = game_dir.join(format!("XML/item_defs/vehicles/{}/{}.xml.dvpl", nation, dev_name));
                 if xml_path.exists() {
@@ -354,7 +344,6 @@ fn main() -> Result<()> {
             return Ok(());
         }
         Commands::ExtractGame { game_dir, output, force } => {
-        // extract-game：批量把全部坦克的装甲/碰撞数据提取到 game_data/（可移植）
             let stats = crate::wargaming::game_extract::extract_all(
                 game_dir.as_deref(), &output, force,
             )?;
@@ -369,14 +358,12 @@ fn main() -> Result<()> {
             return Ok(());
         }
         Commands::FetchBlitzkit { output } => {
-        // fetch-blitzkit：下载 tanks.pb（唯一数据源）到 data/tanks.pb
             let n = tokio::runtime::Runtime::new()?
                 .block_on(crate::wargaming::blitzkit::fetch_and_save(&output))?;
             println!("Saved tanks.pb ({}) — parsed {} tanks -> {}", output.display(), n, output.display());
             return Ok(());
         }
         Commands::FetchIcons { dir, force } => {
-        // fetch-icons：批量下载坦克封面图到 tank_images/
             let (downloaded, cached, failed) =
                 crate::wargaming::blitzkit::download_all_icons(&dir, force)?;
             println!("Tank icons downloaded={} cached={} failed={} -> {}",
@@ -386,7 +373,6 @@ fn main() -> Result<()> {
         Commands::View { .. } => unreachable!(),
         Commands::Web { .. } => unreachable!(),
         Commands::Single { file, json, tank_cache } => {
-        // single：解析单个回放文件，打印 14 名玩家战绩
             let resolver = tank_cache
                 .filter(|p| p.exists())
                 .and_then(|p| TankResolver::load_from_json_file(&p).ok());
@@ -405,8 +391,6 @@ fn main() -> Result<()> {
             }
         }
         Commands::Scan { dir, mode, days, output, tank_cache, fetch_tanks, app_id: _, server: _ } => {
-        // scan：批量扫描目录，输出聚合报告（胜率/伤害/坦克/地图）
-            // Load or fetch tank resolver
             let resolver = if fetch_tanks {
                 eprintln!("Building tank resolver from local BlitzKit data...");
                 match TankResolver::from_blitzkit() {
@@ -446,7 +430,6 @@ fn main() -> Result<()> {
                 ReplayScanner::new()
             };
 
-            // Build filter
             let filter = ScanFilter::from_mode(&mode, days);
 
             eprintln!("Scanning: {}", dir.display());
@@ -527,8 +510,6 @@ fn main() -> Result<()> {
             }
         }
         Commands::Chat { config: config_path, save, load } => {
-        // chat：启动交互式 Agent 对话（R5 会话 / R6 token 统计）
-            // Set up Ctrl+C handler (R4: interrupt)
             let _ = ctrlc::set_handler(|| {
                 crate::agent::set_interrupted();
                 eprintln!("\n[Interrupted] Finishing current step...");
@@ -605,7 +586,6 @@ fn main() -> Result<()> {
             eprintln!("Session saved. Goodbye!");
         }
         Commands::Config { file, show } => {
-        // config：查看/编辑 config.toml
             if show {
                 let config = Config::load_or_create(&file)?;
                 let toml = toml::to_string_pretty(&config)?;
@@ -622,12 +602,10 @@ fn main() -> Result<()> {
             }
         }
         Commands::Usage { file } => {
-        // usage：打印 Token 用量汇总
             let usage = TokenUsage::load_from_file(&file)?;
             usage.print_summary();
         }
         Commands::Player { nickname, app_id, server } => {
-        // player：查询玩家累计战绩（WG API）
             let client = WgApiClient::new(&app_id, &server);
             
             eprintln!("Searching for player '{}' on {}...", nickname, server);
@@ -654,8 +632,6 @@ fn main() -> Result<()> {
             WgApiClient::print_stats(&stats);
         }
         Commands::Compare { nickname, dir, app_id, server, tank_cache, mode } => {
-        // compare：扫描近期回放 vs API 累计，量化近期表现
-            // 1. Fetch API stats
             let client = WgApiClient::new(&app_id, &server);
             eprintln!("Fetching API stats for '{}'...", nickname);
             let results = client.search_player(&nickname, true)?;
@@ -665,7 +641,6 @@ fn main() -> Result<()> {
             let account_id = results[0].1;
             let api_stats = client.get_player_stats(account_id)?;
 
-            // 2. Scan replays
             let resolver = tank_cache
                 .filter(|p| p.exists())
                 .and_then(|p| TankResolver::load_from_json_file(&p).ok());
@@ -692,7 +667,6 @@ fn main() -> Result<()> {
             let room_type = battles.first().map(|b| b.room_type.as_str()).unwrap_or("Unknown");
             let report = AggregatedReport::from_battles(&battles, room_type);
 
-            // 3. Compare
             let is_rating = mode == "rating";
             let (api_battles, api_wins, api_dmg, api_frags, api_shots, api_hits) = if is_rating {
                 (api_stats.rating_battles, api_stats.rating_wins,
@@ -775,10 +749,8 @@ fn main() -> Result<()> {
             println!("========================================================");
         }
         Commands::Prematch { nicknames, file, replay, app_id, server } => {
-        // prematch：对局前瞻——分析双方阵容强度、识别威胁与薄弱点
             let client = WgApiClient::new(&app_id, &server);
 
-            // If a replay path is provided, extract both teams and analyze each separately.
             if let Some(ref rp) = replay {
                 let resolver = TankResolver::load_from_json_file(&crate::data::data_path("tank_cache.json")).ok();
                 let parser = match &resolver {
@@ -794,7 +766,6 @@ fn main() -> Result<()> {
                 }
                 eprintln!("\n=== 回放: {} ===", summary.file_name);
 
-                // Analyze both lineups and compare.
                 let (report_a, report_b) = {
                     let mut pa = Vec::new();
                     for n in &team_a {
@@ -825,7 +796,6 @@ fn main() -> Result<()> {
                 eprintln!("\n--- 敌方阵容 ---");
                 crate::wargaming::prematch::print_report(&report_b);
 
-                // Overall comparison
                 let diff = report_a.avg_damage - report_b.avg_damage;
                 eprintln!("\n=== 阵容对比 ===");
                 eprintln!("我方场均伤害 {:.0} vs 敌方 {:.0} ({:+.0})",
@@ -842,7 +812,6 @@ fn main() -> Result<()> {
                 return Ok(());
             }
 
-            // Otherwise: resolve the player list from inline names or a file.
             let mut names: Vec<String> = Vec::new();
             if let Some(ref f) = file {
                 let text = std::fs::read_to_string(f)?;
@@ -880,7 +849,6 @@ fn main() -> Result<()> {
             crate::wargaming::prematch::print_report(&report);
         }
         Commands::FetchTanks { output } => {
-        // fetch-tanks：从本地 BlitzKit 数据构建 tank_cache.json
             eprintln!("Building tank resolver from local BlitzKit data (no WG API)...");
             let resolver = TankResolver::from_blitzkit()?;
             eprintln!("Built {} tanks from BlitzKit pb data", resolver.len());
@@ -888,7 +856,6 @@ fn main() -> Result<()> {
             eprintln!("Saved to: {}", output.display());
         }
         Commands::Combat { file, json, dump: _, shots_json } => {
-        // combat：解码单场数据包事件流 + 推断每发射击
             use wotbreplay_parser::replay::Replay;
             use std::fs::File;
 

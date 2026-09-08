@@ -623,21 +623,28 @@ async function srParse() {
 function renderShotList() {
     const out=$('sr-out');
     if(!srData.length){ out.innerHTML='<div class="muted">No shots detected.</div>'; return; }
-    const rows=srData.map(s=>`
-        <tr style="cursor:pointer;" onclick="openShotInViewer(${s.index})">
-            <td>#${s.index}</td><td>${s.time_s.toFixed(1)}s</td><td>${s.damage}</td>
-            <td>${esc(s.target_name)}</td><td>${s.is_kill?'<span class="pill type">KILL</span>':''}</td>
-            <td><button class="btn" style="padding:2px 10px;">3D View</button></td>
-        </tr>`).join('');
+    const rows=srData.map(s=>{
+        const miss=!s.target_name;
+        const btn=miss
+            ? '<span class="muted">脱靶</span>'
+            : '<button class="btn" style="padding:2px 10px;">3D View</button>';
+        return `<tr ${miss?'':'style="cursor:pointer;" onclick="openShotInViewer('+s.index+')"'}>`
+            +`<td>#${s.index}</td><td>${s.time_s.toFixed(1)}s</td><td>${s.damage}</td>`
+            +`<td>${miss?'<span class="muted">—</span>':esc(s.target_name)}</td>`
+            +`<td>${s.is_kill?'<span class="pill type">KILL</span>':''}</td>`
+            +`<td>${btn}</td></tr>`;
+    }).join('');
     out.innerHTML=`<table class="inline-table-sm"><tr><th>#</th><th>Time</th><th>Dmg</th><th>Target</th><th></th><th></th></tr>${rows}</table>
-        <div class="muted" style="margin-top:6px;">点击行 → 3D 查看器复现该发（相机=射手 POV + 热力图）</div>`;
+        <div class="muted" style="margin-top:6px;">点击行 → 3D 查看器复现该发（相机=射手 POV + 热力图）；脱靶弹无受击目标，不提供 3D 复现</div>`;
 }
 window.openShotInViewer = function(no) {
     const w = Math.round(window.innerWidth*0.85), h = Math.round(window.innerHeight*0.85);
     const tid = (window.__srTargetMap||{})[no] || window.__srAuthorTank || 0;
     // 射手坦克 = 回放作者（__srAuthorTank）；不传时 armor_view 默认射手=目标坦克
     const sh = window.__srAuthorTank ? ('&shooter='+window.__srAuthorTank) : '';
-    window.open(API+'/armor_view/view/'+tid+'?heatmap=1&shot='+no+sh, '_blank',
+    const shot = (srData.find(s=>s.index===no)) || null;
+    const ammo = (shot && shot.shell_slot != null) ? ('&shell='+shot.shell_slot) : '';
+    window.open(API+'/armor_view/view/'+tid+'?heatmap=1&shot='+no+sh+ammo, '_blank',
         'width='+w+',height='+h);
 };
 $('btn-sr-load').addEventListener('click',srParse);
