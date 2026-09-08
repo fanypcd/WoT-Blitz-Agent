@@ -920,22 +920,6 @@ fn main() -> Result<()> {
                 .map(|(eid, _)| eid)
                 .unwrap_or(&0);
             let shots = timeline.infer_shots(author_eid);
-            // max_hp 回调：昵称 → battle_results 坦克 ID → 百科满血
-            let br = replay.read_battle_results().ok();
-            let tank_of = |nick: &str| -> Option<u32> {
-                let br = br.as_ref()?;
-                br.players.iter().find(|p| p.info.nickname == nick)
-                    .and_then(|p| br.player_results.iter().find(|pr| pr.info.account_id == p.account_id))
-                    .map(|pr| pr.info.tank_id)
-            };
-            let max_hp_of = |nick: &str| -> Option<u16> {
-                let tid = tank_of(nick);
-                eprintln!("[max_hp] nick={:?} → tank_id={:?}", nick, tid);
-                let r = tid.and_then(|tid| crate::wargaming::viewer::global_resolver()
-                    .resolve_info(tid).and_then(|i| i.hp).map(|h| h as u16));
-                eprintln!("[max_hp] 结果={:?}", r);
-                r
-            };
             let shot_replay = crate::replay::combat::extract_shot_replays_auto(
                 &raw_packets, &file.file_name().and_then(|n| n.to_str()).unwrap_or(""))?;
 
