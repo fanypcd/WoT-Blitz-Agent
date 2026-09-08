@@ -60,7 +60,7 @@ fn find_dev_name(tank_id: u32) -> Option<String> {
 /// 便于 Web GUI 以 `/armor_view` 前缀复用这些 API）。
 static GLOBAL_RESOLVER: std::sync::OnceLock<Arc<TankResolver>> = std::sync::OnceLock::new();
 
-fn global_resolver() -> Arc<TankResolver> {
+pub fn global_resolver() -> Arc<TankResolver> {
     GLOBAL_RESOLVER.get_or_init(|| {
         TankResolver::load_from_json_file(&crate::data::data_path("tank_cache.json"))
             .map(Arc::new)
@@ -243,11 +243,6 @@ pub async fn start_viewer_server_for_replay(
     }
     let file_name = replay_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let author_player_eid = crate::replay::combat::resolve_author_player_eid(&raw_packets, file_name);
-    let replay_data = crate::replay::combat::extract_shot_replays(&raw_packets, author_player_eid, &shots);
-    if shot_no == 0 || shot_no > replay_data.len() {
-        return Err(anyhow::anyhow!("shot {} out of range (1..={})", shot_no, replay_data.len()));
-    }
-    let shot = &replay_data[shot_no - 1];
 
     // 目标/射手坦克 ID：battle_results 按昵称关联
     let br = replay.read_battle_results().ok();
@@ -257,6 +252,11 @@ pub async fn start_viewer_server_for_replay(
             .and_then(|p| br.player_results.iter().find(|pr| pr.info.account_id == p.account_id))
             .map(|pr| pr.info.tank_id)
     };
+    let replay_data = crate::replay::combat::extract_shot_replays(&raw_packets, author_player_eid)?;
+    if shot_no == 0 || shot_no > replay_data.len() {
+        return Err(anyhow::anyhow!("shot {} out of range (1..={})", shot_no, replay_data.len()));
+    }
+    let shot = &replay_data[shot_no - 1];
     let target_tank = tank_of(&shot.target_name);
     // 射手坦克：优先 battle_results 按作者昵称查找（与目标同路径、同 ID 空间）；
     // meta.tank_id 可能是车库/账号域的 ID，仅作回退。
@@ -408,13 +408,6 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
         Some(gd) => gd.armor_model.clone(),
         None => load_armor_model(tank_id),
     };
-    // 碰撞包围盒数据（车体中心定位用）
-    let collision_val = game_data.as_ref().and_then(|gd| gd.collision.as_ref()).map(|c| {
-        serde_json::json!({
-            "hull_bbox": c.hull_bbox.as_ref().map(|b| json!({"min": b.min, "max": b.max})),
-        })
-    }).unwrap_or(json!(null));
-
     // Gun angles from models.pb data
     let gun_angles = std::fs::read_to_string(crate::data::data_path("gun_angles.json"))
         .ok()
@@ -492,7 +485,6 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
         "model_origins": model_origins,
         "initial_turret_rotation": initial_turret_rotation,
         "armor_model": armor_model_val,
-        "collision": collision_val,
         "caliber": caliber,
         "shells": shells,
         "configs": configs,
@@ -1094,7 +1086,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             uniform float damage;
             uniform float explosionRadius;
             uniform vec2 resolution;
-            uniform float metersPerUnit;   // 视空间单位 → 米（BlitzKit 模型原生=米，本地缩放到 6 单位需换算）
+            uniform float metersPerUnit;   // 视空间单位 → 米（场景原生米制，恒为 1，保留 uniform 兼容热力图管线）
             uniform sampler2D spacedArmorBuffer;   // R=外部/间隙甲 thickness/penetration, alpha!=0 表示有覆盖
             uniform highp sampler2D spacedArmorDepth; // 深度（HE 溅射用）
             uniform mat4 inverseProjectionMatrix;
@@ -1132,8 +1124,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                   if (isExplosive && rem > 0.0) {
                     float spacedDist = getDist(sc, texture2D(spacedArmorDepth, sc).r);
                     float primaryDist = getDist(sc, gl_FragCoord.z);
-                    // 深度反投影得到的是视空间单位距离；BlitzKit 模型原生单位=米可直接使用，
-                    // 本地模型缩放到 6 单位（applyModelTransforms），需乘 metersPerUnit 换算回米。
+                    // 深度反投影得到视空间距离；场景原生米制，metersPerUnit=1（恒等）
                     float distArmor = (primaryDist - spacedDist) * metersPerUnit;
                     if (canSplash) {
                       float finalDamage = 0.5 * damage * (1.0 - distArmor / explosionRadius) - 1.1 * (finalThick + spacedThick);
@@ -1213,7 +1204,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         // （新建对象会使已构建材质的引用失效）。
         let gunClipPlane = null;
         const _gunClipPlaneObj = new THREE.Plane();
-        // 炮口世界坐标（视空间 6 单位制）：炮管包围盒沿炮轴的远端中点。
+        // 炮口世界坐标（米）：炮管包围盒沿炮轴的远端中点。
         // 用于点击判定的命中距离（× worldMetersPerUnit 换算回米，对齐 BlitzKit 单位）。
         let gunMuzzleWorld = null;
         // 装甲旋转枢轴（alignArmorModules 按 models.pb 原点写入：track+turret / track+turret+gun）。
@@ -1882,29 +1873,23 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
         // 模块装甲（炮塔/炮盾）与视觉模型的对齐统一由 alignArmorModules() 完成；
         // 车体(hull) 的 game points 恒接近 0，无需偏移，故不再对碰撞模型做预平移。
-        let worldMetersPerUnit = null;   // 场景单位→米换算系数（maxDim/6，随模型加载更新）
-        // applyModelTransforms：缩放到 6 单位 + 【车体中心水平对齐原点】+ 贴地。
-        // bodyCenter = 车体中心（glb 坐标系，来自 collision.hull_bbox 中心）；
-        // 水平居中基准用车体中心而非全模型包围盒中心（后者被炮管前伸拉偏，
-        // 导致 aim_point 等以车体中心为基准的数据在 viewer 中错位）。
-        // y 仍用全模型贴地（glb z_min=0 即地面，visual/collision 的 z 原点一致）。
-        function applyModelTransforms(model, bodyCenter) {
+        let worldMetersPerUnit = 1;      // 场景原生米制：1 单位 = 1 米（模型不再缩放）
+        let modelMaxDim = 6;             // 模型实际最长边（米）——仅用于相机取景推算
+        // applyModelTransforms：**不缩放**（场景原生米制，1 单位 = 1 米）
+        // + 【模型原点 = 场景原点】——glb 原点即游戏引擎的车体锚点（= 回放 type10 位置锚点），
+        // 弹着点/炮口等回放数据全部相对该锚点表达，放在场景原点后数据零偏移直通
+        // （此前用 collision.hull_bbox 中心做水平对齐，与锚点存在数厘米级残差，
+        //   且全模型包围盒中心会被炮管前伸拉偏；垂直方向 glb z=0 即地面，
+        //   与数据的"离地高度"语义一致，无需额外贴地平移）。
+        // 代价：OrbitControls 旋转围绕车体锚点（地面高度）而非视觉中心——数据精确性优先。
+        function applyModelTransforms(model) {
             model.rotation.x = -Math.PI / 2;
+            model.scale.setScalar(1);
+            worldMetersPerUnit = 1;
             const box = new THREE.Box3().setFromObject(model);
             const size = box.getSize(new THREE.Vector3());
-            const maxDim = Math.max(size.x, size.y, size.z);
-            const scale = 6 / maxDim;
-            worldMetersPerUnit = maxDim / 6;
-            model.scale.setScalar(scale);
-            // 车体中心旋转后位置：glb(x,y,z) →(x, z, -y)
-            const bc = bodyCenter || box.getCenter(new THREE.Vector3());
-            const bcRot = new THREE.Vector3(bc.x, bc.z, -bc.y).multiplyScalar(scale);
-            // 水平对齐：position 平移使车体中心 x/z 归零
-            model.position.x = -bcRot.x;
-            model.position.z = -bcRot.z;
-            // 贴地：全模型 z_min(旋转后 y_min) = 0
-            const box2 = new THREE.Box3().setFromObject(model);
-            model.position.y = -box2.min.y;
+            modelMaxDim = Math.max(size.x, size.y, size.z);
+            model.position.set(0, 0, 0);
         }
 
         function syncTransforms() {
@@ -1971,6 +1956,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             if (tankModel) { scene.remove(tankModel); tankModel = null; }
             if (armorModel) { scene.remove(armorModel); armorModel = null; }
             if (trajGroup) { scene.remove(trajGroup); trajGroup = null; }
+            if (window.__hitMarker) { scene.remove(window.__hitMarker); window.__hitMarker = null; }
+            if (window.__endMarker) { scene.remove(window.__endMarker); window.__endMarker = null; }
             moduleMeshes = [];
             turretNode = null; gunNodesList = [];
             configGunGroups = []; configTurretNodes = [];
@@ -2026,18 +2013,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             // Load visual model (visible)
             loader.load(tankData.visual_model_url, function(gltf) {
                 tankModel = gltf.scene;
-                // 车体中心（glb 坐标系）：collision.hull_bbox 的中心
-                let bodyCenter = null;
-                const col = tankData.collision || null;
-                if (col && col.hull_bbox) {
-                    const hb = col.hull_bbox;
-                    bodyCenter = {
-                        x: (hb.min[0] + hb.max[0]) / 2,
-                        y: (hb.min[1] + hb.max[1]) / 2,
-                        z: (hb.min[2] + hb.max[2]) / 2,
-                    };
-                }
-                applyModelTransforms(tankModel, bodyCenter);
+                applyModelTransforms(tankModel);
                 tagModuleMeshes(tankModel);
                 tankModel.traverse(function(node) {
                     if (node.isMesh) {
@@ -2090,22 +2066,24 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             const view = QP.get('view');
             const azOv = num('az'), distOv = num('dist'), hOv = num('h');
             if (view || azOv !== null || hOv !== null || distOv !== null) {
-                // 炮线高度（世界单位）：gun 枢轴的 glb z × 模型缩放
-                const gunLine = (armorPivotGun ? armorPivotGun.z : 2.0) * (tankModel.scale.x || 1);
+                // 炮线高度（米）：gun 枢轴的 glb z（场景原生米制，无缩放）
+                const gunLine = (armorPivotGun ? armorPivotGun.z : 2.0);
                 // 视角预设（对齐 BlitzKit 语义）：front/rear/left/right = 炮线高度的水平视角；
-                // hull_down = 低机位仰视炮塔（卖头视角）；top = 俯视
+                // hull_down = 低机位仰视炮塔（卖头视角）；top = 俯视。
+                // 机位距离 = 模型最长边的倍数（取景需要，与数据无关）：
+                // 水平视角 0.80×、斜角 0.87×、顶视 1.17×；顶视高度 = 炮线 + 2×模型长
                 const P = ({
-                    front:       {az:0,   h:gunLine,     ty:gunLine,      d:4.8},
-                    rear:        {az:180, h:gunLine,     ty:gunLine,      d:4.8},
-                    left:        {az:90,  h:gunLine,     ty:gunLine,      d:4.8},
-                    right:       {az:270, h:gunLine,     ty:gunLine,      d:4.8},
-                    hull_down:   {az:0,   h:1.1,         ty:gunLine+0.3,  d:5.0},
-                    top:         {az:0,   h:gunLine+12,  ty:0.6,          d:7.0},
-                    front_left:  {az:45,  h:gunLine,     ty:gunLine,      d:5.2},
-                    front_right: {az:315, h:gunLine,     ty:gunLine,      d:5.2},
-                    rear_left:   {az:135, h:gunLine,     ty:gunLine,      d:5.2},
-                    rear_right:  {az:225, h:gunLine,     ty:gunLine,      d:5.2},
-                })[view] || {az:0, h:gunLine, ty:gunLine, d:4.8};
+                    front:       {az:0,   h:gunLine,     ty:gunLine,      d:0.80*modelMaxDim},
+                    rear:        {az:180, h:gunLine,     ty:gunLine,      d:0.80*modelMaxDim},
+                    left:        {az:90,  h:gunLine,     ty:gunLine,      d:0.80*modelMaxDim},
+                    right:       {az:270, h:gunLine,     ty:gunLine,      d:0.80*modelMaxDim},
+                    hull_down:   {az:0,   h:1.1,         ty:gunLine+0.3,  d:0.83*modelMaxDim},
+                    top:         {az:0,   h:gunLine+2.0*modelMaxDim, ty:0.1*modelMaxDim, d:1.17*modelMaxDim},
+                    front_left:  {az:45,  h:gunLine,     ty:gunLine,      d:0.87*modelMaxDim},
+                    front_right: {az:315, h:gunLine,     ty:gunLine,      d:0.87*modelMaxDim},
+                    rear_left:   {az:135, h:gunLine,     ty:gunLine,      d:0.87*modelMaxDim},
+                    rear_right:  {az:225, h:gunLine,     ty:gunLine,      d:0.87*modelMaxDim},
+                })[view] || {az:0, h:gunLine, ty:gunLine, d:0.80*modelMaxDim};
                 const d = distOv !== null ? distOv : P.d;
                 const a = (azOv !== null ? azOv : P.az) * Math.PI / 180;
                 const h = hOv !== null ? hOv : P.h;
@@ -2121,110 +2099,163 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 applyPenetrationMode(true);
             }
             // 射击复现：shot=N 时从 /api/replay_shot 取该发数据，相机摆到射手 POV，
+            // 射击复现错误展示（fail-fast：不做保守降级，直接把错误呈现给用户）
+            function showShotError(msg) {
+                console.error('[shot-replay] ' + msg);
+                const st = document.getElementById('turret-controls');
+                if (st) st.innerHTML = '<div class="ctrl-row" style="color:#ff5555;"><b>射击复现错误</b></div>' +
+                    '<div class="ctrl-row" style="color:#ff5555;font-size:11px;">' + msg + '</div>';
+            }
             // 热力图就绪后自动执行该发的射线判定（trajectoria + 结果面板）。
             // 弹种选择器保留——切换弹种后自动重跑判定。
             const shotNo = parseInt(QP.get('shot'), 10);
             const isShotReplay = !isNaN(shotNo);
             if (isShotReplay) {
                 fetch('/api/replay_shot').then(r => {
-                    if (!r.ok) { console.warn('[shot-replay] fetch failed:', r.status); throw new Error('HTTP '+r.status); }
+                    if (!r.ok) { throw new Error('接口错误 HTTP ' + r.status); }
                     return r.json();
                 }).then(d => {
                     const shots = d.shots || d;
                     const s = (Array.isArray(shots) ? shots : []).find(x => x.index === shotNo);
-                    if (!s) { console.warn('[shot-replay] shot', shotNo, 'not found'); return; }
-                    const sp = s.shooter_pos, tp = s.target_pos;
-                    const scl = tankModel.scale.x || 1;
-                    const dxE = sp[0] - tp[0], dzN = sp[2] - tp[2];
-                    // 相机距离受 OrbitControls.maxDistance(30) 限制
-                    const distH = Math.min(Math.sqrt(dxE*dxE + dzN*dzN) * scl, (controls.maxDistance || 30) - 1);
-                    const gunLine = (armorPivotGun ? armorPivotGun.z : 2.0) * scl;
+                    if (!s) { showShotError('shot #' + shotNo + ' 不存在（接口返回 ' + (Array.isArray(shots) ? shots.length : 0) + ' 发）'); return; }
+                    // 场景原生米制（1 单位 = 1 米，模型不缩放）：回放数据为真实米，直通使用
+                    if (!armorPivotGun) { showShotError('炮管枢轴未安装（模型装配异常），无法确定炮线高度'); return; }
+                    const gunLine = armorPivotGun.z;
                     // ===== 模型保持默认朝向（车头 -Z），相机做相对调整 =====
-                    // 数学等价于"模型旋转 hullYaw + 相机绝对方位"，但改为：
                     // 模型不动 → 相机相对方位 = (绝对方位 − hullYaw)，炮塔相对角同理。
-                    // 轴映射（弹道方向验证 9/10 ≤1.1°）：回放 x=东,y=高,z=南 全直通。
+                    // 轴映射：viewer 北=−Z、东=+X；回放系向量经 toModel（旋转−hullYaw+z取反）。
                     const ta = s.target_ang || [0, 0, 0];
                     const hullYaw = ta[0] || 0;
-                    // 目标→射手绝对方位（atan2 北=0 顺时针）→ 减 hullYaw 转为相对车头
-                    const absBearingToShooter = Math.atan2(dxE, dzN);
-                    const relBearing = absBearingToShooter - hullYaw;
-                    // 相机高度：目标炮线 + 俯仰角×压缩后距离。
-                    // 高度差不能直接用 dy×scl——水平距离被 clamp 到 maxDistance 时，
-                    // 俯仰角会被放大（真实 -8° 变 -14°，相机陷入地下）。
-                    // 正确做法：按真实几何算俯仰角，再乘压缩后的 distH。
-                    const realDist = Math.sqrt(dxE*dxE + dzN*dzN) * scl;
-                    const dipAngle = Math.atan2(sp[1] - tp[1], Math.sqrt(dxE*dxE + dzN*dzN) || 1);
-                    const h = gunLine + Math.tan(dipAngle) * distH;
-                    camera.position.set(Math.sin(relBearing) * distH, h, -Math.cos(relBearing) * distH);
-                    controls.target.set(0, gunLine, 0);
-                    controls.update();
-                    __shotRayOrigin = new THREE.Vector3(Math.sin(relBearing) * distH, h, -Math.cos(relBearing) * distH);
-                    // ===== 弹道：ball_a(射手@开火) → ball_b(弹着点)，回放系全直通映射 =====
-                    // aimDir = 弹道方向（viewer 系单位向量）；aimTarget = 弹着点相对车体中心的偏移
-                    const ba = s.ball_a, bb = s.ball_b;
-                    let aimDir = null;
-                    if (ba && bb && (ba[0] || ba[1] || ba[2]) && (bb[0] || bb[1] || bb[2])) {
-                        const dvx = bb[0] - ba[0], dvy = bb[1] - ba[1], dvz = bb[2] - ba[2];
-                        const n = Math.sqrt(dvx*dvx + dvy*dvy + dvz*dvz);
-                        if (n > 1.0) aimDir = { x: dvx/n, y: dvy/n, z: dvz/n };
+                    // 回放系 → 模型系变换（所有"相对目标位置"的回放向量共用）：
+                    // 水平旋转 −hullYaw + z 取反（viewer 北=−Z）。
+                    // 验证：炮口变换后与相机方位差 T110 0~2.1°、GB109 9/10 ≤1.2°；
+                    // 注意：曾试验 x 侧向镜像（弹着点"反向"假象）导致相机反侧，已回退——
+                    // 击穿弹的 method20 终点本来就在目标另一侧（穿透后停止点），非坐标错误。
+                    const ch = Math.cos(hullYaw), sh = Math.sin(hullYaw);
+                    const toModel = (v) => new THREE.Vector3(
+                        v[0]*ch - v[2]*sh,
+                        v[1],
+                        -(v[0]*sh + v[2]*ch)
+                    );
+                    // ===== 相机 = 服务器炮口的相对位置（method29 launchPoint，模型系）=====
+                    // camPos.y = 炮口离目标地面高度（天然含地形高差 + 炮塔离地高）。
+                    const lpr = s.launch_point_rel, lv = s.launch_velocity;
+                    window.__shotIsHit = !!s.target_name;
+                    let camPos = null;
+                    if (s.target_name) {
+                        // 命中弹：炮口/发射速度数据必须齐全（fail-fast，不落入 miss 回退）
+                        if (!(lpr && (lpr[0] || lpr[1] || lpr[2]))) { showShotError('命中弹缺少炮口相对位置（launch_point_rel）'); return; }
+                        if (!(lv && (lv[0] || lv[1] || lv[2]))) { showShotError('命中弹缺少发射速度（launch_velocity）'); return; }
+                        camPos = toModel(lpr);
+                    } else {
+                        // miss：无目标基准 → 用弹道两端点构造相机位置：
+                        // (炮口 − 弹道终点) 即"炮口在弹着点地形坐标系中的位置"——
+                        // 水平方向 = 射手侧方位，高度 = 炮口高于弹着点地形（全部来自
+                        // 回放炮口坐标，不叠加模型炮线高度）；径向 clamp 保方向
+                        const ba = s.ball_a, bb = s.ball_b;
+                        if (ba && bb && ((ba[0]-bb[0]) || (ba[2]-bb[2]))) {
+                            const dv = toModel([ba[0]-bb[0], ba[1]-bb[1], ba[2]-bb[2]]);
+                            if (dv.length() > 0.1) camPos = dv;
+                        }
                     }
+                    if (!camPos) { showShotError('无炮口/弹道数据，无法放置相机'); return; }
+                    // ===== 车体坐标系换算 qHullInv（pitch/roll 逆变换）=====
+                    // 相机位置、弹道方向、弹着点标记三者共用：把世界系偏移换算到受击
+                    // 坦克【车体坐标系】。刚体等价：平放模型 + 车体系变换的射线/标记/相机
+                    // ≡ 真实俯仰/侧倾车体 + 世界系——车体系射线对平放装甲求交 = 真实弹道
+                    // 对俯仰车体求交（此前射线方向未换算，俯仰目标会偏移数米命中错板）。
+                    // pitch 实证（GB109 20 实体 corr=−1.00）：replay 正=车头下坡 → 逆变换 Rx(+pitch)；
+                    // roll 符号未实证（假设 正=左倾）→ Rz(+roll)，侧倾观感反向则取反。
+                    const qHullInv = new THREE.Quaternion()
+                        .setFromAxisAngle(new THREE.Vector3(0,0,1), (ta[2]||0))
+                        .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), (ta[1]||0)));
+                    camPos.applyQuaternion(qHullInv);
+                    // 相机 = 真实炮口（车体系，不压缩）——视线与弹道线重合，复现射手瞄线。
+                    // OrbitControls 距离上限动态抬高：远射相机在 200m+ 外，固定上限 30 会让
+                    // update() 把相机拉回 30m（沿目标原点方向），而弹道线不过目标原点，
+                    // 相机因此脱离弹道线且轨迹线（从真实炮口画起）不再经过视点。
+                    const rayO = camPos.clone();
+                    const dR = camPos.length();
+                    controls.maxDistance = Math.max(30, dR + 20);
+                    camera.position.copy(camPos);
+                    // ===== 射线 = 真实弹道线（车体系）：起点=真实炮口，方向=launchVelocity =====
+                    // 命中点 = 射线 ∩ 装甲模型（与游戏引擎同逻辑）；view_dir = 车体系真实入射方向
+                    let dirH = null;   // 车体系弹道方向（含 qHullInv 车体姿态补偿）——炮管俯仰共用
+                    if (s.target_name) {
+                        const dv = toModel(lv).applyQuaternion(qHullInv);
+                        const dn = Math.sqrt(dv.x*dv.x + dv.y*dv.y + dv.z*dv.z);
+                        dirH = dv.divideScalar(dn);
+                        __shotRayOrigin = rayO;
+                        __shotRayTarget = rayO.clone().addScaledVector(dirH, dR + 120);
+                        // 注视点 = 弹道上距目标原点最近处（视线沿弹道，命中区居中；
+                        // 此前固定看 (0, 炮线高, 0)，视线与弹道差可达 6°，轨迹线偏离画面中心）
+                        const tC = Math.max(1, -rayO.dot(dirH));
+                        controls.target.copy(rayO).addScaledVector(dirH, tC);
+                    } else {
+                        controls.target.set(0, gunLine, 0);
+                    }
+                    controls.update();
+                    // ===== 服务器弹道终点标注（method20 endPoint − 目标位置@命中时刻）=====
+                    // 黄色标记；穿透弹的终点在目标内部/另一侧（depthTest 关闭仍可见）。
+                    // 车体坐标系换算（qHullInv 含 pitch/roll）与射线/相机同一框架。
+                    if (window.__endMarker) { scene.remove(window.__endMarker); window.__endMarker = null; }
                     const ap2 = s.aim_point || [0, 0, 0];
-                    const aimTarget = {
-                        x: ap2[0] * scl, y: ap2[1] * scl, z: ap2[2] * scl
-                    };
+                    if (s.target_name && !(ap2[0] || ap2[1] || ap2[2])) { showShotError('命中弹缺少弹道终点数据（aim_point）'); return; }
+                    if (s.target_name && (ap2[0] || ap2[1] || ap2[2])) {
+                        const eg = new THREE.SphereGeometry(0.09, 12, 10);
+                        const em = new THREE.MeshBasicMaterial({ color: 0xffcc00, transparent: true, opacity: 0.95, depthTest: false });
+                        const emk = new THREE.Mesh(eg, em);
+                        emk.position.copy(toModel(ap2).applyQuaternion(qHullInv));
+                        emk.renderOrder = 998;
+                        scene.add(emk);
+                        const erg = new THREE.RingGeometry(0.14, 0.2, 24);
+                        const erm = new THREE.MeshBasicMaterial({ color: 0xffcc00, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthTest: false });
+                        const ern = new THREE.Mesh(erg, erm);
+                        ern.lookAt(camera.position);
+                        emk.add(ern);
+                        window.__endMarker = emk;
+                    }
                     // ===== 炮塔：绝对朝向 → 相对车体（模型未旋转 → 相对 = 绝对 − hullYaw） =====
                     const turretAbs = (typeof s.target_turret_yaw === 'number') ? s.target_turret_yaw : 0;
                     let turretDeg = -(turretAbs - hullYaw) * 180 / Math.PI;
                     turretDeg = ((turretDeg + 180) % 360 + 360) % 360 - 180;
                     currentTurretDeg = Math.max(-179, Math.min(179, turretDeg));
-                    // 炮管俯仰：type=32 pitch（回退 hull pitch）
-                    const gp = (typeof s.target_gun_pitch === 'number' && s.target_gun_pitch !== 0)
-                        ? s.target_gun_pitch : (ta[1] || 0);
-                    currentGunDeg = Math.max(-25, Math.min(15, gp * 180 / Math.PI));
+                    // 炮管俯仰（车体系）：受击坦克瞄准射手 ≈ 来袭弹道反向——
+                    // dirH 已含 qHullInv 车体姿态补偿，其仰角分量取负即车体系瞄准俯仰
+                    //（射手在坡上 → 炮管仰起；坡下 → 下俯）。
+                    // 旧实现用 ta[1]（type10 地形俯仰角）当炮管俯仰——那是车体姿态角，
+                    // 非火炮瞄准，坡地交战偏差实测可达 19°（GB84 #11）。
+                    let aimPitchDeg = 0;
+                    if (dirH) {
+                        aimPitchDeg = Math.asin(Math.max(-1, Math.min(1, -dirH.y))) * 180 / Math.PI;
+                    }
+                    currentGunDeg = Math.max(-25, Math.min(15, aimPitchDeg));
                     updateTurretGun(currentTurretDeg, currentGunDeg);
                     console.log('[shot-replay] camera=', camera.position.toArray().map(v=>v.toFixed(2)),
-                        'absBearing=', (absBearingToShooter*180/Math.PI).toFixed(1),
-                        'relBearing=', (relBearing*180/Math.PI).toFixed(1),
+                        'muzzleDist=', (Math.sqrt(camera.position.x*camera.position.x + camera.position.z*camera.position.z)/(worldMetersPerUnit||1)).toFixed(1) + 'm',
                         'turret=', currentTurretDeg.toFixed(1), 'gunPitch=', currentGunDeg.toFixed(1));
                     const st = document.getElementById('turret-controls');
+                    // 命中结果分类（method38 resultFlags16，WotbTools 位图）
+                    const flg = s.hit_flags || 0;
+                    const cls = flg === 0 ? 'MISS'
+                        : (flg & 0x0008) ? 'RICOCHET'
+                        : (flg & 0x0010) ? 'PENETRATION'
+                        : (flg & 0x1000) ? 'HE BLAST'
+                        : 'NO PENETRATION';
                     if (st) { st.innerHTML = '<div class="ctrl-row"><b>Shot #' + s.index + '</b></div>' +
-                        '<div class="ctrl-row">DMG ' + s.damage + (s.is_kill ? ' · KILL' : '') + ' · ' + (s.target_name||'') + '</div>'; }
-                    // 射线终点 = aimTarget（弹着点在车体坐标系中的偏移，viewer 系）
-                    // 弹着点已由 Rust 端计算（0x14 弹着点 - 目标位置@开火），轴映射全直通
-                    // 射线从 origin（射手方向）射向 aimTarget（命中点），穿过模型
-                    const targetPoint = new THREE.Vector3(aimTarget.x, aimTarget.y + gunLine, aimTarget.z);
-                    // 延伸到模型对面（沿 origin→target 方向加倍距离，确保 raycast 穿透）
-                    const rayDir = targetPoint.clone().sub(__shotRayOrigin);
-                    __shotRayTarget = __shotRayOrigin.clone().add(rayDir.multiplyScalar(2));
-                    // 命中点标记在 doPenetrationCheck 成功后渲染（位置 = raycast 实际命中点）
+                        '<div class="ctrl-row">DMG ' + s.damage + (s.is_kill ? ' · KILL' : '') +
+                        (s.target_name ? ' · ' + cls + ' · ' + s.target_name : ' · MISS') + '</div>' +
+                        '<div class="ctrl-row" style="font-size:10px;color:#888;">' +
+                        '<span style="color:#ff2222;">●</span> 命中点(raycast) ' +
+                        '<span style="color:#ffcc00;">●</span> 弹道终点(服务器)</div>'; }
+                    // 射线已由真实弹道线构建（炮口 + launchVelocity），命中点标记在
+                    // doPenetrationCheck 成功后渲染（位置 = 射线 ∩ 装甲模型 的实际命中点）
 
                     setTimeout(() => {
-                        // 射击复现：先在计算的弹着点位置渲染标记球（始终显示）
-                        if (window.__hitMarker) { scene.remove(window.__hitMarker); window.__hitMarker = null; }
-                        const mg = new THREE.SphereGeometry(0.12, 16, 12);
-                        const mm = new THREE.MeshBasicMaterial({ color: 0xff2222, transparent: true, opacity: 0.9, depthTest: false });
-                        const mk = new THREE.Mesh(mg, mm);
-                        mk.position.set(aimTarget.x, aimTarget.y + gunLine, aimTarget.z);
-                        mk.renderOrder = 999;
-                        scene.add(mk);
-                        window.__hitMarker = mk;
-                        const rg = new THREE.RingGeometry(0.18, 0.26, 24);
-                        const rm = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthTest: false });
-                        const rn = new THREE.Mesh(rg, rm);
-                        rn.lookAt(camera.position);
-                        mk.add(rn);
-                        // 显示调试坐标
-                        const st2 = document.getElementById('turret-controls');
-                        if (st2) {
-                            st2.innerHTML += '<div class="ctrl-row" style="color:#0f0;font-size:10px;">' +
-                                'aim(' + aimTarget.x.toFixed(2) + ',' + aimTarget.y.toFixed(2) + ',' + aimTarget.z.toFixed(2) + ')' +
-                                ' rayO(' + __shotRayOrigin.toArray().map(v=>v.toFixed(1)) + ')' +
-                                '</div>';
-                        }
                         doPenetrationCheck(0, 0);
                         __shotRayOrigin = null; __shotRayTarget = null;
                     }, 600);
-                }).catch(e => console.warn('replay_shot fetch failed', e));
+                }).catch(e => showShotError('射击复现数据加载失败: ' + e));
             }
             if (QP.get('clean') === '1' && !isShotReplay) {
                 // 仅在非复现模式的纯净截图中隐藏 UI；射击复现模式保留完整查看器窗口
@@ -3124,6 +3155,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             }
 
             if (armorHits.length === 0) {
+                if (window.__shotIsHit) { showShotError('服务器判定命中但射线未命中任何装甲板——弹道/模型几何错位'); }
                 console.warn('[shot-replay] check: 0 armor hits, intersects=' + intersects.length);
                 document.getElementById('click-info').style.display = 'none';
                 document.getElementById('traj-info').style.display = 'none';
@@ -3149,16 +3181,20 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             ring.lookAt(camera.position);
             marker.add(ring);
             window.__hitMarkerRing = ring;
-            // 射击复现模式：入射方向用真实弹道（射线起点→命中点），
+            // 射击复现模式：入射方向用真实弹道（炮口→命中点），
             // 而非 camera→point（相机被 maxDistance clamp 后方向有偏差）
             const viewDir = (__shotRayOrigin && __shotRayTarget)
                 ? __shotRayOrigin.clone().sub(point).normalize()
                 : camera.position.clone().sub(point).normalize();
+            // 轨迹入射段起点 = 服务器炮口（异步回调前捕获，__shotRayOrigin 随后被置空）
+            const shotRayO = __shotRayOrigin ? __shotRayOrigin.clone() : null;
 
-            // 命中距离（米，对齐 BlitzKit 世界单位）：炮口世界坐标 → 命中点，× worldMetersPerUnit
-            // 换算回真实米数。炮管几何不可用时回退为相机到命中点的真实米数（不再乘 10 伪系数）。
-            // 注意：旧实现=相机距离×10，随缩放变化且单位失真；现缩放相机不改变判定结果。
-            const dist = (gunMuzzleWorld
+            // 命中距离（米，对齐 BlitzKit 世界单位）：射击复现模式 = 真实炮口(method29
+            // launchPoint) → 命中点 × worldMetersPerUnit 换算回真实米数；
+            // 其他模式回退炮管几何/相机距离。
+            const dist = (__shotRayOrigin
+                ? point.distanceTo(__shotRayOrigin)
+                : gunMuzzleWorld
                 ? point.distanceTo(gunMuzzleWorld)
                 : point.distanceTo(camera.position)) * (worldMetersPerUnit || 1);
 
@@ -3287,25 +3323,25 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                     if (ricRes) {
                                         const ricLayers = ricRes.layers.map(l => ({ point: ricHits.find(ah => ah.partName === l.part_name)?.point || lastLayer.point, name: l.part_name, thickness: l.thickness, eff: l.effective, remainBefore: l.remaining_before, penetrated: l.penetrated, ricochet: l.ricochet, seg: 1 }));
                                         const combined = { result: 'RICOCHET → ' + ricRes.result, total_effective: res.total_effective, layers: [...trajLayers, ...ricLayers] };
-                                        showTrajectory(point, combined.result, combined.total_effective, combined.layers, penDisp, dmg, modDmg);
-                                    } else { showTrajectory(point, res.result, res.total_effective, trajLayers, penDisp, dmg, modDmg, dist); }
-                                }).catch(() => { showTrajectory(point, res.result, res.total_effective, trajLayers, penDisp, dmg, modDmg, dist); });
+                                        showTrajectory(point, combined.result, combined.total_effective, combined.layers, penDisp, dmg, modDmg, dist, shotRayO);
+                                    } else { showTrajectory(point, res.result, res.total_effective, trajLayers, penDisp, dmg, modDmg, dist, shotRayO); }
+                                }).catch(() => { showTrajectory(point, res.result, res.total_effective, trajLayers, penDisp, dmg, modDmg, dist, shotRayO); });
                             return;
                         }
                     }
                 }
 
-                showTrajectory(point, res.result, res.total_effective, trajLayers, penDisp, dmg, modDmg, dist);
+                showTrajectory(point, res.result, res.total_effective, trajLayers, penDisp, dmg, modDmg, dist, shotRayO);
             }).catch(err => {
                 console.error('Penetration API error:', err);
                 // Fallback: show basic result without API
-                showTrajectory(point, 'ERROR', 0, [], penDisp, dmg, modDmg, dist);
+                showTrajectory(point, 'ERROR', 0, [], penDisp, dmg, modDmg, dist, shotRayO);
             });
         }
 
         let trajGroup = null;
         let trajInfoPos = null;
-        function showTrajectory(firstPoint, result, totalEff, layers, penVal, dmgVal, modDmgVal, distVal) {
+        function showTrajectory(firstPoint, result, totalEff, layers, penVal, dmgVal, modDmgVal, distVal, trajOrigin) {
             if (trajGroup) scene.remove(trajGroup);
             trajGroup = new THREE.Group();
 
@@ -3314,7 +3350,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
             // Build trajectory as separate straight tubes per segment (incoming / reflected)
             // so the ricochet turn is sharp and aligns exactly with the ricochet point.
-            const origin = firstPoint.clone().add(camDir.clone().multiplyScalar(15));
+            // 入射段起点：射击复现模式 = 服务器炮口(method29 launchPoint)；
+            // 点击判定模式回退 = 命中点沿相机方向回推 15 单位（视觉近似）。
+            const origin = trajOrigin || firstPoint.clone().add(camDir.clone().multiplyScalar(15));
             const trajMat = new THREE.MeshBasicMaterial({ color: color, depthTest: false, transparent: true, opacity: 0.85 });
 
             // Find the ricochet point (the layer flagged ricochet), if any

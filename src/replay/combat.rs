@@ -417,19 +417,31 @@ pub struct ShotReplayData {
     /// avatar 相机俯仰，狙击模式下 = 炮管俯仰。
     pub shooter_gun_pitch: f32,
     /// 弹着点相对【开火时刻目标位置】的偏移 [x, y, z]（米，回放世界系）。
-    /// 来源：type=8 0x14（计数器与开火包确定性配对）。
-    /// 注意：0x14 为弹道终点（穿透后出射/停止点，可在目标另一侧）。
+    /// 来源：type=8 method20（shotId 与发射包确定性配对）。
+    /// 注意：method20 为弹道终点（穿透后出射/停止点，可在目标另一侧）。
     pub aim_point: [f32; 3],
+    /// 炮口位置相对【开火时刻目标位置】的偏移（米，与 aim_point 同基准）。
+    /// viewer 中与 launch_velocity 组合成真实弹道射线：命中点 = 射线 ∩ 装甲模型。
+    pub launch_point_rel: [f32; 3],
     /// 弹道两点（回放世界系，米）：
-    ///   ball_a = 射手位置 @ 开火时刻（type=10）
-    ///   ball_b = 弹着点绝对坐标（type=8 0x14 计数器配对）
+    ///   ball_a = 炮口发射位置（method29 launchPoint）
+    ///   ball_b = 弹道终点绝对坐标（method20，shotId 配对）
     /// 两点确定弹道直线——viewer 用方向做 raycast，轴映射只需一次方向变换。
     pub ball_a: [f32; 3],
     pub ball_b: [f32; 3],
-    /// 开火时刻（秒）——与 0x1d 包确定性匹配
+    /// 发射速度向量 [vx, vy, vz]（m/s，回放世界系）。
+    /// 来源：method29 launchVelocity——服务器权威弹道方向（含俯仰），
+    /// 与 launchPoint→终点连线夹角实测 <0.1°。
+    pub launch_velocity: [f32; 3],
+    /// 命中结果位图（WotbTools method38 resultFlags16，0 = miss/无命中结果）。
+    /// 已实证位：0x0008 跳弹 / 0x0010 击穿 / 0x0020 未击穿 / 0x0040 间隙层穿透 /
+    /// 0x0080 间隙层未穿 / 0x0100 内部模块击穿 / 0x0400 履带 / 0x0800 火炮 /
+    /// 0x1000 HE 爆炸伤害分支。
+    pub hit_flags: u16,
+    /// 开火时刻（秒）——与 method29 发射包确定性匹配
     pub fire_time: f32,
-    /// 开火计数器——与 0x14 弹着包确定性配对键
-    pub fire_counter: u32,
+    /// shotId——method29 发射 ↔ method20 终点 确定性配对键
+    pub shot_id: u32,
     /// 兼容旧字段：= type32_turret_yaw（曾误标为"来袭方向"，实为受击者炮塔角）。
     pub incoming_yaw: f32,
     /// 兼容旧字段：= target_gun_pitch（曾误标为"来袭俯角"，实为受击者炮管俯仰）。
@@ -454,211 +466,332 @@ fn entity_state_at(packets: &[(u32, f32, &[u8])], eid: u32, t: f32) -> Option<([
     best.map(|(_, pos, ang)| (pos, ang))
 }
 
-/// 从射击事件抽取复现数据：
-/// - 射手 = 作者玩家实体（按昵称/文件名匹配出 eid，由调用方传入）
-/// - 目标 = 命中时刻最近的生命值变化实体（其 eid 即受击玩家实体）
+/// Vehicle method1（type=8 method=0x01）血量/来源/原因事件（WotbTools AFFIRMED）：
+/// envelope entityId = 受害者；args 7B = [currentHpRaw u16][sourceEntity u32][causeFlag u8]。
+/// cause：0=炮弹直击 1=火焰 2=撞击 3=世界/环境 5=溺水。
+/// 确定性伤害归属的数据源——攻击者+原因+受害者三键直接过滤，无时间窗口猜测。
+#[derive(Debug, Clone)]
+pub struct HpEvent {
+    pub clock: f32,
+    pub victim: u32,
+    pub hp: u16,
+    pub source: u32,
+    pub cause: u8,
+}
+
+/// 解析全部 method1 血量事件（全实体、全来源），按时钟排序。
+pub fn parse_hp_events(packets: &[(u32, f32, &[u8])]) -> Vec<HpEvent> {
+    let mut out: Vec<HpEvent> = Vec::new();
+    for (_, clock, p) in packets {
+        if p.len() < 12 + 7 { continue; }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x01 { continue; }
+        let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
+        if args_len != 7 || 12 + args_len > p.len() { continue; }
+        let a = &p[12..12 + args_len];
+        out.push(HpEvent {
+            clock: *clock,
+            victim: u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
+            hp: u16::from_le_bytes([a[0], a[1]]),
+            source: u32::from_le_bytes([a[2], a[3], a[4], a[5]]),
+            cause: a[6],
+        });
+    }
+    out.sort_by(|x, y| x.clock.partial_cmp(&y.clock).unwrap());
+    out
+}
+
+/// 从射击事件抽取复现数据（WotbTools 权威弹丸生命周期，全部 shotId 确定性配对）：
+/// - method29 (0x1d) 弹丸发射：shooterEntityId + shotId + launchPoint + launchVelocity
+/// - method20 (0x14) 弹道终点：shotId + endPoint
+/// - method38 (0x26) 命中结果（仅作者自己的射击）：victimVehicleId + resultFlags16
+/// - 目标 = method38 victimVehicleId（服务器权威）；无 method38 = miss
+/// - 伤害 = Vehicle method1 血量链差值（确定性：victim + source=作者 + cause=0）
+///
+/// 数据完整性fail-fast：任何缺失/歧义（终点缺失、配对歧义、状态快照缺失、
+/// 伤害归属失败等）直接返回 Err，不做保守降级（零值/默认值掩盖问题）。
+///
 pub fn extract_shot_replays(
     packets: &[(u32, f32, &[u8])],
     author_player_eid: u32,
-    shots: &[ShotEvent],
-) -> Vec<ShotReplayData> {
-    // ① 收集所有作者的 0x1d 开火事件（含未击穿/未命中）
-    //    包结构：[eid][method 0x1d][args_len][shooter_eid u32][counter u32][pos 3×f32][segment u64][tail]
-    let mut fires: Vec<(f32, u32)> = Vec::new();  // (fire_time, fire_counter)
-    for (_, clock, p) in packets {
-        if *clock < 5.0 || p.len() < 24 { continue; }
-        let method = u32::from_le_bytes([p[4], p[5], p[6], p[7]]);
-        if method != 0x1d { continue; }
-        let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if args_len < 8 || 12 + args_len > p.len() { continue; }
-        let a = &p[12..];
-        let eid = u32::from_le_bytes([a[0], a[1], a[2], a[3]]);
-        if eid != author_player_eid { continue; }
-        let counter = u32::from_le_bytes([a[4], a[5], a[6], a[7]]);
-        fires.push((*clock, counter));
+) -> anyhow::Result<Vec<ShotReplayData>> {
+    if author_player_eid == 0 {
+        anyhow::bail!("无法解析作者实体：文件名需包含玩家昵称（type=5 昵称匹配失败）");
     }
-    fires.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
-    // ② 收集所有 0x08 命中/伤害事件
-    //    包结构：[eid=target entity_id][method 0x08][args_len]
-    //    args = [shooter_eid u32][target_eid u32][结果数据...]
-    //    时间顺序与 0x1d 开火一一对应（每发有伤害的射击一个 0x08）
-    let mut hit_events: Vec<(f32, u32, u32, u8)> = Vec::new();  // (clock, shooter_eid, target_eid, pen_flag)
+    // ① 收集作者的 method29 发射事件（全局弹丸流，按 shooterEntityId 过滤；shotId 去重）
+    //    args 布局（alen=37）：[shooterEntityId u32][shotId u32][rawFlag u8]
+    //                          [launchPoint 3×f32][launchVelocity 3×f32][terminalRaw f32]
+    struct Launch { t: f32, shot_id: u32, point: [f32; 3], vel: [f32; 3] }
+    let mut launches: Vec<Launch> = Vec::new();
+    let mut seen_shots: std::collections::HashSet<u32> = std::collections::HashSet::new();
     for (_, clock, p) in packets {
-        if *clock < 5.0 || p.len() < 28 { continue; }
-        let method = u32::from_le_bytes([p[4], p[5], p[6], p[7]]);
-        if method != 0x08 { continue; }
+        if *clock < 5.0 || p.len() < 12 { continue; }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x1d { continue; }
         let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if args_len < 8 || 12 + args_len > p.len() { continue; }
-        let a = &p[12..];
-        let shooter = u32::from_le_bytes([a[0], a[1], a[2], a[3]]);
-        let target = u32::from_le_bytes([a[4], a[5], a[6], a[7]]);
-        let pen_flag = if args_len > 9 { a[9] } else { 0 };
-        hit_events.push((*clock, shooter, target, pen_flag));
+        if args_len < 4 || 12 + args_len > p.len() { continue; }   // 连 shooter 都读不出：无法归属，跳过
+        let a = &p[12..12 + args_len];
+        if u32::from_le_bytes([a[0], a[1], a[2], a[3]]) != author_player_eid { continue; }
+        if args_len < 37 {
+            anyhow::bail!("作者的 method29 发射包 args 长度 {} < 37（回放版本布局漂移？）", args_len);
+        }
+        let shot_id = u32::from_le_bytes([a[4], a[5], a[6], a[7]]);
+        if !seen_shots.insert(shot_id) { continue; }   // 重复包保留首条（非数据伪造）
+        let f = |o: usize| f32::from_le_bytes([a[o], a[o+1], a[o+2], a[o+3]]);
+        launches.push(Launch {
+            t: *clock,
+            shot_id,
+            point: [f(9), f(13), f(17)],
+            vel: [f(21), f(25), f(29)],
+        });
     }
-    hit_events.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    launches.sort_by(|x, y| x.t.partial_cmp(&y.t).unwrap());
 
-    // ③ 收集所有 0x14 弹着点（counter 配对）
-    let mut impacts: std::collections::HashMap<u32, [f32; 3]> = std::collections::HashMap::new();
-    for (_, _, p) in packets {
+    // ② 收集 method20 弹道终点（shotId 配对；含 miss 的空地终点）
+    let mut endpoints: std::collections::HashMap<u32, (f32, [f32; 3])> = std::collections::HashMap::new();
+    for (_, clock, p) in packets {
         if p.len() < 28 { continue; }
-        let method = u32::from_le_bytes([p[4], p[5], p[6], p[7]]);
-        if method != 0x14 { continue; }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x14 { continue; }
         let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
         if args_len < 16 || 12 + args_len > p.len() { continue; }
-        let counter = u32::from_le_bytes([p[12], p[13], p[14], p[15]]);
+        let shot_id = u32::from_le_bytes([p[12], p[13], p[14], p[15]]);
         let a = &p[16..];
-        impacts.entry(counter).or_insert([
-            f32::from_le_bytes([a[0], a[1], a[2], a[3]]),
-            f32::from_le_bytes([a[4], a[5], a[6], a[7]]),
-            f32::from_le_bytes([a[8], a[9], a[10], a[11]]),
-        ]);
+        endpoints.entry(shot_id).or_insert((
+            *clock,
+            [
+                f32::from_le_bytes([a[0], a[1], a[2], a[3]]),
+                f32::from_le_bytes([a[4], a[5], a[6], a[7]]),
+                f32::from_le_bytes([a[8], a[9], a[10], a[11]]),
+            ],
+        ));
     }
+
+    // ③ 收集 method38 命中结果（Avatar 方法 = 仅作者自己的射击反馈）
+    //    args 布局：[victimVehicleId u32][resultFlags16 u16][headerHi16 u16][resultCount u8]...
+    let mut hit_results: Vec<(f32, u32, u16)> = Vec::new();  // (t38, victim_eid, flags)
+    for (_, clock, p) in packets {
+        if p.len() < 12 + 9 { continue; }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x26 { continue; }
+        let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
+        if args_len < 9 || 12 + args_len > p.len() { continue; }
+        let a = &p[12..];
+        hit_results.push((
+            *clock,
+            u32::from_le_bytes([a[0], a[1], a[2], a[3]]),
+            u16::from_le_bytes([a[4], a[5]]),
+        ));
+    }
+    hit_results.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
 
     // ④ 构建 entity_id → name 映射
     let names = extract_entity_names(packets);
 
-    // ⑤ ShotEvent 顺序游标（有伤害的射击）
-    let mut se_cursor = 0usize;
+    // ⑤ avatar 实体（pos 全零的 type=10）——射手炮管俯仰（prop9）的宿主
+    let avatar_eid = packets.iter()
+        .filter(|(t, _, p)| *t == 10 && p.len() >= 48)
+        .find(|(_, _, p)| {
+            let pos = [
+                f32::from_le_bytes([p[12], p[13], p[14], p[15]]),
+                f32::from_le_bytes([p[16], p[17], p[18], p[19]]),
+                f32::from_le_bytes([p[20], p[21], p[22], p[23]])];
+            pos == [0.0, 0.0, 0.0]
+        })
+        .map(|(_, _, p)| u32::from_le_bytes([p[0], p[1], p[2], p[3]]));
+    let avatar_eid = match avatar_eid {
+        Some(e) => e,
+        None => anyhow::bail!("未找到 avatar 实体（pos 全零的 type=10 缺失），无法解析射手炮管俯仰"),
+    };
 
-    // ⑥ 命中事件游标（0x08 顺序消费，只匹配 shooter = 作者的）
-    let mut he_cursor = 0usize;
+    // ⑥ 游标
+    let hp_events = parse_hp_events(packets);   // method1 血量事件（全实体，按时钟排序）
+    // 作者伤害计数器（type=7 sub=10）增量序列——首次命中（血量链无前值）兜底。
+    // 计数器挂在 avatar 实体上（每场回放仅一个），无需 eid 过滤；
+    // 含撞击/火伤等非弹伤害增量——与 method1 cause≠0 且涉及作者的事件同批
+    // （|Δclock|≤0.3s）的增量剔除，剩下的按顺序与造成伤害的命中一一对应。
+    let non_shell_ticks: Vec<f32> = hp_events.iter()
+        .filter(|e| e.cause != 0 && (e.source == author_player_eid || e.victim == author_player_eid))
+        .map(|e| e.clock)
+        .collect();
+    let mut dc_increments: Vec<(f32, u32)> = Vec::new();
+    {
+        let mut last_cum: u32 = 0;
+        for (t, clock, p) in packets {
+            if *t != 7 || p.len() < 16 { continue; }
+            if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 10 { continue; }
+            let cum = u32::from_le_bytes([p[12], p[13], p[14], p[15]]);
+            if cum > last_cum {
+                let polluted = non_shell_ticks.iter().any(|tc| (*clock - *tc).abs() <= 0.3);
+                if !polluted {
+                    dc_increments.push((*clock, cum - last_cum));
+                }
+                last_cum = cum;
+            }
+        }
+    }
+    let mut hr_cursor = 0usize;   // method38 消费游标（按时间顺序，逐发消费）
+    let mut dc_cursor = 0usize;   // 计数器增量顺序游标（每个造成伤害的命中消费一条）
 
-    // ⑦ 逐发处理
-    fires.iter().enumerate().map(|(i, (fire_time, fire_counter))| {
-        let fire_time = *fire_time;
-        let fire_counter = *fire_counter;
-        // 下一发的 fire_time（用于限制 0x08 的弹道窗口——弹丸必须在下次开火前命中）
-        let next_fire_time = fires.get(i + 1).map(|(t, _)| *t).unwrap_or(f32::MAX);
+    // ⑦ 逐发处理（fail-fast：任何数据缺失/歧义直接报错）
+    let mut out: Vec<ShotReplayData> = Vec::with_capacity(launches.len());
+    for (i, l) in launches.iter().enumerate() {
+        let fire_time = l.t;
+        let shot_id = l.shot_id;
+        let ctx = format!("shot #{} (shotId={}, t={:.2}s)", i + 1, shot_id, fire_time);
 
         // 射手状态 @ 开火时刻
         let (sp, sa) = entity_state_at(packets, author_player_eid, fire_time)
-            .unwrap_or(([0.0; 3], [0.0; 3]));
+            .ok_or_else(|| anyhow::anyhow!("{ctx}: 射手 type=10 状态快照缺失"))?;
 
-        // 弹着点（counter 精确配对）
-        let ball_b = impacts.get(&fire_counter).cloned().unwrap_or([0.0; 3]);
+        // 弹道终点（shotId 精确配对）；ball_a = method29 炮口发射位置
+        let ball_a = l.point;
+        let (end_time, ball_b) = endpoints.get(&shot_id).cloned()
+            .ok_or_else(|| anyhow::anyhow!("{ctx}: method20 弹道终点缺失（shotId 无配对）"))?;
 
-        // 弹道 A 点
-        let ball_a = entity_state_at(packets, author_player_eid, fire_time)
-            .map(|(p, _)| p).unwrap_or(sp);
-
-        // ⑧ 目标实体：从 0x08 命中事件确定性获取
-        //    0x08 的 args[0..4] = shooter_eid（= 作者）→ 事件属于我们
-        //    0x08 的 args[4..8] = target_eid → 直接确定性确定目标！
-        //    配对方式：顺序游标——0x08 按时间排序后，
-        //    依次对应"有伤害的射击"（顺序 = 开火顺序子序列）
+        // ⑧ 目标实体：method38 victimVehicleId（服务器权威，确定性）
+        //    配对：method38 clock ≈ 弹道终点 clock（命中时刻）；窗口内多条 = 歧义 → 报错；
+        //    窗口内无 method38 = miss（弹道终点在地面/障碍物）
         let mut target_eid: Option<u32> = None;
         let mut damage = 0u32;
         let mut target_name = String::new();
         let mut is_kill = false;
         let mut hit = false;
+        let mut hit_flags: u16 = 0;
 
-        // 检查 0x08 事件（命中 = 弹着点在目标附近）：
-        // pen_flag=01 → 未击穿（有 0x08 但无 HP 下降），pen_flag=03 → 击穿（有 HP 下降）
-        if he_cursor < hit_events.len() {
-            let he = &hit_events[he_cursor];
-            if he.1 == author_player_eid && he.0 >= fire_time && he.0 < next_fire_time {
-                // target 从 0x08 直接获取（确定性）
-                target_eid = Some(he.2);
-                hit = true;
-                if he.3 == 3 {
-                    // 击穿 → 消费 ShotEvent（HP 下降）
-                    if se_cursor < shots.len() {
-                        let se = &shots[se_cursor];
-                        if se.timestamp >= fire_time - 0.1 {
-                            damage = se.damage;
-                            is_kill = se.is_kill;
-                            se_cursor += 1;
-                        }
-                    }
-                }
-                he_cursor += 1;
+        let mut matched: Option<(usize, u32, u16)> = None;
+        let mut cands = 0usize;
+        for (j, hr) in hit_results.iter().enumerate().skip(hr_cursor) {
+            let (t38, _victim, _flags) = *hr;
+            if t38 > end_time + 0.5 { break; }   // 已排序，越过窗口即止
+            if (t38 - end_time).abs() < 0.5 && t38 >= end_time - 0.05 {
+                cands += 1;
+                if matched.is_none() { matched = Some((j, _victim, _flags)); }
             }
         }
-
-        // target_name：有 target_eid 时从 entity_names 查
-        if let Some(teid) = target_eid {
-            target_name = names.get(&teid).cloned().unwrap_or_default();
+        if cands > 1 {
+            anyhow::bail!("{ctx}: method38 配对歧义——命中窗口内出现 {} 条命中结果", cands);
+        }
+        if let Some((j, victim, flags)) = matched {
+            target_eid = Some(victim);
+            hit_flags = flags;
+            hit = true;
+            hr_cursor = j + 1;
         }
 
-        // ⑨ 目标状态 @ 伤害时刻（或开火时刻如果 miss）
-        let state_time = if hit { fire_time + 0.5 } else { fire_time };
-        let (tp, ta) = target_eid.and_then(|eid| entity_state_at(packets, eid, state_time))
-            .unwrap_or(([0.0; 3], [0.0; 3]));
+        // target_name：有 target_eid 时从 entity_names 查（max_hp 兜底需要昵称）
+        if let Some(teid) = target_eid {
+            target_name = names.get(&teid)
+                .ok_or_else(|| anyhow::anyhow!("{ctx}: 受击者实体 {teid} 不在 type=5 名册中"))?
+                .clone();
+        }
 
-        // ⑩ 目标炮塔朝向 = sub2 + hullYaw
-        let turret_yaw = target_eid.and_then(|eid| {
-            packets.iter()
-                .filter(|(t, _, p)| {
-                    *t == 7 && p.len() >= 14
-                        && u32::from_le_bytes([p[0], p[1], p[2], p[3]]) == eid
-                        && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 2
-                })
-                .min_by_key(|(_, clock, _)| (((*clock - state_time).abs()) * 1000.0) as u32)
-                .map(|(_, _, p)| {
-                    let v = u16::from_le_bytes([p[12], p[13]]) as f32;
-                    let rel = v / 65535.0 * std::f32::consts::TAU - std::f32::consts::PI;
-                    if rel > std::f32::consts::PI { rel - std::f32::consts::TAU } else { rel }
-                })
-        }).map(|rel| rel + ta[0]).unwrap_or(0.0);
+        // 伤害归属（确定性）：击穿 0x0010 / HE 爆炸 0x1000 → method1 血量事件
+        // 三键过滤：victim=method38 受击者 ∧ source=作者 ∧ cause=0（炮弹直击）——
+        // 撞击(2)/火伤(1) 等非弹伤害被 cause 天然排除，无时间窗口猜测。
+        // 伤害 = 受害者血量链前值 − 事件后血量；前值 = 该受害者此前最近的 method1
+        // 记录（任意来源）；无前记录 = 满血开战（max_hp 兜底，缺失则报错）。
+        if hit && hit_flags & (0x0010 | 0x1000) != 0 {
+            let victim = target_eid.unwrap_or(0);
+            let cands: Vec<(usize, u16)> = hp_events.iter().enumerate()
+                .filter(|(_, e)| e.victim == victim && e.source == author_player_eid && e.cause == 0
+                    && (e.clock - end_time).abs() <= 0.5)
+                .map(|(i, e)| (i, e.hp))
+                .collect();
+            if cands.is_empty() {
+                anyhow::bail!("{ctx}: 击穿/HE 命中但无 method1 血量事件配对（victim={victim}）");
+            }
+            if cands.len() > 1 {
+                anyhow::bail!("{ctx}: method1 血量事件配对歧义（{} 条）", cands.len());
+            }
+            let (hidx, hp_after) = cands[0];
+            // 前值：该受害者在此事件之前最近的 method1 记录（任意来源）
+            let hp_before = hp_events[..hidx].iter().rev()
+                .find(|e| e.victim == victim)
+                .map(|e| e.hp as u32);
+            // 计数器增量：顺序消费（计数器含全部伤害来源，过滤非弹后与伤害命中一一对应）
+            let dc_delta = if dc_cursor < dc_increments.len() {
+                Some(dc_increments[dc_cursor].1)
+            } else { None };
+            match hp_before {
+                Some(prev) if prev >= hp_after as u32 => {
+                    damage = prev - hp_after as u32;
+                }
+                _ => {
+                    // 首次命中（血量链无前值，链前值低于事件后=修理/回复等）：
+                    // 伤害 = 计数器增量（服务器记账 = "初始血量扣减"的结果，不依赖百科）
+                    damage = dc_delta.ok_or_else(|| anyhow::anyhow!(
+                        "{ctx}: 血量链无前值且计数器增量已耗尽，伤害归属失败"))?;
+                }
+            }
+            is_kill = hp_after == 0;
+            dc_cursor += 1;
+        }
 
-        // ⑪ 射手炮塔朝向 = sub2 + 射手 hullYaw，@ 开火时刻
-        let shooter_turret_yaw = {
-            packets.iter()
-                .filter(|(t, _, p)| {
-                    *t == 7 && p.len() >= 14
-                        && u32::from_le_bytes([p[0], p[1], p[2], p[3]]) == author_player_eid
-                        && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 2
-                })
-                .min_by_key(|(_, clock, _)| (((*clock - fire_time).abs()) * 1000.0) as u32)
-                .map(|(_, _, p)| {
-                    let v = u16::from_le_bytes([p[12], p[13]]) as f32;
-                    let rel = v / 65535.0 * std::f32::consts::TAU - std::f32::consts::PI;
-                    if rel > std::f32::consts::PI { rel - std::f32::consts::TAU } else { rel }
-                })
-                .map(|rel| rel + sa[0])
-                .unwrap_or(0.0)
-        };
+        // ⑨ 目标位置与姿态 @ 【命中时刻】（method20 终点 clock = 服务器精确命中时刻；
+        // miss 无终点，回退开火时刻）。模型渲染的就是命中时刻的目标，数据锚点必须同时刻。
+        let state_time = if hit { end_time } else { fire_time };
+        let (tp, ta) = if hit {
+            target_eid.and_then(|eid| entity_state_at(packets, eid, state_time))
+                .ok_or_else(|| anyhow::anyhow!("{ctx}: 命中时刻目标 type=10 状态快照缺失"))?
+        } else { ([0.0; 3], [0.0; 3]) };
 
-        // ⑫ 射手炮管俯仰
-        let shooter_gun_pitch = {
-            let avatar_eid = packets.iter()
-                .filter(|(t, _, p)| *t == 10 && p.len() >= 48)
-                .find(|(_, _, p)| {
-                    let pos = [
-                        f32::from_le_bytes([p[12], p[13], p[14], p[15]]),
-                        f32::from_le_bytes([p[16], p[17], p[18], p[19]]),
-                        f32::from_le_bytes([p[20], p[21], p[22], p[23]])];
-                    pos == [0.0, 0.0, 0.0]
-                })
-                .map(|(_, _, p)| u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
-                .unwrap_or(0);
-            packets.iter()
-                .filter(|(t, _, p)| {
-                    *t == 7 && p.len() >= 16
-                        && u32::from_le_bytes([p[0], p[1], p[2], p[3]]) == avatar_eid
-                        && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 9
-                })
-                .min_by_key(|(_, clock, _)| (((*clock - fire_time).abs()) * 1000.0) as u32)
-                .map(|(_, _, p)| {
-                    let deg = f32::from_le_bytes([p[12], p[13], p[14], p[15]]);
-                    deg.to_radians()
-                })
-                .unwrap_or(0.0)
-        };
+        // ⑩ 目标炮塔朝向 = prop2 + hullYaw（命中弹必须有）
+        let turret_yaw = if hit {
+            let rel = target_eid.and_then(|eid| {
+                packets.iter()
+                    .filter(|(t, _, p)| {
+                        *t == 7 && p.len() >= 14
+                            && u32::from_le_bytes([p[0], p[1], p[2], p[3]]) == eid
+                            && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 2
+                    })
+                    .min_by_key(|(_, clock, _)| (((*clock - state_time).abs()) * 1000.0) as u32)
+                    .map(|(_, _, p)| {
+                        let v = u16::from_le_bytes([p[12], p[13]]) as f32;
+                        let rel = v / 65535.0 * std::f32::consts::TAU - std::f32::consts::PI;
+                        if rel > std::f32::consts::PI { rel - std::f32::consts::TAU } else { rel }
+                    })
+            }).ok_or_else(|| anyhow::anyhow!("{ctx}: 目标炮塔朝向（type=7 prop2）缺失"))?;
+            rel + ta[0]
+        } else { 0.0 };
 
-        // ⑬ aim_point = 弹着点相对开火时刻目标位置的偏移
-        let aim_point_val = if ball_b != [0.0; 3] {
-            let (ftp, _) = target_eid
-                .and_then(|eid| entity_state_at(packets, eid, fire_time))
-                .unwrap_or((tp, [0.0; 3]));
-            [ball_b[0] - ftp[0], ball_b[1] - ftp[1], ball_b[2] - ftp[2]]
-        } else { [0.0; 3] };
+        // ⑪ 射手炮塔朝向 = prop2 + 射手 hullYaw，@ 开火时刻
+        let shooter_rel = packets.iter()
+            .filter(|(t, _, p)| {
+                *t == 7 && p.len() >= 14
+                    && u32::from_le_bytes([p[0], p[1], p[2], p[3]]) == author_player_eid
+                    && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 2
+            })
+            .min_by_key(|(_, clock, _)| (((*clock - fire_time).abs()) * 1000.0) as u32)
+            .map(|(_, _, p)| {
+                let v = u16::from_le_bytes([p[12], p[13]]) as f32;
+                let rel = v / 65535.0 * std::f32::consts::TAU - std::f32::consts::PI;
+                if rel > std::f32::consts::PI { rel - std::f32::consts::TAU } else { rel }
+            })
+            .ok_or_else(|| anyhow::anyhow!("{ctx}: 射手炮塔朝向（type=7 prop2）缺失"))?;
+        let shooter_turret_yaw = shooter_rel + sa[0];
 
-        // ⑭ type=32 警告
-        let _ = fire_counter;
+        // ⑫ 射手炮管俯仰（prop9 @ avatar）
+        let shooter_gun_pitch = packets.iter()
+            .filter(|(t, _, p)| {
+                *t == 7 && p.len() >= 16
+                    && u32::from_le_bytes([p[0], p[1], p[2], p[3]]) == avatar_eid
+                    && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 9
+            })
+            .min_by_key(|(_, clock, _)| (((*clock - fire_time).abs()) * 1000.0) as u32)
+            .map(|(_, _, p)| {
+                let deg = f32::from_le_bytes([p[12], p[13], p[14], p[15]]);
+                deg.to_radians()
+            })
+            .ok_or_else(|| anyhow::anyhow!("{ctx}: 射手炮管俯仰（type=7 prop9）缺失"))?;
 
-        ShotReplayData {
+        // ⑬ aim_point / launch_point_rel = 相对【命中时刻】目标位置（type10 接地高度）的偏移
+        // 模型渲染命中时刻的目标（位姿 @ state_time），数据锚点用同一时刻——
+        // 目标在开火→命中之间移动时，fire_time 锚点会使标记/相机相对模型错位。
+        // 仅命中（有目标实体）时计算——miss 无目标基准，保持全零（viewer 不建射线）
+        let (aim_point_val, launch_point_rel) = if ball_b != [0.0; 3] && target_eid.is_some() {
+            let rel = |p: [f32; 3]| [p[0] - tp[0], p[1] - tp[1], p[2] - tp[2]];
+            (rel(ball_b), rel(ball_a))
+        } else { ([0.0; 3], [0.0; 3]) };
+
+        out.push(ShotReplayData {
             index: i + 1,
             time_s: fire_time,
             damage,
@@ -674,14 +807,25 @@ pub fn extract_shot_replays(
             shooter_turret_yaw,
             shooter_gun_pitch,
             aim_point: aim_point_val,
+            launch_point_rel,
             ball_a,
             ball_b,
+            launch_velocity: l.vel,
+            hit_flags,
             fire_time,
-            fire_counter,
+            shot_id,
             incoming_yaw: 0.0,
             incoming_pitch: ta[1],
-        }
-    }).collect()
+        });
+    }
+
+    // ⑧' method38 = 作者自己的命中反馈——每条都必须配对到一次发射
+    if hr_cursor < hit_results.len() {
+        anyhow::bail!("存在未被任何发射配对的 method38 命中结果（{} 条未消费，自 t={:.2}s 起）——发射/命中配对不完整",
+            hit_results.len() - hr_cursor, hit_results[hr_cursor].0);
+    }
+
+    Ok(out)
 }
 
 /// 便捷封装
@@ -707,8 +851,7 @@ pub fn resolve_author_player_eid(packets: &[(u32, f32, &[u8])], file_name: &str)
 pub fn extract_shot_replays_auto(
     packets: &[(u32, f32, &[u8])],
     file_name: &str,
-    shots: &[ShotEvent],
-) -> Vec<ShotReplayData> {
+) -> anyhow::Result<Vec<ShotReplayData>> {
     let author_player_eid = resolve_author_player_eid(packets, file_name);
-    extract_shot_replays(packets, author_player_eid, shots)
+    extract_shot_replays(packets, author_player_eid)
 }

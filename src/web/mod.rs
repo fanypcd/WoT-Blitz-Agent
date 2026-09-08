@@ -542,7 +542,15 @@ async fn replay_shots_handler(axum::Json(body): axum::Json<Value>) -> Response {
     let shots = timeline.infer_shots(author_eid);
     eprintln!("[replay_shots] author_eid={:08x} shots={}", author_eid, shots.len());
     let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let shot_replay = crate::replay::combat::extract_shot_replays_auto(&raw_packets, file_name, &shots);
+    // fail-fast：提取失败直接返回 500 + 错误信息（前端可见），不做静默降级
+    let shot_replay = match crate::replay::combat::extract_shot_replays_auto(&raw_packets, file_name) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("[replay_shots] 提取失败: {}", e);
+            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("射击复现数据提取失败: {}", e)}))).into_response();
+        }
+    };
     eprintln!("[replay_shots] shot_replay={}", shot_replay.len());
 
     // 目标坦克 ID：battle_results 按目标昵称关联（供 3D 查看器打开正确目标车辆）

@@ -289,6 +289,7 @@
             <div class="row"><label class="muted" style="width:80px;">Budget ($)</label><input id="cfg-budget" type="number"></div>
             <div class="row"><label class="muted" style="width:80px;">Thinking</label><select id="cfg-thinking"><option value="false">off</option><option value="true">on</option></select></div>
             <div class="row"><button class="btn btn-primary" id="btn-cfg-save">Save Config</button><button class="btn" id="btn-cfg-load">Reload</button></div>
+            <div class="row" style="color:#e8a33d;font-size:12px;">⚠ 修改 API Key / 模型等配置后需<b>重启服务</b>才能生效（已开启的会话仍使用旧配置）</div>
         </div>
         <div class="card">
             <h2>Token Usage</h2>
@@ -684,7 +685,7 @@ $('btn-cfg-save').addEventListener('click',async()=>{
     const body={model:$('cfg-model').value,endpoint:$('cfg-endpoint').value,context_length:parseInt($('cfg-context').value)||0,max_tokens:parseInt($('cfg-maxtok').value)||0,budget:parseFloat($('cfg-budget').value),thinking_mode:$('cfg-thinking').value==='true'};
     if(keyVal) body.api_key=keyVal;   // 仅当用户输入了新 key 才提交，避免覆盖为空白
     const r=await fetch(API+'/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    const d=await r.json(); toast(d.status==='saved'?'Saved':'Error');
+    const d=await r.json(); toast(d.status==='saved'?'已保存 — 重启服务后生效':'Error');
     loadConfig();   // 刷新状态(已配置/未配置)
 });
 async function loadUsage() {
