@@ -910,15 +910,22 @@ impl AgentTools {
 
         // 名称归一：-/·/./ 全部视为空格，使 "E 100" 与 "E-100"、"IS-7" 与 "IS 7" 等可互相命中
         let norm = |s: &str| s.chars().map(|c| if c=='-'||c=='·'||c=='.'||c=='_' {' '} else {c}).collect::<String>().to_lowercase();
+        // 去空格形态：连字符转空格后再剥掉全部空白——"hori"↔"Ho-Ri"、"e100"↔"E 100"。
+        // 否则 "hori" 无法命中 "ho ri"（工具返回查不到 → LLM 用目标车数据幻觉补全）。
+        let strip = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
         let needle = norm(tank_ref);
+        let needle_ns = strip(&needle);
         if needle.is_empty() { return ResolveTank::None; }
         let mut exacts: Vec<(u32, &TankInfo)> = Vec::new();
         let mut subs: Vec<(u32, &TankInfo, usize)> = Vec::new(); // (id, info, score)
         for (id, info) in resolver.iter() {
             let cand = norm(&info.name);
-            if cand == needle {
+            let cand_ns = strip(&cand);
+            let exact = cand == needle || (!needle_ns.is_empty() && cand_ns == needle_ns);
+            if exact {
                 exacts.push((id, info));
-            } else if let Some(pos) = cand.find(&needle) {
+            } else if let Some(pos) = cand.find(&needle)
+                .or_else(|| if needle_ns.is_empty() { None } else { cand_ns.find(&needle_ns) }) {
                 // 命中位置越靠前越好；同名不同短名长度带来惩罚
                 let score = pos + cand.len().saturating_sub(needle.len());
                 subs.push((id, info, score));
@@ -1219,4 +1226,6 @@ mod tests {
             .expect("required array");
         assert!(required.iter().any(|r| r == "target"), "target must be required");
     }
+
+
 }

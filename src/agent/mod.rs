@@ -118,6 +118,11 @@ numbered candidate list — in that case, do NOT open the viewer yourself; relay
 user and ask which one they mean, then call view_tank again with their chosen exact name. \
 Always provide specific, actionable advice based on the data. \
 When the user asks about their performance, use the available tools to get real data. \
+NEVER invent or estimate tank statistics (caliber, penetration, armor, HP, speed): every stat you \
+state must come from a tool result. If a tank-name lookup fails or returns an error, tell the user \
+the name was not found and ask for clarification or an exact spelling — never substitute another \
+tank's data or guess. When a tool reports shooter/target data, attribute it exactly as labeled \
+(shooter = attacking tank's gun, target = defending tank's armor). \
 Respond in Chinese if the user speaks Chinese, in English otherwise.";
 
         let messages = vec![ChatMessage {

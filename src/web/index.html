@@ -110,7 +110,15 @@
         .tool-call .tc-args { color:var(--muted); font-family:ui-monospace,monospace; font-size:0.92em; }
         .tool-call .tc-result { color:var(--muted); margin-top:4px; max-height:120px; overflow:auto; white-space:pre-wrap; }
         .step-line { color:var(--blue); font-size:0.8em; margin:3px 0 3px 12px; }
-        #chat-status { font-size:0.85em; color:var(--muted); min-height:1.2em; }
+        #session-bar { display:flex; gap:6px; align-items:center; margin-bottom:8px; }
+    #session-bar select { flex:1; background:#2c2724; color:#ccc; border:1px solid #555; border-radius:4px; padding:4px 8px; font-size:12px; }
+    #session-bar .btn-sm { padding:3px 10px; font-size:11px; }
+    #progress-buffer { margin:6px 0; border-radius:var(--radius-sm); overflow:hidden; border:1px solid #3a2f24; }
+    #pb-header { cursor:pointer; padding:4px 10px; background:#2a2018; font-size:11px; color:#8ab; user-select:none; }
+    #pb-lines { max-height:180px; overflow-y:auto; background:#151210; padding:6px 10px; font-family:'Consolas','Monaco',monospace; font-size:11px; line-height:1.6; color:#9c9; }
+    #pb-lines .pb-err { color:#f66; }
+    #pb-lines .pb-ok { color:#6c6; }
+    #chat-status { font-size:0.85em; color:var(--muted); min-height:1.2em; }
         #chat-status .st-tool { color:var(--accent-2); font-weight:700; }
         #chat-status .st-done { color:var(--green); }
         #chat-status .st-err { color:var(--red); }
@@ -184,16 +192,22 @@
                     <h2>Agent Assistant</h2>
                     <div class="sub">分析回放与战绩，翻译建议</div>
                 </div>
-                <div class="row" style="margin:0;">
-                    <button class="btn btn-sm" id="btn-cancel">Interrupt</button>
-                    <button class="btn btn-sm" id="btn-history">History</button>
-                    <button class="btn btn-sm" id="btn-save">Save</button>
-                </div>
+            </div>
+            <div id="session-bar">
+                <select id="session-select"><option>default</option></select>
+                <button class="btn btn-sm" id="btn-sess-new" title="新建会话">＋</button>
+                <button class="btn btn-sm" id="btn-sess-del" title="删除会话">🗑</button>
+                <button class="btn btn-sm" id="btn-sess-exp" title="导出 Markdown">📥</button>
             </div>
             <div id="chat-log"></div>
+            <div id="progress-buffer" style="display:block;">
+                <div id="pb-header"><span id="pb-toggle">▼</span> Progress <span id="pb-count" style="float:right;"></span></div>
+                <div id="pb-lines"></div>
+            </div>
             <div class="row">
                 <textarea id="chat-input" rows="2" placeholder="Ask about your WoTB performance..."></textarea>
                 <button class="btn btn-primary" id="btn-send">Send</button>
+                <button class="btn" id="btn-cancel" style="display:none;background:#c0392b;color:#fff;">■ Stop</button>
             </div>
             <div id="chat-status"></div>
         </div>
@@ -420,15 +434,134 @@ function addStep(text) {
     log.appendChild(el); log.scrollTop=log.scrollHeight;
 }
 let lastEventCount=0, currentBubble=null, lastToolCard=null;
+let isProcessing = false;
+let progressCollapsed = false;
 function setStatus(html) { $('chat-status').innerHTML=html; }
 
+// ===== 处理状态 UI =====
+function setProcessingUI(on) {
+    isProcessing = on;
+    $('btn-send').disabled = on;
+    $('chat-input').disabled = on;
+    $('btn-send').style.opacity = on ? 0.4 : 1;
+    $('chat-input').style.opacity = on ? 0.4 : 1;
+    $('btn-cancel').style.display = on ? '' : 'none';
+}
+
+// ===== 进度缓冲区 =====
+function pbAdd(line, cls) {
+    const pb = document.getElementById('pb-lines');
+    if (!pb) return;
+    const el = document.createElement('div');
+    if (cls) el.className = cls;
+    const t = new Date().toLocaleTimeString('zh-CN',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    el.textContent = '['+t+'] '+line;
+    pb.appendChild(el);
+    pb.scrollTop = pb.scrollHeight;
+    const buf = document.getElementById('progress-buffer');
+    buf.style.display = 'block';
+    const cnt = document.getElementById('pb-count');
+    if (cnt) cnt.textContent = pb.children.length + ' lines';
+}
+function pbReset() {
+    const pb = document.getElementById('pb-lines');
+    if (pb) pb.innerHTML = '';
+    const cnt = document.getElementById('pb-count');
+    if (cnt) cnt.textContent = '0 lines';
+}
+function toggleProgressBuffer() {
+    const pb = document.getElementById('pb-lines');
+    const tg = document.getElementById('pb-toggle');
+    const hidden = pb.style.display === 'none';
+    pb.style.display = hidden ? 'block' : 'none';
+    if (tg) tg.textContent = hidden ? '▼' : '▶';
+}
+
+// ===== 会话管理 =====
+async function loadSessions() {
+    try {
+        const r = await fetch(API+'/api/sessions');
+        const d = await r.json();
+        const sel = $('session-select');
+        sel.innerHTML = '';
+        (d.sessions||[]).forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s; opt.textContent = s;
+            if (s === sessionId) opt.selected = true;
+            sel.appendChild(opt);
+        });
+        if (!d.sessions || !d.sessions.includes(sessionId)) {
+            const opt = document.createElement('option');
+            opt.value = sessionId; opt.textContent = sessionId;
+            sel.appendChild(opt); sel.value = sessionId;
+        }
+    } catch(e) { console.warn('loadSessions:', e); }
+}
+async function loadSessionHistory(sid) {
+    pbReset();   // 切换会话时清空进度面板
+    lastEventCount = 0; currentBubble = null; lastToolCard = null;   // 轮询游标复位
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    const r = await fetch(API+'/api/session?session_id='+encodeURIComponent(sid));
+    const d = await r.json();
+    $('chat-log').innerHTML = '';
+    currentBubble = null;
+    (d.messages||[]).forEach(m => {
+        if (m.role === 'user') addBubble('user', m.content);
+        else if (m.role === 'assistant') addBubble('assistant', m.content, true);
+    });
+}
+$('session-select').addEventListener('change', async function() {
+    sessionId = this.value;
+    await loadSessionHistory(sessionId);
+});
+$('btn-sess-new').addEventListener('click', async function() {
+    const name = prompt('新会话名称：', 'session_' + Date.now());
+    if (!name) return;
+    sessionId = name;
+    await loadSessions();
+    $('session-select').value = sessionId;
+    $('chat-log').innerHTML = '';
+    toast('已切换到新会话: ' + sessionId);
+});
+$('btn-sess-del').addEventListener('click', async function() {
+    if (sessionId === 'default') { toast('默认会话不可删除'); return; }
+    if (!confirm('确定删除会话 "'+sessionId+'"？')) return;
+    await fetch(API+'/session/'+encodeURIComponent(sessionId), {method:'DELETE'});
+    sessionId = 'default';
+    await loadSessions();
+    await loadSessionHistory(sessionId);
+    toast('会话已删除');
+});
+$('btn-sess-exp').addEventListener('click', async function() {
+    try {
+        const r = await fetch(API+'/api/session/'+encodeURIComponent(sessionId)+'/export');
+        if (!r.ok) { toast('导出失败: HTTP '+r.status); return; }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = sessionId + '.md';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast('已导出 ' + sessionId + '.md');
+    } catch(e) { toast('导出失败: ' + e); }
+});
+
+// ===== 发送 + 打断 =====
 async function sendChat() {
+    if (isProcessing) return;
     const text=$('chat-input').value; if(!text.trim())return;
-    $('chat-input').value=''; addBubble('user',text); lastEventCount=0; lastToolCard=null;
-    setStatus('<span class="spinner"></span> thinking...');
-    const resp=await fetch(API+'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId,message:text})});
-    if(!resp.ok){setStatus('Error: '+resp.status);return;}
-    startPolling();
+    $('chat-input').value=''; addBubble('user',text); lastEventCount=0; currentBubble=null; lastToolCard=null;
+    pbReset();   // 新消息 → 进度面板从空白开始
+    setProcessingUI(true);
+    pbAdd('💭 thinking...');
+    try {
+        const resp=await fetch(API+'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId,message:text})});
+        if(!resp.ok){setStatus('Error: '+resp.status);setProcessingUI(false);return;}
+        startPolling();
+    } catch(e) { setStatus('Error: '+e); setProcessingUI(false); }
 }
 function startPolling() {
     if(pollTimer)clearInterval(pollTimer);
@@ -437,34 +570,42 @@ function startPolling() {
             const r=await fetch(API+'/api/chat/events?session_id='+encodeURIComponent(sessionId));
             const d=await r.json(); const evts=d.events||[];
             for(let i=lastEventCount;i<evts.length;i++){ const e=evts[i];
-                if(e.type==='step_start')setStatus('<span class="spinner"></span> 正在思考...');
-                else if(e.type==='tool_call'){ 
-                    lastToolCard = addToolCall(e.name, JSON.stringify(e.args));
-                    setStatus('<span class="spinner"></span> 正在调用 <span class="st-tool">⚙ '+esc(toolLabel(e.name))+'</span>...');
+                if(e.type==='step_start'){ pbAdd('💭 thinking...'); }
+                else if(e.type==='tool_call'){
+                    pbAdd('⚙ '+toolLabel(e.name)+'('+JSON.stringify(e.args).substring(0,80)+'...)');
                 }
-                else if(e.type==='tool_result'){ 
-                    setToolCallStatus(lastToolCard, 'done', e.result);
-                    setStatus('<span class="st-done">✔</span> '+esc(toolLabel(e.name))+' 已完成');
+                else if(e.type==='tool_result'){
+                    pbAdd('✔ '+toolLabel(e.name)+' → '+String(e.result||'').substring(0,120), 'pb-ok');
                 }
                 else if(e.type==='text'){if(!currentBubble)currentBubble=addBubble('assistant','');currentBubble.querySelector('.bubble').textContent+=e.content;currentBubble.querySelector('.bubble').classList.remove('md');}
-                else if(e.type==='interrupted'){addStep('Interrupted');setStatus('<span class="st-err">已中断</span>');}
-                else if(e.type==='error'){setStatus('<span class="st-err">⚠ '+esc(e.message)+'</span>');}
+                else if(e.type==='interrupted'){pbAdd('⏹ Interrupted','pb-err');finishProcessing('已中断');}
+                else if(e.type==='error'){pbAdd('⚠ '+e.message,'pb-err');finishProcessing('⚠ '+e.message);}
                 else if(e.type==='done'){ const b=currentBubble?currentBubble.querySelector('.bubble'):null;
                     if(b){ b.classList.add('md'); b.innerHTML=renderMarkdown(e.content); } else addBubble('assistant',e.content,true);
-                    currentBubble=null; setStatus(''); clearInterval(pollTimer); pollTimer=null; }
+                    currentBubble=null; pbAdd('✓ Complete','pb-ok'); finishProcessing();
+                }
             }
             lastEventCount=evts.length;
-        } catch(err){clearInterval(pollTimer);setStatus('<span class="st-err">poll error: '+esc(err)+'</span>');}
-    },400);
+        } catch(err){clearInterval(pollTimer);pbAdd('⚠ poll error: '+err,'pb-err');finishProcessing('⚠ Poll Error');}
+    },150);
+}
+function finishProcessing(statusHtml) {
+    clearInterval(pollTimer); pollTimer=null;
+    setProcessingUI(false);
+    setStatus(statusHtml||'');   // 始终清除状态
 }
 $('btn-send').addEventListener('click',sendChat);
-$('chat-input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendChat();}});
-$('btn-cancel').addEventListener('click',async()=>{await fetch(API+'/api/chat/cancel',{method:'POST'});setStatus('Interrupting...');});
-$('btn-history').addEventListener('click',async()=>{
-    const r=await fetch(API+'/api/session?session_id='+sessionId); const d=await r.json();
-    $('chat-log').innerHTML=''; (d.messages||[]).forEach(m=>{if(m.role==='user')addBubble('user',m.content);else if(m.role==='assistant')addBubble('assistant',m.content,true);});
+$('chat-input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();if(!isProcessing)sendChat();}});
+$('btn-cancel').addEventListener('click',async()=>{
+    await fetch(API+'/api/chat/cancel',{method:'POST'});
+    pbAdd('⏹ 用户请求中断','pb-err');
+    finishProcessing('<span class="st-err">已中断</span>');
 });
-$('btn-save').addEventListener('click',()=>toast('Session auto-managed; see token_usage.json'));
+
+// 进度缓冲折叠
+document.getElementById('pb-header').addEventListener('click', toggleProgressBuffer);
+// 初始化：加载会话列表
+loadSessions();
 
 // ---------- Tankopedia ----------
 const TYPE_ORDER={lightTank:0,mediumTank:1,heavyTank:2,'AT-SPG':3};
@@ -635,17 +776,26 @@ function renderShotList() {
             +`<td>${btn}</td></tr>`;
     }).join('');
     out.innerHTML=`<table class="inline-table-sm"><tr><th>#</th><th>Time</th><th>Dmg</th><th>Target</th><th></th><th></th></tr>${rows}</table>
-        <div class="muted" style="margin-top:6px;">点击行 → 3D 查看器复现该发（相机=射手 POV + 热力图）；脱靶弹无受击目标，不提供 3D 复现</div>`;
+        <div class="muted" style="margin-top:6px;">点击行 → 下方显示 3D 查看器 URL（可修改参数后打开）；脱靶弹无受击目标，不提供 3D 复现</div>
+        <div id="sr-url-edit" style="display:none;margin-top:8px;gap:6px;align-items:center;">
+            <input type="text" style="flex:1;background:#1a1612;color:#ccc;border:1px solid #555;border-radius:4px;padding:6px 10px;font-size:11px;font-family:monospace;" />
+            <button class="btn btn-primary" style="padding:6px 16px;">Open 3D</button>
+        </div>`;
 }
 window.openShotInViewer = function(no) {
-    const w = Math.round(window.innerWidth*0.85), h = Math.round(window.innerHeight*0.85);
     const tid = (window.__srTargetMap||{})[no] || window.__srAuthorTank || 0;
-    // 射手坦克 = 回放作者（__srAuthorTank）；不传时 armor_view 默认射手=目标坦克
     const sh = window.__srAuthorTank ? ('&shooter='+window.__srAuthorTank) : '';
     const shot = (srData.find(s=>s.index===no)) || null;
     const ammo = (shot && shot.shell_slot != null) ? ('&shell='+shot.shell_slot) : '';
-    window.open(API+'/armor_view/view/'+tid+'?heatmap=1&shot='+no+sh+ammo, '_blank',
-        'width='+w+',height='+h);
+    const url = API+'/armor_view/view/'+tid+'?heatmap=1&shot='+no+sh+ammo+'&world=1';
+    // 显示可编辑 URL 供用户修改后打开
+    const out = document.getElementById('sr-url-edit');
+    out.style.display = 'flex';
+    out.querySelector('input').value = url;
+    out.querySelector('.btn').onclick = function() {
+        const finalUrl = out.querySelector('input').value.trim();
+        if (finalUrl) window.open(finalUrl, '_blank', 'width='+Math.round(window.innerWidth*0.85)+',height='+Math.round(window.innerHeight*0.85));
+    };
 };
 $('btn-sr-load').addEventListener('click',srParse);
 

@@ -231,6 +231,27 @@ enum Commands {
         #[arg(long)]
         shots_json: Option<PathBuf>,
     },
+    /// Dump raw method38 / method8 / type=32 packet bytes (RE tool, wotinspector alignment)
+    DumpMethods {
+        /// Path to the .wotbreplay file
+        file: PathBuf,
+    },
+    /// Dump all packets of one entity in a time window (RE tool: gun pitch hunt)
+    DumpEntity {
+        /// Path to the .wotbreplay file
+        file: PathBuf,
+        /// Entity id (decimal)
+        eid: u32,
+        /// Time window start (s)
+        #[arg(long, default_value = "0")]
+        t0: f32,
+        /// Time window end (s)
+        #[arg(long, default_value = "1e9")]
+        t1: f32,
+        /// Hex byte pattern to search inside payloads (e.g. "4dc52237")
+        #[arg(long)]
+        pat: Option<String>,
+    },
 }
 
 /// 程序入口：解析参数 → 分发到对应子命令。
@@ -919,6 +940,144 @@ fn main() -> Result<()> {
                     });
                     println!("{}", serde_json::to_string_pretty(&combined)?);
                 }
+            }
+        }
+        Commands::DumpMethods { file } => {
+            use wotbreplay_parser::replay::Replay;
+            use std::fs::File;
+
+            let mut replay = Replay::open(File::open(&file)?)
+                .map_err(|e| anyhow::anyhow!("Failed to open replay: {}", e))?;
+            let data = replay.read_data()
+                .map_err(|e| anyhow::anyhow!("Failed to read data: {}", e))?;
+
+            let raw_packets: Vec<(u32, f32, &[u8])> = data.packets.iter()
+                .map(|pkt| {
+                    let pkt_type = match &pkt.payload {
+                        wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate { .. } => 0,
+                        wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
+                        wotbreplay_parser::models::data::payload::Payload::Unknown { packet_type } => *packet_type,
+                    };
+                    (pkt_type, pkt.clock_secs, &pkt.raw_payload[..])
+                })
+                .collect();
+
+            let hex = |b: &[u8]| b.iter().map(|x| format!("{:02x}", x)).collect::<Vec<_>>().join(" ");
+            let u32le = |b: &[u8], o: usize| u32::from_le_bytes([b[o], b[o+1], b[o+2], b[o+3]]);
+            let u16le = |b: &[u8], o: usize| u16::from_le_bytes([b[o], b[o+1]]);
+
+            // ---- method38 (0x26) 命中结果：完整 args 解码 ----
+            println!("=== Avatar method38 (0x26) hit results ===");
+            for (t, clock, p) in &raw_packets {
+                if *t != 8 || p.len() < 12 { continue; }
+                if u32le(p, 4) != 0x26 { continue; }
+                let alen = u32le(p, 8) as usize;
+                if 12 + alen > p.len() { continue; }
+                let a = &p[12..12 + alen];
+                println!("\nt={:.3} envelope_eid={} args_len={}", clock, u32le(p, 0), alen);
+                println!("  args: {}", hex(a));
+                if alen < 9 { continue; }
+                println!("  victim={} flags={:#06x} headerHi={:#06x} resultCount={}",
+                    u32le(a, 0), u16le(a, 4), u16le(a, 6), a[8]);
+                let mut off = 9usize;
+                for k in 0..a[8] as usize {
+                    if off + 2 <= alen {
+                        println!("    component[{}]: token={} state={}", k, a[off], a[off+1]);
+                        off += 2;
+                    }
+                }
+                if off < alen {
+                    let mcount = a[off]; off += 1;
+                    println!("  modifierCount={} ", mcount);
+                    for k in 0..mcount as usize {
+                        if off + 4 <= alen {
+                            println!("    modifier[{}]: {}", k, u32le(a, off));
+                            off += 4;
+                        }
+                    }
+                    if off < alen {
+                        println!("  TRAILING {}B: {}", alen - off, hex(&a[off..]));
+                    }
+                }
+            }
+
+            // ---- method8 (0x08) 直击通知：packed 元数据 ----
+            println!("\n=== Vehicle method8 (0x08) direct-hit notices ===");
+            for (t, clock, p) in &raw_packets {
+                if *t != 8 || p.len() < 12 { continue; }
+                if u32le(p, 4) != 0x08 { continue; }
+                let alen = u32le(p, 8) as usize;
+                if 12 + alen > p.len() { continue; }
+                let a = &p[12..12 + alen];
+                println!("t={:.3} envelope_eid={} args_len={} args: {}", clock, u32le(p, 0), alen, hex(a));
+                if alen >= 10 {
+                    println!("  shooter={} victim={} b8={:#04x} b9={:#04x} b10={:#04x}",
+                        u32le(a, 0), u32le(a, 4), a[8], a[9], a[10]);
+                    if alen >= 21 {
+                        let seg = u64::from_le_bytes([a[11],a[12],a[13],a[14],a[15],a[16],a[17],a[18]]);
+                        println!("  packed[11..21]: {} | as u64@11: {:#018x} ({})", hex(&a[11..21]), seg, seg);
+                        println!("  trailing[21..]: {}", hex(&a[21..]));
+                    }
+                }
+            }
+
+            // ---- type=32 警告包（含 segment u64 布局）----
+            println!("\n=== type=32 packets (len>=26) ===");
+            let mut len_hist: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
+            for (t, clock, p) in &raw_packets {
+                if *t != 32 { continue; }
+                *len_hist.entry(p.len()).or_insert(0) += 1;
+                if p.len() < 26 { continue; }
+                println!("t={:.3} len={} raw: {}", clock, p.len(), hex(p));
+                // [eid u32][01][method u32][u16][flag u8][shell_id u16][yaw u16][pitch u16][segment u64]
+                println!("  eid={} b4={:#04x} method={:#010x} u16@9={:#06x} flag@11={:#04x} shell_id@12={} yaw@14={} pitch@16={} seg@18={:#018x}",
+                    u32le(p, 0), p[4], u32le(p, 5), u16le(p, 9), p[11],
+                    u16le(p, 12), u16le(p, 14), u16le(p, 16),
+                    u64::from_le_bytes([p[18],p[19],p[20],p[21],p[22],p[23],p[24],p[25]]));
+            }
+            println!("  len histogram: {:?}", len_hist);
+        }
+        Commands::DumpEntity { file, eid, t0, t1, pat } => {
+            use wotbreplay_parser::replay::Replay;
+            use std::fs::File;
+
+            let mut replay = Replay::open(File::open(&file)?)
+                .map_err(|e| anyhow::anyhow!("Failed to open replay: {}", e))?;
+            let data = replay.read_data()
+                .map_err(|e| anyhow::anyhow!("Failed to read data: {}", e))?;
+            let hex = |b: &[u8]| b.iter().map(|x| format!("{:02x}", x)).collect::<Vec<_>>().join(" ");
+            let pat_bytes: Vec<Vec<u8>> = pat.as_ref().map(|s| {
+                s.split('|').map(|h| (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i+2], 16).unwrap()).collect()).collect()
+            }).unwrap_or_default();
+            for pkt in &data.packets {
+                if pkt.clock_secs < t0 || pkt.clock_secs > t1 { continue; }
+                let p = &pkt.raw_payload[..];
+                if p.len() < 4 { continue; }
+                let pat_hit = !pat_bytes.is_empty() && pat_bytes.iter().any(|pb| {
+                    (0..=p.len().saturating_sub(pb.len())).any(|o| &p[o..o+pb.len()] == pb.as_slice())
+                });
+                if !pat_bytes.is_empty() && !pat_hit { continue; }
+                if pat_bytes.is_empty() {
+                    let e = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
+                    if e != eid { continue; }
+                }
+                let pkt_type = match &pkt.payload {
+                    wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate { .. } => 0u32,
+                    wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
+                    wotbreplay_parser::models::data::payload::Payload::Unknown { packet_type } => *packet_type,
+                };
+                // type=10: 附带 f32 解码（位置/姿态 + 尾部）
+                let mut extra = String::new();
+                if pkt_type == 10 && p.len() >= 48 {
+                    let fs: Vec<f32> = (0..((p.len()-12)/4)).map(|k| f32::from_le_bytes([p[12+k*4], p[13+k*4], p[14+k*4], p[15+k*4]])).collect();
+                    extra = format!("  f32[{}]: {:?}", fs.len(), fs.iter().map(|f| format!("{:.4}", f)).collect::<Vec<_>>());
+                }
+                if pkt_type == 7 && p.len() >= 16 {
+                    let sub = u32::from_le_bytes([p[4], p[5], p[6], p[7]]);
+                    extra = format!("  sub={} body={}", sub, hex(&p[12..]));
+                }
+                println!("t={:>8.3} type={:<3} len={:<4} {}", pkt.clock_secs, pkt_type, p.len(), hex(p));
+                if !extra.is_empty() { println!("        {}", extra); }
             }
         }
     }

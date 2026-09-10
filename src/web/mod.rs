@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::{
-    routing::{get, post},
+    routing::{delete, get, post},
     response::{Html, IntoResponse, Response},
     Json, Router,
 };
@@ -15,8 +15,8 @@ use crate::agent::{Agent, AgentEvent};
 /// 一个运行中的 Agent 会话：Agent 本体 + 已产生事件的队列。
 /// 事件队列被 `Mutex` 保护，供对话任务写入、前端轮询读取。
 struct Session {
-    agent: Agent,
-    events: Arc<Mutex<Vec<AgentEvent>>>,
+    agent: Option<Agent>,
+    events: Arc<std::sync::Mutex<Vec<AgentEvent>>>,
 }
 
 /// 全局共享状态：配置路径 + 会话表（按 session_id 区分）。
@@ -47,6 +47,9 @@ pub async fn serve(config_path: std::path::PathBuf) -> anyhow::Result<()> {
         .route("/api/chat/events", get(chat_events_handler))
         .route("/api/chat/cancel", post(chat_cancel_handler))
         .route("/api/session", get(session_get))
+        .route("/api/sessions", get(sessions_list))
+        .route("/api/session/{id}", delete(session_delete))
+        .route("/api/session/{id}/export", get(session_export))
         .route("/api/config", get(config_get).post(config_set))
         .route("/api/usage", get(usage_get))
         .route("/api/player/{nickname}", get(player_handler))
@@ -97,9 +100,17 @@ async fn tank_detail_page_handler(axum::extract::Path(_tank_id): axum::extract::
 async fn armor_view_handler(
     axum::extract::Path(tank_id): axum::extract::Path<u64>,
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
-) -> Html<String> {
+) -> axum::response::Response {
     let shooter = q.get("shooter").and_then(|v| v.parse::<u32>().ok()).unwrap_or(tank_id as u32);
-    Html(crate::wargaming::viewer::viewer_index_html(tank_id as u32, shooter, "/armor_view"))
+    let mut resp = axum::response::Response::builder()
+        .header(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+        .header(axum::http::header::CACHE_CONTROL, "no-cache, max-age=0")
+        .body(axum::body::Body::from(
+            crate::wargaming::viewer::viewer_index_html(tank_id as u32, shooter, "/armor_view"),
+        ))
+        .unwrap();
+    if let Ok(v) = axum::http::HeaderValue::from_str("no-store") { resp.headers_mut().insert(axum::http::header::PRAGMA, v); }
+    resp
 }
 
 /// `/armor_view/` 根：重定向到默认坦克（IS-7）的检视页。
@@ -130,8 +141,8 @@ async fn chat_handler(
             match Agent::new(&state.config_path) {
                 Ok(agent) => {
                     guard.insert(session_id.clone(), Session {
-                        agent,
-                        events: Arc::new(Mutex::new(Vec::new())),
+                        agent: Some(agent),
+                        events: Arc::new(std::sync::Mutex::new(Vec::new())),
                     });
                 }
                 Err(e) => {
@@ -145,21 +156,35 @@ async fn chat_handler(
     let state2 = state.clone();
     let (s_id, msg) = (session_id.clone(), text);
     tokio::spawn(async move {
-        let mut guard = state2.sessions.lock().await;
-        let Some(sess) = guard.get_mut(&s_id) else { return };
-        let sink = sess.events.clone();
+        // 取出 Agent + 事件队列引用，然后【立即释放】sessions 锁——
+        // 否则轮询接口在聊天期间无法读取事件 → 进度只能批量到达
+        let (sink, agent) = {
+            let mut guard = state2.sessions.lock().await;
+            let Some(sess) = guard.get_mut(&s_id) else { return };
+            // 新一轮对话：清空事件缓冲（前端 lastEventCount=0 从零读增量，
+            // 否则上一轮事件被整体重放——第二句重复第一句的内容）
+            if let Ok(mut v) = sess.events.lock() { v.clear(); }
+            let sink = sess.events.clone();
+            let agent = std::mem::replace(&mut sess.agent, None);
+            (sink, agent)
+        };
+        let Some(mut agent) = agent else { return };
         let sink2 = sink.clone();
-        let res = sess.agent.chat_async(&msg, move |e| {
-            let mut ev = sink.try_lock();
-            if let Ok(ref mut v) = ev {
+        let res = agent.chat_async(&msg, move |e| {
+            // std::sync::Mutex：同步回调中短暂 lock，不丢事件
+            if let Ok(mut v) = sink.lock() {
                 v.push(e);
             }
         }).await;
         if let Err(e) = res {
-            let mut ev = sink2.try_lock();
-            if let Ok(ref mut v) = ev {
+            if let Ok(mut v) = sink2.lock() {
                 v.push(AgentEvent::Error { message: e.to_string() });
             }
+        }
+        // 归还 Agent
+        let mut guard = state2.sessions.lock().await;
+        if let Some(sess) = guard.get_mut(&s_id) {
+            sess.agent = Some(agent);
         }
     });
 
@@ -176,7 +201,7 @@ async fn chat_events_handler(
     let Some(sess) = guard.get(&session_id) else {
         return Json(json!({ "events": [], "done": true })).into_response();
     };
-    let events = sess.events.lock().await;
+    let Ok(events) = sess.events.lock() else { return Json(json!({ "events": [] })).into_response() };
     let arr: Vec<Value> = events.iter().map(|e| serde_json::to_value(e).unwrap_or(Value::Null)).collect();
     Json(json!({ "events": arr })).into_response()
 }
@@ -199,9 +224,75 @@ async fn session_get(
     let Some(sess) = guard.get(&session_id) else {
         return Json(json!({ "messages": [] })).into_response();
     };
-    let history: Vec<Value> = sess.agent.history().iter()
-        .map(|m| serde_json::to_value(m).unwrap_or(Value::Null)).collect();
+    let history: Vec<Value> = sess.agent.as_ref().map(|a| {
+        a.history().iter()
+            .map(|m| serde_json::to_value(m).unwrap_or(Value::Null)).collect::<Vec<_>>()
+    }).unwrap_or_default();
     Json(json!({ "messages": history })).into_response()
+}
+
+/// 列出全部会话 ID。
+async fn sessions_list(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Response {
+    let guard = state.sessions.lock().await;
+    let ids: Vec<&String> = guard.keys().collect();
+    Json(json!({ "sessions": ids })).into_response()
+}
+
+/// 删除指定会话。
+async fn session_delete(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    state.sessions.lock().await.remove(&id);
+    Json(json!({ "status": "deleted" })).into_response()
+}
+
+/// 导出会话为 Markdown（浏览器下载）。
+async fn session_export(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    let guard = state.sessions.lock().await;
+    // 会话不存在 → 返回空 Markdown（而非 404），保证导出按钮始终可用
+    let Some(sess) = guard.get(&id) else {
+        let empty = format!("# WoTB Agent Session: {}\n\n*（此会话暂无消息）*\n", id);
+        return axum::response::Response::builder()
+            .header("Content-Type", "text/markdown; charset=utf-8")
+            .header("Content-Disposition", format!("attachment; filename=\"{}.md\"", id))
+            .body(axum::body::Body::from(empty))
+            .unwrap()
+            .into_response();
+    };
+    let mut md = format!("# WoTB Agent Session: {}\n\n", id);
+    for m in sess.agent.as_ref().map(|a| a.history()).unwrap_or_default() {
+        let v = serde_json::to_value(m).unwrap_or(Value::Null);
+        let role = v["role"].as_str().unwrap_or("").to_string();
+        // 只导出用户提问 + assistant 最终回答：
+        // 跳过 tool 结果、带 tool_calls 的中间轮次、空内容
+        if role == "user" {
+            let content = v["content"].as_str().unwrap_or("");
+            if content.is_empty() { continue; }
+            md.push_str(&format!("## 👤 User\n\n{}\n\n---\n\n", content));
+        } else if role == "assistant" {
+            let has_calls = v["tool_calls"].as_array().map(|a| !a.is_empty()).unwrap_or(false);
+            if has_calls { continue; }
+            let content = v["content"].as_str().unwrap_or("");
+            if content.is_empty() { continue; }
+            md.push_str(&format!("## 🤖 Assistant\n\n{}\n\n---\n\n", content));
+        }
+    }
+    if md.trim() == format!("# WoTB Agent Session: {}", id).trim() {
+        md.push_str("\n*（此会话暂无消息）*\n");
+    }
+    drop(guard);
+    axum::response::Response::builder()
+        .header("Content-Type", "text/markdown; charset=utf-8")
+        .header("Content-Disposition", format!("attachment; filename=\"{}.md\"", id))
+        .body(axum::body::Body::from(md))
+        .unwrap()
+        .into_response()
 }
 
 /// 读取当前配置（返回给设置页）。

@@ -358,6 +358,21 @@ impl CombatTimeline {
 
 }
 
+/// 受击坦克 type=10 采样（用于渲染多 tick 幽灵框，测试延迟假设）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TickSample {
+    /// 相对命中时刻的偏移（秒）
+    pub dt: f32,
+    /// 相对命中时刻锚点的位置偏移（世界系，米）
+    pub pos: [f32; 3],
+    /// 车体偏航（弧度）
+    pub yaw: f32,
+    /// 车体俯仰（弧度）
+    pub pitch: f32,
+    /// 车体侧倾（弧度）
+    pub roll: f32,
+}
+
 /// 一次射击事件的"复现数据"：双方位置/朝向（type=10 实体状态包解码），
 /// 供 3D 查看器按当时态势复现热力图视角。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -407,17 +422,57 @@ pub struct ShotReplayData {
     /// 来源：method29 launchVelocity——服务器权威弹道方向（含俯仰），
     /// 与 launchPoint→终点连线夹角实测 <0.1°。
     pub launch_velocity: [f32; 3],
-    /// 命中结果位图（WotbTools method38 resultFlags16，0 = miss/无命中结果）。
-    /// 已实证位：0x0008 跳弹 / 0x0010 击穿 / 0x0020 未击穿 / 0x0040 间隙层穿透 /
-    /// 0x0080 间隙层未穿 / 0x0100 内部模块击穿 / 0x0400 履带 / 0x0800 火炮 /
-    /// 0x1000 HE 爆炸伤害分支。
-    pub hit_flags: u16,
+    /// 命中结果位图（u32 = flags16 | headerHi16<<16；wotinspector hit_flags 同源）。
+    /// 已实证位：0x0001 直接击杀 / 0x0008 跳弹 / 0x0010 材料击穿 / 0x0020 未击穿（材料止）/
+    /// 0x0040 间隙层被穿透 / 0x0080 间隙层未穿 / 0x0100 内部模块被击穿 / 0x0400 履带受损 /
+    /// 0x0800 火炮受损 / 0x1000 HE 爆炸伤害分支；0x20000 = headerHi 基础位（wotinspector
+    /// 样本中所有非零 hit_flags 均含此位，本地 4 个回放 headerHi 恒 0x0002 ✓）。
+    pub hit_flags: u32,
+    /// 模块受损位掩码——wotinspector crit_modules 同源。
+    /// bit = componentToken - 31（token 31..43 → bit 0..12；实测对齐：token33 受损 → WI bit2=0x04 ✓）。
+    pub crit_modules: u32,
+    /// 模块摧毁位掩码（映射同上，state=2；实测 token35 履带摧毁 → bit4）。
+    pub destroyed_modules: u32,
+    /// 游戏原生命中段 u64（type=32 警告包尾 8 字节 LE），布局（WI 罗塞塔对照修订）：
+    /// `[result u8][shell_global_id u24 LE][0x00][X][Y][Z]`
+    /// - result：命中结果枚举（同 game_hit_result）
+    /// - shell_global_id（u24 LE = B1,B2,B3）：游戏全局弹种 id =
+    ///   `(shells.xml 局部 id << 8) | 国家基数字节`（国家基数 = nation_id×16+10：
+    ///   uk=0x5a、japan=0x6a、usa=0x2a）。实测：GSOR AP 局部 2040 → 全局 522330、
+    ///   金HE 2039 → 522074，与 WI shotsimulate 状态 blob 的 shell 字段逐发一致 ✓；
+    ///   Type2605 112 → 28778、XM551 2018 → 516650 ✓
+    /// - 字节4 恒 0x00；末 3 字节逐发变化，语义未解（WI 的 segment 字段 =
+    ///   `[result][layer][hash6]`，同样不含此 3 字节——服务器不下发片元编号）。
+    ///   服务器仅转发部分警告（GB109 覆盖 7/10），0 = 未获取。
+    pub segment: u64,
+    /// 命中弹种全局 id（24 位，含国家基数字节；与 WI shell_id 同值同源；0 = 未获取）
+    pub shell_id: u32,
+    /// segment 字节6（语义未解，保留透传）
+    pub armor_group: u8,
+    /// segment 字节5、6 组成的 u16 BE（语义未解，保留兼容）
+    pub hit_triangle: u16,
+    /// 游戏命中结果枚举（method8 b9 / type=32 segment 低字节同源，86/86 事件实测一致）：
+    /// 0=无命中结果 1=未击穿 2=间隙层止 3=有伤害（击穿/HE 爆炸）4=跳弹；255 = 未获取。
+    pub game_hit_result: u8,
+    /// 命中令牌（method8 ↔ type=32 同事件共享的 6 字节哈希，86/86 一致；
+    /// 用于未来与贴花/结算数据交叉引用）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hit_token: Option<String>,
+    /// 特殊弹药效果 ID（WotbTools PROVEN：1=精准火力 2=钨芯弹，可同发共存）。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub modifiers: Vec<u32>,
     /// 开火时刻（秒）——与 method29 发射包确定性匹配
     pub fire_time: f32,
     /// shotId——method29 发射 ↔ method20 终点 确定性配对键
     pub shot_id: u32,
     /// 弹药槽位——type=28 选择状态在发射时刻的值（3D 视图弹种选择器索引用）
     pub shell_slot: u32,
+    /// 受击坦克 type=10 采样（命中时刻 ±1s，位置相对命中锚点，世界系米）
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tick_samples: Vec<TickSample>,
+    /// 射手坦克 type=10 采样（开火 ±0.2s，世界系绝对坐标）
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub shooter_tick_samples: Vec<TickSample>,
     /// 兼容旧字段：= type32_turret_yaw（曾误标为"来袭方向"，实为受击者炮塔角）。
     pub incoming_yaw: f32,
     /// 兼容旧字段：= target_gun_pitch（曾误标为"来袭俯角"，实为受击者炮管俯仰）。
@@ -542,35 +597,141 @@ pub fn extract_shot_replays(
     }
 
     // ③ 收集 method38 命中结果（Avatar 方法 = 仅作者自己的射击反馈）
-    //    args 布局：[victimVehicleId u32][resultFlags16 u16][headerHi16 u16][resultCount u8]...
-    let mut hit_results: Vec<(f32, u32, u16)> = Vec::new();  // (t38, victim_eid, flags)
+    //    args 布局（WotbTools PROVEN + 4 回放实测）：[victimVehicleId u32][resultFlags16 u16]
+    //    [headerHi16 u16][resultCount u8][resultCount × (componentToken u8 + rawState u8)]
+    //    [modifierCount u8][modifierCount × modifierId u32]
+    //    rawState：0=无变化 1=受损(crit) 2=摧毁；组件号 31=引擎 32=弹药架 33=油箱
+    //    34/35=右/左履带 36=火炮 38=观察装置（WotbTools 枚举）
+    struct HitFeedback {
+        t: f32,
+        victim: u32,
+        flags: u32,
+        crit_modules: u32,
+        destroyed_modules: u32,
+        components: Vec<(u8, u8)>,
+        modifiers: Vec<u32>,
+    }
+    let mut hit_results: Vec<HitFeedback> = Vec::new();
     for (_, clock, p) in packets {
         if p.len() < 12 + 9 { continue; }
         if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x26 { continue; }
         let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
         if args_len < 9 || 12 + args_len > p.len() { continue; }
-        let a = &p[12..];
-        hit_results.push((
-            *clock,
-            u32::from_le_bytes([a[0], a[1], a[2], a[3]]),
-            u16::from_le_bytes([a[4], a[5]]),
-        ));
+        let a = &p[12..12 + args_len];
+        let mut crit_modules = 0u32;
+        let mut destroyed_modules = 0u32;
+        let mut components: Vec<(u8, u8)> = Vec::new();
+        let mut off = 9usize;
+        for _ in 0..a[8] {
+            if off + 2 > args_len { break; }
+            let (tok, state) = (a[off], a[off + 1]);
+            components.push((tok, state));
+            let bit = (tok as u32).checked_sub(31).map(|b| 1u32 << b).unwrap_or(0);
+            match state {
+                1 => crit_modules |= bit,
+                2 => destroyed_modules |= bit,
+                _ => {}
+            }
+            off += 2;
+        }
+        let mut modifiers: Vec<u32> = Vec::new();
+        if off < args_len {
+            let mcount = a[off];
+            off += 1;
+            for _ in 0..mcount {
+                if off + 4 > args_len { break; }
+                modifiers.push(u32::from_le_bytes([a[off], a[off+1], a[off+2], a[off+3]]));
+                off += 4;
+            }
+        }
+        hit_results.push(HitFeedback {
+            t: *clock,
+            victim: u32::from_le_bytes([a[0], a[1], a[2], a[3]]),
+            // 完整位图 = flags16 | headerHi<<16（wotinspector hit_flags 同源，0x20000=headerHi 基础位）
+            flags: u32::from_le_bytes([a[4], a[5], a[6], a[7]]),
+            crit_modules,
+            destroyed_modules,
+            components,
+            modifiers,
+        });
     }
-    hit_results.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
+    hit_results.sort_by(|x, y| x.t.partial_cmp(&y.t).unwrap());
 
     // ③' 同钟同受击者合并：一发命中可能产生多条结果消息（多次装甲交互——
     // （WotbTools hit-resolution 同原则：同钟重复记录计为一次命中事件。）
-    let mut merged38: Vec<(f32, u32, u16)> = Vec::new();
-    for (c, v, f) in hit_results {
+    // 位图取并集；组件按 token 取最大 state；modifiers 去重合并。
+    let mut merged38: Vec<HitFeedback> = Vec::new();
+    for h in hit_results {
         if let Some(last) = merged38.last_mut() {
-            if (last.0 - c).abs() <= 0.05 && last.1 == v {
-                last.2 |= f;   // 结果位并集
+            if (last.t - h.t).abs() <= 0.05 && last.victim == h.victim {
+                last.flags |= h.flags;
+                last.crit_modules |= h.crit_modules;
+                last.destroyed_modules |= h.destroyed_modules;
+                for (tok, st) in h.components {
+                    match last.components.iter_mut().find(|(t, _)| *t == tok) {
+                        Some(e) => e.1 = e.1.max(st),
+                        None => last.components.push((tok, st)),
+                    }
+                }
+                for m in h.modifiers {
+                    if !last.modifiers.contains(&m) { last.modifiers.push(m); }
+                }
                 continue;
             }
         }
-        merged38.push((c, v, f));
+        merged38.push(h);
     }
     let hit_results = merged38;
+
+    // ③'' type=32 来袭炮弹警告/命中通知（eid = 受击者，AoI 广播含他人命中）：
+    // len=26 (method 0x11): [eid u32][01][method u32][u16@9][flag@11][hash6@12..18][segment u64@18..26]
+    // len=27 (method 0x12): [eid u32][01][method u32][u16@9][flag@11][01@12][hash6@13..19][segment u64@19..27]
+    // segment u64 低字节 = 命中结果枚举（与 method8 b9 同域，86/86 实测一致）。
+    struct ArenaWarning32 { t: f32, eid: u32, result: u8, segment: u64, hash6: [u8; 6] }
+    let mut warnings32: Vec<ArenaWarning32> = Vec::new();
+    for (t, clock, p) in packets {
+        if *t != 32 || p.len() < 26 { continue; }
+        if p[4] != 0x01 { continue; }
+        let method = u32::from_le_bytes([p[5], p[6], p[7], p[8]]);
+        if method != 0x11 && method != 0x12 { continue; }
+        let (hash6, seg_bytes) = if p.len() == 26 {
+            ([p[12], p[13], p[14], p[15], p[16], p[17]], &p[18..26])
+        } else if p.len() == 27 {
+            ([p[13], p[14], p[15], p[16], p[17], p[18]], &p[19..27])
+        } else {
+            continue;
+        };
+        warnings32.push(ArenaWarning32 {
+            t: *clock,
+            eid: u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
+            result: seg_bytes[0],
+            segment: u64::from_le_bytes(seg_bytes.try_into().unwrap()),
+            hash6,
+        });
+    }
+    warnings32.sort_by(|x, y| x.t.partial_cmp(&y.t).unwrap());
+
+    // ③''' Vehicle method8 直击通知（全局广播，envelope eid = 受击者）：
+    // [shooterEntityId u32][victimEntityId u32][01][result u8][extra u8][hash6][tail...]
+    // result 枚举与 type=32 同域；hash6 与同事件 type=32 完全一致（86/86 实测）。
+    struct DirectHit8 { t: f32, shooter: u32, victim: u32, result: u8, hash6: [u8; 6] }
+    let mut direct_hits8: Vec<DirectHit8> = Vec::new();
+    for (_, clock, p) in packets {
+        if p.len() < 12 + 10 { continue; }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x08 { continue; }
+        let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
+        if args_len < 10 || 12 + args_len > p.len() { continue; }
+        let a = &p[12..12 + args_len];
+        if a[8] != 0x01 { continue; }
+        direct_hits8.push(DirectHit8 {
+            t: *clock,
+            shooter: u32::from_le_bytes([a[0], a[1], a[2], a[3]]),
+            victim: u32::from_le_bytes([a[4], a[5], a[6], a[7]]),
+            result: a[9],
+            hash6: [a[11], a[12], a[13], a[14], a[15], a[16]],
+        });
+    }
+    direct_hits8.sort_by(|x, y| x.t.partial_cmp(&y.t).unwrap());
 
     // ④ 构建 entity_id → name 映射
     let names = extract_entity_names(packets);
@@ -682,24 +843,30 @@ pub fn extract_shot_replays(
         let mut target_name = String::new();
         let mut is_kill = false;
         let mut hit = false;
-        let mut hit_flags: u16 = 0;
+        let mut hit_flags: u32 = 0;
+        let mut crit_modules: u32 = 0;
+        let mut destroyed_modules: u32 = 0;
+        let mut modifiers: Vec<u32> = Vec::new();
 
-        let mut matched: Option<(usize, u32, u16)> = None;
+        let mut matched: Option<usize> = None;
         let mut cands = 0usize;
         for (j, hr) in hit_results.iter().enumerate().skip(hr_cursor) {
-            let (t38, _victim, _flags) = *hr;
-            if t38 > end_time + 0.5 { break; }   // 已排序，越过窗口即止
-            if (t38 - end_time).abs() < 0.5 && t38 >= end_time - 0.05 {
+            if hr.t > end_time + 0.5 { break; }   // 已排序，越过窗口即止
+            if (hr.t - end_time).abs() < 0.5 && hr.t >= end_time - 0.05 {
                 cands += 1;
-                if matched.is_none() { matched = Some((j, _victim, _flags)); }
+                if matched.is_none() { matched = Some(j); }
             }
         }
         if cands > 1 {
             anyhow::bail!("{ctx}: method38 配对歧义——命中窗口内出现 {} 条命中结果", cands);
         }
-        if let Some((j, victim, flags)) = matched {
-            target_eid = Some(victim);
-            hit_flags = flags;
+        if let Some(j) = matched {
+            let hr = &hit_results[j];
+            target_eid = Some(hr.victim);
+            hit_flags = hr.flags;
+            crit_modules = hr.crit_modules;
+            destroyed_modules = hr.destroyed_modules;
+            modifiers = hr.modifiers.clone();
             hit = true;
             hr_cursor = j + 1;
         }
@@ -708,6 +875,51 @@ pub fn extract_shot_replays(
             target_name = names.get(&teid)
                 .ok_or_else(|| anyhow::anyhow!("{ctx}: 受击者实体 {teid} 不在 type=5 名册中"))?
                 .clone();
+        }
+
+        // ⑧' 游戏原生命中段 + 结果枚举（wotinspector segment 对齐）：
+        // type=32 警告包优先（含 segment u64，低字节=结果枚举）；
+        // method8 直击通知兜底结果枚举；两者 hash6 命中令牌一致（86/86 实测）。
+        // 歧义 fail-fast；服务器未转发时 segment=0 / result=255。
+        let mut segment: u64 = 0;
+        let mut shell_id: u32 = 0;
+        let mut armor_group: u8 = 0;
+        let mut hit_triangle: u16 = 0;
+        let mut game_hit_result: u8 = 255;
+        let mut hit_token: Option<String> = None;
+        if let Some(teid) = target_eid {
+            let mut seg_cands: Vec<&ArenaWarning32> = warnings32.iter()
+                .filter(|w| w.eid == teid && (w.t - end_time).abs() <= 0.05)
+                .collect();
+            seg_cands.sort_by(|x, y| x.t.partial_cmp(&y.t).unwrap());
+            if !seg_cands.is_empty() {
+                let first = seg_cands[0];
+                if seg_cands.iter().any(|w| w.segment != first.segment) {
+                    anyhow::bail!("{ctx}: type=32 segment 歧义——窗口内 {} 条互不一致的命中段", seg_cands.len());
+                }
+                segment = first.segment;
+                game_hit_result = first.result;
+                hit_token = Some(first.hash6.iter().map(|b| format!("{:02x}", b)).collect());
+                // segment 布局解码：[result][tank+9][shell u16 LE][00][tri_hi][tri_lo][armor_group]
+                let sb = segment.to_le_bytes();
+                // 全局弹种 id = B1B2B3 u24 LE（=(局部 id<<8)|国家基数），与 WI shell_id 同值
+                shell_id = (sb[1] as u32) | ((sb[2] as u32) << 8) | ((sb[3] as u32) << 16);
+                armor_group = sb[7];
+                hit_triangle = u16::from_be_bytes([sb[5], sb[6]]);
+            } else {
+                let mut r8: Vec<&DirectHit8> = direct_hits8.iter()
+                    .filter(|d| d.shooter == author_player_eid && d.victim == teid && (d.t - end_time).abs() <= 0.05)
+                    .collect();
+                r8.sort_by(|x, y| x.t.partial_cmp(&y.t).unwrap());
+                if !r8.is_empty() {
+                    let first = r8[0];
+                    if r8.iter().any(|d| d.result != first.result) {
+                        anyhow::bail!("{ctx}: method8 结果枚举歧义——窗口内 {} 条互不一致", r8.len());
+                    }
+                    game_hit_result = first.result;
+                    hit_token = Some(first.hash6.iter().map(|b| format!("{:02x}", b)).collect());
+                }
+            }
         }
 
         // 伤害归属（确定性，WotbTools deriveLosses 同款）：击穿 0x0010 / HE 爆炸 0x1000 →
@@ -794,6 +1006,52 @@ pub fn extract_shot_replays(
             (rel(ball_b), rel(ball_a))
         } else { ([0.0; 3], [0.0; 3]) };
 
+        // ⑭ 受击坦克 type=10 多 tick 采样（命中 ±1s，位置相对命中锚点）
+        let mut tick_samples: Vec<TickSample> = Vec::new();
+        if hit {
+            if let Some(victim) = target_eid {
+                for (t2, clock, p) in packets {
+                    if *t2 != 10 || p.len() < 48 { continue; }
+                    if u32::from_le_bytes([p[0], p[1], p[2], p[3]]) != victim { continue; }
+                    let dt = clock - end_time;
+                    if dt < -1.0 || dt > 0.2 { continue; }
+                    tick_samples.push(TickSample {
+                        dt,
+                        pos: [
+                            f32::from_le_bytes([p[12], p[13], p[14], p[15]]) - tp[0],
+                            f32::from_le_bytes([p[16], p[17], p[18], p[19]]) - tp[1],
+                            f32::from_le_bytes([p[20], p[21], p[22], p[23]]) - tp[2],
+                        ],
+                        yaw: f32::from_le_bytes([p[36], p[37], p[38], p[39]]),
+                        pitch: f32::from_le_bytes([p[40], p[41], p[42], p[43]]),
+                        roll: f32::from_le_bytes([p[44], p[45], p[46], p[47]]),
+                    });
+                }
+                tick_samples.sort_by(|a, b| a.dt.partial_cmp(&b.dt).unwrap());
+            }
+        }
+
+        // ⑮ 射手坦克 type=10 采样（开火时刻 ±0.2s，世界系绝对坐标）
+        let mut shooter_tick_samples: Vec<TickSample> = Vec::new();
+        for (t2, clock, p) in packets {
+            if *t2 != 10 || p.len() < 48 { continue; }
+            if u32::from_le_bytes([p[0], p[1], p[2], p[3]]) != author_player_eid { continue; }
+            let dt = clock - fire_time;
+            if dt < -0.2 || dt > 0.2 { continue; }
+            shooter_tick_samples.push(TickSample {
+                dt,
+                pos: [
+                    f32::from_le_bytes([p[12], p[13], p[14], p[15]]),
+                    f32::from_le_bytes([p[16], p[17], p[18], p[19]]),
+                    f32::from_le_bytes([p[20], p[21], p[22], p[23]]),
+                ],
+                yaw: f32::from_le_bytes([p[36], p[37], p[38], p[39]]),
+                pitch: f32::from_le_bytes([p[40], p[41], p[42], p[43]]),
+                roll: f32::from_le_bytes([p[44], p[45], p[46], p[47]]),
+            });
+        }
+        shooter_tick_samples.sort_by(|a, b| a.dt.partial_cmp(&b.dt).unwrap());
+
         out.push(ShotReplayData {
             index: i + 1,
             time_s: fire_time,
@@ -815,18 +1073,29 @@ pub fn extract_shot_replays(
             ball_b,
             launch_velocity: l.vel,
             hit_flags,
+            crit_modules,
+            destroyed_modules,
+            segment,
+            shell_id,
+            armor_group,
+            hit_triangle,
+            game_hit_result,
+            hit_token,
+            modifiers,
             shell_slot,
             fire_time,
             shot_id,
             incoming_yaw: 0.0,
             incoming_pitch: ta[1],
+            tick_samples,
+            shooter_tick_samples,
         });
     }
 
     // ⑧' method38 = 作者自己的命中反馈——每条都必须配对到一次发射
     if hr_cursor < hit_results.len() {
         anyhow::bail!("存在未被任何发射配对的 method38 命中结果（{} 条未消费，自 t={:.2}s 起）——发射/命中配对不完整",
-            hit_results.len() - hr_cursor, hit_results[hr_cursor].0);
+            hit_results.len() - hr_cursor, hit_results[hr_cursor].t);
     }
 
     Ok(out)

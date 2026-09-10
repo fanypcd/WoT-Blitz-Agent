@@ -83,8 +83,13 @@ fn norm_file_name(s: &str) -> String {
     s.chars().filter(|c| c.is_ascii_alphanumeric()).flat_map(|c| c.to_lowercase()).collect()
 }
 /// 在民族目录内解析某坦克的车辆 DVPL 文件（XML/YAML）。
-/// 优先精确匹配 `{dev_name}{ext}`；否则按归一化后的文件名包含 dev_name 匹配（处理
-/// tanks.pb dev_name 与游戏文件名不一致，如 "super-conqueror" → "GB91_Super_Conqueror"）。
+/// 匹配优先级（处理 tanks.pb dev_name 与游戏文件名不一致，如
+/// "super-conqueror" → "GB91_Super_Conqueror"）：
+///   1. 精确 `{dev_name}{ext}` / 归一化相等
+///   2. 正向：文件名归一化后【包含】dev_name（最短优先，通常是基准车而非衍生）
+///   3. 反向：dev_name 以文件名归一化为【前缀或后缀】（最长优先）
+/// 反向匹配必须锚定在词缀边界且不允许纯内嵌子串——否则 "xm66f" 会被
+/// "M6"（norm "m6" 是 "xm66f" 的内嵌子串且更短）抢走匹配，装上别人的装甲。
 fn resolve_vehicle_file(
     game_dir: &Path,
     rel: &str,
@@ -100,8 +105,8 @@ fn resolve_vehicle_file(
     let target = norm_file_name(dev_name);
     if target.is_empty() { return None; }
     let entries = std::fs::read_dir(&dir).ok()?;
-    // 收集所有匹配文件名：含 target 的（排除 _tutorial/_bot 变体，按最短/最接近优先）
-    let mut cands: Vec<(usize, PathBuf)> = Vec::new();
+    // (rank, tie, path)：rank 越小越优先；tie 在 rank 内部决定次序
+    let mut cands: Vec<(u8, usize, PathBuf)> = Vec::new();
     for e in entries.flatten() {
         let name = e.file_name();
         let Some(name) = name.to_str() else { continue };
@@ -112,13 +117,19 @@ fn resolve_vehicle_file(
             continue;
         }
         let norm = norm_file_name(base);
-        if norm.contains(&target) || target.contains(&norm) {
-            cands.push((base.len(), e.path()));
-        }
+        let (rank, tie) = if norm == target {
+            (0u8, 0usize)
+        } else if norm.contains(&target) {
+            (1, base.len())              // 正向：最短（最接近 dev_name）优先
+        } else if target.starts_with(&norm) || target.ends_with(&norm) {
+            (2, usize::MAX - norm.len()) // 反向：最长（最具体）优先
+        } else {
+            continue;
+        };
+        cands.push((rank, tie, e.path()));
     }
-    // 最短文件名优先（通常是基准车而非衍生）
-    cands.sort_by_key(|(l, _)| *l);
-    cands.first().map(|(_, p)| p.clone())
+    cands.sort_by_key(|&(rank, tie, _)| (rank, tie));
+    cands.first().map(|(_, _, p)| p.clone())
 }
 
 /// 批量提取全部坦克的装甲/碰撞数据到 `game_data/`（`extract-game` 命令）。
@@ -220,3 +231,4 @@ pub struct ExtractStats {
     pub parse_failed: usize,
     pub write_failed: usize,
 }
+
