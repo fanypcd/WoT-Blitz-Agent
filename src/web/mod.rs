@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 use axum::{
     routing::{delete, get, post},
@@ -8,29 +7,24 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
-use tokio::sync::Mutex;
 
-use crate::agent::{Agent, AgentEvent};
+use crate::agent::AgentEvent;
+use crate::web::sessions::{ChatError, SessionManager};
 
-/// 一个运行中的 Agent 会话：Agent 本体 + 已产生事件的队列。
-/// 事件队列被 `Mutex` 保护，供对话任务写入、前端轮询读取。
-struct Session {
-    agent: Option<Agent>,
-    events: Arc<std::sync::Mutex<Vec<AgentEvent>>>,
-}
+pub mod sessions;
 
-/// 全局共享状态：配置路径 + 会话表（按 session_id 区分）。
+/// 全局共享状态：配置路径 + 会话管理器（actor-per-session，见 sessions.rs）。
 #[derive(Clone)]
 struct AppState {
     config_path: std::path::PathBuf,
-    sessions: Arc<Mutex<HashMap<String, Session>>>,
+    sessions: SessionManager,
 }
 
 /// 启动 Web 服务器（绑定随机端口，自动打开浏览器）。
 pub async fn serve(config_path: std::path::PathBuf) -> anyhow::Result<()> {
     let state = AppState {
+        sessions: SessionManager::new(config_path.clone(), std::path::PathBuf::from("data/sessions")),
         config_path,
-        sessions: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let viewer_resolver = crate::wargaming::tank_resolver::TankResolver::load_from_json_file(
@@ -124,7 +118,7 @@ async fn armor_tank_data_handler(axum::extract::Path(tank_id): axum::extract::Pa
     Json(crate::wargaming::viewer::tank_data_value_prefixed(tank_id as u32, "/armor_view"))
 }
 
-/// 发起一次对话：创建（或复用）会话，后台启动 Agent 循环，返回 session_id。
+/// 发起一次对话：命令投递给该会话的 actor（串行执行），返回 session_id。
 async fn chat_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(req): Json<Value>,
@@ -135,117 +129,72 @@ async fn chat_handler(
         return (axum::http::StatusCode::BAD_REQUEST, "empty message").into_response();
     }
 
-    {
-        let mut guard = state.sessions.lock().await;
-        if !guard.contains_key(&session_id) {
-            match Agent::new(&state.config_path) {
-                Ok(agent) => {
-                    guard.insert(session_id.clone(), Session {
-                        agent: Some(agent),
-                        events: Arc::new(std::sync::Mutex::new(Vec::new())),
-                    });
-                }
-                Err(e) => {
-                    return (axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Failed to init agent: {e}")).into_response();
-                }
-            }
-        }
+    match state.sessions.chat(&session_id, text).await {
+        Ok(()) => Json(json!({ "session_id": session_id, "status": "started" })).into_response(),
+        Err(ChatError::Busy) => (
+            axum::http::StatusCode::CONFLICT,
+            "session busy: a conversation is already running",
+        ).into_response(),
+        Err(ChatError::InvalidId) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            "invalid session id (allowed: letters/digits/_/-, max 64 chars)",
+        ).into_response(),
+        Err(ChatError::Failed(e)) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to send chat: {e}"),
+        ).into_response(),
     }
-
-    let state2 = state.clone();
-    let (s_id, msg) = (session_id.clone(), text);
-    tokio::spawn(async move {
-        // 取出 Agent + 事件队列引用，然后【立即释放】sessions 锁——
-        // 否则轮询接口在聊天期间无法读取事件 → 进度只能批量到达
-        let (sink, agent) = {
-            let mut guard = state2.sessions.lock().await;
-            let Some(sess) = guard.get_mut(&s_id) else { return };
-            // 新一轮对话：清空事件缓冲（前端 lastEventCount=0 从零读增量，
-            // 否则上一轮事件被整体重放——第二句重复第一句的内容）
-            if let Ok(mut v) = sess.events.lock() { v.clear(); }
-            let sink = sess.events.clone();
-            let agent = std::mem::replace(&mut sess.agent, None);
-            (sink, agent)
-        };
-        let Some(mut agent) = agent else { return };
-        let sink2 = sink.clone();
-        let res = agent.chat_async(&msg, move |e| {
-            // std::sync::Mutex：同步回调中短暂 lock，不丢事件
-            if let Ok(mut v) = sink.lock() {
-                v.push(e);
-            }
-        }).await;
-        if let Err(e) = res {
-            if let Ok(mut v) = sink2.lock() {
-                v.push(AgentEvent::Error { message: e.to_string() });
-            }
-        }
-        // 归还 Agent
-        let mut guard = state2.sessions.lock().await;
-        if let Some(sess) = guard.get_mut(&s_id) {
-            sess.agent = Some(agent);
-        }
-    });
-
-    Json(json!({ "session_id": session_id, "status": "started" })).into_response()
 }
 
-/// 拉取某会话的事件流（前端约每 400ms 轮询一次，增量渲染进度）。
+/// 拉取某会话的事件流（前端轮询，增量渲染进度）。
 async fn chat_events_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
     axum::extract::Query(q): axum::extract::Query<HashMap<String, String>>,
 ) -> Response {
     let session_id = q.get("session_id").cloned().unwrap_or("default".into());
-    let guard = state.sessions.lock().await;
-    let Some(sess) = guard.get(&session_id) else {
-        return Json(json!({ "events": [], "done": true })).into_response();
-    };
-    let Ok(events) = sess.events.lock() else { return Json(json!({ "events": [] })).into_response() };
-    let arr: Vec<Value> = events.iter().map(|e| serde_json::to_value(e).unwrap_or(Value::Null)).collect();
+    let events: Vec<AgentEvent> = state.sessions.events_of(&session_id).await;
+    let arr: Vec<Value> = events.iter()
+        .map(|e| serde_json::to_value(e).unwrap_or(Value::Null)).collect();
     Json(json!({ "events": arr })).into_response()
 }
 
-/// 打断当前会话的任务（设置全局中断标志）。
+/// 打断指定会话的对话（会话级取消令牌；未指定 id 时回退全局标志）。
 async fn chat_cancel_handler(
-    axum::extract::State(_state): axum::extract::State<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<HashMap<String, String>>,
 ) -> Response {
-    crate::agent::set_interrupted();
+    match q.get("session_id").filter(|s| SessionManager::valid_id(s)) {
+        Some(id) => state.sessions.cancel(id).await,
+        None => crate::agent::set_interrupted(),
+    }
     Json(json!({ "status": "cancelling" })).into_response()
 }
 
-/// 读取某会话的消息历史（不含系统提示）。
+/// 读取某会话的消息历史（不含系统提示；活跃读镜像，非活跃读磁盘）。
 async fn session_get(
     axum::extract::State(state): axum::extract::State<AppState>,
     axum::extract::Query(q): axum::extract::Query<HashMap<String, String>>,
 ) -> Response {
     let session_id = q.get("session_id").cloned().unwrap_or("default".into());
-    let guard = state.sessions.lock().await;
-    let Some(sess) = guard.get(&session_id) else {
-        return Json(json!({ "messages": [] })).into_response();
-    };
-    let history: Vec<Value> = sess.agent.as_ref().map(|a| {
-        a.history().iter()
-            .map(|m| serde_json::to_value(m).unwrap_or(Value::Null)).collect::<Vec<_>>()
-    }).unwrap_or_default();
+    let history: Vec<Value> = state.sessions.history_of(&session_id).await.iter()
+        .map(|m| serde_json::to_value(m).unwrap_or(Value::Null)).collect();
     Json(json!({ "messages": history })).into_response()
 }
 
-/// 列出全部会话 ID。
+/// 列出全部会话 ID（活跃 ∪ 磁盘持久化的）。
 async fn sessions_list(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Response {
-    let guard = state.sessions.lock().await;
-    let ids: Vec<&String> = guard.keys().collect();
+    let ids = state.sessions.list_ids().await;
     Json(json!({ "sessions": ids })).into_response()
 }
 
-/// 删除指定会话。
+/// 删除指定会话（含持久化文件；运行中的对话一并终止）。
 async fn session_delete(
     axum::extract::State(state): axum::extract::State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Response {
-    state.sessions.lock().await.remove(&id);
+    state.sessions.delete(&id).await;
     Json(json!({ "status": "deleted" })).into_response()
 }
 
@@ -254,19 +203,10 @@ async fn session_export(
     axum::extract::State(state): axum::extract::State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Response {
-    let guard = state.sessions.lock().await;
     // 会话不存在 → 返回空 Markdown（而非 404），保证导出按钮始终可用
-    let Some(sess) = guard.get(&id) else {
-        let empty = format!("# WoTB Agent Session: {}\n\n*（此会话暂无消息）*\n", id);
-        return axum::response::Response::builder()
-            .header("Content-Type", "text/markdown; charset=utf-8")
-            .header("Content-Disposition", format!("attachment; filename=\"{}.md\"", id))
-            .body(axum::body::Body::from(empty))
-            .unwrap()
-            .into_response();
-    };
+    let history = state.sessions.history_of(&id).await;
     let mut md = format!("# WoTB Agent Session: {}\n\n", id);
-    for m in sess.agent.as_ref().map(|a| a.history()).unwrap_or_default() {
+    for m in &history {
         let v = serde_json::to_value(m).unwrap_or(Value::Null);
         let role = v["role"].as_str().unwrap_or("").to_string();
         // 只导出用户提问 + assistant 最终回答：
@@ -286,7 +226,6 @@ async fn session_export(
     if md.trim() == format!("# WoTB Agent Session: {}", id).trim() {
         md.push_str("\n*（此会话暂无消息）*\n");
     }
-    drop(guard);
     axum::response::Response::builder()
         .header("Content-Type", "text/markdown; charset=utf-8")
         .header("Content-Disposition", format!("attachment; filename=\"{}.md\"", id))

@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use serde_json::Value;
+use tokio_util::sync::CancellationToken;
 
 use crate::models::config::{Config, TokenUsage};
 use crate::agent::llm_client::{LlmClient, ChatMessage, ToolDefinition};
@@ -26,11 +27,6 @@ pub fn set_interrupted() {
 /// 查询是否已请求打断（Agent Loop 每步检查）。
 pub fn is_interrupted() -> bool {
     INTERRUPTED.load(Ordering::SeqCst)
-}
-
-/// 清除打断标志（每次对话开始时调用，避免上一次的标记残留）。
-pub fn clear_interrupted() {
-    INTERRUPTED.store(false, Ordering::SeqCst);
 }
 
 /// Agent 一次对话回合中上报的事件，供 GUI 流式渲染进度。
@@ -77,6 +73,9 @@ pub struct Agent {
     usage: TokenUsage,
     /// token 用量落盘路径（`token_usage.json`）
     usage_path: std::path::PathBuf,
+    /// 本实例专属的取消令牌（Web 会话级打断；每轮对话开始前由会话
+    /// actor 换入新令牌，cancel 只影响当前轮。CLI Ctrl+C 仍走全局标志回退）
+    cancel: CancellationToken,
     pub replay_dir: String,
     pub tank_cache: Option<std::path::PathBuf>,
 }
@@ -139,6 +138,7 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
             tool_defs: AgentTools::definitions(),
             usage,
             usage_path,
+            cancel: CancellationToken::new(),
             replay_dir,
             tank_cache,
         })
@@ -162,8 +162,6 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
             return Err(anyhow::anyhow!("LLM API key not configured. Run `wotb-agent config --show` to edit config.toml."));
         }
 
-        clear_interrupted();
-
         // 追加用户输入
         self.messages.push(ChatMessage {
             role: "user".to_string(),
@@ -176,8 +174,8 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
 
         let max_iterations = 5;
         for i in 0..max_iterations {
-            // R4：每步开头检查打断标志
-            if is_interrupted() {
+            // R4：每步开头检查打断（会话级令牌 + CLI 全局 Ctrl+C 回退）
+            if self.cancel.is_cancelled() || is_interrupted() {
                 on_event(AgentEvent::Interrupted);
                 self.messages.push(ChatMessage {
                     role: "assistant".to_string(),
@@ -204,7 +202,7 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
             // 模型要求调用工具 → 逐个执行，把结果作为 tool 消息回填
             if let Some(tool_calls) = &response.tool_calls {
                 for tc in tool_calls {
-                    if is_interrupted() {
+                    if self.cancel.is_cancelled() || is_interrupted() {
                         break;
                     }
                     let tool_name = &tc.function.name;
@@ -282,6 +280,12 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
     /// 立即把 token 用量落盘。
     pub fn save_usage(&self) {
         self.usage.save_to_file(&self.usage_path).ok();
+    }
+
+    /// 换入新的取消令牌（会话 actor 在每轮对话开始前调用，
+    /// 使 cancel 只作用于当前轮，且无需 reset 残留）。
+    pub fn set_cancel_token(&mut self, t: CancellationToken) {
+        self.cancel = t;
     }
 
     /// 获取对话历史（不含系统提示），供 Web GUI 展示。

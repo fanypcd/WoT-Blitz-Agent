@@ -17,3 +17,9 @@ screenshots/
 
 # 本地备份目录(不入仓库)
 backup_pre_wi_align/
+
+# 网络学堂作业材料（大体积对话记录，单独打包提交）
+assignment/
+data/sessions/
+# Agent 会话持久化（运行时生成）
+data/sessions/

@@ -515,8 +515,9 @@ $('session-select').addEventListener('change', async function() {
     await loadSessionHistory(sessionId);
 });
 $('btn-sess-new').addEventListener('click', async function() {
-    const name = prompt('新会话名称：', 'session_' + Date.now());
+    const name = prompt('新会话名称（字母/数字/_/-，≤64字符）：', 'session_' + Date.now());
     if (!name) return;
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) { toast('名称只能包含字母/数字/_/-，≤64字符'); return; }
     sessionId = name;
     await loadSessions();
     $('session-select').value = sessionId;
@@ -526,7 +527,8 @@ $('btn-sess-new').addEventListener('click', async function() {
 $('btn-sess-del').addEventListener('click', async function() {
     if (sessionId === 'default') { toast('默认会话不可删除'); return; }
     if (!confirm('确定删除会话 "'+sessionId+'"？')) return;
-    await fetch(API+'/session/'+encodeURIComponent(sessionId), {method:'DELETE'});
+    const r = await fetch(API+'/api/session/'+encodeURIComponent(sessionId), {method:'DELETE'});
+    if (!r.ok) { toast('删除失败: HTTP '+r.status); return; }
     sessionId = 'default';
     await loadSessions();
     await loadSessionHistory(sessionId);
@@ -559,6 +561,7 @@ async function sendChat() {
     pbAdd('💭 thinking...');
     try {
         const resp=await fetch(API+'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId,message:text})});
+        if(resp.status===409){setStatus('会话正忙，请稍候');setProcessingUI(false);return;}
         if(!resp.ok){setStatus('Error: '+resp.status);setProcessingUI(false);return;}
         startPolling();
     } catch(e) { setStatus('Error: '+e); setProcessingUI(false); }
@@ -597,7 +600,7 @@ function finishProcessing(statusHtml) {
 $('btn-send').addEventListener('click',sendChat);
 $('chat-input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();if(!isProcessing)sendChat();}});
 $('btn-cancel').addEventListener('click',async()=>{
-    await fetch(API+'/api/chat/cancel',{method:'POST'});
+    await fetch(API+'/api/chat/cancel?session_id='+encodeURIComponent(sessionId),{method:'POST'});
     pbAdd('⏹ 用户请求中断','pb-err');
     finishProcessing('<span class="st-err">已中断</span>');
 });
