@@ -35,7 +35,12 @@ budget = 10.0                            # 总预算(美元), 超预算自动中
 #   或直接用项目自带测试回放:
 #     replay_dir = "replay_samples"
 #   (replay_samples/ 内含 3 个示例 .wotbreplay, 可直接用于测试 scan / single / compare)
-#   Web 界面("Replay Scan Report" 标签)里也可以用 Windows 绝对路径, 后端会自动转为 /mnt/... 访问。
 replay_dir = "replay_samples"
+# 路径风格转换。程序有 Windows 与 WSL 两种运行版本, 回放路径两种风格都接受:
+#   auto(默认) = 按运行平台自动转成本地形式(Windows 版把 /mnt/c/... → C:/..., WSL 版反之)
+#   windows / wsl = 强制转成对应风格
+#   off = 不转换(自定义挂载点等场景)
+# Web 界面 Replay/Scan 标签与 combat 命令均适用。
+path_translate = "auto"
 # 坦克缓存文件路径(由 fetch-tanks 命令生成; 默认在 data/ 下)。
 tank_cache_path = "data/tank_cache.json"

@@ -219,7 +219,7 @@ enum Commands {
     },
     /// Analyze combat events from a replay
     Combat {
-        /// Path to the .wotbreplay file
+        /// Path to the .wotbreplay file (Windows `C:\...` and WSL `/mnt/c/...` styles both accepted)
         file: PathBuf,
         /// Output JSON instead of text
         #[arg(short, long)]
@@ -879,6 +879,11 @@ fn main() -> Result<()> {
         Commands::Combat { file, json, dump: _, shots_json } => {
             use wotbreplay_parser::replay::Replay;
             use std::fs::File;
+
+            // 路径风格兼容：程序存在 Windows / WSL 两种运行版本，任一风格输入
+            // 按运行平台自动转换（C:\... ⇄ /mnt/c/...；[replay].path_translate=off 可关闭）
+            let file = std::path::PathBuf::from(
+                crate::models::config::ReplayConfig::translate_with_mode(&file.to_string_lossy(), "auto"));
 
             let mut replay = Replay::open(File::open(&file)?)
                 .map_err(|e| anyhow::anyhow!("Failed to open replay: {}", e))?;

@@ -473,10 +473,110 @@ pub struct ShotReplayData {
     /// 射手坦克 type=10 采样（开火 ±0.2s，世界系绝对坐标）
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub shooter_tick_samples: Vec<TickSample>,
+    /// 地形命中数据（Avatar method 0x1b；仅当该发未命中任何坦克且服务器广播时存在）。
+    /// args(34) = [shotId u32][shell_global_id u32][material u8]
+    ///            [impactPoint 3×f32][segmentStartPoint 3×f32][tail u8]
+    /// - impact_point == method20 弹道终点（4 回放实测逐发一致）；
+    /// - segment_start = 弹道末段起点（直线弹 = method29 发射点，误差 0.000m；
+    ///   其余为弹跳点——地面跳弹后末段的起始位置）；
+    /// - material：落点材质类（观测 0/1/2/4/5，命名未定）。
+    /// 约覆盖 2/3 的地形弹（其余命中岩石/建筑/残骸等非地形静态物，无此包）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terrain_impact: Option<TerrainImpactData>,
+    /// 开火时刻瞄准快照（Avatar method36；战斗初始/瞄准变化外的开火成对快照，
+    /// 缺失时 None）。炮塔相对偏航为 f64 全精度（prop2 为 u16 量化）；
+    /// 成对 state_before/after 为未定名状态常量（非扩散度，见 ShooterAimData 注）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shooter_aim: Option<ShooterAimData>,
     /// 兼容旧字段：= type32_turret_yaw（曾误标为"来袭方向"，实为受击者炮塔角）。
     pub incoming_yaw: f32,
     /// 兼容旧字段：= target_gun_pitch（曾误标为"来袭俯角"，实为受击者炮管俯仰）。
     pub incoming_pitch: f32,
+}
+
+/// method 0x1b 地形命中数据（字段语义见 [`ShotReplayData::terrain_impact`]）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerrainImpactData {
+    /// 落点材质类（0/1/2/4/5 观测，具体命名未定）
+    pub material: u8,
+    /// 精确落点（回放世界系，米；== method20 弹道终点）
+    pub impact_point: [f32; 3],
+    /// 弹道末段起点（直线弹 = 发射点；弹跳弹 = 弹跳点）
+    pub segment_start: [f32; 3],
+}
+
+/// Avatar method36 (0x24) 开火时刻瞄准快照（可选，fail-soft：无快照则 None）。
+/// args = [payloadLen u8][protobuf]：field1(f64)=炮塔相对车体偏航（与 prop2 同语义、
+/// f64 全精度，实测 |Δ|≤0.024 rad）。开火时刻成对出现（射击前/后各一条，f1 恒同）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShooterAimData {
+    /// 炮塔相对车体偏航（rad，开火时刻 f64 全精度）
+    pub turret_rel_yaw: f64,
+    /// 成对快照 field6.field1（射击前；跨坦克/跨发实测恒 ≈0.842——
+    /// 旧标注"扩散度"与实测矛盾，语义未定，透传供后续研究）
+    pub state_before: f64,
+    /// 成对快照 field6.field1（射击后；实测恒 ≈0.906；无成对快照时 None）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_after: Option<f64>,
+}
+
+/// protobuf 最小遍历：varint / fixed64 / 定长子消息，返回 (field_no, wire_type, 内容偏移, 内容长)。
+/// 仅用于 method36 快照；格式不合法返回 None（fail-soft 调用方忽略）。
+fn proto_fields(b: &[u8]) -> Option<Vec<(u32, u8, usize, usize)>> {
+    fn varint(b: &[u8], mut o: usize) -> Option<(u64, usize)> {
+        let mut v = 0u64;
+        let mut s = 0u32;
+        loop {
+            let x = *b.get(o)?;
+            o += 1;
+            v |= ((x & 0x7f) as u64) << s;
+            if x & 0x80 == 0 { return Some((v, o)); }
+            s += 7;
+            if s > 63 { return None; }
+        }
+    }
+    let mut out = Vec::new();
+    let mut o = 0usize;
+    while o < b.len() {
+        let (tag, o2) = varint(b, o)?;
+        let (no, wt) = ((tag >> 3) as u32, (tag & 7) as u8);
+        let (start, len) = match wt {
+            0 => { let (_, o3) = varint(b, o2)?; (o2, o3 - o2) }
+            1 => (o2, 8),
+            5 => (o2, 4),
+            2 => { let (l, o3) = varint(b, o2)?; (o3, l as usize) }
+            _ => return None,
+        };
+        let end = start.checked_add(len)?;
+        if end > b.len() { return None; }
+        out.push((no, wt, start, len));
+        o = end;
+    }
+    Some(out)
+}
+
+/// 解析 method36 args：返回 (field1 炮塔相对偏航, field6.field1 扩散度)。
+fn parse_method36(args: &[u8]) -> (Option<f64>, Option<f64>) {
+    if args.is_empty() { return (None, None); }
+    // args[0] = payload 长度前缀（= args.len()-1），容错取 min
+    let end = (args[0] as usize + 1).min(args.len());
+    let payload = &args[1..end];
+    let fields = match proto_fields(payload) {
+        Some(f) => f,
+        None => return (None, None),
+    };
+    let fixed64 = |b: &[u8], f: &(u32, u8, usize, usize)| {
+        f64::from_le_bytes(b[f.2..f.2 + 8].try_into().unwrap())
+    };
+    let f1 = fields.iter().find(|f| f.0 == 1 && f.1 == 1).map(|f| fixed64(payload, f));
+    let dispersion = fields.iter().find(|f| f.0 == 6 && f.1 == 2).and_then(|f| {
+        let sub = &payload[f.2..f.2 + f.3];
+        proto_fields(sub)?
+            .iter()
+            .find(|s| s.0 == 1 && s.1 == 1)
+            .map(|s| fixed64(sub, s))
+    });
+    (f1, dispersion)
 }
 
 /// 提取某实体在时刻 t 最近的 type=10 状态包：位置 + 朝向（无时间窗口限制，
@@ -495,6 +595,69 @@ fn entity_state_at(packets: &[(u32, f32, &[u8])], eid: u32, t: f32) -> Option<([
         }
     }
     best.map(|(_, pos, ang)| (pos, ang))
+}
+
+/// type=10 相邻快照段的运动学合理性检验（用于剔除服务器纠偏平滑轨迹）。
+///
+/// 回放快照流是客户端显示位置（本地预测 + 服务器纠偏平滑收敛），当客户端
+/// 预测与服务器权威位置发散时，流中出现沿车体反方向的连续"倒车滑移"段：
+/// 速度可达真实倒车极限的 2~3 倍（实测重坦 39 km/h 倒车、0→9 m/s 0.7s），
+/// 且弹道几何不可达（炮口偏移 3~5 m）。坦克真实运动学约束：
+/// 倒车 ≤5.5 m/s（≈20 km/h，全游戏倒车上限）、侧移 ≤5.0 m/s（坦克不可能
+/// 持续侧移）、前向 ≤30 m/s（快车俯坡）、加速度 ≤8 m/s²（坦克加/制动极限；
+/// 纠偏滑移实测 ±14~35 m/s²）。位移 <0.25 m 的微跳不截断（保留轨迹连续性，
+/// 避免把真实轨迹末端的厘米级纠偏误杀）。
+/// [已撤回] 坏数据截断逻辑:原用于剔除命中前"疑似漂移"的采样前缀,实测会把
+/// 真实倒车(LT-432 等轻坦倒车极速 >20km/h,超 5.5m/s 阈值)整段误杀,
+/// 导致 tick 切换丢失。用户决定完全按回放原始数据渲染,不再调用;
+/// 函数体保留供将来参考。
+#[allow(dead_code)]
+fn seg_speed(a: &TickSample, b: &TickSample) -> (f32, f32, f32, f32) {
+    let dt = (b.dt - a.dt).abs().max(1e-3);
+    let dx = b.pos[0] - a.pos[0];
+    let dz = b.pos[2] - a.pos[2];
+    let v = (dx * dx + dz * dz).sqrt() / dt;
+    let mut err = (dx.atan2(dz) - b.yaw).rem_euclid(std::f32::consts::TAU);
+    if err > std::f32::consts::PI { err -= std::f32::consts::TAU; }
+    (v, err.abs(), dt, (dx * dx + dz * dz).sqrt())
+}
+
+#[allow(dead_code)]
+fn cut_needed(v: f32, err: f32, disp: f32, prev_v: Option<(f32, f32)>) -> bool {
+    if disp < 0.25 || v <= 0.5 { return false; }
+    let hard = if err < 45.0f32.to_radians() {
+        v > 30.0
+    } else if err > 135.0f32.to_radians() {
+        v > 5.5
+    } else {
+        v > 5.0
+    };
+    if hard { return true; }
+    // 反向/侧向段附加加速度检验：坦克加/制动 ≤8 m/s²，纠偏滑移远超此限
+    if err > 45.0f32.to_radians() {
+        if let Some((pv, pdt)) = prev_v {
+            if pdt > 0.03 && (v - pv).abs() / pdt > 8.0 { return true; }
+        }
+    }
+    false
+}
+
+/// 全链扫描，截除最后一段不合理样本之前的前缀（其后样本已收敛到服务器
+/// 权威基线；此前样本位于纠偏漂移基线上，相对锚点整体错位，不可用）。
+#[allow(dead_code)]
+fn truncate_implausible_prefix(samples: &mut Vec<TickSample>) {
+    let mut cut = 0usize;   // 保留 samples[cut..]
+    let mut prev: Option<(f32, f32)> = None;
+    for i in 1..samples.len() {
+        let (v, err, dt, disp) = seg_speed(&samples[i - 1], &samples[i]);
+        if cut_needed(v, err, disp, prev) {
+            cut = i;
+        }
+        prev = Some((v, dt));
+    }
+    if cut > 0 {
+        samples.drain(0..cut);
+    }
 }
 
 /// Vehicle method1（type=8 method=0x01）血量/来源/原因事件（WotbTools AFFIRMED）：
@@ -760,6 +923,57 @@ pub fn extract_shot_replays(
     }
     ammo_selects.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
 
+    // ⑤'' Avatar method 0x07 弹种广播时间线：args(5) = [a0 u8][shell_global_id u32 LE]。
+    // a0=0/1 恒成对同值（双份记录/弹鼓双槽，槽位语义未定），a0=18 为非弹种数据（排除）。
+    // shell@fire_time 与 type=32 segment 弹种逐发一致（4 回放 30/30），故在命中通知
+    // 未被服务器转发时（含全部脱靶弹）以此兜底补全弹种。
+    let mut shell_broadcasts: Vec<(f32, u32)> = Vec::new();
+    for (_, clock, p) in packets {
+        if p.len() < 17 { continue; }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x07 { continue; }
+        let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
+        if args_len < 5 || 12 + args_len > p.len() { continue; }
+        if p[12] != 0 && p[12] != 1 { continue; }
+        shell_broadcasts.push((*clock, u32::from_le_bytes([p[13], p[14], p[15], p[16]])));
+    }
+    shell_broadcasts.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
+
+    // ⑤''' Avatar method 0x1b 地形命中包（仅无坦克命中时广播）：shotId 配对。
+    // args(34) 布局见 TerrainImpactData 文档；impactPoint 与 method20 终点一致。
+    let mut terrain_impacts: std::collections::HashMap<u32, TerrainImpactData> =
+        std::collections::HashMap::new();
+    for (_, _, p) in packets {
+        if p.len() < 46 { continue; }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x1b { continue; }
+        let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
+        if args_len < 34 || 12 + args_len > p.len() { continue; }
+        let a = &p[12..12 + args_len];
+        let f = |o: usize| f32::from_le_bytes([a[o], a[o + 1], a[o + 2], a[o + 3]]);
+        terrain_impacts.entry(u32::from_le_bytes([a[0], a[1], a[2], a[3]])).or_insert(
+            TerrainImpactData {
+                material: a[8],
+                impact_point: [f(9), f(13), f(17)],
+                segment_start: [f(21), f(25), f(29)],
+            },
+        );
+    }
+
+    // ⑤'''' Avatar method36 (0x24) 瞄准快照时间线（envelope = avatar = 录像者本人）。
+    // args = [len u8][protobuf]；开火时刻成对（前/后扩散度，f1 恒同）。
+    // 布局不合法的包 fail-soft 跳过（不影响主链 fail-fast）。
+    let mut aim_snapshots: Vec<(f32, f64, f64)> = Vec::new();   // (clock, 炮塔相对偏航, 扩散度)
+    for (_, clock, p) in packets {
+        if p.len() < 14 { continue; }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x24 { continue; }
+        let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
+        if args_len < 2 || 12 + args_len > p.len() { continue; }
+        let (yaw, disp) = parse_method36(&p[12..12 + args_len]);
+        if let (Some(yaw), Some(disp)) = (yaw, disp) {
+            aim_snapshots.push((*clock, yaw, disp));
+        }
+    }
+    aim_snapshots.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
+
     // ⑥ 游标
     let hp_events = parse_hp_events(packets);   // method1 血量事件（全实体，按时钟排序）
     // ⑥' 确定性伤害降幅区间（参考 WotbTools PlaybackCombatReconstruction.deriveLosses）：
@@ -922,6 +1136,28 @@ pub fn extract_shot_replays(
             }
         }
 
+        // ⑧'' 弹种兜底：命中通知未被服务器转发（segment=0，含全部脱靶弹）时，
+        // 用 method 0x07 弹种广播在发射时刻的最新值补全（与 segment 弹种 30/30 一致）。
+        if shell_id == 0 {
+            for (t_sel, sh) in &shell_broadcasts {
+                if *t_sel <= fire_time { shell_id = *sh; } else { break; }
+            }
+        }
+        let terrain_impact = terrain_impacts.get(&shot_id).cloned();
+
+        // ⑧''' 开火时刻瞄准快照（method36 成对，|dt|≤0.05）：前=射击前，后=射击后。
+        let shooter_aim = {
+            let cands: Vec<(f64, f64)> = aim_snapshots.iter()
+                .filter(|(t2, _, _)| (*t2 - fire_time).abs() <= 0.05)
+                .map(|(_, y, d)| (*y, *d))
+                .collect();
+            cands.first().map(|(yaw, disp)| ShooterAimData {
+                turret_rel_yaw: *yaw,
+                state_before: *disp,
+                state_after: cands.get(1).map(|(_, d)| *d),
+            })
+        };
+
         // 伤害归属（确定性，WotbTools deriveLosses 同款）：击穿 0x0010 / HE 爆炸 0x1000 →
         if hit && hit_flags & (0x0010 | 0x1000) != 0 {
             let victim = target_eid.unwrap_or(0);
@@ -1006,7 +1242,14 @@ pub fn extract_shot_replays(
             (rel(ball_b), rel(ball_a))
         } else { ([0.0; 3], [0.0; 3]) };
 
-        // ⑭ 受击坦克 type=10 多 tick 采样（命中 ±1s，位置相对命中锚点）
+        // ⑭ 受击坦克 type=10 多 tick 采样（命中 ±1s，位置相对命中锚点）。
+        // 只保留命中 tick 及之前的采样：
+        // 命中之后的数据包源会切换（AoI 远端基线 / 延迟缓冲），其后首个包的位置
+        // 含数米级瞬移、朝向跳变——混入后 tick 切换会出现"横着滑移"
+        // （位移方向 ⟂ 履带方向）与幽灵框朝向错乱（96 段实测 40 段反转）。
+        // 窗口放宽到 +0.09 仅作锚点兜底：流里无 |dt|<0.05 的命中 tick 时，
+        // 用最近的 +0.09 内包近似；有真锚点时丢弃其后样本。
+        // 姿态/弹着点滤波只需命中前的连续车体，受击反馈用 hit_flags/segment 表达。
         let mut tick_samples: Vec<TickSample> = Vec::new();
         if hit {
             if let Some(victim) = target_eid {
@@ -1014,7 +1257,7 @@ pub fn extract_shot_replays(
                     if *t2 != 10 || p.len() < 48 { continue; }
                     if u32::from_le_bytes([p[0], p[1], p[2], p[3]]) != victim { continue; }
                     let dt = clock - end_time;
-                    if dt < -1.0 || dt > 0.2 { continue; }
+                    if dt < -1.0 || dt > 0.09 { continue; }
                     tick_samples.push(TickSample {
                         dt,
                         pos: [
@@ -1027,17 +1270,27 @@ pub fn extract_shot_replays(
                         roll: f32::from_le_bytes([p[44], p[45], p[46], p[47]]),
                     });
                 }
+                // 有真锚点（|dt|<0.05）时丢弃其后样本（其必为切换后基线）
+                if tick_samples.iter().any(|s| s.dt.abs() < 0.05) {
+                    tick_samples.retain(|s| s.dt < 0.05);
+                }
                 tick_samples.sort_by(|a, b| a.dt.partial_cmp(&b.dt).unwrap());
+                // 坏数据截断已撤回(用户决定):倒车等"疑似漂移"段是真实记录,
+                // 完全按回放原始数据渲染。truncate_implausible_prefix 保留函数体
+                // 仅供参考,不再调用。
             }
         }
-
-        // ⑮ 射手坦克 type=10 采样（开火时刻 ±0.2s，世界系绝对坐标）
+        // ⑮ 射手坦克 type=10 采样（开火时刻 ±1.0s，世界系绝对坐标）
+        // 与 ⑭ 同因：开火事件同样会触发数据包源切换（位置/朝向跳变），
+        // 有真锚点（|dt|<0.05）时只保留锚点及其前采样，无锚点才放宽到 +0.09 兜底。
+        // 前窗与受击方一致取 ±1.0s：受击方 tick 跨度 ±1.0s,射手窗过窄(±0.2s)时
+        // 靠前 tick 会钳死在开火位置,呈现"射手不动"的假象(实际 8m/s 移动 0.8s)。
         let mut shooter_tick_samples: Vec<TickSample> = Vec::new();
         for (t2, clock, p) in packets {
             if *t2 != 10 || p.len() < 48 { continue; }
             if u32::from_le_bytes([p[0], p[1], p[2], p[3]]) != author_player_eid { continue; }
             let dt = clock - fire_time;
-            if dt < -0.2 || dt > 0.2 { continue; }
+            if dt < -1.0 || dt > 0.09 { continue; }
             shooter_tick_samples.push(TickSample {
                 dt,
                 pos: [
@@ -1050,7 +1303,11 @@ pub fn extract_shot_replays(
                 roll: f32::from_le_bytes([p[44], p[45], p[46], p[47]]),
             });
         }
+        if shooter_tick_samples.iter().any(|s| s.dt.abs() < 0.05) {
+            shooter_tick_samples.retain(|s| s.dt < 0.05);
+        }
         shooter_tick_samples.sort_by(|a, b| a.dt.partial_cmp(&b.dt).unwrap());
+        // 坏数据截断已撤回(同 ⑭):完全按回放原始数据渲染
 
         out.push(ShotReplayData {
             index: i + 1,
@@ -1089,6 +1346,8 @@ pub fn extract_shot_replays(
             incoming_pitch: ta[1],
             tick_samples,
             shooter_tick_samples,
+            terrain_impact,
+            shooter_aim,
         });
     }
 

@@ -156,7 +156,7 @@ impl AgentTools {
                 def_type: "function".to_string(),
                 function: ToolFunction {
                     name: "simulate_penetration".to_string(),
-                    description: "Simulate a shell penetration: shooter tank's shell vs target tank's armor, using the BlitzKit-aligned judgment (ricochet, normalization, overmatch, spaced plates, HEAT gap decay, HE splash, distance decay, calibrated shells/enhanced armor). NOTE: the shell must ULTIMATELY penetrate the target's hull/turret main armor to count as penetration - spaced plates and gun mantlets only consume penetration. Provide `aim` preset OR explicit `hits` (see get_tank_armor for available plates).".to_string(),
+                    description: "Simulate a shell penetration: shooter tank's shell vs target tank's armor, matching BlitzKit's judgment exactly (ricochet, normalization, overmatch, spaced plates, HEAT gap decay, HE splash, calibrated shells/enhanced armor; near penetration value only - no distance decay). Result follows the LAST layer's status: the shot is a PENETRATION (full armor damage) iff the final layer is penetrated - e.g. penetrating only a track/spaced plate also counts as penetration, exactly like BlitzKit's armor inspector. A ricochet keeps 75% penetration and the reflected ray is re-judged. Provide `aim` preset OR explicit `hits` (see get_tank_armor for available plates).".to_string(),
                     parameters: json!({
                         "type": "object",
                         "properties": {
@@ -164,7 +164,7 @@ impl AgentTools {
                             "shooter": {"type": "string", "description": "Shooter (attacking) tank name or ID. Fuzzy match."},
                             "shell": {"type": "string", "description": "Shell type filter: AP, APCR, HEAT or HE (optional, default = the gun's first shell)"},
                             "aim": {"type": "string", "description": "Aim preset: hull_front, hull_side, hull_rear, turret_front, turret_side, turret_rear. Builds a single-plate hit from the armor summary.", "enum": ["hull_front","hull_side","hull_rear","turret_front","turret_side","turret_rear"]},
-                            "hits": {"type": "array", "description": "Explicit layer stack (advanced, overrides aim). Order = the order the shell crosses them. Items: {section: hull|turret|spaced|chassis|gunBarrel, thickness_mm: number}. hull/turret are main-armor (angle-effective, can ricochet); spaced/chassis/gunBarrel are flat consumption layers.", "items": {"type": "object", "properties": {"section": {"type": "string", "enum": ["hull","turret","spaced","chassis","gunBarrel"]}, "thickness_mm": {"type": "number"}}, "required": ["section","thickness_mm"]}},
+                            "hits": {"type": "array", "description": "Explicit layer stack (advanced, overrides aim). Order = the order the shell crosses them. Items: {section: hull|turret|gun|spaced|chassis|gunBarrel, thickness_mm: number}. hull/turret/gun are angle-effective primary armor (can ricochet/normalize, blitzkit Primary); spaced is angle-effective spaced armor; chassis/gunBarrel are flat external modules (blitzkit External).", "items": {"type": "object", "properties": {"section": {"type": "string", "enum": ["hull","turret","gun","spaced","chassis","gunBarrel"]}, "thickness_mm": {"type": "number"}}, "required": ["section","thickness_mm"]}},
                             "angle_deg": {"type": "number", "description": "Impact angle in degrees. 0 = perpendicular to the plate. Default 0."},
                             "distance_m": {"type": "number", "description": "Engagement distance in meters (default 100). Penetration decays linearly from near to far over the shell's range."},
                             "calibrated_shells": {"type": "boolean", "description": "Calibrated Shells equipment: penetration +6% (AP/APCR) / +7% (HEAT/HE). Default false."},
@@ -620,7 +620,7 @@ impl AgentTools {
         if let Some(hits_arr) = args["hits"].as_array() {
             for (i, h) in hits_arr.iter().enumerate() {
                 let section: ArmorSection = serde_json::from_value(h["section"].clone())
-                    .map_err(|_| anyhow::anyhow!("invalid section '{}' (use hull/turret/spaced/chassis/gunBarrel)", h["section"].as_str().unwrap_or("?")))?;
+                    .map_err(|_| anyhow::anyhow!("invalid section '{}' (use hull/turret/gun/spaced/chassis/gunBarrel)", h["section"].as_str().unwrap_or("?")))?;
                 let thickness = h["thickness_mm"].as_f64().unwrap_or(0.0) as f32;
                 hits.push(ArmorHit {
                     section, plate_id: format!("h{}", i + 1), thickness,
@@ -661,13 +661,12 @@ impl AgentTools {
             view_dir: view,
             hits,
             damage: shell.damage as f32,
-            module_damage: shell.module_damage as f32,
             explosion_radius: shell.explosion_radius as f32,
             calibrated_shells: args["calibrated_shells"].as_bool().unwrap_or(false),
-            penetration_far: if shell.penetration_far > 0.0 { Some(shell.penetration_far as f32) } else { None },
-            range: if shell.range > 0.0 { Some(shell.range as f32) } else { None },
             enhanced_armor: args["enhanced_armor"].as_bool().unwrap_or(false),
-            distance,
+            // blitzkit：normalization ?? 0；ricochet 仅非 explosive 弹使用（HEAT/HE 强制 90°）
+            normalization_deg: Some(shell.normalization as f32),
+            ricochet_deg: if shell.ricochet > 0.0 { Some(shell.ricochet as f32) } else { None },
             allow_ricochet: true,
         };
         let res = penetration::calculate(&req);
@@ -863,7 +862,7 @@ impl AgentTools {
         // 独立线程 + 独立 runtime：解析回放 → 启动带数据的查看器 → 无头截图
         let handle = std::thread::spawn(move || -> Result<String> {
             let rt = tokio::runtime::Runtime::new()?;
-            let port = rt.block_on(crate::wargaming::viewer::start_viewer_server_for_replay(
+            let (port, shell_slot) = rt.block_on(crate::wargaming::viewer::start_viewer_server_for_replay(
                 std::path::Path::new(&file), resolver, shot_no))?;
             let is_win = chrome.contains("/mnt/");
             let fname_abs = std::env::current_dir()
@@ -875,8 +874,8 @@ impl AgentTools {
                 format!("--screenshot={}", fname_abs)
             };
             let url = format!(
-                "http://127.0.0.1:{}/?headless=1&heatmap=1&clean=1&shot={}&dist=9",
-                port, shot_no
+                "http://127.0.0.1:{}/?headless=1&heatmap=1&clean=1&shot={}&shell={}&dist=9",
+                port, shot_no, shell_slot
             );
             let out = std::process::Command::new(&chrome)
                 .args([

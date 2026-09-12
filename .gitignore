@@ -23,3 +23,6 @@ assignment/
 data/sessions/
 # Agent 会话持久化（运行时生成）
 data/sessions/
+.zcode/
+tmp_analysis/
+tmp_wi/

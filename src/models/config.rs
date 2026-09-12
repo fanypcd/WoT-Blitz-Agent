@@ -59,6 +59,76 @@ pub struct ReplayConfig {
     pub replay_dir: String,
     /// 坦克缓存文件路径（`tank_cache.json`）
     pub tank_cache_path: String,
+    /// 路径风格转换。程序存在 Windows 与 WSL/Linux 两种运行版本，
+    /// 用户输入的回放路径可能是任一风格。两种风格的输入随时都接受：
+    ///   auto（默认）= 转成本次运行平台的本地形式（Windows 版把 /mnt/c/... → C:/...，
+    ///                WSL/Linux 版把 C:\... → /mnt/c/...）
+    ///   windows / wsl = 强制转成对应风格
+    ///   off = 不转换（自定义挂载点等特殊场景）
+    #[serde(default = "default_path_translate")]
+    pub path_translate: String,
+}
+
+fn default_path_translate() -> String { "auto".to_string() }
+
+impl ReplayConfig {
+    /// 按配置把用户输入的路径转成本地可用形式（见 [`Self::path_translate`]）。
+    pub fn translate(&self, input: &str) -> String {
+        Self::translate_with_mode(input, &self.path_translate)
+    }
+
+    /// 路径风格转换内核（mode = auto | windows | wsl | off）。
+    ///
+    /// 双向映射无歧义，盘符大小写归一：
+    ///   `/mnt/<d>/rest`  ⇄  `<D>:/rest`（反斜杠统一为正斜杠）
+    /// 其余形式（相对路径、/home/...、UNC \\server\share）原样返回。
+    pub fn translate_with_mode(input: &str, mode: &str) -> String {
+        // 复制粘贴常带首尾引号（资源管理器"复制文件地址"），一并剥掉
+        let p = input.trim().trim_matches('"').trim();
+        if p.is_empty() {
+            return p.to_string();
+        }
+        let mode = mode.trim().to_ascii_lowercase();
+        if mode == "off" || mode == "none" || mode == "raw" {
+            return p.to_string();
+        }
+        let target = match mode.as_str() {
+            "windows" => "win",
+            "wsl" | "linux" => "wsl",
+            // auto：按运行平台的本地形式（编译期即确定，WSL 内构建即 Linux 目标）
+            _ => if cfg!(windows) { "win" } else { "wsl" },
+        };
+        if target == "win" {
+            if let Some((drive, rest)) = Self::parse_wsl_drive(p) {
+                return format!("{}:/{}", drive.to_ascii_uppercase(), rest);
+            }
+        } else if let Some((drive, rest)) = Self::parse_win_drive(p) {
+            return format!("/mnt/{}/{}", drive.to_ascii_lowercase(), rest.replace('\\', "/"));
+        }
+        p.to_string()
+    }
+
+    /// 识别 Windows 风格 `C:\...` / `C:/...`（返回盘符与剩余部分）；UNC 不算。
+    fn parse_win_drive(p: &str) -> Option<(char, &str)> {
+        let b = p.as_bytes();
+        if b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':'
+            && (b[2] == b'\\' || b[2] == b'/') {
+            Some((b[0] as char, &p[3..]))
+        } else {
+            None
+        }
+    }
+
+    /// 识别 WSL 风格 `/mnt/c/...`（返回盘符与剩余部分）。
+    fn parse_wsl_drive(p: &str) -> Option<(char, &str)> {
+        let b = p.as_bytes();
+        if b.len() >= 7 && p.is_char_boundary(7) && &p[..5] == "/mnt/"
+            && b[5].is_ascii_alphabetic() && b[6] == b'/' {
+            Some((b[5] as char, &p[7..]))
+        } else {
+            None
+        }
+    }
 }
 
 impl Default for Config {
@@ -85,6 +155,7 @@ impl Default for Config {
             replay: ReplayConfig {
                 replay_dir: ".".to_string(),
                 tank_cache_path: "data/tank_cache.json".to_string(),
+                path_translate: "auto".to_string(),
             },
         }
     }
@@ -240,5 +311,74 @@ impl TokenUsage {
         }
         println!();
         println!("========================================================");
+    }
+}
+
+#[cfg(test)]
+mod path_translate_tests {
+    use super::ReplayConfig;
+
+    #[test]
+    fn wsl_style_to_windows() {
+        assert_eq!(
+            ReplayConfig::translate_with_mode("/mnt/c/Users/me/a.wotbreplay", "windows"),
+            "C:/Users/me/a.wotbreplay");
+        assert_eq!(
+            ReplayConfig::translate_with_mode("/mnt/C/replay_samples", "windows"),
+            "C:/replay_samples");
+        assert_eq!(
+            ReplayConfig::translate_with_mode("/mnt/d/x", "windows"),
+            "D:/x");
+    }
+
+    #[test]
+    fn windows_style_to_wsl() {
+        assert_eq!(
+            ReplayConfig::translate_with_mode("C:\\Users\\me\\a.wotbreplay", "wsl"),
+            "/mnt/c/Users/me/a.wotbreplay");
+        assert_eq!(
+            ReplayConfig::translate_with_mode("c:/Users/me/a.wotbreplay", "wsl"),
+            "/mnt/c/Users/me/a.wotbreplay");
+    }
+
+    #[test]
+    fn auto_converts_to_running_platform() {
+        let out = ReplayConfig::translate_with_mode("/mnt/c/x/a.wotbreplay", "auto");
+        if cfg!(windows) {
+            assert_eq!(out, "C:/x/a.wotbreplay");
+        } else {
+            assert_eq!(out, "/mnt/c/x/a.wotbreplay");   // 已是本地形式,不变
+        }
+        let out = ReplayConfig::translate_with_mode("C:\\x\\a.wotbreplay", "auto");
+        if cfg!(windows) {
+            assert_eq!(out, "C:\\x\\a.wotbreplay");     // 已是本地形式,不变
+        } else {
+            assert_eq!(out, "/mnt/c/x/a.wotbreplay");
+        }
+    }
+
+    #[test]
+    fn off_and_native_pass_through() {
+        assert_eq!(ReplayConfig::translate_with_mode("/mnt/c/x", "off"), "/mnt/c/x");
+        assert_eq!(ReplayConfig::translate_with_mode("C:\\x", "off"), "C:\\x");
+        // 非盘符路径(相对路径 / home / UNC)任何模式都不动
+        assert_eq!(ReplayConfig::translate_with_mode("replay_samples", "auto"), "replay_samples");
+        assert_eq!(ReplayConfig::translate_with_mode("/home/u/a.wotbreplay", "auto"), "/home/u/a.wotbreplay");
+        assert_eq!(ReplayConfig::translate_with_mode("\\\\srv\\share\\a", "wsl"), "\\\\srv\\share\\a");
+    }
+
+    #[test]
+    fn quotes_and_whitespace_trimmed() {
+        assert_eq!(
+            ReplayConfig::translate_with_mode("  \"C:\\Users\\me\\a.wotbreplay\"  ", "wsl"),
+            "/mnt/c/Users/me/a.wotbreplay");
+    }
+
+    #[test]
+    fn short_and_malformed_inputs_safe() {
+        assert_eq!(ReplayConfig::translate_with_mode("", "auto"), "");
+        assert_eq!(ReplayConfig::translate_with_mode("/mnt/", "windows"), "/mnt/");
+        assert_eq!(ReplayConfig::translate_with_mode("C:", "wsl"), "C:");
+        assert_eq!(ReplayConfig::translate_with_mode("/mnt/c", "windows"), "/mnt/c");  // 无尾分隔符,不强转
     }
 }

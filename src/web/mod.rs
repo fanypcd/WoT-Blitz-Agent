@@ -340,8 +340,9 @@ async fn scan_handler(
         Ok(c) => c,
         Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     };
-    let replay_dir = req["dir"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string())
-        .unwrap_or(config.replay.replay_dir.clone());
+    let replay_dir = req["dir"].as_str().filter(|s| !s.is_empty())
+        .map(|s| config.replay.translate(s))
+        .unwrap_or_else(|| config.replay.translate(&config.replay.replay_dir));
     let mode = req["mode"].as_str().unwrap_or("all").to_string();
     let days = req["days"].as_i64();
 
@@ -493,11 +494,24 @@ async fn prematch_handler(
 /// POST { file: "..." } → [{ index, time_s, damage, target_name, is_kill, shooter_pos, shooter_ang, target_pos, target_ang }]
 static LAST_REPLAY_SHOTS: std::sync::OnceLock<std::sync::Mutex<Value>> = std::sync::OnceLock::new();
 
-async fn replay_shots_handler(axum::Json(body): axum::Json<Value>) -> Response {
+async fn replay_shots_handler(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    axum::Json(body): axum::Json<Value>,
+) -> Response {
     let file = body["file"].as_str().unwrap_or("").trim().to_string();
     if file.is_empty() {
         return (axum::http::StatusCode::BAD_REQUEST, "missing file").into_response();
     }
+    // 程序有 Windows / WSL 两种运行版本，用户输入的路径可能是任一风格；
+    // 按配置（replay.path_translate，默认 auto=转成本地形式）转换。
+    // 配置读取失败时按 auto 兜底，不让路径转换阻断回放解析。
+    let file = match crate::models::config::Config::load_or_create(&state.config_path) {
+        Ok(c) => c.replay.translate(&file),
+        Err(e) => {
+            eprintln!("[replay_shots] config load failed, pathTranslate=auto fallback: {e}");
+            crate::models::config::ReplayConfig::translate_with_mode(&file, "auto")
+        }
+    };
     let path = std::path::PathBuf::from(&file);
     if !path.exists() {
         return (axum::http::StatusCode::NOT_FOUND, format!("replay not found: {}", file)).into_response();
@@ -563,9 +577,24 @@ async fn replay_shots_handler(axum::Json(body): axum::Json<Value>) -> Response {
         if let Some(tid) = tank_of(&s.target_name) { v["target_tank_id"] = json!(tid); }
         v
     }).collect();
+    // 作者坦克弹种表（弹药槽位顺序）：供前端把 shell_slot 渲染成弹种徽标。
+    // 查不到坦克时给空数组，前端降级显示"槽N"。
+    let author_shells: Vec<Value> = if author_tank_id != 0 {
+        crate::wargaming::tank_resolver::TankResolver::load_from_json_file(
+            crate::data::data_path("tank_cache.json").as_path()).ok()
+            .and_then(|r| r.resolve_info(author_tank_id).map(|info| {
+                info.shells.iter().map(|sh| json!({
+                    "shell_type": sh.shell_type,
+                    "penetration": sh.penetration,
+                    "damage": sh.damage,
+                })).collect()
+            }))
+            .unwrap_or_default()
+    } else { Vec::new() };
     let v = json!({
         "shots": enriched,
         "author_tank_id": author_tank_id,
+        "author_shells": author_shells,
     });
     *LAST_REPLAY_SHOTS.get_or_init(|| std::sync::Mutex::new(json!([]))).lock().unwrap() = v.clone();
 
