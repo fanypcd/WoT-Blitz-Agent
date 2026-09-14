@@ -358,11 +358,15 @@ impl CombatTimeline {
 
 }
 
-/// 受击坦克 type=10 采样（用于渲染多 tick 幽灵框，测试延迟假设）
+/// type=10 采样（受击坦克锚命中时刻 / 射手坦克锚开火时刻，渲染多 tick 幽灵框）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TickSample {
-    /// 相对命中时刻的偏移（秒）
+    /// 相对锚点时刻的偏移（秒）——受击窗锚命中、射手窗锚开火，两侧秒轴不重合
     pub dt: f32,
+    /// 服务器竞技场 tick 计数器（type=35，10Hz u8 回绕展开后的累计值）@ 本采样包 clock。
+    /// 双方窗口的唯一对齐键：同一 tick 编号 = 同一服务器时刻（10Hz 整数化），
+    /// 跨侧对齐用编号，不用各自的 dt 秒偏移。
+    pub tick: f32,
     /// 相对命中时刻锚点的位置偏移（世界系，米）
     pub pos: [f32; 3],
     /// 车体偏航（弧度）
@@ -467,6 +471,9 @@ pub struct ShotReplayData {
     pub shot_id: u32,
     /// 弹药槽位——type=28 选择状态在发射时刻的值（3D 视图弹种选择器索引用）
     pub shell_slot: u32,
+    /// type=35 服务器竞技场 tick 计数器 @ 开火时刻（10Hz u8 递增，回放时钟秒×10）
+    /// 判定发生在开火的同一个 tick（100/100 实测 tick 对齐）。
+    pub fire_tick: f32,
     /// 受击坦克 type=10 采样（命中时刻 ±1s，位置相对命中锚点，世界系米）
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tick_samples: Vec<TickSample>,
@@ -915,6 +922,31 @@ pub fn extract_shot_replays(
         None => anyhow::bail!("未找到 avatar 实体（pos 全零的 type=10 缺失），无法解析射手炮管俯仰"),
     };
 
+    // ⑤'' type=35 服务器竞技场 tick 计数器（u8 递增 @10Hz，u8 自然回绕）
+    // 判定发生在开火的同一个 tick（100/100 实测 tick 对齐）——
+    // 用于精确定位射击事件的服务器 tick 编号。
+    let tick_timeline: Vec<(f32, u8)> = packets.iter()
+        .filter(|(t, _, p)| *t == 35 && !p.is_empty())
+        .map(|(_, clock, p)| (*clock, p[0]))
+        .collect();
+    let tick_at = |t: f32| -> f32 {
+        if tick_timeline.is_empty() { return 0.0; }
+        for i in 1..tick_timeline.len() {
+            if tick_timeline[i].0 >= t {
+                let (t0, v0) = tick_timeline[i - 1];
+                let (t1, v1) = tick_timeline[i];
+                if t1 <= t0 { return v0 as f32; }
+                // u8 回绕展开：差值掩 0xFF，>128 视为回退（回绕）取负
+                let dv = ((v1 as i32 - v0 as i32) & 0xFF) as f32;
+                let dv = if dv > 128.0 { dv - 256.0 } else { dv };
+                let dt = t1 - t0;
+                if dt <= 0.0 { return v0 as f32; }
+                return v0 as f32 + dv * (t - t0) / dt;
+            }
+        }
+        tick_timeline.last().map(|(_, v)| *v as f32).unwrap_or(0.0)
+    };
+
     // ⑤' 弹药选择时间线（type=28，payload=u32 LE 槽位；录像者本人的选择状态）
     let mut ammo_selects: Vec<(f32, u32)> = Vec::new();
     for (t, clock, p) in packets {
@@ -1044,6 +1076,7 @@ pub fn extract_shot_replays(
         let ball_a = l.point;
         let (end_time, ball_b) = endpoints.get(&shot_id).cloned()
             .ok_or_else(|| anyhow::anyhow!("{ctx}: method20 弹道终点缺失（shotId 无配对）"))?;
+        let fire_tick = tick_at(fire_time);
 
         // ⑦' 弹药槽位：发射时刻的最后选择（type=28 时间线 ≤ fire_time 的最新值）
         let mut shell_slot: u32 = 0;
@@ -1260,6 +1293,7 @@ pub fn extract_shot_replays(
                     if dt < -1.0 || dt > 0.09 { continue; }
                     tick_samples.push(TickSample {
                         dt,
+                        tick: tick_at(*clock),
                         pos: [
                             f32::from_le_bytes([p[12], p[13], p[14], p[15]]) - tp[0],
                             f32::from_le_bytes([p[16], p[17], p[18], p[19]]) - tp[1],
@@ -1278,6 +1312,8 @@ pub fn extract_shot_replays(
                 // 坏数据截断已撤回(用户决定):倒车等"疑似漂移"段是真实记录,
                 // 完全按回放原始数据渲染。truncate_implausible_prefix 保留函数体
                 // 仅供参考,不再调用。
+                // 注：dmin 快照自动选位已撤回(用户决定)——不做射线垂距自动选位，
+                // 双方窗口带 tick 编号(type=35 展开值)由 viewer 手动对齐。
             }
         }
         // ⑮ 射手坦克 type=10 采样（开火时刻 ±1.0s，世界系绝对坐标）
@@ -1293,6 +1329,7 @@ pub fn extract_shot_replays(
             if dt < -1.0 || dt > 0.09 { continue; }
             shooter_tick_samples.push(TickSample {
                 dt,
+                tick: tick_at(*clock),
                 pos: [
                     f32::from_le_bytes([p[12], p[13], p[14], p[15]]),
                     f32::from_le_bytes([p[16], p[17], p[18], p[19]]),
@@ -1346,6 +1383,7 @@ pub fn extract_shot_replays(
             incoming_pitch: ta[1],
             tick_samples,
             shooter_tick_samples,
+            fire_tick,
             terrain_impact,
             shooter_aim,
         });

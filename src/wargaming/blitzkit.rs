@@ -166,6 +166,20 @@ pub struct EngineData {
     pub fire_chance: f64,
 }
 
+/// 一条履带（chassis，来自坦克条目 field22）。多数坦克 1-2 条（标准/升级）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TrackData {
+    pub module_id: u32,
+    pub name: String,
+    /// 履带重量（kg）。
+    pub weight: f64,
+    /// 履带决定的车体旋转速度（deg/s）。
+    pub traverse_speed: f64,
+    /// 地形阻力系数（硬地/中等地），越小越好。
+    pub resistance_hard: Option<f64>,
+    pub resistance_medium: Option<f64>,
+}
+
 /// 一个炮塔（含其主炮）。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TurretData {
@@ -190,7 +204,10 @@ pub struct TankFullData {
     pub tier: u32,
     pub tank_type: String,
     pub hp: u32,
+    /// field13 枚举：1=金币车，2=收藏车，缺失/0=普通科技线车
     pub is_premium: bool,
+    /// 收藏车（field13==2）
+    pub is_collector: bool,
     pub speed_forward: f64,
     pub speed_reverse: f64,
     pub hull_traverse: f64,
@@ -198,6 +215,8 @@ pub struct TankFullData {
     pub turrets: Vec<TurretData>,
     /// 可用引擎列表（通常 1 个，部分车多档）。
     pub engines: Vec<EngineData>,
+    /// 可用履带列表（field22，通常 1-2 条）。
+    pub tracks: Vec<TrackData>,
 }
 
 /// 炮管俯仰极值（PitchLimitsExtrema，度）：朝向某方向的俯仰范围。
@@ -359,9 +378,9 @@ fn parse_tank_main(sub: &[u8], tank_id: u32) -> Result<Option<TankFullData>> {
     let mut tank = TankFullData {
         tank_id, dev_name: String::new(), name: String::new(),
         nation: String::new(), tier: 0, tank_type: String::new(),
-        hp: 0, is_premium: false,
+        hp: 0, is_premium: false, is_collector: false,
         speed_forward: 0.0, speed_reverse: 0.0, hull_traverse: 0.0,
-        weight: 0.0, turrets: Vec::new(), engines: Vec::new(),
+        weight: 0.0, turrets: Vec::new(), engines: Vec::new(), tracks: Vec::new(),
     };
     let mut has_name = false;
     let mut localized_name = String::new();
@@ -373,7 +392,11 @@ fn parse_tank_main(sub: &[u8], tank_id: u32) -> Result<Option<TankFullData>> {
             (10, 0) => tank.hp = sr.varint()? as u32,
             (11, 2) => { let l = sr.varint()? as usize; tank.nation = String::from_utf8_lossy(sr.bytes(l)?).into_owned(); },
             (12, 2) => { let l = sr.varint()? as usize; localized_name = extract_name(sr.bytes(l)?); },
-            (13, 0) => tank.is_premium = sr.varint()? == 1,
+            (13, 0) => {
+                let v = sr.varint()?;
+                tank.is_premium = v == 1;
+                tank.is_collector = v == 2;
+            },
             (16, 0) => tank.tier = sr.varint()? as u32,
             (17, 0) => tank.tank_type = decode_class_code(sr.varint()? as u32),
             (21, 2) => {
@@ -411,6 +434,38 @@ fn parse_tank_main(sub: &[u8], tank_id: u32) -> Result<Option<TankFullData>> {
                 let turret_bytes = sr.bytes(tlen)?;
                 if let Some(tur) = parse_turret(&turret_bytes)? {
                     tank.turrets.push(tur);
+                }
+            }
+            (22, 2) => {
+                // 履带: field1=模块id, field2=tier, field3=本地化名称, field4=重量(kg),
+                //       field5=车体旋转速度(deg/s), field7/8=地形阻力(硬地/中等地)
+                let l = sr.varint()? as usize;
+                let tb = sr.bytes(l)?;
+                let mut module_id = 0u32;
+                let mut name = String::new();
+                let mut weight = 0.0f64;
+                let mut traverse_speed = 0.0f64;
+                let mut resistance_hard = None;
+                let mut resistance_medium = None;
+                let mut tr = Reader { buf: tb, pos: 0 };
+                while let Some(res) = tr.tag() {
+                    let (f, w) = res?;
+                    match (f, w) {
+                        (1, 0) => module_id = tr.varint()? as u32,
+                        (3, 2) => {
+                            let nl = tr.varint()? as usize;
+                            let nb = tr.bytes(nl)?;
+                            name = extract_name(nb);
+                        },
+                        (4, 0) => weight = tr.varint()? as f64,
+                        (5, 5) => traverse_speed = f32::from_le_bytes(tr.bytes(4)?.try_into().unwrap()) as f64,
+                        (7, 5) => resistance_hard = Some(f32::from_le_bytes(tr.bytes(4)?.try_into().unwrap()) as f64),
+                        (8, 5) => resistance_medium = Some(f32::from_le_bytes(tr.bytes(4)?.try_into().unwrap()) as f64),
+                        _ => tr.skip_field(w)?,
+                    }
+                }
+                if !name.is_empty() {
+                    tank.tracks.push(TrackData { module_id, name, weight, traverse_speed, resistance_hard, resistance_medium });
                 }
             }
             _ => sr.skip_field(w)?,

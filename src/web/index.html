@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WoTB Agent — Web GUI</title>
     <script src="/api/vendor/markdown-it/markdown-it.min.js"></script>
+    <script src="/api/vendor/chart.umd.min.js"></script>
     <link rel="stylesheet" href="/api/vendor/katex/katex.min.css">
     <script defer src="/api/vendor/katex/katex.min.js"></script>
     <script defer src="/api/vendor/katex/auto-render.min.js"></script>
@@ -150,7 +151,8 @@
         .bubble.md ul,.bubble.md ol { padding-left:1.4em; }
         .bubble.md blockquote { border-left:3px solid var(--accent-2); margin:0.5em 0; padding:2px 12px; color:var(--muted); }
         .bubble.md .katex { font-size:1.05em; }
-        /* 工具调用卡片：消息流内联，头部可点开折叠体 */
+        /* 工具调用卡片：消息流内联，头部可点开折叠体
+           注意：选择器必须限定 .tool-call，否则会误伤 Tankopedia 卡片的 .tc-body */
         .tool-call {
             max-width:86%; margin:6px 0 6px 12px; font-size:0.84em; overflow:hidden;
             border:1px solid var(--border); border-left:3px solid var(--accent-2); border-radius:var(--radius-sm);
@@ -164,13 +166,13 @@
         .tc-head:hover { background:rgba(255,255,255,0.04); }
         .tc-icon { flex:none; display:inline-flex; line-height:0; color:var(--accent-2); }
         .tc-icon svg { width:13px; height:13px; }
-        .tc-name { flex:none; font-weight:700; color:var(--accent-2); }
+        .tool-call .tc-name { flex:none; font-weight:700; color:var(--accent-2); }
         .tc-args { flex:1; min-width:0; color:var(--muted); font-family:ui-monospace,monospace; font-size:0.92em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .tc-state { flex:none; display:inline-flex; align-items:center; color:var(--muted); line-height:0; }
         .tc-state svg { width:13px; height:13px; }
         .tc-state.ok { color:var(--green); }
         .tc-state.fail { color:var(--red); }
-        .tc-body { display:none; border-top:1px dashed var(--border); padding:8px 12px; }
+        .tool-call .tc-body { display:none; border-top:1px dashed var(--border); padding:8px 12px; }
         .tool-call.open .tc-body { display:block; }
         .tc-sec { color:var(--muted); font-size:0.88em; text-transform:uppercase; letter-spacing:.4px; margin:6px 0 3px; }
         .tc-sec:first-child { margin-top:0; }
@@ -242,16 +244,53 @@
         #tp-search { flex:1; min-width:200px; max-width:340px; }
         #tp-toolbar select { min-width:110px; }
         #tp-count { color:var(--muted); font-size:0.85em; }
-        #tp-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(178px,1fr)); gap:16px; }
+        #tp-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:16px; }
         .tank-card {
+            position:relative;
             background:linear-gradient(180deg,var(--panel),var(--panel2)); border:1px solid var(--border); border-radius:14px; overflow:hidden; cursor:pointer;
             transition:transform .14s ease, box-shadow .14s ease, border-color .14s ease; box-shadow:var(--shadow);
         }
         .tank-card:hover { transform:translateY(-4px); border-color:var(--border-hi); box-shadow:0 16px 38px rgba(0,0,0,0.5); }
+        .tank-card.premium { border-color:rgba(255,207,92,0.4); }
+        .tank-card.premium:hover { border-color:rgba(255,207,92,0.75); }
+        /* 收藏车：蓝色窗框 */
+        .tank-card.collector { border-color:rgba(95,168,232,0.5); }
+        .tank-card.collector:hover { border-color:var(--blue); }
         .tank-card .tc-img { width:100%; height:118px; object-fit:contain; background:linear-gradient(180deg,#201b18,#171310); display:block; padding:6px; }
         .tank-card .tc-body { padding:8px 11px 11px; }
-        .tank-card .tc-name { font-size:0.88em; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        /* 名称完整可见：最多两行，超出裁剪 */
+        .tank-card .tc-name { font-size:0.88em; font-weight:700; line-height:1.3; max-height:2.6em; overflow:hidden; }
         .tank-card .tc-meta { display:flex; justify-content:space-between; align-items:center; gap:5px; margin-top:7px; font-size:0.74em; flex-wrap:wrap; }
+        .tank-card .tc-stats { display:grid; grid-template-columns:1fr 1.25fr 1fr; gap:4px; margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); }
+        .tank-card .tc-stats > div { text-align:center; font-size:0.74em; font-weight:800; }
+        .tank-card .tc-stats i { display:block; font-style:normal; color:var(--muted); font-weight:600; font-size:0.88em; letter-spacing:.4px; }
+        /* 车种 pill 配色 */
+        .pill.t-light  { background:rgba(95,191,122,0.16); color:var(--green); }
+        .pill.t-medium { background:rgba(255,207,92,0.14); color:var(--yellow); }
+        .pill.t-heavy  { background:rgba(255,107,107,0.15); color:var(--red); }
+        .pill.t-td     { background:rgba(95,168,232,0.16); color:var(--blue); }
+        .pill.t-unknown{ background:rgba(156,143,127,0.18); color:var(--muted); }
+        /* 胜率分级配色 */
+        .wr-g { color:var(--green); font-weight:700; }
+        .wr-y { color:var(--yellow); font-weight:700; }
+        .wr-r { color:var(--red); font-weight:700; }
+        /* 表内迷你胜率条 */
+        .wrbar { display:inline-block; width:52px; height:6px; background:var(--panel3); border-radius:3px; overflow:hidden; vertical-align:middle; margin-left:6px; }
+        .wrbar > i { display:block; height:100%; border-radius:3px; }
+        /* 射击复现结果徽章配色 */
+        .pill.pen   { background:rgba(95,191,122,0.16); color:var(--green); }
+        .pill.nopen { background:rgba(255,107,107,0.15); color:var(--red); }
+        .pill.ric   { background:rgba(255,207,92,0.16); color:var(--yellow); }
+        .pill.he-res{ background:rgba(95,168,232,0.16); color:var(--blue); }
+        .pill.miss  { background:rgba(156,143,127,0.15); color:var(--muted); }
+        .pill.kill  { background:rgba(255,107,107,0.2); color:var(--red); }
+        /* 阵容分析 */
+        .lu-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:12px; margin:10px 0; }
+        .lu-tag { display:inline-block; padding:1px 8px; border-radius:9px; font-size:0.72em; font-weight:800; }
+        .lu-tag.threat { background:rgba(255,107,107,0.16); color:var(--red); }
+        .lu-tag.weak   { background:rgba(95,191,122,0.16); color:var(--green); }
+        .lu-tag.top    { background:rgba(255,207,92,0.16); color:var(--yellow); }
+        .lu-suggest { border-left:3px solid var(--accent-2); background:rgba(255,179,92,0.06); border-radius:0 10px 10px 0; padding:10px 14px; margin-top:12px; font-size:0.92em; }
 
     </style>
     <style>
@@ -314,6 +353,13 @@
                 <select id="tp-tier"><option value="">Tier</option></select>
                 <select id="tp-nation"><option value="">Nation</option></select>
                 <select id="tp-type"><option value="">Type</option></select>
+                <select id="tp-sort">
+                    <option value="name">Sort: Name</option>
+                    <option value="tier">Sort: Tier ↓</option>
+                    <option value="hp">Sort: HP ↓</option>
+                    <option value="armor">Sort: Armor ↓</option>
+                    <option value="pen">Sort: Pen ↓</option>
+                </select>
                 <span id="tp-count">Loading...</span>
             </div>
             <div id="tp-grid"></div>
@@ -420,6 +466,12 @@ function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 // tank type / nation display
 const TYPE_LABEL = { lightTank:'Light', mediumTank:'Medium', heavyTank:'Heavy', 'AT-SPG':'TD', unknown:'Unknown' };
 const NATION_LABEL = { ussr:'USSR', usa:'USA', germany:'Germany', uk:'UK', japan:'Japan', china:'China', france:'France', european:'EU', other:'Other' };
+// 车种配色 class（Light 绿 / Medium 黄 / Heavy 红 / TD 蓝）
+const TYPE_CLS = { lightTank:'t-light', mediumTank:'t-medium', heavyTank:'t-heavy', 'AT-SPG':'t-td' };
+// 胜率配色分级：<45% 红 / 45-55% 黄 / >55% 绿
+function wrCls(wr){ return wr==null?'':(wr>=55?'g':wr>=45?'y':'r'); }
+function wrHtml(wr){ if(wr==null) return '-'; return `<span class="wr-${wrCls(wr)}">${wr.toFixed(1)}%</span>`; }
+function fmtInt(v){ return v==null?'-':Math.round(v).toLocaleString('en-US'); }
 
 // ---------- Nav ----------
 function activateTab(name) {
@@ -830,18 +882,39 @@ function getFilteredTanks() {
         .sort((a, b) => b.s - a.s || (a.t.name||'').localeCompare(b.t.name||''))
         .map(x => x.t);
 }
+// 排序：默认名称；数值列 null 沉底
+function sortTanks(list) {
+    const mode=$('tp-sort') ? $('tp-sort').value : 'name';
+    const byNum=key=>(a,b)=>(b[key]??-1)-(a[key]??-1)||(a.name||'').localeCompare(b.name||'');
+    const cmp={
+        name:(a,b)=>(a.name||'').localeCompare(b.name||''),
+        tier:(a,b)=>(b.tier??0)-(a.tier??0)||(a.name||'').localeCompare(b.name||''),
+        hp:byNum('hp'),
+        armor:byNum('armor_front'),
+        pen:byNum('pen_max'),
+    }[mode]||((a,b)=>(a.name||'').localeCompare(b.name||''));
+    return list.slice().sort(cmp);
+}
 function renderGrid() {
-    const grid=$('tp-grid'); const filtered=getFilteredTanks();
+    const grid=$('tp-grid'); const filtered=sortTanks(getFilteredTanks());
     $('tp-count').textContent=filtered.length+' / '+tanksList.length;
     grid.innerHTML='';
     if(!filtered.length){grid.innerHTML='<div class="muted">No tanks match.</div>';return;}
     const frag=document.createDocumentFragment();
     filtered.forEach(t=>{
-        const c=document.createElement('div'); c.className='tank-card';
-        c.innerHTML = `<img class="tc-img" loading="lazy" src="${API}/api/tank_image/${t.id}" alt="">
+        const c=document.createElement('div'); c.className='tank-card'+(t.is_premium?' premium':'')+(t.is_collector?' collector':'');
+        const typeCls=TYPE_CLS[t.type]||'t-unknown';
+        const typeTxt=TYPE_LABEL[t.type]||t.type||'Unknown';
+        c.innerHTML = `
+            <img class="tc-img" loading="lazy" src="${API}/api/tank_image/${t.id}" alt="">
             <div class="tc-body">
                 <div class="tc-name" title="${esc(t.name)}">${esc(t.name)}</div>
-                <div class="tc-meta"><span class="pill tier">T${t.tier}</span><span class="pill nat">${esc(NATION_LABEL[t.nation]||t.nation)}</span><span class="pill type">${esc(TYPE_LABEL[t.type]||t.type||'Unknown')}</span></div>
+                <div class="tc-meta"><span class="pill tier">T${t.tier}</span><span class="pill nat">${esc(NATION_LABEL[t.nation]||t.nation)}</span><span class="pill ${typeCls}">${esc(typeTxt)}</span></div>
+                <div class="tc-stats">
+                    <div><i>HP</i>${t.hp??'-'}</div>
+                    <div><i>Armor</i>${t.armor_front??'-'}<span style="color:var(--muted);">/</span>${t.armor_turret??'-'}</div>
+                    <div><i>Pen</i>${t.pen_max??'-'}</div>
+                </div>
             </div>`;
         c.addEventListener('click',()=>{ window.open('/tank/'+t.id,'_blank'); });
         frag.appendChild(c);
@@ -852,29 +925,60 @@ $('tp-search').addEventListener('input',renderGrid);
 $('tp-tier').addEventListener('change',renderGrid);
 $('tp-nation').addEventListener('change',renderGrid);
 $('tp-type').addEventListener('change',renderGrid);
+$('tp-sort').addEventListener('change',renderGrid);
 
 // ---------- Player ----------
+// 单个战绩统计块（随机战 / 排位战共用）
+function playerBlock(title,p,pre){
+    const b=p[pre+'battles']||0;
+    if(!b) return `<div class="card" style="padding:14px 18px;"><h4 style="margin:0;">${title}</h4><div class="muted" style="margin-top:6px;">无战绩</div></div>`;
+    const wr=100*p[pre+'wins']/b;
+    const dmg=p[pre+'damage_dealt']/b;
+    const frags=p[pre+'frags']/b;
+    const hit=(p[pre+'shots']&&p[pre+'hits']!=null)?100*p[pre+'hits']/p[pre+'shots']:null;
+    const xp=p[pre+'xp']?p[pre+'xp']/b:null;
+    const spotted=(p[pre+'spotted']!=null&&b)?p[pre+'spotted']/b:null;
+    return `<div class="card" style="padding:16px 18px;margin-bottom:14px;">
+        <h4 style="margin:0 0 8px 0;">${title} <span class="muted" style="text-transform:none;letter-spacing:0;">${fmtInt(b)} 场</span></h4>
+        <div class="stat-grid" style="grid-template-columns:repeat(auto-fill,minmax(120px,1fr));margin:0;">
+            <div class="stat-box"><div class="lbl">Win rate</div><div class="val ${wrCls(wr)}">${wr.toFixed(1)}%</div></div>
+            <div class="stat-box"><div class="lbl">Avg dmg</div><div class="val b">${fmtInt(dmg)}</div></div>
+            <div class="stat-box"><div class="lbl">Avg frags</div><div class="val">${frags.toFixed(2)}</div></div>
+            ${hit!=null?`<div class="stat-box"><div class="lbl">Hit rate</div><div class="val o">${hit.toFixed(1)}%</div></div>`:''}
+            ${xp!=null?`<div class="stat-box"><div class="lbl">Avg XP</div><div class="val">${fmtInt(xp)}</div></div>`:''}
+            ${spotted!=null?`<div class="stat-box"><div class="lbl">Avg spotted</div><div class="val">${spotted.toFixed(2)}</div></div>`:''}
+        </div>
+    </div>`;
+}
 async function fetchPlayer() {
     const nick=$('player-nick').value.trim(); if(!nick){toast('Enter a nickname');return;}
     const out=$('player-out'); out.innerHTML='<span class="spinner"></span>';
     const r=await fetch(API+'/api/player/'+encodeURIComponent(nick)); const d=await r.json();
     if(!d.players||!d.players.length){out.innerHTML='<div class="muted">No player found.</div>';return;}
     const p=d.players[0];
-    out.innerHTML=`<h3>${esc(p.nickname)}</h3>
-        <div class="stat-grid">
-            <div class="stat-box"><div class="lbl">Random WR</div><div class="val g">${p.random_battles?(100*p.random_wins/p.random_battles).toFixed(1):'-'}%</div></div>
-            <div class="stat-box"><div class="lbl">Rating WR</div><div class="val g">${p.rating_battles?(100*p.rating_wins/p.rating_battles).toFixed(1):'-'}%</div></div>
-            <div class="stat-box"><div class="lbl">Rating dmg</div><div class="val b">${p.rating_battles?Math.round(p.rating_damage_dealt/p.rating_battles):'-'}</div></div>
-            <div class="stat-box"><div class="lbl">Rating</div><div class="val o">${p.rating_display_rating||'-'}</div></div>
-            <div class="stat-box"><div class="lbl">mm_rating</div><div class="val">${p.rating_mm_rating!=null?p.rating_mm_rating:'-'}</div></div>
-        </div>`;
+    const mmr=p.rating_mm_rating;
+    const ratingLine=(mmr!=null||p.rating_display_rating!=null)
+        ?`<div class="muted" style="margin:2px 0 10px;">MM Rating: <b style="color:var(--accent-2);">${mmr!=null?Number(mmr).toFixed(1):'-'}</b>${p.rating_display_rating!=null?` · 显示评级 <b style="color:var(--accent-2);">${p.rating_display_rating}</b>`:''}${p.rating_season!=null?` · 赛季 ${p.rating_season}`:''}</div>`:'';
+    out.innerHTML=`<h3 style="margin:14px 0 6px;">${esc(p.nickname)}</h3>${ratingLine}
+        ${playerBlock('Random 随机战',p,'random_')}
+        ${playerBlock('Rating 排位战',p,'rating_')}`;
 }
 $('btn-player').addEventListener('click',fetchPlayer);
 $('player-nick').addEventListener('keydown',e=>{if(e.key==='Enter')fetchPlayer();});
 
 // ---------- Replay Scan ----------
+// 胜率迷你条（表内）
+function wrBar(wr){
+    if(wr==null) return '-';
+    const cls=wrCls(wr);
+    const color=cls==='g'?'var(--green)':cls==='y'?'var(--yellow)':'var(--red)';
+    return wrHtml(wr)+`<span class="wrbar"><i style="width:${Math.min(100,wr).toFixed(0)}%;background:${color};"></i></span>`;
+}
+let scanChart=null;
+function destroyChart(id){ if(window[id]){ window[id].destroy(); window[id]=null; } }
 async function doScan() {
     const out=$('scan-out'); out.innerHTML='<span class="spinner"></span> scanning...';
+    destroyChart('scanChart');
     const dir = $('scan-dir').value;   // 后端按运行平台自动转换 Windows/WSL 路径风格
     const body={dir,mode:$('scan-mode').value,days:$('scan-days').value?parseInt($('scan-days').value):null};
     let r;
@@ -883,19 +987,68 @@ async function doScan() {
     if(!r.ok){ out.innerHTML='<div class="muted">⚠ 扫描出错 (HTTP '+r.status+'): '+esc((await r.text()).slice(0,200))+'</div>'; return; }
     const d=await r.json();
     if(d.error){out.innerHTML='<div class="muted">'+esc(d.error)+'</div>';return;}
-    let tankRows=(d.tank_usage||[]).slice(0,8).map(t=>`<tr><td>${esc(t.tank_name)}</td><td>${t.battles}</td><td>${t.win_rate.toFixed(0)}%</td><td>${Math.round(t.avg_damage)}</td></tr>`).join('');
-    let mapRows=(d.map_stats||[]).slice(0,8).map(m=>`<tr><td>${esc(m.map_name||m.map_id)}</td><td>${m.battles}</td><td>${m.win_rate.toFixed(0)}%</td></tr>`).join('');
+    const wr=wrHtml(d.win_rate);
+    const dur=d.avg_battle_duration!=null?Math.floor(d.avg_battle_duration/60)+':'+String(Math.round(d.avg_battle_duration%60)).padStart(2,'0'):'-';
+    let tankRows=(d.tank_usage||[]).slice(0,8).map(t=>`<tr>
+        <td><img loading="lazy" src="${API}/api/tank_image/${t.tank_id}" style="width:34px;height:24px;object-fit:contain;vertical-align:middle;margin-right:6px;">${esc(t.tank_name)}</td>
+        <td>${t.battles}</td><td>${wrBar(t.win_rate)}</td><td>${Math.round(t.avg_damage)}</td><td>${t.avg_frags.toFixed(2)}</td></tr>`).join('');
+    let mapRows=(d.map_stats||[]).slice(0,8).map(m=>`<tr><td>${esc(m.map_name||m.map_id)}</td><td>${m.battles}</td><td>${wrBar(m.win_rate)}</td></tr>`).join('');
+    const ratingChanges=d.rating_changes||[];
     out.innerHTML=`<h3>${esc(d.author_name||'')} — ${esc(d.room_type)}</h3>
+        <div class="muted" style="font-size:0.85em;margin:-6px 0 10px;">${esc(d.date_range||'')} · ${d.wins??0} 胜 / ${d.losses??0} 负${d.auto_destroyed_count?` · ${d.auto_destroyed_count} 场自动击毁`:''}</div>
         <div class="stat-grid">
             <div class="stat-box"><div class="lbl">Battles</div><div class="val">${d.total_battles}</div></div>
-            <div class="stat-box"><div class="lbl">Win rate</div><div class="val g">${d.win_rate.toFixed(1)}%</div></div>
-            <div class="stat-box"><div class="lbl">Avg dmg</div><div class="val b">${Math.round(d.avg_damage)}</div></div>
+            <div class="stat-box"><div class="lbl">Win rate</div><div class="val ${wrCls(d.win_rate)}">${d.win_rate.toFixed(1)}%</div></div>
+            <div class="stat-box"><div class="lbl">Avg dmg</div><div class="val b">${fmtInt(d.avg_damage)}</div></div>
             <div class="stat-box"><div class="lbl">Avg frags</div><div class="val">${d.avg_frags.toFixed(2)}</div></div>
+            <div class="stat-box"><div class="lbl">Hit rate 命中率</div><div class="val">${d.hit_rate!=null?d.hit_rate.toFixed(1)+'%':'-'}</div></div>
+            <div class="stat-box"><div class="lbl">Pen rate 穿透率</div><div class="val o">${d.penetration_rate!=null?d.penetration_rate.toFixed(1)+'%':'-'}</div></div>
+            <div class="stat-box"><div class="lbl">Avg blocked 格挡</div><div class="val">${fmtInt(d.avg_damage_blocked)}</div></div>
+            <div class="stat-box"><div class="lbl">Avg assisted 助攻</div><div class="val">${fmtInt(d.avg_assisted)}</div></div>
+            <div class="stat-box"><div class="lbl">Avg XP</div><div class="val">${fmtInt(d.avg_xp)}</div></div>
+            <div class="stat-box"><div class="lbl">Avg duration</div><div class="val">${dur}</div></div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:10px;">
-            <div><h4>Tanks</h4><table class="inline-table-sm"><tr><th>Name</th><th>B</th><th>WR</th><th>dmg</th></tr>${tankRows}</table></div>
+        ${ratingChanges.length&&ratingChanges.some(c=>c.mm_rating!=null)?`<h4>Rating Trend 评级走势</h4><div style="height:220px;margin:6px 0;"><canvas id="scan-rating-chart"></canvas></div>`:''}
+        <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:18px;margin-top:10px;">
+            <div><h4>Tanks</h4><table class="inline-table-sm"><tr><th>Tank</th><th>B</th><th>WR</th><th>dmg</th><th>frags</th></tr>${tankRows}</table></div>
             <div><h4>Maps</h4><table class="inline-table-sm"><tr><th>Map</th><th>B</th><th>WR</th></tr>${mapRows}</table></div>
         </div>`;
+    renderScanRatingChart(ratingChanges);
+}
+// 评级折线图：mm_rating 随场次变化，胜/负点着色
+function renderScanRatingChart(changes){
+    const el=document.getElementById('scan-rating-chart');
+    if(!el||!window.Chart) return;
+    const pts=changes.filter(c=>c.mm_rating!=null);
+    if(!pts.length) return;
+    destroyChart('scanChart');
+    const grad=el.getContext('2d');
+    const fill=grad.createLinearGradient(0,0,0,220);
+    fill.addColorStop(0,'rgba(255,138,61,0.22)'); fill.addColorStop(1,'rgba(255,138,61,0)');
+    scanChart=new Chart(el,{
+        type:'line',
+        data:{
+            labels:pts.map((c,i)=>i+1),
+            datasets:[{
+                data:pts.map(c=>c.mm_rating),
+                borderColor:'#ffb35c', borderWidth:2,
+                backgroundColor:fill, fill:true, tension:0.25,
+                pointRadius:pts.map(c=>c.won?4:3),
+                pointBackgroundColor:pts.map(c=>c.won?'#5fbf7a':'#ff6b6b'),
+                pointBorderColor:'transparent',
+            }],
+        },
+        options:{
+            responsive:true, maintainAspectRatio:false,
+            plugins:{ legend:{display:false},
+                tooltip:{ callbacks:{ title:items=>{ const c=pts[items[0].dataIndex]; return `#${items[0].dataIndex+1} · ${c.won?'胜':'负'} · ${c.tank_name||''}`; },
+                    label:item=>` rating ${item.parsed.y} · dmg ${pts[item.dataIndex].damage_dealt??'-'}` } } },
+            scales:{
+                x:{ title:{display:true,text:'Battle 场次',color:'#9c8f7f',font:{size:11}}, ticks:{color:'#9c8f7f',maxTicksLimit:12}, grid:{color:'rgba(255,255,255,0.05)'} },
+                y:{ ticks:{color:'#9c8f7f'}, grid:{color:'rgba(255,255,255,0.05)'} },
+            },
+        },
+    });
 }
 $('btn-scan').addEventListener('click',doScan);
 
@@ -932,21 +1085,37 @@ function srShellBadge(s) {
     const prem = /premium/.test(t) ? ' gold' : '';
     return '<span class="pill'+prem+'" style="font-size:10px;">'+label+'</span> <span class="muted" style="font-size:10px;">'+sh.penetration+'mm</span>';
 }
-// 结果徽标：hit_flags 位图 → 击穿/HE/跳弹/未穿/脱靶
+// 结果徽标：hit_flags 位图 → 击穿/HE/跳弹/未穿/脱靶（语义配色）
 function srResultBadge(s) {
     const f = s.hit_flags || 0;
     let txt, cls='pill';
-    if (!f) { txt='MISS'; cls+=' muted'; }
-    else if (f & 0x1000) { txt='HE'; cls+=' type'; }
-    else if (f & 0x0010) { txt='击穿'; cls+=' type'; }
-    else if (f & 0x0008) { txt='跳弹'; cls+=' warn'; }
-    else { txt='未穿'; }
+    if (!f) { txt='MISS'; cls+=' miss'; }
+    else if (f & 0x1000) { txt='HE'; cls+=' he-res'; }
+    else if (f & 0x0010) { txt='击穿'; cls+=' pen'; }
+    else if (f & 0x0008) { txt='跳弹'; cls+=' ric'; }
+    else { txt='未穿'; cls+=' nopen'; }
     return '<span class="'+cls+'" style="font-size:10px;">'+txt+'</span>'
-        + (s.is_kill ? ' <span class="pill type" style="font-size:10px;">KILL</span>' : '');
+        + (s.is_kill ? ' <span class="pill kill" style="font-size:10px;">KILL</span>' : '');
+}
+// 伤害列按数值着色（0 灰 → 高伤橙红）
+function srDmgCell(s){
+    const d=s.damage||0;
+    const col=!d?'var(--muted)':d>=1000?'var(--red)':d>=600?'var(--accent-2)':'var(--txt)';
+    return `<b style="color:${col};">${d}</b>`;
 }
 function renderShotList() {
     const out=$('sr-out');
     if(!srData.length){ out.innerHTML='<div class="muted">No shots detected.</div>'; return; }
+    // 汇总摘要：命中率 = 有 flags 的比例；穿透率 = 击穿/命中（不含跳弹）
+    const total=srData.length;
+    const hits=srData.filter(s=>(s.hit_flags||0)!==0).length;
+    const pens=srData.filter(s=>s.hit_flags&0x0010).length;
+    const rics=srData.filter(s=>s.hit_flags&0x0008).length;
+    const heHits=srData.filter(s=>s.hit_flags&0x1000).length;
+    const kills=srData.filter(s=>s.is_kill).length;
+    const dmgTotal=srData.reduce((a,s)=>a+(s.damage||0),0);
+    const hitRate=total?100*hits/total:0;
+    const penRate=hits?100*pens/hits:0;
     const rows=srData.map(s=>{
         const miss=!s.target_name;
         // 脱靶弹也可 3D 复现：ball_a→ball_b 弹道 + terrain_impact 落点/材质（world 模式）
@@ -954,14 +1123,25 @@ function renderShotList() {
         const btn=has3d
             ? '<button class="btn" style="padding:2px 10px;">3D View</button>'
             : '<span class="muted">—</span>';
+        const tid=s.target_tank_id;
+        const targetCell=miss?'<span class="muted">—</span>'
+            :`${tid?`<img loading="lazy" src="${API}/api/tank_image/${tid}" style="width:36px;height:25px;object-fit:contain;vertical-align:middle;margin-right:6px;">`:''}${esc(s.target_name)}`;
         return `<tr ${has3d?'style="cursor:pointer;" onclick="openShotInViewer('+s.index+')"':''}>`
-            +`<td>#${s.index}</td><td>${s.time_s.toFixed(1)}s</td><td>${s.damage}</td>`
+            +`<td>#${s.index}</td><td>${s.time_s.toFixed(1)}s</td><td>${srDmgCell(s)}</td>`
             +`<td>${srShellBadge(s)}</td>`
             +`<td>${srResultBadge(s)}</td>`
-            +`<td>${miss?'<span class="muted">—</span>':esc(s.target_name)}</td>`
+            +`<td>${targetCell}</td>`
             +`<td>${btn}</td></tr>`;
     }).join('');
-    out.innerHTML=`<table class="inline-table-sm"><tr><th>#</th><th>Time</th><th>Dmg</th><th>Shell</th><th>Result</th><th>Target</th><th></th></tr>${rows}</table>
+    out.innerHTML=`<div class="stat-grid" style="grid-template-columns:repeat(auto-fill,minmax(120px,1fr));">
+            <div class="stat-box"><div class="lbl">Shots</div><div class="val">${total}</div></div>
+            <div class="stat-box"><div class="lbl">Hit rate</div><div class="val ${wrCls(hitRate)}">${hitRate.toFixed(0)}%</div><div class="sub">${hits}/${total}</div></div>
+            <div class="stat-box"><div class="lbl">Pen rate</div><div class="val o">${penRate.toFixed(0)}%</div><div class="sub">${pens}/${hits}</div></div>
+            <div class="stat-box"><div class="lbl">Total dmg</div><div class="val b">${fmtInt(dmgTotal)}</div></div>
+            <div class="stat-box"><div class="lbl">Rico / HE</div><div class="val">${rics} / ${heHits}</div></div>
+            <div class="stat-box"><div class="lbl">Kills</div><div class="val r">${kills}</div></div>
+        </div>
+        <table class="inline-table-sm"><tr><th>#</th><th>Time</th><th>Dmg</th><th>Shell</th><th>Result</th><th>Target</th><th></th></tr>${rows}</table>
         <div class="muted" style="margin-top:6px;">点击行 → 下方显示 3D 查看器 URL（可修改参数后打开）；脱靶弹按弹道终点提供 3D 复现（落点/材质，无目标装甲判定）</div>
         <div id="sr-url-edit" style="display:none;margin-top:8px;gap:6px;align-items:center;">
             <input type="text" style="flex:1;background:#1a1612;color:#ccc;border:1px solid #555;border-radius:4px;padding:6px 10px;font-size:11px;font-family:monospace;" />
@@ -986,28 +1166,100 @@ window.openShotInViewer = function(no) {
 $('btn-sr-load').addEventListener('click',srParse);
 
 // ---------- Compare ----------
+let cmpChart=null;
 async function doCompare() {
     const out=$('cmp-out'); out.innerHTML='<span class="spinner"></span> comparing...';
+    if(cmpChart){ cmpChart.destroy(); cmpChart=null; }
     const scanB=await fetch(API+'/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dir:$('cmp-dir').value,mode:$('cmp-mode').value,days:null})});
     if(!scanB.ok){out.innerHTML='<div class="muted">⚠ 扫描出错 (HTTP '+scanB.status+')</div>';return;}
     const scan=await scanB.json();
     const pB=await fetch(API+'/api/player/'+encodeURIComponent($('cmp-nick').value.trim()));
     const p=(await pB.json()).players?.[0];
     if(!scan.total_battles||!p){out.innerHTML='<div class="muted">Not enough data.</div>';return;}
-    out.innerHTML=`<table><tr><th>Metric</th><th>Replay</th><th>API Total</th></tr>
-        <tr><td>Battles</td><td>${scan.total_battles}</td><td>${p.random_battles+p.rating_battles}</td></tr>
-        <tr><td>Win rate</td><td>${scan.win_rate.toFixed(1)}%</td><td>${p.rating_battles?(100*p.rating_wins/p.rating_battles).toFixed(1):'-'}%</td></tr>
-        <tr><td>Avg damage</td><td>${Math.round(scan.avg_damage)}</td><td>${p.rating_battles?Math.round(p.rating_damage_dealt/p.rating_battles):'-'}</td></tr></table>`;
+    // API 总战绩口径：随机+排位合计（与旧版一致）
+    const apiBattles=p.random_battles+p.rating_battles;
+    const apiWins=p.random_wins+(p.rating_wins||0);
+    const apiWr=apiBattles?100*apiWins/apiBattles:null;
+    const apiDmg=(p.random_damage_dealt+(p.rating_damage_dealt||0))/(apiBattles||1);
+    const repWr=scan.win_rate, repDmg=scan.avg_damage;
+    out.innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;height:240px;margin:8px 0;">
+            <div style="position:relative;min-width:0;"><canvas id="cmp-chart-wr"></canvas></div>
+            <div style="position:relative;min-width:0;"><canvas id="cmp-chart-dmg"></canvas></div>
+        </div>
+        <table><tr><th>Metric</th><th>Replay 近期</th><th>API 累计</th><th>Δ</th></tr>
+        <tr><td>Win rate</td><td>${wrHtml(repWr)}</td><td>${wrHtml(apiWr)}</td><td>${deltaCell(repWr-apiWr,1,'%')}</td></tr>
+        <tr><td>Avg damage</td><td>${fmtInt(repDmg)}</td><td>${fmtInt(apiDmg)}</td><td>${deltaCell(repDmg-apiDmg,0,'')}</td></tr>
+        <tr><td>Battles</td><td>${scan.total_battles}</td><td>${fmtInt(apiBattles)}</td><td></td></tr></table>
+        <div class="muted" style="font-size:0.8em;margin-top:6px;">Δ = Replay − API；正值绿 / 负值红（当前状态相对长期水平）</div>`;
+    const el=document.getElementById('cmp-chart-wr');
+    const el2=document.getElementById('cmp-chart-dmg');
+    if(el&&el2&&window.Chart){
+        const mk=(canvas,label,rep,api,fmt)=>{
+            const ctx=canvas.getContext('2d');
+            const g=ctx.createLinearGradient(0,0,0,220);
+            g.addColorStop(0,'rgba(255,138,61,0.75)'); g.addColorStop(1,'rgba(255,138,61,0.25)');
+            return new Chart(canvas,{
+                type:'bar',
+                data:{
+                    labels:['Replay 近期','API 累计'],
+                    datasets:[{ label, data:[rep,api],
+                        backgroundColor:[g,'rgba(95,168,232,0.7)'],
+                        borderColor:['#ff8a3d','#5fa8e8'], borderWidth:1, borderRadius:8,
+                        maxBarThickness:90,
+                    }],
+                },
+                options:{ responsive:true, maintainAspectRatio:false,
+                    plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:item=>fmt(item.parsed.y) } } },
+                    scales:{ x:{ ticks:{ color:'#c8bba9', font:{size:12} }, grid:{ display:false } },
+                        y:{ min:0, ticks:{ color:'#9c8f7f' }, grid:{ color:'rgba(255,255,255,0.06)' } } },
+                },
+            });
+        };
+        mk(el,'Win rate %',+repWr.toFixed(1),apiWr!=null?+apiWr.toFixed(1):0,v=>v+'%');
+        mk(el2,'Avg damage',Math.round(repDmg),Math.round(apiDmg),v=>fmtInt(v));
+    }
+}
+// 差值单元格：正绿负红
+function deltaCell(v,d=0,unit=''){
+    if(v==null||!isFinite(v)) return '<span class="muted">-</span>';
+    const cls=v>=0?'wr-g':'wr-r';
+    return `<span class="${cls}">${v>=0?'+':''}${v.toFixed(d)}${unit}</span>`;
 }
 $('btn-compare').addEventListener('click',doCompare);
 
 // ---------- Prematch ----------
+// 单名玩家卡：昵称 + 排位核心指标（威胁/薄弱点/最强最弱共用）
+function luPlayerCard(p,tag,tagCls){
+    return `<div class="stat-box">
+        <div class="lbl">${tag?`<span class="lu-tag ${tagCls}">${tag}</span> `:''}${esc(p.nickname||'-')}</div>
+        <div class="val" style="font-size:1.05em;margin-top:6px;">${wrHtml(p.win_rate)} <span class="muted" style="font-size:0.72em;font-weight:600;">WR</span></div>
+        <div class="sub">${fmtInt(p.avg_damage)} dmg/场 · ${fmtInt(p.battles)} 场${p.rating!=null?` · 评级 ${Number(p.rating).toFixed(1)}`:''}</div>
+    </div>`;
+}
 async function doPrematch() {
     const out=$('pre-out'); out.innerHTML='<span class="spinner"></span> analyzing...';
     const names=$('pre-names').value.split(',').map(s=>s.trim()).filter(Boolean);
     const r=await fetch(API+'/api/prematch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({names})});
+    if(!r.ok){ out.innerHTML='<div class="muted">⚠ HTTP '+r.status+': '+esc((await r.text()).slice(0,200))+'</div>'; return; }
     const d=await r.json();
-    out.innerHTML=`<div class="muted">${esc(d.status)} ${esc(d.info||'')}</div>`;
+    const lu=d.lineup;
+    if(!lu){ out.innerHTML=`<div class="muted">${esc(d.status)} ${esc(d.info||'')}</div><div class="muted" style="margin-top:6px;">未能查询到玩家战绩（昵称拼写或 API 限制）。</div>`; return; }
+    const threatSet=new Set((lu.threats||[]).map(p=>p.nickname));
+    const weakSet=new Set((lu.weaknesses||[]).map(p=>p.nickname));
+    out.innerHTML=`<div class="stat-grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr));">
+            <div class="stat-box"><div class="lbl">Players</div><div class="val">${lu.total_players}</div></div>
+            <div class="stat-box"><div class="lbl">Avg WR</div><div class="val ${wrCls(lu.avg_win_rate)}">${lu.avg_win_rate!=null?lu.avg_win_rate.toFixed(1)+'%':'-'}</div></div>
+            <div class="stat-box"><div class="lbl">Avg dmg</div><div class="val b">${lu.avg_damage!=null?fmtInt(lu.avg_damage):'-'}</div></div>
+        </div>
+        <h4>威胁与薄弱点</h4>
+        <div class="lu-grid">
+            ${lu.strongest&&lu.strongest.nickname?luPlayerCard(lu.strongest,'最强','top'):''}
+            ${lu.weakest&&lu.weakest.nickname?luPlayerCard(lu.weakest,'最弱','weak'):''}
+            ${(lu.threats||[]).map(p=>luPlayerCard(p,'威胁','threat')).join('')}
+            ${(lu.weaknesses||[]).filter(p=>p.nickname!==lu.weakest?.nickname).map(p=>luPlayerCard(p,'集火','weak')).join('')}
+        </div>
+        ${lu.suggestion?`<div class="lu-suggest">💡 ${esc(lu.suggestion)}</div>`:''}
+        ${d.info?`<div class="muted" style="margin-top:10px;font-size:0.85em;">${esc(d.info)}</div>`:''}`;
 }
 $('btn-prematch').addEventListener('click',doPrematch);
 

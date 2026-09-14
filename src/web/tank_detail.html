@@ -6,10 +6,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>坦克详情 — WoTB Agent</title>
     <script src="/api/vendor/chart.umd.min.js"></script>
-    <script src="/api/vendor/markdown-it/markdown-it.min.js"></script>
-    <link rel="stylesheet" href="/api/vendor/katex/katex.min.css">
-    <script defer src="/api/vendor/katex/katex.min.js"></script>
-    <script defer src="/api/vendor/katex/auto-render.min.js"></script>
     <style>
         :root {
             --bg:#120f0e;
@@ -26,40 +22,99 @@
         }
         * { box-sizing:border-box; }
         body { margin:0; background:var(--bg); background-image:var(--bg-grad); background-attachment:fixed; color:var(--txt); font-family:"Segoe UI", system-ui, sans-serif; line-height:1.5; min-height:100vh; }
-        main { max-width:1080px; margin:0 auto; padding:20px; }
+        main { max-width:1120px; margin:0 auto; padding:20px; }
         #back { display:inline-block; margin:0 0 14px 0; color:var(--muted); background:var(--panel2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px 16px; cursor:pointer; font-size:0.9em; text-decoration:none; }
         #back:hover { color:var(--txt); border-color:var(--border-hi); }
-        #md-head { display:flex; gap:20px; padding:22px; border:1px solid var(--border); border-radius:var(--radius); background:linear-gradient(180deg,var(--panel),var(--panel2)); align-items:center; box-shadow:var(--shadow); }
-        #md-head img { width:150px; height:110px; object-fit:contain; background:linear-gradient(180deg,#201b18,#171310); border-radius:12px; padding:6px; }
-        #md-title { flex:1; }
-        #md-title h2 { margin:0 0 6px 0; font-size:1.6em; }
+        #md-head { display:flex; gap:22px; padding:22px; border:1px solid var(--border); border-radius:var(--radius); background:linear-gradient(180deg,var(--panel),var(--panel2)); align-items:center; box-shadow:var(--shadow); }
+        #md-head img { width:170px; height:124px; object-fit:contain; background:linear-gradient(180deg,#201b18,#171310); border-radius:12px; padding:6px; }
+        #md-title { flex:1; min-width:0; }
+        #md-title h2 { margin:0 0 6px 0; font-size:1.65em; }
+        #md-title .sub-line { color:var(--muted); font-size:0.85em; margin-top:5px; }
         .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-        .pill { display:inline-block; padding:2px 9px; border-radius:20px; font-size:0.75em; font-weight:700; }
+        .pill { display:inline-block; padding:2px 10px; border-radius:20px; font-size:0.75em; font-weight:700; }
         .pill.tier { background:rgba(255,207,92,0.16); color:var(--yellow); }
         .pill.nat { background:rgba(95,168,232,0.16); color:var(--blue); }
-        .pill.type { background:rgba(95,191,122,0.16); color:var(--green); }
-        #md-body { margin-top:16px; background:linear-gradient(180deg,var(--panel),var(--panel2)); border:1px solid var(--border); border-radius:var(--radius); padding:22px; box-shadow:var(--shadow); }
+        .pill.gold { background:rgba(255,207,92,0.16); color:var(--yellow); }
+        .pill.coll { background:rgba(95,168,232,0.16); color:var(--blue); }
+        /* 车种配色：Light 绿 / Medium 黄 / Heavy 红 / TD 蓝 */
+        .pill.t-light  { background:rgba(95,191,122,0.16); color:var(--green); }
+        .pill.t-medium { background:rgba(255,207,92,0.14); color:var(--yellow); }
+        .pill.t-heavy  { background:rgba(255,107,107,0.15); color:var(--red); }
+        .pill.t-td     { background:rgba(95,168,232,0.16); color:var(--blue); }
+        .pill.t-unknown{ background:rgba(156,143,127,0.18); color:var(--muted); }
+        .pill.weight { background:rgba(255,255,255,0.06); color:var(--txt); }
+        #md-body { margin-top:16px; }
+        .card { background:linear-gradient(180deg,var(--panel),var(--panel2)); border:1px solid var(--border); border-radius:var(--radius); padding:20px 22px; box-shadow:var(--shadow); margin-bottom:16px; }
         input, select, button { font-size:0.95em; padding:9px 13px; background:var(--panel3); color:var(--txt); border:1px solid var(--border); border-radius:var(--radius-sm); transition:border-color .15s ease, box-shadow .15s ease; font-family:inherit; }
-        select { flex:1; max-width:300px; }
-        h4 { margin:18px 0 8px 0; color:var(--muted); font-size:0.8em; text-transform:uppercase; letter-spacing:.6px; }
-        h4:first-of-type { margin-top:6px; }
-        .stat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:13px; margin:10px 0; }
-        .stat-box { background:linear-gradient(180deg,var(--panel2),var(--panel3)); border:1px solid var(--border); border-radius:12px; padding:14px; }
-        .stat-box .lbl { color:var(--muted); font-size:0.76em; text-transform:uppercase; letter-spacing:.4px; }
-        .stat-box .val { font-size:1.35em; font-weight:800; margin-top:4px; }
-        .stat-box .val.g { color:var(--green); } .stat-box .val.o { color:var(--accent-2); } .stat-box .val.b { color:var(--blue); }
+        select { max-width:340px; }
+        .sec-title { display:flex; align-items:center; gap:9px; margin:0 0 12px 0; font-size:1.02em; font-weight:800; }
+        .sec-title::before { content:''; flex:none; width:4px; height:17px; border-radius:2px; background:linear-gradient(180deg,var(--accent),var(--accent-2)); }
+        .sec-title .sec-note { font-size:0.72em; font-weight:600; color:var(--muted); }
+        .stat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; margin:10px 0; }
+        .stat-box { background:linear-gradient(180deg,var(--panel2),var(--panel3)); border:1px solid var(--border); border-radius:12px; padding:13px 14px; transition:transform .12s ease; }
+        .stat-box:hover { transform:translateY(-2px); }
+        .stat-box .lbl { color:var(--muted); font-size:0.74em; text-transform:uppercase; letter-spacing:.4px; }
+        .stat-box .val { font-size:1.3em; font-weight:800; margin-top:4px; }
+        .stat-box .sub { color:var(--muted); font-size:0.72em; margin-top:3px; }
+        .val.g { color:var(--green); } .val.o { color:var(--accent-2); } .val.b { color:var(--blue); } .val.r { color:var(--red); } .val.y { color:var(--yellow); }
         table { width:100%; border-collapse:collapse; font-size:0.92em; }
         th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); }
-        th { color:var(--muted); font-weight:600; font-size:0.82em; text-transform:uppercase; letter-spacing:.4px; }
-        tr:hover td { background:rgba(255,255,255,0.03); }
+        th { color:var(--muted); font-weight:600; font-size:0.8em; text-transform:uppercase; letter-spacing:.4px; white-space:nowrap; }
+        td { white-space:nowrap; }
+        tbody tr:hover td { background:rgba(255,255,255,0.03); }
+        .table-scroll { overflow-x:auto; margin:8px 0; }
         .muted { color:var(--muted); }
         .btn { cursor:pointer; }
         .btn-primary { background:linear-gradient(135deg,var(--accent),var(--accent-2)); border-color:transparent; color:#1a1208; font-weight:700; box-shadow:0 4px 14px rgba(255,138,61,0.28); }
-        #md-inspector-toggle { width:100%; margin-top:16px; padding:11px; background:linear-gradient(135deg,var(--accent),var(--accent-2)); border:none; color:#1a1208; font-weight:700; border-radius:var(--radius-sm); cursor:pointer; font-size:0.95em; }
-        #open-3d { width:100%; margin-top:10px; padding:11px; background:var(--panel3); border:1px solid var(--border-hi); color:var(--txt); font-weight:700; border-radius:var(--radius-sm); cursor:pointer; font-size:0.95em; }
-        #open-3d:hover { border-color:var(--accent); }
         .spinner { display:inline-block; width:13px; height:13px; border:2px solid var(--muted); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; vertical-align:middle; }
         @keyframes spin { to { transform:rotate(360deg); } }
+        /* 弹种徽章 */
+        .shb { display:inline-block; padding:1px 9px; border-radius:11px; font-size:0.8em; font-weight:800; letter-spacing:.4px; }
+        .shb.ap   { background:rgba(205,205,215,0.13); color:#cdcdd9; }
+        .shb.apcr { background:rgba(95,168,232,0.17); color:#8fc3f2; }
+        .shb.heat { background:rgba(255,138,61,0.18); color:#ffb35c; }
+        .shb.he   { background:rgba(255,107,107,0.17); color:#ff9b9b; }
+        .shb.prem { box-shadow:0 0 0 1.5px rgba(255,207,92,0.6); }
+        /* 装甲热力单元格 */
+        td.hot { border-radius:6px; font-weight:800; }
+        /* 射界 / 俯仰图 */
+        .arcs-row { display:flex; gap:26px; flex-wrap:wrap; align-items:center; margin-top:6px; }
+        .arc-box { background:linear-gradient(180deg,var(--panel2),var(--panel3)); border:1px solid var(--border); border-radius:12px; padding:10px 14px 6px; text-align:center; }
+        .arc-box .lbl { color:var(--muted); font-size:0.74em; text-transform:uppercase; letter-spacing:.4px; }
+        .yaw-arc .fan { fill:rgba(255,255,255,0.05); }
+        .yaw-arc .allow { fill:rgba(255,138,61,0.30); stroke:var(--accent-2); stroke-width:1.5; }
+        .yaw-arc .barrel { stroke:var(--accent-3); stroke-width:2.5; stroke-linecap:round; }
+        .yaw-arc text { fill:var(--txt); font-size:12px; font-weight:700; }
+        .yaw-arc .sub { fill:var(--muted); font-size:9.5px; font-weight:600; }
+        .gun-fan .up { fill:rgba(95,191,122,0.30); stroke:var(--green); stroke-width:1.5; }
+        .gun-fan .down { fill:rgba(95,168,232,0.30); stroke:var(--blue); stroke-width:1.5; }
+        .gun-fan .hline { stroke:rgba(255,255,255,0.25); stroke-width:1; stroke-dasharray:3 3; }
+        .gun-fan text { fill:var(--txt); font-size:11px; font-weight:700; }
+        /* 同级百分位条 */
+        .pct-row { display:grid; grid-template-columns:110px 1fr 150px; gap:12px; align-items:center; margin:7px 0; }
+        .pct-lbl { color:var(--muted); font-size:0.82em; }
+        .pct-bar { height:10px; background:var(--panel3); border-radius:5px; overflow:hidden; }
+        .pct-bar > div { height:100%; border-radius:5px; }
+        .pct-bar .g { background:linear-gradient(90deg,#4a9e63,var(--green)); }
+        .pct-bar .o { background:linear-gradient(90deg,var(--accent),var(--accent-2)); }
+        .pct-bar .r { background:linear-gradient(90deg,#c94f4f,var(--red)); }
+        .pct-val { font-size:0.9em; font-weight:700; text-align:right; white-space:nowrap; }
+        /* 总览两栏 */
+        .ov-grid { display:grid; grid-template-columns:1fr 330px; gap:20px; align-items:stretch; }
+        @media (max-width:820px) { .ov-grid { grid-template-columns:1fr; } }
+        .radar-wrap { display:flex; align-items:center; justify-content:center; }
+        .radar-wrap canvas { max-width:100%; }
+        /* 间隙甲徽章 */
+        .spaced-badge { display:inline-block; margin:2px 6px 2px 0; padding:2px 10px; border-radius:11px; font-size:0.78em; font-weight:700; background:rgba(255,207,92,0.12); color:var(--yellow); border:1px dashed rgba(255,207,92,0.45); }
+        /* 3D 检视器内嵌 */
+        #md-inspector { display:none; margin-top:12px; border:1px solid var(--border); border-radius:12px; overflow:hidden; background:#140e0c; }
+        #md-inspector.open { display:block; }
+        #md-inspector iframe { width:100%; height:78vh; min-height:560px; border:none; display:block; background:#140e0c; }
+        .viewer-btns { display:flex; gap:10px; flex-wrap:wrap; }
+        .viewer-btns button { flex:1; min-width:200px; padding:11px; font-weight:700; font-size:0.95em; border-radius:var(--radius-sm); }
+        #toggle-3d { background:linear-gradient(135deg,var(--accent),var(--accent-2)); border:none; color:#1a1208; }
+        #open-3d { background:var(--panel3); border:1px solid var(--border-hi); color:var(--txt); }
+        #open-3d:hover { border-color:var(--accent); }
     </style>
 </head>
 <body>
@@ -70,8 +125,9 @@
 <script>
 const API = '/api';
 const $ = id => document.getElementById(id);
-function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function esc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 const TYPE_LABEL = { lightTank:'Light', mediumTank:'Medium', heavyTank:'Heavy', 'AT-SPG':'TD' };
+const TYPE_CLS = { lightTank:'t-light', mediumTank:'t-medium', heavyTank:'t-heavy', 'AT-SPG':'t-td' };
 const NATION_LABEL = { ussr:'USSR', usa:'USA', germany:'Germany', uk:'UK', japan:'Japan', china:'China', france:'France', european:'EU', other:'Other' };
 
 // 从 URL 提取 tank_id (支持 /tank/{id})
@@ -82,118 +138,417 @@ const tankId = (() => {
     return q || '';
 })();
 
-let mdData=null, mdCfgIdx=0;
+let mdData=null, mdCfgIdx=0, mdEngIdx=0, mdTrackIdx=0, tanksAll=null, radarChart=null, lastCfgIdx=-1;
 
 async function loadDetail() {
     const out=$('tank-content');
     if(!tankId){ out.innerHTML='<div class="muted">无效的坦克 ID。</div>'; return; }
     try {
-        const r=await fetch(API+'/tank_detail/'+tankId);
+        // 详情 + 全量坦克列表（同级百分位/雷达图基准）并行拉取；列表失败不影响主数据展示
+        const [r, tr] = await Promise.all([
+            fetch(API+'/tank_detail/'+tankId),
+            fetch(API+'/tanks').catch(()=>null),
+        ]);
         if(!r.ok){ out.innerHTML='<div class="muted">加载失败 (HTTP '+r.status+')</div>'; return; }
-        const d=await r.json();
-        mdData=d; mdCfgIdx=0;
-        document.title = (d.name||'坦克')+' — WoTB Agent';
+        mdData = await r.json();
+        // 默认按顶级模块展示（tanks.pb 内模块按研究顺序排列，末项为顶级）：
+        // 顶级炮塔×主炮组合 + 顶级引擎 + 顶级履带；切换器仍可回看各级配置
+        const cfgs=mdData.configs||[];
+        mdCfgIdx=Math.max(0,cfgs.length-1);
+        const top=cfgs[mdCfgIdx]||{};
+        mdEngIdx=Math.max(0,((top.engines)||[]).length-1);
+        mdTrackIdx=Math.max(0,((top.tracks)||[]).length-1);
+        lastCfgIdx = -1;
+        if (tr && tr.ok) { try { tanksAll = await tr.json(); } catch(e) { tanksAll = null; } }
+        document.title = (mdData.name||'坦克')+' — WoTB Agent';
         renderDetail();
     } catch(e){ out.innerHTML='<div class="muted">加载失败: '+esc(e.message)+'</div>'; }
 }
 
-function renderDetail() {
-    const d=mdData; const out=$('tank-content');
-    // 弹种正式显示名（开发名 ap_cr/hc_premium → APCR/HEAT）
-    const SHELL_LABEL={ap:'AP',apcr:'APCR',heat:'HEAT',he:'HE'};
-    const normType=t=>{t=(t||'').toLowerCase();if(t==='hc'||t==='hc_premium'||t==='heat')return'heat';if(t==='ap_cr'||t==='ap_cr_premium'||t==='apcr')return'apcr';if(t==='he'||t==='he_premium')return'he';if(t==='ap'||t==='ap_premium')return'ap';return t;};
-    const shellLabel=s=>SHELL_LABEL[normType(s.type||s.shell_type)]||esc(s.type||s.shell_type||'?');
-    const cfgs=d.configs||[]; const cfg=cfgs[mdCfgIdx]||null;
-    const shells=(cfg&&cfg.shells||d.shells||[]).map(s=>{
-        const pen = s.penetration!=null && s.penetration_far!=null && s.penetration_far>0 && s.penetration_far!==s.penetration
-            ? `${s.penetration}→${s.penetration_far}` : (s.penetration??'-');
-        return `<tr><td>${shellLabel(s)}</td><td>${pen}</td><td>${s.damage??'-'}</td><td>${s.module_damage??'-'}</td><td>${s.velocity?Math.round(s.velocity):'-'}</td><td>${s.range?Math.round(s.range):'-'}</td></tr>`;
-    }).join('')||'<tr><td colspan="6" class="muted">No shell data</td></tr>';
-    const caliber=cfg?cfg.caliber:'-';
-    const gdep=cfg&&cfg.gun_depression!=null?cfg.gun_depression:d.gun_depression;
-    const gelev=cfg&&cfg.gun_elevation!=null?cfg.gun_elevation:d.gun_elevation;
+// ---------- 通用小工具 ----------
+// 弹种显示名（开发名 ap_cr/hc_premium → APCR/HEAT）
+const normType=t=>{t=(t||'').toLowerCase();if(t==='hc'||t==='hc_premium'||t==='heat')return'heat';if(t==='ap_cr'||t==='ap_cr_premium'||t==='apcr')return'apcr';if(t==='he'||t==='he_premium')return'he';if(t==='ap'||t==='ap_premium')return'ap';return t;};
+const shellLabel=s=>normType(s.type).toUpperCase();
+const isPremiumShell=s=>/premium/i.test(s.type||'');
+function shellBadge(s){
+    const t=normType(s.type).toUpperCase();
+    return `<span class="shb ${normType(s.type)}${isPremiumShell(s)?' prem':''}">${esc(t)}${isPremiumShell(s)?' ★':''}</span>`;
+}
+// 装甲厚度热力色：20–300mm 映射 红→黄→绿（HSL 色相 0→120）
+function armorColor(mm){
+    if(mm==null) return '';
+    const t=Math.max(0,Math.min(1,(mm-20)/280));
+    const hue=Math.round(t*120);
+    return `background:hsla(${hue},58%,46%,0.22);color:hsl(${hue},68%,${68-t*8}%)`;
+}
+const fmt=(v,d=0)=>v!=null?Number(v).toFixed(d):'-';
+// 同型 peer 百分位（0-100）：自身值在样本中 ≤ 的比例
+function percentile(arr,x){
+    const a=arr.filter(v=>v!=null);
+    if(!a.length||x==null) return null;
+    return a.filter(v=>v<=x).length/a.length*100;
+}
+// 当前车的同级同类型 peer 集合；样本 <5 辆视为不可比
+function peersOf(d){
+    if(!Array.isArray(tanksAll)) return null;
+    const type=(d.type||'unknown');
+    const peers=tanksAll.filter(t=>t.tier===d.tier&&(t.type||'unknown')===type);
+    return peers.length>=5?peers:null;
+}
+// 六维指标：自身值 + 同级百分位（供百分位条与雷达图共用）
+function peerMetrics(d,cfg){
+    const peers=peersOf(d);
+    if(!peers) return null;
+    const shells=(cfg&&cfg.shells&&cfg.shells.length?cfg.shells:d.shells)||[];
+    const pens=shells.map(s=>s.penetration).filter(v=>v!=null);
+    const dmgs=shells.map(s=>s.damage).filter(v=>v!=null);
+    const col=a=>a.map(t=>t[1]).filter(v=>v!=null);
+    const rows=[
+        ['HP', d.hp, peers.map(t=>t.hp), 0],
+        ['车体装甲', d.armor&&d.armor.hull_front, col(peers.map(t=>[0,t.armor_front])), 0],
+        ['炮塔装甲', d.armor&&d.armor.turret_front, col(peers.map(t=>[0,t.armor_turret])), 0],
+        ['最大穿深', pens.length?Math.max(...pens):null, peers.map(t=>t.pen_max), 0],
+        ['单发伤害', dmgs.length?Math.max(...dmgs):null, peers.map(t=>t.damage_max), 0],
+        ['视野', (cfg&&cfg.view_range)||d.view_range, peers.map(t=>t.view_range), 0],
+    ];
+    return rows.map(([label,val,arr])=>({label,val,pct:percentile(arr,val)}));
+}
+
+// ---------- 火炮射界 / 俯仰 SVG ----------
+// yaw_limits 为度数 {min,max}；3D 查看器口径：实际可转区间 = [-max, -min]（左负右正）
+function yawArcSvg(cfg){
+    const yl=cfg&&cfg.yaw_limits;
+    let a0,a1;
+    if(yl&&typeof yl.min==='number'&&typeof yl.max==='number'){ a0=-yl.max; a1=-yl.min; }
+    else { a0=-180; a1=180; }
+    if(a0>a1){ const t=a0; a0=a1; a1=t; }
+    const span=a1-a0;
+    const full=span>=359.5;
+    const cx=110, cy=100, r=82;
+    const pt=a=>{const rad=a*Math.PI/180; return [cx+r*Math.sin(rad), cy-r*Math.cos(rad)];};
+    let allow='';
+    if(!full){
+        const [x0,y0]=pt(a0), [x1,y1]=pt(a1);
+        const large=span>180?1:0;
+        allow=`<path class="allow" d="M${cx},${cy} L${x0.toFixed(1)},${y0.toFixed(1)} A${r},${r} 0 ${large} 1 ${x1.toFixed(1)},${y1.toFixed(1)} Z"/>`;
+    }
+    const [bx0,by0]=pt(-90), [bx1,by1]=pt(90);
+    return `<div class="arc-box"><div class="lbl">Gun Arc 水平射界</div>
+    <svg class="yaw-arc" width="220" height="118" viewBox="0 0 220 118">
+        <path class="fan" d="M${cx},${cy} L${bx0.toFixed(1)},${by0.toFixed(1)} A${r},${r} 0 0 1 ${bx1.toFixed(1)},${by1.toFixed(1)} Z"/>
+        ${allow}
+        <line class="barrel" x1="${cx}" y1="${cy}" x2="${cx}" y2="${(cy-r+6).toFixed(1)}"/>
+        <text x="${cx}" y="${cy-30}" text-anchor="middle">${full?'360° 全旋转':Math.round(a0)+'° ~ '+Math.round(a1)+'°'}</text>
+        <text class="sub" x="${cx}" y="${cy-14}" text-anchor="middle">${full?'':('射界跨度 '+Math.round(span)+'°')}</text>
+    </svg></div>`;
+}
+// 俯仰扇形：上=elevation(绿) 下=depression(蓝)
+function gunFanSvg(dep,elev){
+    if(dep==null&&elev==null) return '';
+    const d=Math.max(0,Math.min(30,dep??0)), e=Math.max(0,Math.min(30,elev??0));
+    const cx=80, cy=76, r=58;
+    const pt=(a)=>{const rad=a*Math.PI/180; return [cx+r*Math.cos(rad), cy-r*Math.sin(rad)];};
+    const arc=(from,to,cls)=>{
+        const [x0,y0]=pt(from), [x1,y1]=pt(to);
+        const large=Math.abs(to-from)>180?1:0;
+        // to>from 逆时针（屏幕坐标）→ sweep=0
+        return `<path class="${cls}" d="M${cx},${cy} L${x0.toFixed(1)},${y0.toFixed(1)} A${r},${r} 0 ${large} 0 ${x1.toFixed(1)},${y1.toFixed(1)} Z"/>`;
+    };
+    let fans='';
+    if(e>0.5) fans+=arc(0,e,'up');
+    if(d>0.5) fans+=arc(0,-d,'down');
+    const [ex,ey]=pt(e), [dx,dy]=pt(-d);
+    return `<div class="arc-box"><div class="lbl">Gun Pitch 俯仰区间</div>
+    <svg class="gun-fan" width="184" height="102" viewBox="0 0 184 102">
+        ${fans}
+        <line class="hline" x1="${cx-r-8}" y1="${cy}" x2="${cx+r+8}" y2="${cy}"/>
+        <line class="barrel" style="stroke:var(--accent-3);stroke-width:2.5;stroke-linecap:round;" x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy-r+4}"/>
+        ${e>0.5?`<text x="${Math.min(ex+6,152).toFixed(1)}" y="${Math.max(10,ey-2).toFixed(1)}" fill="var(--green)">+${Math.round(e)}°</text>`:''}
+        ${d>0.5?`<text x="${Math.min(dx+6,152).toFixed(1)}" y="${Math.min(dy+12,98).toFixed(1)}" fill="var(--blue)">-${Math.round(d)}°</text>`:''}
+    </svg></div>`;
+}
+
+// ---------- 各分区渲染 ----------
+function overviewSec(d,cfg,eng){
+    const shells=(cfg&&cfg.shells&&cfg.shells.length?cfg.shells:d.shells)||[];
+    // 单发伤害与 DPM 同口径：标准弹药（非金币弹），后端 standard_damage 优先 AP
+    const dmgMax=(cfg&&cfg.standard_damage!=null)?cfg.standard_damage
+        :(shells.filter(s=>!/premium/i.test(s.type||'')).map(s=>s.damage||0).reduce((a,b)=>Math.max(a,b),0)||d.damage_max);
+    const dpm=(cfg&&cfg.dpm!=null)?Math.round(cfg.dpm):null;
+    const hullHp=(cfg&&cfg.hull_hp!=null)?cfg.hull_hp:null;
+    const turHp=(cfg&&cfg.turret_health!=null)?cfg.turret_health:null;
+    const hpSub=(hullHp!=null&&turHp!=null)?`车体 ${hullHp} + 炮塔 ${turHp}`:'';
+    const w=(cfg&&cfg.weight)||null;
+    const ptw=(eng&&eng.power&&w)?(eng.power/(w/1000)).toFixed(1):null;
+    const weightTxt=w?(w/1000).toFixed(1)+' t':null;
+    return `<div class="card">
+        <div class="sec-title">总览 Overview</div>
+        <div class="ov-grid">
+            <div class="stat-grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr));margin:0;align-content:start;">
+                <div class="stat-box"><div class="lbl">HP</div><div class="val g">${d.hp??'-'}</div>${hpSub?`<div class="sub">${hpSub}</div>`:''}</div>
+                <div class="stat-box"><div class="lbl">DPM (AP)</div><div class="val o">${dpm??'-'}</div>${cfg&&cfg.is_burst?'<div class="sub">连发射速</div>':''}</div>
+                <div class="stat-box"><div class="lbl">Caliber</div><div class="val">${cfg?cfg.caliber:'-'} mm</div></div>
+                <div class="stat-box"><div class="lbl">Alpha 单发</div><div class="val">${dmgMax!=null?Math.round(dmgMax):'-'}</div></div>
+                <div class="stat-box"><div class="lbl">Power/Weight</div><div class="val b">${ptw?ptw:'-'} <span style="font-size:0.55em;">hp/t</span></div></div>
+                <div class="stat-box"><div class="lbl">Weight</div><div class="val">${weightTxt??'-'}</div></div>
+            </div>
+            <div class="radar-wrap"><canvas id="radar" width="300" height="270"></canvas></div>
+        </div>
+    </div>`;
+}
+function firepowerSec(d,cfg){
     const reload=cfg&&cfg.reload_time!=null?cfg.reload_time:null;
     const aim=cfg&&cfg.aim_time!=null?cfg.aim_time:null;
     const disp=cfg&&cfg.dispersion!=null?cfg.dispersion:null;
-    const dpm=cfg&&cfg.dpm!=null?cfg.dpm:null;
     const isBurst=cfg&&cfg.is_burst===true;
     const isDrum=cfg&&cfg.is_drum===true;
     const burstSize=cfg&&cfg.burst_size;
     const burstInt=cfg&&cfg.burst_interval&&cfg.burst_interval>0?cfg.burst_interval:null;
     const burstReloads=(cfg&&cfg.burst_reloads)||[];
-    const reloadDisp=reload!=null?`${reload.toFixed(1)}s`:'-';
-    const dpmDisp=!isBurst&&dpm!=null?Math.round(dpm):'-';
-    const burstNote=isBurst
-        ? (isDrum ? `弹鼓 · ${burstSize!=null?Math.round(burstSize):'?'}发/鼓 · 每发装填 ${burstReloads.length?burstReloads.map(x=>x.toFixed(1)+'s').join(' / '):'-'} · 发射间隔 ${burstInt!=null?burstInt.toFixed(2)+'s':'-'}`
-            : `弹夹 · ${burstSize!=null?Math.round(burstSize):'?'}发/夹 · 整夹装填 ${reload!=null?reload.toFixed(1)+'s':'-'} · 发射间隔 ${burstInt!=null?burstInt.toFixed(2)+'s':'-'}`)
-        : '';
-    const reloadLabel=isBurst?'Autoloader':'Reload';
-    const hullTraverse=d.hull_traverse!=null?`${(d.hull_traverse).toFixed(1)}&deg;/s`:'-';
-    const turretTraverse=(cfg&&cfg.turret_traverse_speed!=null?cfg.turret_traverse_speed:d.turret_traverse_speed);
-    const turretTraverseDisp=turretTraverse!=null?`${turretTraverse.toFixed(1)}&deg;/s`:'-';
-    const viewRange=(cfg&&cfg.view_range!=null?cfg.view_range:d.view_range);
-    const viewDisp=viewRange!=null?`${Math.round(viewRange)}m`:'-';
+    // 单发/弹夹/弹鼓三种装填文案
+    let reloadVal,reloadSub;
+    if(isBurst&&isDrum){ reloadVal=burstReloads.length?burstReloads.map(x=>x.toFixed(1)+'s').join(' / '):'-'; reloadSub=`弹鼓 ${burstSize!=null?Math.round(burstSize):'?'} 发 · 间隔 ${burstInt!=null?burstInt.toFixed(2)+'s':'-'}`; }
+    else if(isBurst){ reloadVal=burstInt!=null?burstInt.toFixed(2)+'s':'-'; reloadSub=`弹夹 ${burstSize!=null?Math.round(burstSize):'?'} 发 · 整夹 ${reload!=null?reload.toFixed(1)+'s':'-'}`; }
+    else { reloadVal=reload!=null?reload.toFixed(1)+'s':'-'; reloadSub=''; }
+    const aimVal=aim!=null?aim.toFixed(2)+'s':null;
+    const dispVal=disp!=null?disp.toFixed(3)+' m':null;
+    const dispSub=disp!=null?`100m 散布圆直径 ≈ ${Math.round(disp*200)} cm`:'';
+    return `<div class="card">
+        <div class="sec-title">火力 Firepower <span class="sec-note">${esc(cfg?cfg.label:'')}</span></div>
+        <div class="stat-grid">
+            <div class="stat-box"><div class="lbl">${isBurst?(isDrum?'Drum Reload':'Burst'):'Reload'}</div><div class="val b">${reloadVal}</div>${reloadSub?`<div class="sub">${reloadSub}</div>`:''}</div>
+            <div class="stat-box"><div class="lbl">Aim Time</div><div class="val">${aimVal??'-'}</div></div>
+            <div class="stat-box"><div class="lbl">Dispersion@100m</div><div class="val">${dispVal??'-'}</div>${dispSub?`<div class="sub">${dispSub}</div>`:''}</div>
+            <div class="stat-box"><div class="lbl">Depression</div><div class="val">${d.gun_depression!=null?'-'+d.gun_depression+'°':'-'}</div></div>
+            <div class="stat-box"><div class="lbl">Elevation</div><div class="val">${d.gun_elevation!=null?'+'+d.gun_elevation+'°':'-'}</div></div>
+        </div>
+        <div class="arcs-row">
+            ${yawArcSvg(cfg)}
+            ${gunFanSvg(d.gun_depression,d.gun_elevation)}
+        </div>
+    </div>`;
+}
+function shellsSec(d,cfg){
+    const shells=(cfg&&cfg.shells&&cfg.shells.length?cfg.shells:d.shells)||[];
+    const rows=shells.map(s=>{
+        const penFar=(s.penetration_far!=null&&s.penetration_far>0&&s.penetration_far!==s.penetration)?s.penetration_far:null;
+        const decay=(penFar!=null&&s.penetration)?`<span class="muted" style="font-size:0.82em;">(−${((1-penFar/s.penetration)*100).toFixed(1)}%)</span>`:'';
+        return `<tr>
+            <td>${shellBadge(s)}</td>
+            <td>${s.penetration??'-'}${penFar!=null?` → ${penFar} ${decay}`:''}</td>
+            <td>${s.damage??'-'}</td>
+            <td class="muted">${s.module_damage??'-'}</td>
+            <td>${s.velocity?Math.round(s.velocity):'-'}</td>
+            <td>${s.range?Math.round(s.range):'-'}</td>
+            <td>${s.normalization!=null?s.normalization+'°':'-'}</td>
+            <td>${s.ricochet!=null?s.ricochet+'°':'-'}</td>
+            <td>${s.explosion_radius>0?Number(s.explosion_radius).toFixed(1)+' m':'-'}</td>
+            <td>${s.caliber!=null?s.caliber+' mm':'-'}</td>
+        </tr>`;
+    }).join('')||'<tr><td colspan="10" class="muted">No shell data</td></tr>';
+    return `<div class="card">
+        <div class="sec-title">弹药 Shells <span class="sec-note">${esc(cfg?cfg.label:'')}</span></div>
+        <div class="table-scroll"><table>
+            <thead><tr><th>Type</th><th>Pen 100m→远</th><th>Dmg</th><th>Mod Dmg</th><th>Vel m/s</th><th>Range m</th><th>转正</th><th>跳弹角</th><th>爆炸半径</th><th>弹径</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table></div>
+    </div>`;
+}
+function armorSec(d,cfg,viewerHtml){
     const a=d.armor||{};
-    const armorTable=(a.turret_front||a.hull_front)?`<h4>Armor (mm)</h4><table class="inline-table-sm"><tr><th></th><th>Hull</th><th>Turret</th></tr>
-        <tr><td>Front</td><td>${a.hull_front??'-'}</td><td>${a.turret_front??'-'}</td></tr>
-        <tr><td>Sides</td><td>${a.hull_sides??'-'}</td><td>${a.turret_sides??'-'}</td></tr>
-        <tr><td>Rear</td><td>${a.hull_rear??'-'}</td><td>${a.turret_rear??'-'}</td></tr></table>`:'';
-    const speed=(d.speed_forward!=null||d.speed_reverse!=null)?`${d.speed_forward??'-'} / ${d.speed_reverse??'-'} km/h`:'-';
-    const cfgOptions=cfgs.map((c,i)=>`<option value="${i}" ${i===mdCfgIdx?'selected':''}>${esc(c.label)}${c.turret_name&&c.turret_name!==c.label?' ('+esc(c.turret_name)+')':''}</option>`).join('');
+    const gt=cfg&&cfg.gun_thickness, gm=cfg&&cfg.gun_mask;
+    const gs=(cfg&&cfg.gun_spaced)||[], ts=(cfg&&cfg.turret_spaced)||[];
+    const spacedHtml=[];
+    if(gs.length) spacedHtml.push(`<span class="spaced-badge">炮管间隙甲 ×${gs.length}</span>`);
+    if(ts.length) spacedHtml.push(`<span class="spaced-badge">炮塔间隙甲 ×${ts.length}</span>`);
+    const hot=v=>`class="hot" style="${armorColor(v)}"`;
+    const armorTable=(a.turret_front||a.hull_front)?`<div class="table-scroll"><table style="max-width:520px;">
+            <thead><tr><th></th><th>Hull 车体</th><th>Turret 炮塔</th></tr></thead>
+            <tbody>
+                <tr><td class="muted">Front 正面</td><td ${hot(a.hull_front)}>${a.hull_front??'-'}</td><td ${hot(a.turret_front)}>${a.turret_front??'-'}</td></tr>
+                <tr><td class="muted">Side 侧面</td><td ${hot(a.hull_sides)}>${a.hull_sides??'-'}</td><td ${hot(a.turret_sides)}>${a.turret_sides??'-'}</td></tr>
+                <tr><td class="muted">Rear 后方</td><td ${hot(a.hull_rear)}>${a.hull_rear??'-'}</td><td ${hot(a.turret_rear)}>${a.turret_rear??'-'}</td></tr>
+            </tbody>
+        </table></div>`:'<div class="muted" style="margin:6px 0;">No armor summary data</div>';
+    return `<div class="card">
+        <div class="sec-title">装甲 Armor</div>
+        ${armorTable}
+        ${(a.turret_front||a.hull_front)?`<div class="muted" style="font-size:0.76em;margin:2px 0 8px;">厚度单位 mm · 绿≈厚 / 红≈薄（20–300mm 色阶）</div>`:''}
+        <div class="stat-grid" style="margin-top:0;">
+            ${gt!=null?`<div class="stat-box"><div class="lbl">Gun Barrel 炮管装甲</div><div class="val">${Math.round(gt)} mm</div></div>`:''}
+            ${gm!=null?`<div class="stat-box"><div class="lbl">Gun Mantlet 炮盾</div><div class="val">${Math.round(gm)} mm</div></div>`:''}
+        </div>
+        ${spacedHtml.length?`<div style="margin-top:4px;">${spacedHtml.join('')}</div>`:''}
+        ${viewerHtml}
+    </div>`;
+}
+function mobilitySec(d,cfg,eng,track){
+    const w=(cfg&&cfg.weight)||null;
+    // 车体旋转速度由履带决定：优先选中履带，回退坦克级字段
+    const hullTraverse=(track&&track.traverse_speed!=null)?track.traverse_speed:d.hull_traverse;
+    const engRows=eng?`<tr><td>${esc(eng.name||'-')}</td><td>${eng.power?Math.round(eng.power)+' hp':'-'}</td><td>${eng.fire_chance!=null?(eng.fire_chance*100).toFixed(1)+'%':'-'}</td></tr>`:'';
+    const trRows=track?`<tr><td>${esc(track.name||'-')}</td><td>${track.traverse_speed!=null?fmt(track.traverse_speed,1)+'°/s':'-'}</td><td>${track.weight?Math.round(track.weight/1000)+' t':'-'}</td></tr>`:'';
+    return `<div class="card">
+        <div class="sec-title">机动 Mobility</div>
+        <div class="stat-grid">
+            <div class="stat-box"><div class="lbl">Speed F/R</div><div class="val">${d.speed_forward??'-'} / ${d.speed_reverse??'-'} <span style="font-size:0.55em;">km/h</span></div></div>
+            <div class="stat-box"><div class="lbl">Hull Traverse</div><div class="val">${hullTraverse!=null?fmt(hullTraverse,1)+'°/s':'-'}</div>${track?'<div class="sub">由履带决定</div>':''}</div>
+            <div class="stat-box"><div class="lbl">Weight</div><div class="val">${w?(w/1000).toFixed(1)+' t':'-'}</div></div>
+        </div>
+        ${engRows?`<div class="table-scroll"><table style="max-width:560px;">
+            <thead><tr><th>Engine 引擎</th><th>Power 功率</th><th>Fire Chance 起火率</th></tr></thead>
+            <tbody>${engRows}</tbody>
+        </table></div>`:''}
+        ${trRows?`<div class="table-scroll"><table style="max-width:560px;">
+            <thead><tr><th>Tracks 履带</th><th>Traverse 转速</th><th>Weight 重量</th></tr></thead>
+            <tbody>${trRows}</tbody>
+        </table></div>`:''}
+    </div>`;
+}
+function turretSec(d,cfg){
+    const viewRange=(cfg&&cfg.view_range!=null)?cfg.view_range:d.view_range;
+    const turretTraverse=(cfg&&cfg.turret_traverse_speed!=null)?cfg.turret_traverse_speed:d.turret_traverse_speed;
+    const turHp=(cfg&&cfg.turret_health!=null)?cfg.turret_health:null;
+    const turName=cfg&&cfg.turret_name;
+    return `<div class="card">
+        <div class="sec-title">侦察与炮塔 Turret ${turName?`<span class="sec-note">${esc(turName)}</span>`:''}</div>
+        <div class="stat-grid">
+            <div class="stat-box"><div class="lbl">View Range</div><div class="val b">${viewRange!=null?Math.round(viewRange)+' m':'-'}</div></div>
+            <div class="stat-box"><div class="lbl">Turret Traverse</div><div class="val">${turretTraverse!=null?fmt(turretTraverse,1)+'°/s':'-'}</div></div>
+            ${turHp!=null?`<div class="stat-box"><div class="lbl">Turret HP 炮塔血量</div><div class="val y">${turHp}</div></div>`:''}
+        </div>
+    </div>`;
+}
+function peersSec(d,cfg){
+    const metrics=peerMetrics(d,cfg);
+    if(!metrics) return '';
+    const peers=peersOf(d);
+    const rows=metrics.map(m=>{
+        if(m.val==null||m.pct==null) return '';
+        const cls=m.pct>=75?'g':m.pct>=40?'o':'r';
+        const disp=Number.isInteger(m.val)?m.val:Number(m.val).toFixed(1);
+        return `<div class="pct-row">
+            <div class="pct-lbl">${m.label}</div>
+            <div class="pct-bar"><div class="${cls}" style="width:${Math.max(2,m.pct).toFixed(1)}%"></div></div>
+            <div class="pct-val">${disp} <span class="muted" style="font-weight:600;">P${Math.round(m.pct)}</span></div>
+        </div>`;
+    }).join('');
+    return `<div class="card">
+        <div class="sec-title">同级对比 Peers <span class="sec-note">Tier ${d.tier} ${esc(TYPE_LABEL[d.type]||d.type||'Unknown')} · ${peers.length} 辆样本 · P 值为同型百分位</span></div>
+        ${rows}
+    </div>`;
+}
+function renderRadar(d,cfg){
+    const canvas=$('radar'); if(!canvas) return;
+    if(radarChart){ radarChart.destroy(); radarChart=null; }
+    const metrics=peerMetrics(d,cfg);
+    if(!metrics||!window.Chart){ if(canvas) canvas.style.display='none'; return; }
+    canvas.style.display='';
+    radarChart=new Chart(canvas.getContext('2d'),{
+        type:'radar',
+        data:{
+            labels:metrics.map(m=>m.label),
+            datasets:[{
+                label:'同级百分位',
+                data:metrics.map(m=>m.pct==null?0:Math.round(m.pct)),
+                backgroundColor:'rgba(255,138,61,0.22)',
+                borderColor:'#ffb35c',
+                borderWidth:2,
+                pointBackgroundColor:'#ffd29b',
+                pointRadius:3,
+            }],
+        },
+        options:{
+            responsive:false,
+            plugins:{ legend:{display:false}, tooltip:{enabled:true} },
+            scales:{ r:{
+                min:0, max:100,
+                ticks:{ display:false, stepSize:25 },
+                grid:{ color:'rgba(255,255,255,0.09)' },
+                angleLines:{ color:'rgba(255,255,255,0.09)' },
+                pointLabels:{ color:'#c8bba9', font:{ size:12, weight:'600' } },
+            }},
+        },
+    });
+}
+function renderDetail() {
+    const d=mdData; const out=$('tank-content');
+    const cfgs=d.configs||[]; const cfg=cfgs[mdCfgIdx]||null;
+    const typeCls=TYPE_CLS[d.type]||'t-unknown';
+    const typeTxt=TYPE_LABEL[d.type]||d.type||'Unknown';
+    const w=(cfg&&cfg.weight)||null;
+    // 引擎/履带按本地选择索引取值（越界回退 0）
+    const engines=(cfg&&cfg.engines)||[];
+    const tracks=(cfg&&cfg.tracks)||[];
+    if(mdEngIdx>=engines.length) mdEngIdx=0;
+    if(mdTrackIdx>=tracks.length) mdTrackIdx=0;
+    const eng=engines[mdEngIdx]||null;
+    const track=tracks[mdTrackIdx]||null;
+    // 模块切换器：炮塔/主炮（configs）、引擎、履带——多选一才显示下拉，单个显示名称
+    const sel=(id,label,opts,idx)=>{
+        if(!opts.length) return '';
+        const dd=opts.map((o,i)=>`<option value="${i}" ${i===idx?'selected':''}>${esc(o)}</option>`).join('');
+        return `<span class="mod-sel"><label class="muted" style="font-size:0.82em;">${label}</label><select id="${id}">${dd}</select></span>`;
+    };
+    const cfgOptions=cfgs.map(c=>`${c.label}${c.turret_name&&c.turret_name!==c.label?' ('+c.turret_name+')':''}`);
+    const modBar=`<div class="row" style="margin:12px 0 0 0;gap:14px;align-items:center;">
+        ${cfgs.length>1?sel('md-config','Gun/Turret 炮塔·主炮',cfgOptions,mdCfgIdx)
+            :(cfg?`<span class="muted" style="font-size:0.85em;">Gun/Turret: <b style="color:var(--txt);">${esc(cfg.label)}</b></span>`:'')}
+        ${engines.length>1?sel('md-engine','Engine 引擎',engines.map(e=>e.name||'engine'),mdEngIdx)
+            :(eng?`<span class="muted" style="font-size:0.85em;">Engine: <b style="color:var(--txt);">${esc(eng.name||'-')}</b></span>`:'')}
+        ${tracks.length>1?sel('md-track','Tracks 履带',tracks.map(t=>t.name||'track'),mdTrackIdx)
+            :(track?`<span class="muted" style="font-size:0.85em;">Tracks: <b style="color:var(--txt);">${esc(track.name||'-')}</b></span>`:'')}
+    </div>`;
+    // 3D 检视器：与装甲卡合并展示
+    const viewerHtml=`<div class="viewer-btns" style="margin-top:12px;">
+            <button id="toggle-3d">🛡 在下方展开 3D 检视器</button>
+            <button id="open-3d">🔍 在新窗口打开 3D 检视器</button>
+        </div>
+        <div id="md-inspector"><iframe title="3D armor inspector"></iframe></div>`;
     out.innerHTML=`
         <div id="md-head">
             <img src="${d.image}" alt="">
             <div id="md-title">
                 <h2>${esc(d.name)}</h2>
-                <div class="row" style="margin:6px 0;">
+                <div class="row" style="margin:6px 0;gap:8px;">
                     <span class="pill tier">Tier ${d.tier}</span>
                     <span class="pill nat">${esc(NATION_LABEL[d.nation]||d.nation)}</span>
-                    <span class="pill type">${esc(TYPE_LABEL[d.type]||d.type)}</span>
-                    ${d.is_premium?'<span class="pill type">Premium</span>':''}
+                    <span class="pill ${typeCls}">${esc(typeTxt)}</span>
+                    ${d.is_premium?'<span class="pill gold">Premium ★</span>':''}
+                    ${d.is_collector?'<span class="pill coll">Collectible ◆</span>':''}
+                    ${w?`<span class="pill weight">${(w/1000).toFixed(1)} t</span>`:''}
                 </div>
+                <div class="sub-line">装甲 / 弹药 / 火力全属性 · 数据源 BlitzKit tanks.pb + 游戏文件解析</div>
             </div>
         </div>
-        <div id="md-body">
-            ${cfgs.length>1?`<div class="row" style="margin:0 0 10px 0;">
-                <label class="muted" style="font-size:0.85em;">Module:</label>
-                <select id="md-config">${cfgOptions}</select>
-            </div>`:''}
-            <div class="stat-grid">
-                <div class="stat-box"><div class="lbl">HP</div><div class="val">${d.hp??'-'}</div></div>
-                <div class="stat-box"><div class="lbl">Speed F/R</div><div class="val">${speed}</div></div>
-                <div class="stat-box"><div class="lbl">Hull Traverse</div><div class="val">${hullTraverse}</div></div>
-                <div class="stat-box"><div class="lbl">Turret Traverse</div><div class="val">${turretTraverseDisp}</div></div>
-                <div class="stat-box"><div class="lbl">View Range</div><div class="val">${viewDisp}</div></div>
-                <div class="stat-box"><div class="lbl">Caliber</div><div class="val o">${caliber} mm</div></div>
-                <div class="stat-box"><div class="lbl">${reloadLabel}</div><div class="val b">${isBurst&&isDrum ? (burstReloads.length?burstReloads.map(x=>x.toFixed(1)+'s').join('/'):'-') : reloadDisp}</div></div>
-                ${isBurst?`<div class="stat-box"><div class="lbl">Burst Interval</div><div class="val">${burstInt!=null?burstInt.toFixed(2)+'s':'-'}</div></div>`:''}
-                ${!isBurst?`<div class="stat-box"><div class="lbl">DPM (AP)</div><div class="val g">${dpmDisp}</div></div>`:''}
-                <div class="stat-box"><div class="lbl">Aim Time</div><div class="val">${aim!=null?aim.toFixed(2)+'s':'-'}</div></div>
-                <div class="stat-box"><div class="lbl">Dispersion</div><div class="val">${disp!=null?disp.toFixed(3):'-'}</div></div>
-                <div class="stat-box"><div class="lbl">Gun Depression</div><div class="val">${gdep??'-'}&deg;</div></div>
-                <div class="stat-box"><div class="lbl">Gun Elevation</div><div class="val">${gelev??'-'}&deg;</div></div>
-            </div>
-            ${(()=>{ const eng=(cfg&&cfg.engines&&cfg.engines[0])||(d.engines&&d.engines[0])||null;
-                if(!eng||!eng.power) return '';
-                const w = (cfg&&cfg.weight) || d.weight;
-                const ptw = w ? (eng.power/ (w/1000)).toFixed(1) : null;
-                const fire = eng.fire_chance!=null ? (eng.fire_chance*100).toFixed(1)+'%' : null;
-                const name = eng.name ? `<div style="margin:2px 0 8px 0;" class="muted">Engine: ${esc(eng.name)}</div>` : '';
-                return `${name}<div class="stat-grid">
-                    <div class="stat-box"><div class="lbl">Engine Power</div><div class="val o">${Math.round(eng.power)} hp</div></div>
-                    ${ptw?`<div class="stat-box"><div class="lbl">Power/Weight</div><div class="val">${ptw} hp/t</div></div>`:''}
-                    ${fire?`<div class="stat-box"><div class="lbl">Fire Chance</div><div class="val">${fire}</div></div>`:''}
-                </div>`; })()}
-            ${isBurst?`<div style="margin:8px 0 4px 0;">${burstNote}</div>`:''}
-            ${armorTable}
-            <h4>Shells (${cfg?esc(cfg.label):''})</h4>
-            <table><tr><th>Type</th><th>Pen (far)</th><th>Dmg</th><th>Mod Dmg</th><th>Vel m/s</th><th>Range m</th></tr>${shells}</table>
-            <button id="open-3d">🔍 在新的浏览器窗口打开 3D 检视器</button>
-        </div>`;
+        ${modBar}
+        ${overviewSec(d,cfg,eng)}
+        ${firepowerSec(d,cfg)}
+        ${shellsSec(d,cfg)}
+        ${armorSec(d,cfg,viewerHtml)}
+        ${mobilitySec(d,cfg,eng,track)}
+        ${turretSec(d,cfg)}
+        ${peersSec(d,cfg)}`;
+    const bindSel=(id,fn)=>{ const el=$(id); if(el) el.addEventListener('change',()=>{ fn(parseInt(el.value)); }); };
+    bindSel('md-engine',v=>{ mdEngIdx=v; renderDetail(); });
+    bindSel('md-track',v=>{ mdTrackIdx=v; renderDetail(); });
     const cfgSel=$('md-config');
-    if(cfgSel) cfgSel.addEventListener('change',async ()=>{ mdCfgIdx=parseInt(cfgSel.value); renderDetail(); });
+    if(cfgSel) cfgSel.addEventListener('change',()=>{ mdCfgIdx=parseInt(cfgSel.value); renderDetail(); });
     $('open-3d').addEventListener('click',()=>{ window.open('/armor_view/view/'+d.id+'?config='+mdCfgIdx,'_blank'); });
+    const insp=$('md-inspector'), frame=insp.querySelector('iframe');
+    $('toggle-3d').addEventListener('click',()=>{
+        const open=insp.classList.toggle('open');
+        mdInspectorOpen=open;
+        if(open){ frame.src='/armor_view/view/'+d.id+'?config='+mdCfgIdx; }
+    });
+    // renderDetail 重建 DOM 会重置检视器：若此前处于展开状态则恢复，并跟随配置切换模型
+    if(mdInspectorOpen){
+        insp.classList.add('open');
+        frame.src='/armor_view/view/'+d.id+'?config='+mdCfgIdx;
+    }
+    renderRadar(d,cfg);
 }
+let mdInspectorOpen=false;
 
 loadDetail();
 </script>

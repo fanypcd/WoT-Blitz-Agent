@@ -26,3 +26,6 @@ data/sessions/
 .zcode/
 tmp_analysis/
 tmp_wi/
+
+# 逆向 wotinspector wasm 的本地临时工作目录
+tmp_wi2/

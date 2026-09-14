@@ -441,7 +441,6 @@ async fn prematch_handler(
     let res = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
         let client = crate::wargaming::api_client::WgApiClient::new(&app_id, &server);
         let mut threat = String::new();
-        let mut my_avg: Option<f64> = None;
 
         if let Some(rp) = &replay {
             let resolver = crate::wargaming::tank_resolver::TankResolver::load_from_json_file(
@@ -470,13 +469,16 @@ async fn prematch_handler(
                 }
             }
         }
-        if !players.is_empty() {
-            let report = crate::wargaming::prematch::analyze_lineup(players)?;
-            my_avg = Some(report.avg_damage as f64);
-        }
+        // 完整阵容分析报告（LineupReport 已 Serialize）序列化返回，供前端渲染
+        // 威胁/薄弱点/建议；查不到玩家时保持 null。
+        let lineup = if players.is_empty() {
+            Value::Null
+        } else {
+            serde_json::to_value(crate::wargaming::prematch::analyze_lineup(players)?)?
+        };
         Ok(json!({
             "status": "ok",
-            "report": if my_avg.is_some() { "generated" } else { "empty" },
+            "lineup": lineup,
             "info": threat,
         }))
     }).await;
@@ -624,6 +626,14 @@ async fn tanks_handler() -> Response {
         let armor = info.and_then(|i| i.get("armor"));
         let hull_front = armor.and_then(|a| a.get("hull_front")).and_then(|v| v.as_u64());
         let turret_front = armor.and_then(|a| a.get("turret_front")).and_then(|v| v.as_u64());
+        // 同级对比/雷达图所需补充指标（均来自 tank_cache.json，零额外解析成本）
+        let view_range = info.and_then(|i| i.get("view_range")).and_then(|v| v.as_f64());
+        let speed_forward = info.and_then(|i| i.get("speed_forward")).and_then(|v| v.as_f64());
+        let speed_reverse = info.and_then(|i| i.get("speed_reverse")).and_then(|v| v.as_f64());
+        let hull_traverse = info.and_then(|i| i.get("hull_traverse")).and_then(|v| v.as_f64());
+        let dmg_max = info.and_then(|i| i.get("shells")).and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|s| s.get("damage").and_then(|d| d.as_f64())).fold(f64::NEG_INFINITY, f64::max));
+        let dmg_max = dmg_max.filter(|m| m.is_finite()).map(|m| m as u64);
         let name = if t.name.is_empty() { t.dev_name.clone() } else { t.name };
         json!({
             "id": id,
@@ -633,9 +643,15 @@ async fn tanks_handler() -> Response {
             "type": t.tank_type,
             "hp": hp,
             "is_premium": premium,
+            "is_collector": t.is_collector,
             "armor_front": hull_front,
             "armor_turret": turret_front,
             "pen_max": pen,
+            "view_range": view_range,
+            "damage_max": dmg_max,
+            "speed_forward": speed_forward,
+            "speed_reverse": speed_reverse,
+            "hull_traverse": hull_traverse,
         })
     }).collect();
     out.sort_by(|a, b| {
@@ -663,6 +679,10 @@ async fn tank_detail_handler(axum::extract::Path(tank_id): axum::extract::Path<u
     let dmg_max = if dmg_max.is_finite() { Some(dmg_max as u64) } else { None };
 
     let configs: Vec<Value> = crate::wargaming::viewer::build_configs(tank_id as u32);
+    // 收藏车标记来自 tanks.pb field13==2（tank_cache.json 不含此字段）
+    let is_collector = crate::wargaming::blitzkit::tank_full(tank_id as u32)
+        .map(|t| t.is_collector)
+        .unwrap_or(false);
 
     Json(json!({
         "id": tank_id,
@@ -671,6 +691,7 @@ async fn tank_detail_handler(axum::extract::Path(tank_id): axum::extract::Path<u
         "type": ttype,
         "nation": nation,
         "is_premium": is_premium,
+        "is_collector": is_collector,
         "hp": info.get("hp"),
         "speed_forward": info.get("speed_forward"),
         "speed_reverse": info.get("speed_reverse"),

@@ -592,8 +592,12 @@ pub(crate) fn build_configs(tank_id: u32) -> Vec<Value> {
                 "normalization": s.normalization,
                 "ricochet": s.ricochet,
             })).collect();
-            let ap_damage = gun.shells.iter()
+            // 标准弹药单发伤害：优先 AP，其次任意非金币弹（金币变体 shell_type 含 premium 不计）；
+            // DPM 与 Alpha 单发均基于此值
+            let is_premium_shell = |t: &str| t.contains("premium");
+            let standard_damage = gun.shells.iter()
                 .find(|s| s.shell_type == "ap")
+                .or_else(|| gun.shells.iter().find(|s| !is_premium_shell(&s.shell_type)))
                 .map(|s| s.damage)
                 .or_else(|| {
                     let m = gun.shells.iter().map(|s| s.damage).fold(f64::NEG_INFINITY, f64::max);
@@ -601,7 +605,7 @@ pub(crate) fn build_configs(tank_id: u32) -> Vec<Value> {
                 })
                 .unwrap_or(0.0);
             let dpm = if is_burst { None } else {
-                reload_time.filter(|r| *r > 0.0).map(|r| (ap_damage * 60.0 / r).round())
+                reload_time.filter(|r| *r > 0.0).map(|r| (standard_damage * 60.0 / r).round())
             };
 
             configs.push(json!({
@@ -624,6 +628,7 @@ pub(crate) fn build_configs(tank_id: u32) -> Vec<Value> {
                 "aim_time": aim_time,
                 "dispersion": dispersion,
                 "dpm": dpm,
+                "standard_damage": standard_damage,
                 "is_burst": is_burst,
                 "is_drum": is_drum,
                 "burst_size": burst_size,
@@ -632,9 +637,13 @@ pub(crate) fn build_configs(tank_id: u32) -> Vec<Value> {
                 "turret_weight": turret_weight,
                 "turret_traverse_speed": turret_traverse,
                 "view_range": view_range,
+                // 血量细分：总 HP = 车体 hp + 炮塔 health（对齐 TankResolver 口径）
+                "hull_hp": tank.hp,
+                "turret_health": tur.health,
                 "model_gun_count": model_guns.len(),
                 "model_turret_count": model_turrets.len(),
                 "engines": tank.engines.clone(),
+                "tracks": tank.tracks.clone(),
                 "weight": tank.weight,
             }));
             count += 1;
@@ -2185,6 +2194,20 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                     scene.add(sModel);
                                     poseShooterTurretGun(sModel, sd, s.shooter_turret_yaw, s.launch_velocity, sYaw2,
                                         sHit2 ? sHit2.pitch : 0, sHit2 ? sHit2.roll : 0);
+                                    // 基准点标注（调试模式）：type10 记录位置锚点。
+                                    // 脱靶分支无 tick 切换，模型静态——直接挂 __worldAnno 随调试开关显隐。
+                                    if (window.__worldAnno) {
+                                        const amk2 = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 10),
+                                            new THREE.MeshBasicMaterial({ color: 0x00aaff, transparent: true, opacity: 0.95, depthTest: false }));
+                                        amk2.position.copy(sModel.position);
+                                        amk2.renderOrder = 998;
+                                        window.__worldAnno.add(amk2);
+                                        const alb2 = makeLabel2('基准点·射手 (' + (sModel.position.x + mcx).toFixed(1) + ', '
+                                            + (sModel.position.y + mcy).toFixed(1) + ', '
+                                            + (sModel.position.z + mcz).toFixed(1) + ')', '#00aaff', true);
+                                        alb2.position.copy(sModel.position).add(new THREE.Vector3(0, 1.1, 0));
+                                        window.__worldAnno.add(alb2);
+                                    }
                                     // 炮闩标注（脱靶分支，镜像命中分支）:位置随炮塔/炮管 bake
                                     // 变换，标签附回放世界系坐标；对照线连服务器发射点 ball_a
                                     try {
@@ -2333,7 +2356,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                 '<span style="color:#ff6622;">●</span> LaunchPoint <span style="color:#00ccff;">┄</span> 速度向量 ' +
                                 '<span style="color:#00ff00;">—</span> 弹道弦 <span style="color:#ffcc00;">●</span> 落点 ' +
                                 '<span style="color:#ffaa00;">●</span> 弹跳点 ' +
-                                '<span style="color:#cc66ff;">●</span> 炮闩(发射起点)</div>' +
+                                '<span style="color:#cc66ff;">●</span> 炮闩(发射起点) ' +
+                                '<span style="color:#00aaff;">●</span> 基准点·射手(type10锚)</div>' +
                                 '<div class="ctrl-row" style="font-size:10px;color:#888;">flags=' + flgM.toString(16) +
                                 ' · shell_id=' + (s.shell_id || '—') + '</div>'; }
                             // 脱靶弹分支同样受调试开关收纳:默认隐藏面板与标注
@@ -2547,6 +2571,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                 if (window.__worldTickCtx && window.__worldTickCtx.shooterSelIdx !== null) {
                                     window.applyShooterTick(window.__worldTickCtx.shooterSelIdx);
                                 }
+                                // 射手模型就位后刷新基准点标注（创建时模型可能尚未加载）
+                                if (window.__updateAnchorMarkers) window.__updateAnchorMarkers();
                             });
                         }
 
@@ -2568,6 +2594,47 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                             sp.scale.set(wide ? 8 : 4, wide ? 2 : 1, 1);
                             return sp;
                         }
+                        // ===== 基准点标注（调试模式）：模型根节点 = type10 记录位置锚点 =====
+                        // 受击方随 applyWorldTick、射手方随 applyShooterTick 跟随移动；
+                        // 标签实时重绘回放世界系坐标（场景坐标 + 场景中心偏移，与炮闩标签同基准）。
+                        function makeAnchorMarker(colorCss, text) {
+                            const mk = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 10),
+                                new THREE.MeshBasicMaterial({ color: new THREE.Color(colorCss), transparent: true, opacity: 0.95, depthTest: false }));
+                            mk.renderOrder = 998;
+                            mk.visible = false;
+                            scene.add(mk);
+                            const lb = makeLabel(text, colorCss, true);
+                            lb.position.y = -100;   // 首次 update 前藏到地下
+                            scene.add(lb);
+                            return { mk: mk, lb: lb, text: text, color: colorCss };
+                        }
+                        window.__victimAnchor = makeAnchorMarker('#00ffcc', '基准点·受击');
+                        window.__shooterAnchor = makeAnchorMarker('#00aaff', '基准点·射手');
+                        window.__updateAnchorMarkers = function() {
+                            const on = !!window.__debugOn;
+                            const upd = function(a, model) {
+                                if (!a) return;
+                                if (!model) { a.mk.visible = false; a.lb.visible = false; return; }
+                                a.mk.position.copy(model.position);
+                                a.mk.visible = on;
+                                a.lb.visible = on;
+                                a.lb.position.copy(model.position).add(new THREE.Vector3(0, 1.1, 0));
+                                const cv = a.lb.material.map.image;
+                                const c2 = cv.getContext('2d');
+                                c2.clearRect(0, 0, cv.width, 64);
+                                c2.fillStyle = 'rgba(0,0,0,0.55)'; c2.fillRect(0, 0, cv.width, 64);
+                                c2.font = 'bold 26px Consolas, monospace';
+                                c2.fillStyle = a.color;
+                                c2.textAlign = 'center'; c2.textBaseline = 'middle';
+                                c2.fillText(a.text + ' (' + (model.position.x + cx).toFixed(1) + ', '
+                                    + (model.position.y + cy).toFixed(1) + ', '
+                                    + (model.position.z + cz).toFixed(1) + ')', cv.width / 2, 32);
+                                a.lb.material.map.needsUpdate = true;
+                            };
+                            upd(window.__victimAnchor, tankModel);
+                            upd(window.__shooterAnchor, window.__shooterModel);
+                        };
+                        window.__updateAnchorMarkers();
                         if (window.__worldAnno) { scene.remove(window.__worldAnno); }
                         window.__worldAnno = new THREE.Group();
                         // tick 切换重算弹着点所需的射线上下文（在弹道块内赋值）。
@@ -2869,6 +2936,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                             armorModel.quaternion.copy(q);
                             tankModel.updateMatrixWorld(true);
                             armorModel.updateMatrixWorld(true);
+                            // 基准点标注跟随受击方模型（射手方由 applyShooterTick 自己同步）
+                            if (window.__updateAnchorMarkers) window.__updateAnchorMarkers();
                             // 射手模型不随受击方 tick 联动——由独立的射手 tick 下拉控制
                             // (applyShooterTick)，各自吸附自己的录制采样。
                             // 相机/弹道/网格固定不动（世界参考系）——坦克相对它们移动，
@@ -2922,6 +2991,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                             m.position.set(ts.pos[0]-c.cx, ts.pos[1]-c.cy, ts.pos[2]-c.cz);
                             m.quaternion.copy(poseFromYPR(ts.yaw, ts.pitch, ts.roll));
                             m.updateMatrixWorld(true);
+                            // 基准点标注跟随射手模型
+                            if (window.__updateAnchorMarkers) window.__updateAnchorMarkers();
                             // 炮口标记跟随模型(顶点世界坐标重算)
                             if (window.__updateMuzzleMarker) window.__updateMuzzleMarker();
                         };
@@ -2933,9 +3004,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                         const tksW = s.tick_samples || [];
                         let tickHtmlW = '', shooterHtmlW = '';
                         if (tksW.length > 1) {
-                            // 默认选中命中 tick 并【向前推 2 个采样】（约 0.2s）：
-                            // 命中/开火时刻附近 type10 位置含炮口冲击扰动，靠前 tick 的
-                            // 摆位经实战对比更贴近弹道（用户实测确认）。
+                            // 默认选中命中锚点 tick（|dt|<0.05；缺失时取 |dt| 最小者）。
+                            // 不做 dmin 自动选位（已撤回）——双方下拉均标注服务器 tick
+                            // 编号（type=35 计数器展开值），同一编号 = 同一服务器时刻，
+                            // 跨侧对齐看编号，不看各自的 dt 秒偏移。
                             let selIdx = tksW.findIndex(ts => Math.abs(ts.dt) < 0.05);
                             if (selIdx < 0) {
                                 selIdx = 0;
@@ -2943,7 +3015,6 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                     if (Math.abs(tksW[si].dt) < Math.abs(tksW[selIdx].dt)) selIdx = si;
                                 }
                             }
-                            selIdx = Math.max(0, selIdx - 2);   // 向前推 2 个采样,不越界
                             window.__worldTickCtx.selIdx = selIdx;   // 供初始渲染与射手异步加载同步
                             // 弹种自动匹配:按回放数据推断本发实际弹种,切换弹种选择器——
                             // 判定/对照与实际射击弹种一致(修正 BLOCKED vs SPLASH 类差异)。
@@ -2978,14 +3049,15 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                 + '<span style="font-size:10px;color:#888;flex:none;">受击</span>'
                                 + '<select id="world-tick-select" style="flex:1;min-width:0;background:#2c2724;color:#fff;'
                                 + 'border:1px solid #555;border-radius:4px;padding:3px 6px;font-size:11px;">'
-                                + tksW.map((ts, ti) =>
-                                    '<option value="' + ti + '"' + (ti === selIdx ? ' selected' : '') + '>'
-                                    + (ti + 1) + (Math.abs(ts.dt) < 0.05 ? ' ←命中' : '') + '</option>'
-                                ).join('') + '</select></div>';
+                                + tksW.map((ts, ti) => {
+                                    const isHit = Math.abs(ts.dt) < 0.05;
+                                    const tlab = (typeof ts.tick === 'number') ? ' ·t' + ts.tick.toFixed(1) : '';
+                                    return '<option value="' + ti + '"' + (ti === selIdx ? ' selected' : '') + '>'
+                                    + (ti + 1) + tlab + (isHit ? ' ←命中' : '') + '</option>';}).join('') + '</select></div>';
                         }
                         // 射手方独立 tick 下拉：用自己的 type10 采样轴(dt 锚在开火时刻,
                         // 与受击方的命中锚点不重合),默认选中开火锚点(|dt| 最小)。
-                        // 序号归一化显示,锚点标 ←开火;直接取录制采样,不做插值。
+                        // 序号+服务器 tick 编号归一化显示,锚点标 ←开火;直接取录制采样,不做插值。
                         if (sTS.length > 1) {
                             let shSelIdx = 0;
                             for (let i = 1; i < sTS.length; i++) {
@@ -2996,10 +3068,11 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                 + '<span style="font-size:10px;color:#888;flex:none;">射手</span>'
                                 + '<select id="shooter-tick-select" style="flex:1;min-width:0;background:#2c2724;color:#fff;'
                                 + 'border:1px solid #555;border-radius:4px;padding:3px 6px;font-size:11px;">'
-                                + sTS.map((ts, ti) =>
-                                    '<option value="' + ti + '"' + (ti === shSelIdx ? ' selected' : '') + '>'
-                                    + (ti + 1) + (Math.abs(ts.dt) < 0.05 ? ' ←开火' : '') + '</option>'
-                                ).join('') + '</select></div>';
+                                + sTS.map((ts, ti) => {
+                                    const tlab = (typeof ts.tick === 'number') ? ' ·t' + ts.tick.toFixed(1) : '';
+                                    return '<option value="' + ti + '"' + (ti === shSelIdx ? ' selected' : '') + '>'
+                                    + (ti + 1) + tlab + (Math.abs(ts.dt) < 0.05 ? ' ←开火' : '') + '</option>';
+                                }).join('') + '</select></div>';
                         }
                         if (st) { st.innerHTML = '<div class="ctrl-row"><b>World View — Shot #' + s.index + '</b></div>' +
                             '<div class="ctrl-row">DMG ' + s.damage + ' · ' + cls2 + ' · ' + (s.target_name || '—') + '</div>' +
@@ -3034,6 +3107,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                             '<span style="color:#33ff66;">↑</span>履带朝向 <span style="color:#00ccff;">↑</span>位移方向 ' +
                             '<span style="color:#ff6622;">↑</span>倒车(橙) <span style="color:#ffdd33;">↑</span>转向(黄) ' +
                             '<span style="color:#00ccff;">—</span>tick路径(3D)</div>' +
+                            '<div class="ctrl-row" style="font-size:10px;color:#888;">' +
+                            '<span style="color:#00ffcc;">●</span>基准点·受击(type10锚) ' +
+                            '<span style="color:#00aaff;">●</span>基准点·射手(type10锚)</div>' +
                             '<div class="ctrl-row"><label style="font-size:11px;cursor:pointer;">' +
                             '<input type="checkbox" id="move-toggle" checked> 移动方向标注</label>' +
                             '<span id="move-err" style="font-size:10px;color:#8ab4ff;margin-left:8px;"></span></div>'; }
@@ -3057,6 +3133,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                             if (window.__shooterMuzzleMk) window.__shooterMuzzleMk.visible = on;
                             if (window.__shooterMuzzleLb) window.__shooterMuzzleLb.visible = on;
                             if (window.__shooterMuzzleLine) window.__shooterMuzzleLine.visible = on;
+                            // 基准点标注可见性（位置由 __updateAnchorMarkers 维护）
+                            if (window.__updateAnchorMarkers) window.__updateAnchorMarkers();
                             // 面板与移动标注复选框仅在调试模式可交互
                             const sEl = document.getElementById('turret-controls');
                             if (sEl) sEl.style.display = on ? 'block' : 'none';
@@ -3284,14 +3362,17 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                         : 'NO PENETRATION';
                     let tickHtml = '';
                     if (s.tick_samples && s.tick_samples.length > 1) {
-                        const hitIdx = s.tick_samples.findIndex(ts => Math.abs(ts.dt) < 0.05);
+                        // 默认命中锚点（|dt|<0.05，缺失取首项）；标注服务器 tick 编号供跨侧对齐
+                        const hitIdx2 = s.tick_samples.findIndex(ts => Math.abs(ts.dt) < 0.05);
+                        const defIdx = hitIdx2 >= 0 ? hitIdx2 : 0;
                         tickHtml = '<div class="ctrl-row" style="margin-top:4px;">'
                             + '<select id="tick-select" style="width:100%;background:#2c2724;color:#fff;'
                             + 'border:1px solid #555;border-radius:4px;padding:3px 6px;font-size:11px;">'
-                            + s.tick_samples.map((ts, ti) =>
-                                '<option value="' + ti + '"' + (ti === (hitIdx >= 0 ? hitIdx : 0) ? ' selected' : '') + '>'
-                                + (ti + 1) + (Math.abs(ts.dt) < 0.05 ? ' ←命中' : '') + '</option>'
-                            ).join('') + '</select></div>';
+                            + s.tick_samples.map((ts, ti) => {
+                                const tlab = (typeof ts.tick === 'number') ? ' ·t' + ts.tick.toFixed(1) : '';
+                                return '<option value="' + ti + '"' + (ti === defIdx ? ' selected' : '') + '>'
+                                + (ti + 1) + tlab + (Math.abs(ts.dt) < 0.05 ? ' ←命中' : '') + '</option>';}).join('')
+                            + '</select></div>';
                     }
                     if (st) { st.innerHTML = '<div class="ctrl-row"><b>Shot #' + s.index + '</b></div>' +
                         '<div class="ctrl-row">DMG ' + s.damage + (s.is_kill ? ' · KILL' : '') +
