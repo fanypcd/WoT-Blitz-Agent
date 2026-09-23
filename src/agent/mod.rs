@@ -11,10 +11,7 @@ use crate::agent::tools::AgentTools;
 pub mod llm_client;
 pub mod tools;
 
-// =====================================================================
-//  Agent：对话 → LLM → 工具调用 → 返回 的编排循环。
-//  同时支持 CLI（阻塞包装）和 Web（async + 流式事件）。
-// =====================================================================
+// Agent：对话 → LLM → 工具调用循环；支持 CLI（阻塞包装）与 Web（async + 流式事件）。
 
 /// 全局"打断"标志（Ctrl+C 或 Web 打断按钮写入）。
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
@@ -33,30 +30,20 @@ pub fn is_interrupted() -> bool {
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
-    /// 开始第 N 步 LLM 调用（共 max 步）
     StepStart { step: usize, max: usize },
-    /// 模型请求调用某个工具
     ToolCall { name: String, args: Value },
-    /// 工具执行完成，返回结果文本
     ToolResult { name: String, result: String },
-    /// 用户主动打断
     Interrupted,
-    /// 得到最终回复
     Done { content: String },
-    /// 出错（缺 key、超预算等）
     Error { message: String },
 }
 
 /// 一次可保存/加载的会话（用于 R5 会话持久化）。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SavedSession {
-    /// 保存时间
     pub datetime: String,
-    /// 所用模型
     pub model: String,
-    /// 完整对话消息历史
     pub messages: Vec<ChatMessage>,
-    /// 累计 token 用量
     pub token_usage: TokenUsage,
 }
 
@@ -65,13 +52,9 @@ pub struct Agent {
     pub config: Config,
     /// 对话消息历史（以系统提示开头）
     messages: Vec<ChatMessage>,
-    /// 工具执行器
     tools: AgentTools,
-    /// 工具定义（注册给 LLM）
     tool_defs: Vec<ToolDefinition>,
-    /// token 用量统计
     usage: TokenUsage,
-    /// token 用量落盘路径（`token_usage.json`）
     usage_path: std::path::PathBuf,
     /// 本实例专属的取消令牌（Web 会话级打断；每轮对话开始前由会话
     /// actor 换入新令牌，cancel 只影响当前轮。CLI Ctrl+C 仍走全局标志回退）
@@ -93,7 +76,6 @@ impl Agent {
             None
         };
 
-        // 初始化工具集（WG API 客户端 + 可选坦克解析器）
         let tools = AgentTools::new(
             &config.wg_api.application_id,
             &config.wg_api.server,
@@ -101,11 +83,10 @@ impl Agent {
             tank_cache.as_deref(),
         );
 
-        // 加载/新建 token 用量统计
         let usage_path = std::path::PathBuf::from("token_usage.json");
         let usage = TokenUsage::load_from_file(&usage_path).unwrap_or_default();
 
-        // 系统提示：定义 Agent 的角色定位与可用能力
+        // 系统提示：约束 LLM 只使用工具返回的真实数据，严禁编造坦克统计数字
         let system_prompt = "You are a WoTB (World of Tanks Blitz) game analysis assistant. \
 You help players improve by analyzing their replay files and WG API statistics. \
 You can search for players, get their stats, scan replay files, parse individual replays, \
@@ -144,25 +125,18 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
         })
     }
 
-    /// Agent Loop（async + 流式事件回调，供 Web GUI 使用）。
-    ///
-    /// 一次回合的流程：
-    /// 1. 追加用户输入到消息历史
-    /// 2. 循环（最多 5 次）：调用 LLM → 若模型要求工具则逐个执行并回填结果 → 继续
-    /// 3. 直到模型返回无工具调用的最终回复
-    ///
-    /// 每步都会通过 `on_event` 上报 AgentEvent，供前端显示进度。
+    /// Agent Loop（async + 流式事件，供 Web GUI）：追加用户输入后循环（最多 5 次）
+    /// 调 LLM → 有工具调用则逐个执行并回填 → 直到无工具调用的最终回复。
+    /// 每步经 `on_event` 上报 AgentEvent 供前端显示进度。
     pub async fn chat_async<F>(&mut self, user_input: &str, mut on_event: F) -> Result<String>
     where
         F: FnMut(AgentEvent) + Send,
     {
-        // 未配置 API key 直接报错
         if self.config.llm.api_key.is_empty() {
             on_event(AgentEvent::Error { message: "LLM API key not configured.".into() });
             return Err(anyhow::anyhow!("LLM API key not configured. Run `wotb-agent config --show` to edit config.toml."));
         }
 
-        // 追加用户输入
         self.messages.push(ChatMessage {
             role: "user".to_string(),
             content: user_input.to_string(),
@@ -174,7 +148,7 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
 
         let max_iterations = 5;
         for i in 0..max_iterations {
-            // R4：每步开头检查打断（会话级令牌 + CLI 全局 Ctrl+C 回退）
+            // 每步检查打断（会话级令牌 + CLI 全局 Ctrl+C 回退）
             if self.cancel.is_cancelled() || is_interrupted() {
                 on_event(AgentEvent::Interrupted);
                 self.messages.push(ChatMessage {
@@ -187,7 +161,6 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
                 return Ok("Interrupted.".to_string());
             }
 
-            // R6：每步检查预算是否超限
             if !llm.check_budget(&self.usage) {
                 let budget = self.config.llm.budget.unwrap_or(0.0);
                 let msg = format!("Token budget exceeded: ${:.4} >= ${:.2}", self.usage.total_cost, budget);
@@ -197,10 +170,11 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
 
             on_event(AgentEvent::StepStart { step: i + 1, max: max_iterations });
             let response = llm.chat(&self.messages, Some(&self.tool_defs), &mut self.usage).await?;
-            self.messages.push(response.clone());
+            // 仅在确有工具调用时克隆 tool_calls；content 随消息直接入历史（最终回复路径零克隆）
+            let tool_calls = response.tool_calls.clone();
+            self.messages.push(response);
 
-            // 模型要求调用工具 → 逐个执行，把结果作为 tool 消息回填
-            if let Some(tool_calls) = &response.tool_calls {
+            if let Some(tool_calls) = &tool_calls {
                 for tc in tool_calls {
                     if self.cancel.is_cancelled() || is_interrupted() {
                         break;
@@ -223,16 +197,16 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
                         tool_call_id: Some(tc.id.clone()),
                     });
                 }
-                continue; // 有工具调用 → 继续下一轮 LLM
+                continue;
             }
 
-            // 无工具调用 → 终端回复，保存用量并返回
             self.usage.save_to_file(&self.usage_path).ok();
-            on_event(AgentEvent::Done { content: response.content.clone() });
-            return Ok(response.content);
+            // 最终回复即刚入历史的 assistant 消息
+            let content = self.messages.last().expect("assistant reply just pushed").content.clone();
+            on_event(AgentEvent::Done { content: content.clone() });
+            return Ok(content);
         }
 
-        // 达到最大迭代次数（模型一直想调工具）
         self.usage.save_to_file(&self.usage_path).ok();
         let msg = "Reached maximum tool call iterations. Please try a more specific question.".to_string();
         on_event(AgentEvent::Done { content: msg.clone() });
@@ -255,7 +229,7 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
         Ok(result)
     }
 
-    /// R5：把会话保存为 JSON 文件。
+    /// 把会话保存为 JSON 文件。
     pub fn save_session(&self, path: &Path) -> Result<()> {
         let session = SavedSession {
             datetime: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -268,7 +242,7 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
         Ok(())
     }
 
-    /// R5：从 JSON 文件加载会话，恢复消息历史与 token 统计。
+    /// 从 JSON 文件加载会话，恢复消息历史与 token 统计。
     pub fn load_session(&mut self, path: &Path) -> Result<()> {
         let content = std::fs::read_to_string(path)?;
         let session: SavedSession = serde_json::from_str(&content)?;
@@ -282,8 +256,7 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
         self.usage.save_to_file(&self.usage_path).ok();
     }
 
-    /// 换入新的取消令牌（会话 actor 在每轮对话开始前调用，
-    /// 使 cancel 只作用于当前轮，且无需 reset 残留）。
+    /// 换入新的取消令牌（会话 actor 每轮对话开始前调用；cancel 只作用当前轮，无需 reset 残留）。
     pub fn set_cancel_token(&mut self, t: CancellationToken) {
         self.cancel = t;
     }
@@ -319,7 +292,7 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
                         }
                     }
                 }
-                "tool" => println!("  [Tool Result]: {}...", &msg.content[..msg.content.len().min(100)]),
+                "tool" => println!("  [Tool Result]: {}...", msg.content.chars().take(100).collect::<String>()),
                 _ => {}
             }
         }

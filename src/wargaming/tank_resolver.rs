@@ -4,9 +4,8 @@ use anyhow::{Result, Context};
 use serde::{Deserialize, Serialize};
 
 // =====================================================================
-//  坦克数据解析器
-//  从本地数据文件（BlitzKit pb 解析结果 + 游戏提取数据）构建
-//  723 辆坦克的 ID → 完整信息映射，无需联网、无需 WG API。
+//  坦克数据解析器：从本地数据文件（BlitzKit pb 解析结果 + 游戏提取数据）
+//  构建 ID → 完整信息映射，无需联网、无需 WG API。
 // =====================================================================
 
 /// 一辆坦克的完整信息。
@@ -72,40 +71,112 @@ pub struct ShellData {
     pub explosion_radius: f64,
 }
 
-/// 坦克解析器：缓存 `tank_id → TankInfo`。
+/// 归一化名称索引项：坦克名预归一结果，避免每次模糊查询对全部坦克重新归一（逐辆 2 次 String 分配）。
+#[derive(Debug, Clone)]
+pub(crate) struct NameIndexEntry {
+    /// 归一名（'-'/'·'/'.'/'_' → 空格 + 小写）
+    pub(crate) norm: String,
+    /// 归一名去空白形态（"e100"↔"E 100"）
+    pub(crate) norm_ns: String,
+    pub(crate) id: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct TankResolver {
     cache: HashMap<u32, TankInfo>,
+    /// 与 cache 同步维护的归一化名称索引（模糊匹配用）
+    name_index: Vec<NameIndexEntry>,
+}
+
+/// 名称归一：'-'/'·'/'.'/'_' 全部视为空格并转小写，使 "E 100" 与 "E-100"、"IS-7" 与 "IS 7" 等可互相命中。
+pub(crate) fn norm_name(s: &str) -> String {
+    s.chars().map(|c| if c=='-'||c=='·'||c=='.'||c=='_' {' '} else {c}).collect::<String>().to_lowercase()
+}
+
+/// 去空格形态：归一后再剥掉全部空白——"hori"↔"Ho-Ri"、"e100"↔"E 100"。
+/// 否则 "hori" 无法命中 "ho ri"（工具返回查不到 → LLM 用目标车数据幻觉补全）。
+pub(crate) fn strip_ws(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
 impl TankResolver {
     pub fn new() -> Self {
-        Self { cache: HashMap::new() }
+        Self { cache: HashMap::new(), name_index: Vec::new() }
     }
 
-    /// 按 ID 解析坦克名称。
     pub fn resolve(&self, tank_id: u32) -> Option<String> {
         self.cache.get(&tank_id).map(|info| info.name.clone())
     }
 
-    /// 按 ID 获取完整坦克信息。
     pub fn resolve_info(&self, tank_id: u32) -> Option<&TankInfo> {
         self.cache.get(&tank_id)
     }
 
-    /// 插入一辆坦克的信息。
+    /// 昵称 → 炮管俯仰限制锚定表：prop2 frac 解码用（combat::decode_prop2_gun_pitch，
+    /// 扇区化——俯仰范围随炮塔朝向 front/back 分段，T95E6 旋转实验定案）。
+    /// 数据源（优先级）：models.pb 顶级配置（最后炮塔×最后炮）的模块级
+    /// GunModelDefinition.pitch（含扇区）> 本表 TankInfo 的 gun_angles 静态回退（无扇区）。
+    /// 缺两者的玩家不入选（其俯仰走提取链回退路径并打质量标记）。注意匿名玩家共用
+    /// 显示名 "Anonyme"，同场多个匿名玩家会互相覆盖（按昵称连接的固有歧义）；取顶级
+    /// 配置（多配置车辆的模块级差异未区分，见"俯仰锚定粒度"审计）。
+    pub fn pitch_limits_from_battle_results(
+        &self,
+        br: &wotbreplay_parser::models::battle_results::BattleResults,
+    ) -> HashMap<String, crate::replay::combat::GunPitchRange> {
+        let mut m: HashMap<String, crate::replay::combat::GunPitchRange> = HashMap::new();
+        for p in &br.players {
+            let tank_id = br.player_results.iter()
+                .find(|pr| pr.info.account_id == p.account_id)
+                .map(|pr| pr.info.tank_id);
+            let Some(tid) = tank_id else { continue };
+            // models.pb 顶级配置（含扇区）
+            let from_models = crate::wargaming::blitzkit::tank_full(tid).and_then(|tank| {
+                let top_gun_module = tank.turrets.last().and_then(|t| t.guns.last())?.module_id;
+                let mi = crate::wargaming::blitzkit::model_info(tid)?;
+                let pl = mi.turrets.iter().flat_map(|t| t.guns.iter())
+                    .find(|gm| gm.gun_module_id == top_gun_module)
+                    .and_then(|gm| gm.pitch_limits.clone())?;
+                Some(crate::replay::combat::GunPitchRange {
+                    dep: pl.max,
+                    ele: -pl.min,
+                    front: pl.front.map(|f| crate::replay::combat::SectorLimits { min: f.min, max: f.max, range: f.range }),
+                    back: pl.back.map(|b| crate::replay::combat::SectorLimits { min: b.min, max: b.max, range: b.range }),
+                    transition: pl.transition,
+                })
+            });
+            if let Some(r) = from_models {
+                m.insert(p.info.nickname.clone(), r);
+                continue;
+            }
+            // 静态回退：gun_angles.json（无扇区）
+            if let Some(info) = self.resolve_info(tid) {
+                if let (Some(dep), Some(ele)) = (info.gun_depression, info.gun_elevation) {
+                    m.insert(p.info.nickname.clone(), crate::replay::combat::GunPitchRange {
+                        dep, ele, front: None, back: None, transition: None,
+                    });
+                }
+            }
+        }
+        m
+    }
+
     pub fn add(&mut self, tank_id: u32, info: TankInfo) {
+        let norm = norm_name(&info.name);
+        self.name_index.push(NameIndexEntry {
+            norm_ns: strip_ws(&norm),
+            norm,
+            id: tank_id,
+        });
         self.cache.insert(tank_id, info);
     }
 
-    /// 缓存里的坦克数量。
-    pub fn len(&self) -> usize {
-        self.cache.len()
+    /// 归一化名称索引（模糊匹配用，与 cache 同步维护）。
+    pub(crate) fn name_index(&self) -> &[NameIndexEntry] {
+        &self.name_index
     }
 
-    /// 遍历所有坦克 `(tank_id, TankInfo)`，供模糊搜索/枚举。
-    pub fn iter(&self) -> impl Iterator<Item = (u32, &TankInfo)> {
-        self.cache.iter().map(|(id, info)| (*id, info))
+    pub fn len(&self) -> usize {
+        self.cache.len()
     }
 
     /// 从 JSON 文件加载坦克缓存（`tank_cache.json`）。
@@ -113,7 +184,12 @@ impl TankResolver {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read tank cache: {}", path.display()))?;
         let cache: HashMap<u32, TankInfo> = serde_json::from_str(&content)?;
-        Ok(Self { cache })
+        // 预计算归一化名称索引（按 cache 迭代序构建，与直接遍历 cache 的顺序一致）
+        let name_index = cache.iter().map(|(id, info)| {
+            let norm = norm_name(&info.name);
+            NameIndexEntry { norm_ns: strip_ws(&norm), norm, id: *id }
+        }).collect();
+        Ok(Self { cache, name_index })
     }
 
     /// 把坦克缓存写为 JSON 文件（`fetch-tanks` 命令用）。
@@ -123,27 +199,22 @@ impl TankResolver {
         Ok(())
     }
 
-    /// Build a full tank resolver from local BlitzKit data files (no WG API needed).
-    ///
-    /// Data sources:
-    /// - `tanks.pb`            : tier/type/nation/name/hp/speed/guns (唯一数据源，运行时解析)
-    /// - `gun_angles.json`      : gun elevation / depression
-    /// - `game_data/{id}.json`  : armor model (primary plates -> front/side/rear thickness)
-    /// - `armor_cache.json`     : per-plate thickness fallback for the armor summary
+    /// 从本地 BlitzKit 数据文件构建完整解析器（无需 WG API）。
+    /// 数据源：tanks.pb（唯一数据源，运行时解析）、gun_angles.json（俯仰角）、
+    /// game_data/{id}.json（装甲模型）、armor_cache.json（装甲摘要兜底）。
     pub fn from_blitzkit() -> Result<Self> {
         let mut resolver = Self::new();
 
-        // 运行时直接解析 tanks.pb（唯一数据源）：元数据+炮塔/主炮+弹种+装填。
+        // load_tanks 返回进程内共享缓存引用（零克隆），此处只读
         let tanks = crate::wargaming::blitzkit::load_tanks();
         let gun_angles = std::fs::read_to_string(crate::data::data_path("gun_angles.json"))
             .ok()
             .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
 
-        for (id, tank) in tanks {
-            // 名称/国家/类型/等级/血量 均来自 tanks.pb
-            let name = tank.name;
-            let nation = tank.nation;
-            let tank_type = tank.tank_type;
+        for (id, tank) in tanks.iter() {
+            let name = tank.name.clone();
+            let nation = tank.nation.clone();
+            let tank_type = tank.tank_type.clone();
             let tier = tank.tier as u8;
             // 血量 = 车体 health（TankDefinition.health）+ 炮塔 health（TurretDefinition.health）
             // ——取顶级炮塔（turrets.at(-1)，对齐 BlitzKit 默认配置），百科显示的总血量
@@ -168,6 +239,7 @@ impl TankResolver {
             }
 
             // 视野 / 炮塔旋转速度（取自第一个炮塔）
+            // 视野 / 炮塔旋转速度（取自第一个炮塔）
             let first_turret = tank.turrets.first();
             let view_range = first_turret.map(|t| t.view_range as f32);
             let turret_traverse_speed = first_turret.map(|t| t.traverse_speed as f32);
@@ -182,9 +254,9 @@ impl TankResolver {
                 .and_then(|g| g.get("gun_elevation"))
                     .and_then(|v| v.as_f64()).map(|v| v as f32);
 
-            let armor = extract_armor_summary(id);
+            let armor = extract_armor_summary(*id);
 
-            resolver.add(id, TankInfo {
+            resolver.add(*id, TankInfo {
                 name,
                 tier,
                 tank_type,
@@ -216,10 +288,22 @@ impl Default for TankResolver {
     }
 }
 
-/// 提取坦克的装甲摘要（前/侧/后，mm）。
-///
-/// 优先用游戏提取的精确装甲模型（`game_data/{id}.json`，能按 primary 板 ID 定位
-/// 前/侧/后各厚度）；缺失时回退到 `armor_cache.json`（取每组最大厚度近似正面值）。
+/// armor_cache.json 的解析结果（进程内只读取/解析一次，供全部坦克的回退查询共用；
+/// 文件缺失/解析失败时为 None，按"无缓存"回退 BlitzKit 数据）。
+fn armor_cache() -> Option<&'static serde_json::Value> {
+    use std::sync::OnceLock;
+    static CACHE: OnceLock<Option<serde_json::Value>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            std::fs::read_to_string(crate::data::data_path("armor_cache.json"))
+                .ok()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        })
+        .as_ref()
+}
+
+/// 提取装甲摘要（前/侧/后，mm）：优先用游戏提取的精确装甲模型（game_data/{id}.json，
+/// 按 primary 板 ID 定位各板块厚度）；缺失时回退 armor_cache.json（取每组最大厚度近似）。
 fn extract_armor_summary(tank_id: u32) -> Option<ArmorData> {
     let game_path = crate::data::data_path(&format!("game_data/{}.json", tank_id));
     if let Ok(content) = std::fs::read_to_string(&game_path) {
@@ -230,10 +314,7 @@ fn extract_armor_summary(tank_id: u32) -> Option<ArmorData> {
         }
     }
 
-    // 回退：从 armor_cache.json 取每组装甲板厚度的最大值近似
-    let cache = std::fs::read_to_string(crate::data::data_path("armor_cache.json"))
-        .ok()
-        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())?;
+    let cache = armor_cache()?;
     let entry = cache.get(tank_id.to_string())?;
     let p = |key: &str| {
         entry.get(key).and_then(|v| v.as_object()).map(|m| {
@@ -260,7 +341,6 @@ fn armor_from_model(armor_model: &serde_json::Value) -> Option<ArmorData> {
         let primary = section_val.get("primary")?;
         let plate_ref = primary.get(slot).and_then(|v| v.as_str());
         let key = plate_ref.and_then(|r| r.rsplit('_').next()).unwrap_or("1");
-        // 优先 primary 指向的板；缺失时用该 section 的最大有效厚度（td/少板坦克的合理近似）
         let v = plates.get(key).and_then(|v| v.as_f64());
         if let Some(v) = v { return Some(v.round() as u32); }
         let maxth = plates.values().filter_map(|v| v.as_f64()).fold(0.0f64, f64::max);

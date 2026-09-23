@@ -1,12 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-// =====================================================================
-//  统一击穿判定（核心算法，前端点击时经 POST /api/penetrate 调用）
-//  逐行对齐 BlitzKit SpacedArmorSceneComponent shoot() 的判定语义：
-//  跳弹 / 转正 / overmatch / 多层消耗 / 外部模块 flat 抵消 / HE 特殊 /
-//  HEAT 间隙衰减（含 gap 层记录）/ 末层状态决定结果与伤害归属。
-//  穿深只取 near 值 × 装备系数（BlitzKit 无距离衰减）。
-// =====================================================================
+// 统一击穿判定（POST /api/penetrate）。逐行对齐 BlitzKit SpacedArmorSceneComponent
+// shoot()：跳弹/转正/overmatch/多层消耗/外部模块 flat 抵消/HE 特殊/HEAT 间隙衰减
+// （含 gap 层记录）/末层状态决定结果与伤害归属。穿深只取 near × 装备系数（无距离衰减）。
 
 /// 装甲部件分类（对齐 BlitzKit ArmorType：Primary / Spaced / External）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -26,7 +22,6 @@ pub enum ArmorSection {
     GunBarrel,
 }
 
-/// 弹种类型。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ShellType {
@@ -49,8 +44,7 @@ impl ShellType {
     pub fn is_explosive_type(&self) -> bool {
         matches!(self, ShellType::HEAT | ShellType::HE)
     }
-    /// 从字符串解析弹种（覆盖 tanks.pb 原始类型串与归一化名——
-    /// 原始串：hc/hc_premium=HEAT、ap_cr*/apcr=APCR、ap_premium=AP、he_premium=HE）。
+    /// 从字符串解析弹种（tanks.pb 原始串：hc/hc_premium=HEAT、ap_cr*/apcr=APCR、ap_premium=AP、he_premium=HE）。
     pub fn from_str(s: &str) -> Self {
         let s = s.to_lowercase();
         match s.as_str() {
@@ -64,8 +58,7 @@ impl ShellType {
 }
 
 impl ArmorSection {
-    /// 外部模块（flat 抵消，无角度/转正/跳弹）= BlitzKit External。
-    /// Spaced 与 Primary（含炮盾）同走角度等效分支。
+    /// 外部模块（BlitzKit External）：flat 抵消，无角度/转正/跳弹；Spaced 与 Primary（含炮盾）同走角度等效分支。
     pub fn is_module(&self) -> bool {
         matches!(self, ArmorSection::Chassis | ArmorSection::GunBarrel)
     }
@@ -73,8 +66,7 @@ impl ArmorSection {
     pub fn is_primary(&self) -> bool {
         matches!(self, ArmorSection::Hull | ArmorSection::Turret | ArmorSection::Gun)
     }
-    /// BlitzKit 外部模块按 variant 去重（ExternalModuleVariant = "gun" | "track"），
-    /// 而非逐板 ID；spaced/primary 不参与 variant 去重。
+    /// BlitzKit 外部模块按 variant 去重（"gun" | "track"），而非逐板 ID；spaced/primary 不参与。
     pub fn module_variant(&self) -> Option<&'static str> {
         match self {
             ArmorSection::Chassis => Some("track"),
@@ -92,11 +84,9 @@ pub struct ArmorHit {
     pub plate_id: String,
     /// 基础厚度（mm）
     pub thickness: f32,
-    /// 表面法线（用于算入射角）
     pub normal: [f32; 3],
     /// 命中点坐标（用于 HEAT 间隙/HE 溅射距离）
     pub point: [f32; 3],
-    /// 人类可读的名称（显示用）
     pub part_name: String,
 }
 
@@ -112,12 +102,10 @@ pub struct LayerResult {
     pub overmatch: bool,
 }
 
-/// 整体判定结果。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PenetrationResult {
     /// PENETRATION / BLOCKED / RICOCHET / SPLASH / "-"
     pub result: String,
-    /// 穿越的总等效厚度
     pub total_effective: f32,
     /// 每层判定详情（含 HEAT 的 Gap 层，对齐 blitzkit 的 type=null 层）
     pub layers: Vec<LayerResult>,
@@ -125,7 +113,6 @@ pub struct PenetrationResult {
     pub first_armor_angle_deg: f32,
     /// 第一层主装甲施加的转正角（度）
     pub first_armor_norm_deg: f32,
-    /// 是否跳弹
     pub ricochet: bool,
     /// 跳弹后剩余穿深（×0.75）
     pub ricochet_remaining_pen: f32,
@@ -145,7 +132,6 @@ pub struct PenetrationRequest {
     /// Shell armor damage（blitzkit shell.armor_damage，HE 溅射与穿透伤害共用）
     #[serde(default)]
     pub damage: f32,
-    /// HE explosion radius（溅射计算）
     #[serde(default)]
     pub explosion_radius: f32,
     /// Calibrated Shells equipment (ID 103): +6% (AP/APCR) / +7% (HEAT/HE) penetration
@@ -160,8 +146,7 @@ pub struct PenetrationRequest {
     /// 每发弹跳弹临界角（度，tanks.pb shell.ricochet；HEAT/HE 由判定强制 90°）
     #[serde(default)]
     pub ricochet_deg: Option<f32>,
-    /// 本次射线是否允许跳弹。主射入（true）可跳弹；
-    /// 跳弹后的出射射线（blitzkit 递归 shoot(...,false,...)）传 false。
+    /// 主射入（true）可跳弹；跳弹后的出射射线（blitzkit 递归 shoot(...,false,...)）传 false。
     #[serde(default = "default_true")]
     pub allow_ricochet: bool,
 }
@@ -177,15 +162,12 @@ fn dist3(a: [f32; 3], b: [f32; 3]) -> f32 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
-/// 主判定入口：按弹种与命中列表计算穿透结果。
 pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
-    // 解析弹种与相关规则参数
     let shell = ShellType::from_str(&req.shell_type);
     let is_he = shell.is_explosive();
     let is_heat = matches!(shell, ShellType::HEAT);
     let caliber = req.caliber;
-    // 装备修正（对齐 BlitzKit resolvePenetrationCoefficient）：
-    // Calibrated Shells 穿深 +6%(AP/APCR) / +7%(HEAT/HE)，Enhanced Armor 装甲厚度 +4%
+    // 装备修正（对齐 BlitzKit resolvePenetrationCoefficient）：Calibrated 穿深 +6%(动能)/+7%，Enhanced Armor 装甲 +4%
     let calib_coeff = if req.calibrated_shells {
         if shell.is_kinetic() { 1.06 } else { 1.07 }
     } else {
@@ -194,8 +176,7 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
     // BlitzKit 仅使用 near 穿深（shell.penetration.near × 系数），无距离衰减
     let pen = req.penetration * calib_coeff;
     let thickness_coeff = if req.enhanced_armor { 1.04 } else { 1.0 };
-    // 每发弹参数（blitzkit：normalization ?? 0；ricochet 仅非 explosive 弹使用，
-    // HEAT/HE 的 ricochet 在上游即为 90° —— 永不跳弹）
+    // 每发弹参数（blitzkit：normalization ?? 0；HEAT/HE 的 ricochet 上游即为 90°——永不跳弹）
     let norm_deg = req.normalization_deg.unwrap_or(0.0);
     let ricochet_deg = if shell.is_explosive_type() {
         90.0
@@ -216,9 +197,8 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
     let view = normalize(view_dir);
     let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
-    // —— 收集阶段（对齐 blitzkit noDuplicateIntersections）——
-    // 外部模块按 variant 去重；非外部逐个 push，push 首个 Primary 后立即 break
-    // （其后所有命中——包括外部模块——都不收集）。
+    // —— 收集阶段（对齐 blitzkit noDuplicateIntersections）：外部模块按 variant 去重；
+    // 非外部逐个 push，push 首个 Primary 后立即 break（其后所有命中都不收集）。
     let mut seen_variants: std::collections::HashSet<&'static str> = std::collections::HashSet::new();
     let mut filtered_hits: Vec<&ArmorHit> = Vec::new();
     for ah in &req.hits {
@@ -235,8 +215,7 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
             }
         }
     }
-    // blitzkit：出射射线（allowRicochet=false）未命中任何 Primary → 返回 null。
-    // 这里以空结果 "-" 表达（无出射段、伤害 0）。
+    // blitzkit：出射射线（allowRicochet=false）未命中任何 Primary → null；这里以空结果 "-" 表达。
     if !req.allow_ricochet && filtered_hits.iter().all(|h| !h.section.is_primary()) {
         return PenetrationResult {
             result: "-".to_string(),
@@ -250,7 +229,6 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
         };
     }
 
-    // —— 逐层消耗 ——
     let mut remaining_pen = pen; // 剩余穿深
     let mut total_effective = 0.0f32; // 累计等效厚度
     let mut layers = Vec::new(); // 每层结果
@@ -289,28 +267,17 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
         let layer_penetrated: bool;
         let mut is_overmatch = false;
         if ah.section.is_module() {
-            // 外部模块（履带/炮管本体）：flat 厚度，无角度/转正/跳弹
             eff = thickness;
             if is_he {
-                // HE 弹遇外部模块：永远 blocked，但消耗穿深并继续（算溅射）
-                layers.push(LayerResult {
-                    part_name: ah.part_name.clone(),
-                    thickness,
-                    effective: eff,
-                    remaining_before: remaining_pen,
-                    penetrated: false,
-                    ricochet: false,
-                    overmatch: false,
-                });
-                total_effective += eff;
-                remaining_pen -= eff;
-                layer_index += 1;
-                continue;
+                // HE 弹遇外部模块：永远 blocked，但消耗穿深并继续（算溅射）。
+                // 走公共路径：layer_penetrated=false 时公共路径同样 push（overmatch 本分支恒 false）、
+                // total_effective 累加、HE 的 blocked 层消耗穿深且不 break，输出与专用分支完全一致。
+                layer_penetrated = false;
+            } else {
+                // blitzkit：减去厚度后 remaining <= 0 即 blocked（严格大于才穿透）
+                layer_penetrated = remaining_pen > eff;
             }
-            // blitzkit：减去厚度后 remaining <= 0 即 blocked（严格大于才穿透）
-            layer_penetrated = remaining_pen > eff;
         } else {
-            // —— Primary（hull/turret/炮盾板）与 Spaced：角度等效 + 转正 + 跳弹 ——
             let n = normalize(ah.normal);
             // blitzkit angleTo 无 abs；正面命中时 dot>0，abs 仅在法线翻转时兜底（等价）
             let cos_a = dot(n, view).abs().min(1.0);
@@ -321,9 +288,8 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
                 first_armor_angle_deg = angle_deg;
             }
 
-            // Overmatch 规则（对齐 BlitzKit）：
-            // - 3× 口径规则：口径 > 厚度×3，或已穿过一层(index>0)，或出射射线 → 强制不跳弹
-            // - 2× 口径规则：增强转正
+            // Overmatch（对齐 BlitzKit）：3× 口径（>厚度×3，或 index>0，或出射射线）→ 强制不跳弹；
+            // 2× 口径 → 增强转正。
             let three_calibers_rule =
                 caliber > thickness * 3.0 || layer_index > 0 || !req.allow_ricochet;
             is_overmatch = three_calibers_rule;
@@ -364,7 +330,6 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
             layer_penetrated = remaining_pen > eff && !(is_he && !ah.section.is_primary());
         }
 
-        // —— 通用消耗 ——
         total_effective += eff;
         layers.push(LayerResult {
             part_name: ah.part_name.clone(),
@@ -388,23 +353,21 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
         layer_index += 1;
     }
 
-    // —— HE 判定 & 溅射伤害（对齐 BlitzKit）——
-    // totalSpacedThickness = 所有非 Primary 层（外部 flat + 间隙角度等效）的等效厚度；
+    // —— HE 判定 & 溅射伤害（对齐 BlitzKit）—— totalSpaced = 非 Primary 层（外部 flat + 间隙角度等效）等效厚度和；
     // finalDamage = 0.5*dmg*(1-dist/radius) - 1.1*(lastLayer 厚度 + min(pen, totalSpaced))。
-    // layers>1 或末层 blocked → splash/blocked；否则单层穿透 → 全额 damage。
+    // 多层或末层 blocked → splash/blocked；单层穿透 → 全额 damage。
     let (result_damage, is_splash, he_penetrated) = if is_he && !layers.is_empty() {
         // HE 无 gap 层，layers 与 filtered_hits 一一对应
+        debug_assert_eq!(filtered_hits.len(), layers.len());
         let total_spaced_thickness: f32 = filtered_hits
             .iter()
             .zip(layers.iter())
             .filter(|(h, _)| !h.section.is_primary())
             .map(|(_, l)| l.effective)
             .sum();
-        // blitzkit：lastLayer.thicknessAngled 对 external 层不存在 → NaN → 永不 splash。
-        // 【已修正】NaN 复现导致 HE 打履带/外部模块时永远 BLOCKED(0 伤害),
-        // 与游戏不符(GB109 shot2: HE 打履带, 游戏判有伤害并掉血 126)。
-        // 修正:外部模块末层按其 flat 厚度参与溅射衰减 → 判定方向与游戏一致
-        // (SPLASH/有伤害);伤害数值可能仍偏大(游戏对履带吞噬溅射有额外衰减)。
+        // blitzkit：lastLayer.thicknessAngled 对 external 层不存在 → NaN → 永不 splash，
+        // 导致 HE 打履带/外部模块时永远 BLOCKED(0 伤害)，与游戏不符(GB109 shot2: HE 打履带掉血 126)。
+        // 修正：外部模块末层按 flat 厚度参与溅射衰减（伤害数值可能仍偏大，游戏对履带吞噬溅射有额外衰减）。
         let last_eff = layers[layers.len() - 1].effective;
         let dist = dist3(
             filtered_hits[filtered_hits.len() - 1].point,
@@ -426,9 +389,8 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
             (if single_pen { req.damage } else { 0.0 }, false, single_pen)
         }
     } else {
-        // 伤害归属（对齐 blitzkit lastLayer.status）：
-        // 末层被穿透 → 全额 armor_damage（含仅穿透履带/间隙甲的情形，blitzkit 语义）；
-        // 否则 0。跳弹段的伤害由前端二次判定补充。
+        // 伤害归属（对齐 blitzkit lastLayer.status）：末层被穿透 → 全额 armor_damage
+        //（含仅穿透履带/间隙甲的情形）；否则 0。跳弹段伤害由前端二次判定补充。
         match layers.last() {
             Some(last) if last.penetrated => (req.damage, false, true),
             _ => (0.0, false, false),
@@ -502,14 +464,12 @@ mod tests {
 
     #[test]
     fn gun_armor_is_primary_angled_not_flat() {
-        // 炮盾 = Primary：60° 入射按角度等效（20/cos60° = 40mm），35mm 穿深被挡
-        // （若按外部模块 flat 处理则 35 > 20 会穿透——以此区分两种归类）
+        // 炮盾 = Primary 角度等效：20/cos60° = 40mm 挡住 35 穿深（若按外部模块 flat 处理则 35 > 20 会穿透）
         let mut h = hit(ArmorSection::Gun, 20.0, [0.0; 3]);
         h.normal = [0.0, (60f32).to_radians().cos(), (60f32).to_radians().sin()];
         let r = calculate(&req("ap", 35.0, 60.0, vec![h]));
         assert_eq!(r.result, "BLOCKED");
         assert!((r.layers[0].effective - 40.0).abs() < 0.1, "{}", r.layers[0].effective);
-        // 同板正面（0°）：20mm 直接穿透
         let r2 = calculate(&req("ap", 35.0, 60.0, vec![hit(ArmorSection::Gun, 20.0, [0.0; 3])]));
         assert_eq!(r2.result, "PENETRATION");
     }
@@ -557,7 +517,6 @@ mod tests {
         rq.normalization_deg = Some(5.0);
         let r = calculate(&rq);
         assert!((r.layers[0].effective - 76.97).abs() < 0.1, "{}", r.layers[0].effective);
-        // 非 2× 口径：转正 5° → 50/cos(55°) ≈ 87.2
         let mut rq2 = req("ap", 80.0, 60.0, vec![h]);
         rq2.normalization_deg = Some(5.0);
         let r2 = calculate(&rq2);
@@ -579,8 +538,7 @@ mod tests {
 
     #[test]
     fn he_track_only_splashes_like_game() {
-        // HE 仅命中履带：blitzkit NaN 复现已撤回——游戏实际判有伤害
-        // (GB109 shot2 实测: HE 打履带掉血 126)。履带 flat 20mm 参与衰减:
+        // HE 仅命中履带：游戏判有伤害(GB109 shot2 实测掉血 126)。履带 flat 20mm 参与衰减:
         // final = 0.5·100·(1-0/5) - 1.1·(20+min(100,20)) = 50 - 44 = +6 → SPLASH
         let mut rq = req("he", 100.0, 150.0, vec![hit(ArmorSection::Chassis, 20.0, [0.0; 3])]);
         rq.explosion_radius = 5.0;
@@ -615,7 +573,6 @@ mod tests {
 
     #[test]
     fn out_ray_without_primary_returns_no_shot() {
-        // blitzkit：出射射线未命中 Primary → null（这里为 "-"）
         let mut rq = req("ap", 300.0, 100.0, vec![hit(ArmorSection::Chassis, 20.0, [0.0; 3])]);
         rq.allow_ricochet = false;
         let r = calculate(&rq);
@@ -625,7 +582,6 @@ mod tests {
 
     #[test]
     fn external_after_primary_is_not_collected() {
-        // 首个 Primary 之后的一切（含新 variant 外部模块）不收集
         let hits = vec![
             hit(ArmorSection::Hull, 50.0, [0.0; 3]),
             hit(ArmorSection::GunBarrel, 30.0, [0.0, 0.0, 1.0]),

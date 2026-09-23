@@ -6,9 +6,8 @@ use chrono::Utc;
 use crate::wargaming::api_client::PlayerStats;
 
 // =====================================================================
-//  API 数据快照
-//  WG API 不支持按时间查询，因此"定期采集 + 快照差值"来实现阶段性分析。
-//  每次 `take` 存一份当时累计战绩，`diff` 比较新旧两次的增减。
+//  API 数据快照：WG API 不支持按时间查询，用"定期采集 + 快照差值"实现
+//  阶段性分析。take 存一份当时累计战绩，diff 比较两次的增减。
 // =====================================================================
 
 /// 一份战绩快照：采集时间 + 当时的玩家累计战绩。
@@ -16,9 +15,7 @@ use crate::wargaming::api_client::PlayerStats;
 pub struct Snapshot {
     /// 采集时间戳（秒）
     pub timestamp: i64,
-    /// 采集时间（格式化字符串）
     pub datetime: String,
-    /// 当时的累计战绩
     pub player: PlayerStats,
 }
 
@@ -29,6 +26,9 @@ pub struct SnapshotDiff {
     pub to_time: String,
     pub from_battles: u32,
     pub to_battles: u32,
+    /// 快照时的累计伤害（供 "Total damage" 行的 From/To 列）
+    pub from_damage: u64,
+    pub to_damage: u64,
     pub battles_played: u32,
     pub wins_diff: i64,
     pub losses_diff: i64,
@@ -51,7 +51,6 @@ pub struct SnapshotDiff {
 }
 
 impl Snapshot {
-    /// 用当前时间 + 给定战绩构造一份快照。
     pub fn from_player_stats(stats: PlayerStats) -> Self {
         let now = Utc::now();
         Self {
@@ -72,7 +71,6 @@ impl SnapshotStore {
         Self { dir: dir.to_path_buf() }
     }
 
-    /// 保存一份快照，返回写入的路径。
     pub fn save(&self, snapshot: &Snapshot) -> Result<std::path::PathBuf> {
         std::fs::create_dir_all(&self.dir)?;
         let filename = format!("snapshot_{}.json", snapshot.timestamp);
@@ -82,7 +80,6 @@ impl SnapshotStore {
         Ok(path)
     }
 
-    /// 列出目录下全部快照（按时间升序）。
     pub fn list(&self) -> Result<Vec<Snapshot>> {
         if !self.dir.exists() {
             return Ok(Vec::new());
@@ -107,19 +104,16 @@ impl SnapshotStore {
         Ok(snapshots)
     }
 
-    /// 取最新一份快照。
     pub fn latest(&self) -> Result<Option<Snapshot>> {
         let snaps = self.list()?;
         Ok(snaps.into_iter().last())
     }
 
-    /// 取最早一份快照。
     pub fn oldest(&self) -> Result<Option<Snapshot>> {
         let snaps = self.list()?;
         Ok(snaps.into_iter().next())
     }
 
-    /// 计算两份快照的差值（期间场次/胜率/伤害/评级等变化）。
     pub fn diff(&self, from: &Snapshot, to: &Snapshot) -> SnapshotDiff {
         let from_p = &from.player;
         let to_p = &to.player;
@@ -154,6 +148,8 @@ impl SnapshotStore {
             to_time: to.datetime.clone(),
             from_battles: from_p.rating_battles,
             to_battles: to_p.rating_battles,
+            from_damage: from_p.rating_damage_dealt,
+            to_damage: to_p.rating_damage_dealt,
             battles_played,
             wins_diff,
             losses_diff,
@@ -176,7 +172,6 @@ impl SnapshotStore {
         }
     }
 
-    /// 打印快照列表（人类可读）。
     pub fn print_list(&self, snapshots: &[Snapshot]) {
         if snapshots.is_empty() {
             println!("No snapshots found.");
@@ -200,7 +195,6 @@ impl SnapshotStore {
         }
     }
 
-    /// 打印快照差值（人类可读）。
     pub fn print_diff(&self, diff: &SnapshotDiff) {
         println!();
         println!("========================================================");
@@ -222,7 +216,7 @@ impl SnapshotStore {
         println!("  {:<20} {:>12.0} {:>12.0} {:>+9.0}", "Avg damage", diff.avg_damage_from, diff.avg_damage_to, avg_dmg_change);
         println!("  {:<20} {:>12.2} {:>12.2} {:>+9.2}", "Avg frags", diff.avg_frags_from, diff.avg_frags_to, avg_frags_change);
         println!("  {:<20} {:>12.1}% {:>12.1}% {:>+9.1}%", "Hit rate", diff.hit_rate_from, diff.hit_rate_to, hit_rate_change);
-        println!("  {:<20} {:>12} {:>12} {:>+9}", "Total damage", diff.from_battles, diff.to_battles, diff.damage_diff);
+        println!("  {:<20} {:>12} {:>12} {:>+9}", "Total damage", diff.from_damage, diff.to_damage, diff.damage_diff);
 
         if let Some(delta) = diff.rating_delta {
             println!();

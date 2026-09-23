@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>方案 7 · Vuetify 3 — WoTB.Agent UI 对比</title>
+<!-- Vue 3 + Vuetify 3（UMD 版，Material Design 风格） -->
+<link rel="stylesheet" href="https://unpkg.com/vuetify@3.7.3/dist/vuetify.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
+<script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js"></script>
+<script src="https://unpkg.com/vuetify@3.7.3/dist/vuetify.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  /* 兜底基础样式 */
+  html { scroll-behavior: smooth; }
+  body { margin: 0; font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  [v-cloak] { display: none; }
+  section { margin-top: 20px; }
+  .grid-tanks { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+  .grid-chat  { display: grid; grid-template-columns: 250px 1fr; gap: 16px; }
+  @media (max-width: 860px) { .grid-chat { grid-template-columns: 1fr; } }
+
+  /* 收藏车 / 金币车描边 */
+  .tank-card.premium   { border: 1.5px solid rgba(255, 193, 7, .75) !important; }
+  .tank-card.collector { border: 1.5px solid rgba(64, 169, 255, .85) !important; }
+  .tank-thumb { position: relative; padding: 18px 12px 10px; }
+  .tank-thumb svg { width: 100%; height: 64px; opacity: .5; display: block; }
+  .tier-chip { position: absolute; top: 8px; left: 8px; }
+
+  /* 会话列表与聊天气泡 */
+  .session-row { padding: 8px 12px; border-radius: 10px; cursor: pointer; font-size: 13px; }
+  .session-row:hover { background: rgba(var(--v-theme-on-surface), .06); }
+  .session-row.active { background: rgba(255,138,61,.16); color: rgb(var(--v-theme-primary)); }
+  .chat-log { height: 300px; overflow-y: auto; padding-right: 6px; }
+  .bubble-bot  { max-width: 84%; background: rgba(var(--v-theme-on-surface), .08); border-radius: 14px; padding: 9px 14px;
+                 font-size: 13px; line-height: 1.65; margin-bottom: 10px; }
+  .bubble-user { max-width: 84%; background: rgb(var(--v-theme-primary)); color: rgb(var(--v-theme-on-primary));
+                 border-radius: 14px; padding: 9px 14px; font-size: 13px; line-height: 1.65; margin-bottom: 10px; margin-left: auto; width: fit-content; }
+  .tool-chip { display: inline-block; font-size: 11px; padding: 2px 9px; border-radius: 999px; border: 1px dashed rgba(var(--v-theme-on-surface), .3);
+               opacity: .7; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div id="app" v-cloak></div>
+
+<script type="text/x-template" id="tpl">
+<v-app>
+
+  <!-- ═══ 顶部导航（v-app-bar） ═══ -->
+  <v-app-bar flat density="comfortable" style="border-bottom: 1px solid rgba(var(--v-theme-on-surface), .12);">
+    <div style="max-width:1200px; margin:0 auto; width:100%; display:flex; align-items:center; gap:16px; padding:0 16px;">
+      <span style="font-weight:700; font-size:17px;">WoTB<span style="color:rgb(var(--v-theme-primary))">.</span>Agent</span>
+      <v-tabs :model="active" density="compact" style="max-width:560px;">
+        <v-tab value="sec-agent" @click="onNav('sec-agent')">Agent</v-tab>
+        <v-tab value="sec-tanks" @click="onNav('sec-tanks')">Tankopedia</v-tab>
+        <v-tab value="sec-player" @click="onNav('sec-player')">Player</v-tab>
+        <v-tab value="sec-replay" @click="onNav('sec-replay')">Replay</v-tab>
+        <v-tab value="sec-compare" @click="onNav('sec-compare')">Compare</v-tab>
+        <v-tab value="sec-settings" @click="onNav('sec-settings')">Settings</v-tab>
+      </v-tabs>
+      <span style="margin-left:auto; display:flex; align-items:center; gap:10px;">
+        <a href="index.html" style="font-size:12px; opacity:.6; color:inherit;">← 对比首页</a>
+        <v-btn size="small" variant="outlined" @click="toggleTheme">◐ {{ dark ? '暗色' : '亮色' }}</v-btn>
+      </span>
+    </div>
+  </v-app-bar>
+
+  <v-main>
+    <div style="max-width:1200px; margin:0 auto; padding:8px 16px 32px;">
+
+      <!-- ═══ Agent 聊天 ═══ -->
+      <section id="sec-agent" class="grid-chat">
+        <v-card>
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid rgba(var(--v-theme-on-surface),.12);">
+            <span style="font-size:13px; font-weight:600;">会话</span>
+            <v-btn size="small" color="primary">＋ 新会话</v-btn>
+          </div>
+          <div style="padding:8px;">
+            <div class="session-row active">IS-7 走位分析<div style="font-size:11px; opacity:.5">今天 21:34</div></div>
+            <div class="session-row">本周排位复盘<div style="font-size:11px; opacity:.5">昨天</div></div>
+            <div class="session-row">Tier X 弱势车盘点<div style="font-size:11px; opacity:.5">09-16</div></div>
+            <div class="session-row">Skorpion G 配件推荐<div style="font-size:11px; opacity:.5">09-14</div></div>
+          </div>
+        </v-card>
+        <v-card>
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid rgba(var(--v-theme-on-surface),.12);">
+            <span style="font-size:13px; font-weight:600;">Agent · IS-7 走位分析</span>
+            <v-chip size="small" color="success" variant="tonal">● idle</v-chip>
+          </div>
+          <div style="padding:14px 16px 0;">
+            <div class="chat-log">
+              <div class="bubble-user">帮我分析这局 IS-7 的走位，replay 在 D:\replays\2025_09_18_is7.wotbreplay</div>
+              <span class="tool-chip">⚙ scan_replays · 12 场 · 3.2s</span>
+              <div class="bubble-bot">这局你在 <b>4:10</b> 从铁路侧推进过早，在没有队友视野支援的情况下进入了 268 工程的射界。建议：城市缠斗阶段贴掩体推进，等对方 TD 暴露后再转场……</div>
+              <span class="tool-chip">⚙ tank_detail · IS-7 · 1.1s</span>
+              <div class="bubble-bot">对照 IS-7 顶级炮塔数据（俯角 -5°），该位置实际可以卡住斜坡卖头，命中率可提升约 12%。</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; padding:12px 16px 16px; align-items:center;">
+            <v-text-field density="compact" variant="outlined" hide-details placeholder="输入消息，Enter 发送…"></v-text-field>
+            <v-btn color="primary">发送 ↵</v-btn>
+          </div>
+        </v-card>
+      </section>
+
+      <!-- ═══ Replay 扫描报告 ═══ -->
+      <section id="sec-replay">
+        <v-row dense>
+          <v-col cols="6" md="3" v-for="s in stats" :key="s.label">
+            <v-card>
+              <v-card-text>
+                <div style="font-size:12px; opacity:.6;">{{ s.label }}</div>
+                <div style="font-size:24px; font-weight:700;" :style="{ color: s.color || 'inherit' }">{{ s.value }}</div>
+                <div style="font-size:11px; opacity:.55;">{{ s.desc }}</div>
+              </v-card-text>
+            </v-card>
+          </v-col>
+        </v-row>
+        <v-card style="margin-top:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid rgba(var(--v-theme-on-surface),.12);">
+            <span style="font-size:13px; font-weight:600;">WN8 评级走势</span>
+            <v-chip size="small" color="primary" variant="tonal">近 12 个月</v-chip>
+          </div>
+          <div style="padding:12px 16px 4px;"><canvas id="wn8chart" height="88"></canvas></div>
+        </v-card>
+      </section>
+
+      <!-- ═══ Tankopedia ═══ -->
+      <section id="sec-tanks">
+        <v-card>
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid rgba(var(--v-theme-on-surface),.12);">
+            <span style="font-size:13px; font-weight:600;">Tankopedia · 坦克百科</span>
+            <v-chip size="small" color="info" variant="tonal">1,204 辆</v-chip>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; padding:14px 16px; align-items:center;">
+            <v-text-field density="compact" variant="outlined" hide-details placeholder="搜索坦克名称…" style="max-width:200px;"></v-text-field>
+            <v-select density="compact" variant="outlined" hide-details :items="tierItems" v-model="fTier" style="max-width:120px;"></v-select>
+            <v-select density="compact" variant="outlined" hide-details :items="nationItems" v-model="fNation" style="max-width:120px;"></v-select>
+            <v-select density="compact" variant="outlined" hide-details :items="typeItems" v-model="fType" style="max-width:120px;"></v-select>
+            <v-select density="compact" variant="outlined" hide-details :items="sortItems" v-model="fSort" style="max-width:130px;"></v-select>
+            <v-btn color="primary" style="margin-left:auto;">筛选</v-btn>
+          </div>
+          <div style="padding:0 16px 16px;">
+            <div class="grid-tanks">
+              <v-card v-for="t in tanks" :key="t.name" class="tank-card"
+                      :class="t.premium ? 'premium' : (t.collector ? 'collector' : '')" hover>
+                <div class="tank-thumb">
+                  <v-chip size="small" color="primary" class="tier-chip">{{ t.tier }}</v-chip>
+                  <svg viewBox="0 0 140 60" fill="currentColor">
+                    <path d="M18 40 L26 30 L48 27 L52 16 L86 16 L90 27 L108 29 L122 34 L122 40 Z" opacity=".85"></path>
+                    <rect x="88" y="19" width="44" height="3.5" rx="1.7"></rect>
+                    <rect x="126" y="17.5" width="8" height="6.5" rx="1.5"></rect>
+                    <circle cx="40" cy="46" r="7"></circle><circle cx="60" cy="46" r="7"></circle>
+                    <circle cx="80" cy="46" r="7"></circle><circle cx="100" cy="46" r="7"></circle>
+                  </svg>
+                </div>
+                <div style="padding:4px 12px 12px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; gap:4px;">
+                    <b style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;">{{ t.name }}</b>
+                    <v-chip v-if="t.premium" size="x-small" color="warning" variant="tonal">金币</v-chip>
+                    <v-chip v-else-if="t.collector" size="x-small" color="info" variant="tonal">收藏</v-chip>
+                  </div>
+                  <div style="font-size:12px; opacity:.55; margin:2px 0 8px;">{{ t.nation }} · {{ t.type }}</div>
+                  <div style="display:flex; justify-content:space-between; font-size:12px;">
+                    <span>胜率 <b>{{ t.win }}%</b></span><span style="opacity:.5">均伤 {{ t.dmg }}</span>
+                  </div>
+                </div>
+              </v-card>
+            </div>
+          </div>
+        </v-card>
+      </section>
+
+      <!-- ═══ Player ═══ -->
+      <section id="sec-player">
+        <v-card>
+          <div style="padding:12px 16px; border-bottom:1px solid rgba(var(--v-theme-on-surface),.12); font-size:13px; font-weight:600;">Player · 玩家战绩查询</div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; padding:14px 16px; align-items:center;">
+            <v-text-field density="compact" variant="outlined" hide-details v-model="nickname" style="max-width:220px;"></v-text-field>
+            <v-select density="compact" variant="outlined" hide-details :items="realmItems" v-model="realm" style="max-width:110px;"></v-select>
+            <v-btn color="primary">查询</v-btn>
+          </div>
+          <v-row dense style="padding:0 16px 16px;">
+            <v-col cols="6" md="3"><v-card variant="tonal"><v-card-text class="text-center"><div style="font-size:11px; opacity:.6;">场次</div><div style="font-size:20px; font-weight:700;">31,204</div></v-card-text></v-card></v-col>
+            <v-col cols="6" md="3"><v-card variant="tonal" color="success"><v-card-text class="text-center"><div style="font-size:11px; opacity:.6;">胜率</div><div style="font-size:20px; font-weight:700;">54.3%</div></v-card-text></v-card></v-col>
+            <v-col cols="6" md="3"><v-card variant="tonal" color="primary"><v-card-text class="text-center"><div style="font-size:11px; opacity:.6;">三环</div><div style="font-size:20px; font-weight:700;">27</div></v-card-text></v-card></v-col>
+            <v-col cols="6" md="3"><v-card variant="tonal"><v-card-text class="text-center"><div style="font-size:11px; opacity:.6;">K/D</div><div style="font-size:20px; font-weight:700;">1.42</div></v-card-text></v-card></v-col>
+          </v-row>
+        </v-card>
+      </section>
+
+      <!-- ═══ Compare ═══ -->
+      <section id="sec-compare">
+        <v-card>
+          <div style="padding:12px 16px; border-bottom:1px solid rgba(var(--v-theme-on-surface),.12); font-size:13px; font-weight:600;">Compare · 本局 Replay vs API 战绩</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; padding:14px 16px;">
+            <div>
+              <v-chip size="small" color="primary" variant="tonal" style="margin-bottom:8px;">本局 Replay</v-chip>
+              <v-table density="compact">
+                <tbody>
+                  <tr><td>伤害</td><td style="text-align:right;"><b>4,861</b></td></tr>
+                  <tr><td>击毁</td><td style="text-align:right;"><b>3</b></td></tr>
+                  <tr><td>命中率</td><td style="text-align:right;"><b>76%</b></td></tr>
+                </tbody>
+              </v-table>
+            </div>
+            <div>
+              <v-chip size="small" color="info" variant="tonal" style="margin-bottom:8px;">API 近 100 场均值</v-chip>
+              <v-table density="compact" style="opacity:.6;">
+                <tbody>
+                  <tr><td>伤害</td><td style="text-align:right;">2,187</td></tr>
+                  <tr><td>击毁</td><td style="text-align:right;">1.3</td></tr>
+                  <tr><td>命中率</td><td style="text-align:right;">71%</td></tr>
+                </tbody>
+              </v-table>
+            </div>
+          </div>
+        </v-card>
+      </section>
+
+      <!-- ═══ Settings ═══ -->
+      <section id="sec-settings">
+        <v-card>
+          <div style="padding:12px 16px; border-bottom:1px solid rgba(var(--v-theme-on-surface),.12); font-size:13px; font-weight:600;">Settings · 配置</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:32px; padding:14px 16px 20px;">
+            <div>
+              <v-select density="compact" variant="outlined" hide-details :items="modelItems" v-model="model"></v-select>
+              <div style="font-size:12px; opacity:.6; margin:12px 0 0;">温度 {{ temp.toFixed(1) }}</div>
+              <v-slider v-model="temp" :min="0" :max="1" :step="0.1" hide-details color="primary"></v-slider>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:6px; justify-content:center;">
+              <div style="display:flex; justify-content:space-between; align-items:center;"><span style="font-size:13px">回放目录自动扫描</span><v-switch color="primary" hide-details density="compact" model-value="true"></v-switch></div>
+              <div style="display:flex; justify-content:space-between; align-items:center;"><span style="font-size:13px">工具调用前确认</span><v-switch color="primary" hide-details density="compact" model-value="true"></v-switch></div>
+              <div style="display:flex; justify-content:space-between; align-items:center;"><span style="font-size:13px">Token 用量告警</span><v-switch color="primary" hide-details density="compact"></v-switch></div>
+            </div>
+          </div>
+        </v-card>
+      </section>
+
+      <footer style="text-align:center; font-size:12px; opacity:.5; margin:24px 0 8px;">
+        方案 7 / 8 · Vuetify 3（构建链方案）· 示例数据仅供对比 · 需联网加载 CDN
+      </footer>
+    </div>
+  </v-main>
+</v-app>
+</script>
+
+<script>
+const { createApp, ref, onMounted, watch } = Vue;
+
+/* Vuetify 实例：暗色默认 + 品牌橙 primary（Material Design 主题系统）
+   注意 UMD 版组件在 Vuetify.components 命名空间里，需显式传入注册 */
+const vuetify = Vuetify.createVuetify({
+  components: Vuetify.components,
+  directives: Vuetify.directives,
+  theme: {
+    defaultTheme: 'dark',
+    themes: {
+      dark:  { colors: { primary: '#ff8a3d' } },
+      light: { colors: { primary: '#ff8a3d' } },
+    },
+  },
+});
+
+const app = createApp({
+  template: '#tpl',
+  setup() {
+    const dark = ref(true);
+    const active = ref('sec-agent');
+    const nickname = ref('fyp25');
+    const temp = ref(0.7);
+    const fTier = ref('全部等级'), fNation = ref('全部国家'), fType = ref('全部类型'), fSort = ref('按胜率排序');
+    const realm = ref('国服'), model = ref('deepseek-chat');
+
+    const stats = [
+      { label: '扫描场次', value: '12,483', desc: '近 30 天 +412' },
+      { label: '总胜率', value: '54.3%', desc: '▲ +0.8%', color: '#4caf50' },
+      { label: '场均伤害', value: '2,187', desc: '▲ +42' },
+      { label: 'WN8', value: '2,845', desc: '优秀', color: '#ff8a3d' },
+    ];
+    const tanks = [
+      { name: 'IS-7',                 nation: '苏联',   type: '重型坦克', tier: 'X',    win: 52.8, dmg: 2204 },
+      { name: 'Object 260',           nation: '苏联',   type: '重型坦克', tier: 'X',    win: 53.4, dmg: 2310, collector: true },
+      { name: '121B',                 nation: '中国',   type: '中型坦克', tier: 'X',    win: 54.6, dmg: 2458, premium: true },
+      { name: 'E 100',                nation: '德国',   type: '重型坦克', tier: 'X',    win: 51.2, dmg: 2265 },
+      { name: 'Leopard 1',            nation: '德国',   type: '中型坦克', tier: 'X',    win: 52.1, dmg: 2372 },
+      { name: 'T110E5',               nation: '美国',   type: '重型坦克', tier: 'X',    win: 50.9, dmg: 2190 },
+      { name: 'Progetto M35 mod. 46', nation: '意大利', type: '中型坦克', tier: 'VIII', win: 55.3, dmg: 1690, premium: true },
+      { name: 'Skorpion G',           nation: '德国',   type: '坦克歼击车', tier: 'VIII', win: 54.0, dmg: 1852, premium: true },
+    ];
+    const items = (arr) => arr.map(x => ({ title: x, value: x }));
+    const tierItems = items(['全部等级','X','VIII']);
+    const nationItems = items(['全部国家','苏联','德国','美国','中国','意大利']);
+    const typeItems = items(['全部类型','重型','中型','坦克歼击车']);
+    const sortItems = items(['按胜率排序','按 DPM']);
+    const realmItems = items(['国服','亚服','欧服']);
+    const modelItems = items(['deepseek-chat','gpt-4o','claude-sonnet']);
+
+    function onNav(id) {
+      active.value = id;
+      const el = document.getElementById(id);
+      if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth' }), 60);
+    }
+    function toggleTheme() {
+      dark.value = !dark.value;
+      vuetify.theme.global.name.value = dark.value ? 'dark' : 'light';
+    }
+
+    onMounted(() => {
+      if (!window.Chart) return;
+      new Chart(document.getElementById('wn8chart'), {
+        type: 'line',
+        data: {
+          labels: ['24-09','24-10','24-11','24-12','25-01','25-02','25-03','25-04','25-05','25-06','25-07','25-08'],
+          datasets: [{
+            data: [1950,2010,1985,2100,2210,2180,2340,2405,2510,2480,2620,2845],
+            borderColor: '#ff8a3d', backgroundColor: 'rgba(255,138,61,.10)',
+            fill: true, tension: .35, pointRadius: 2.5, pointBackgroundColor: '#ff8a3d', borderWidth: 2,
+          }],
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: '#9c8f7f', font: { size: 10 } }, grid: { display: false } },
+            y: { ticks: { color: '#9c8f7f', font: { size: 10 } }, grid: { color: 'rgba(128,128,140,.15)' } },
+          },
+        },
+      });
+    });
+
+    return {
+      dark, active, nickname, temp, fTier, fNation, fType, fSort, realm, model,
+      stats, tanks, tierItems, nationItems, typeItems, sortItems, realmItems, modelItems,
+      onNav, toggleTheme,
+    };
+  },
+});
+app.use(vuetify).mount('#app');
+</script>
+</body>
+</html>

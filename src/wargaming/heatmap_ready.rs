@@ -1,8 +1,7 @@
 // =====================================================================
-//  热力图截图的就绪门控：无头浏览器渲染 3D 查看器时，页面用长轮询 XHR
-//  扣住 Chrome 的虚拟时间（pending XHR 会阻止 virtual time 推进——而
-//  GLTFLoader 的 fetch() 不会），直到热力图渲染完成才释放，保证截图
-//  等待模型加载完成之后再进行。
+//  热力图截图就绪门控：无头浏览器渲染 3D 查看器时，页面用长轮询 XHR 扣住
+//  Chrome 虚拟时间（pending XHR 会阻止 virtual time 推进，而 GLTFLoader 的
+//  fetch() 不会），直到热力图渲染完成才释放，保证截图等模型加载后再进行。
 // =====================================================================
 use std::collections::HashSet;
 use std::sync::Mutex;
@@ -29,10 +28,10 @@ pub async fn hold_handler(
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
-    let sess = q.get("sess").cloned().unwrap_or_default();
+    let sess = q.get("sess").map(|s| s.as_str()).unwrap_or("");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     loop {
-        if session_ready(&sess) {
+        if session_ready(sess) {
             return "ready".into_response();
         }
         if std::time::Instant::now() >= deadline {
@@ -47,7 +46,7 @@ pub async fn ready_handler(
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
-    let sess = q.get("sess").cloned().unwrap_or_default();
-    mark_session_ready(&sess);
+    let sess = q.get("sess").map(|s| s.as_str()).unwrap_or("");
+    mark_session_ready(sess);
     "ok".into_response()
 }

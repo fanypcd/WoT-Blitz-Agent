@@ -1,7 +1,6 @@
 # ============================================================
 #  WoTB Agent 配置模板
-#  复制为 config.toml 后按注释填写自己的密钥/路径。
-#  复制方式:
+#  复制为 config.toml 后按注释填写自己的密钥/路径:
 #    Linux/macOS: cp config.toml.example config.toml
 #    Windows:     copy config.toml.example config.toml
 #  (注意: config.toml 含密钥, 已被 .gitignore 排除, 不会提交)
@@ -9,9 +8,8 @@
 
 # ---------------- WG API (战绩查询) ----------------
 #  坦克数据已全部来自 BlitzKit(本地 tanks.pb/models.pb), 这里仅用于玩家战绩查询。
-#  以下 application_id 为项目自带可用的公开 key, 可直接使用; 也可换成自己的。
 [wg_api]
-application_id = "9eeca6d62dfc4b1d8539ee5a76d0bf55"    # 可直接使用; 也可在 https://developers.wargaming.net/applications/ 申请自己的
+application_id = "9eeca6d62dfc4b1d8539ee5a76d0bf55"    # 项目自带可用的公开 key, 可直接使用; 也可在 https://developers.wargaming.net/applications/ 申请自己的
 server = "asia"                       # 服务器分区: asia / eu / na(决定 API 域名)
 
 # ---------------- LLM (大模型) ----------------
@@ -32,15 +30,13 @@ budget = 10.0                            # 总预算(美元), 超预算自动中
 # 回放文件所在目录(.wotbreplay)。填入真实回放目录即可:
 #   Linux/WSL:   /mnt/c/Users/你的用户名/AppData/Local/wotblitz/DAVAProject/replays
 #   Windows:     C:/Users/你的用户名/AppData/Local/wotblitz/DAVAProject/replays
-#   或直接用项目自带测试回放:
-#     replay_dir = "replay_samples"
+#   或直接用项目自带测试回放: replay_dir = "replay_samples"
 #   (replay_samples/ 内含 3 个示例 .wotbreplay, 可直接用于测试 scan / single / compare)
 replay_dir = "replay_samples"
-# 路径风格转换。程序有 Windows 与 WSL 两种运行版本, 回放路径两种风格都接受:
+# 路径风格转换。回放路径两种风格都接受:
 #   auto(默认) = 按运行平台自动转成本地形式(Windows 版把 /mnt/c/... → C:/..., WSL 版反之)
 #   windows / wsl = 强制转成对应风格
 #   off = 不转换(自定义挂载点等场景)
-# Web 界面 Replay/Scan 标签与 combat 命令均适用。
 path_translate = "auto"
 # 坦克缓存文件路径(由 fetch-tanks 命令生成; 默认在 data/ 下)。
 tank_cache_path = "data/tank_cache.json"

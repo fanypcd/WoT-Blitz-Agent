@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WoTB.Agent · UI 现代化方案对比</title>
+<style>
+  :root {
+    --bg: #14100d; --panel: #1c1815; --panel2: #262019; --border: #35291c;
+    --accent: #ff8a3d; --txt: #f3ede6; --muted: #9c8f7f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--txt);
+         font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+         background-image: radial-gradient(1000px 500px at 20% -10%, #3a2412 0%, transparent 60%); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 20px 60px; }
+  header h1 { font-size: 26px; margin: 0 0 6px; }
+  header h1 .dot { color: var(--accent); }
+  header p { color: var(--muted); margin: 0 0 12px; line-height: 1.7; }
+  h2.batch { font-size: 15px; color: var(--accent); letter-spacing: 2px; margin: 36px 0 14px; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+  .opt { background: linear-gradient(180deg, var(--panel), var(--panel2)); border: 1px solid var(--border);
+         border-radius: 14px; padding: 20px 22px; display: flex; flex-direction: column; }
+  .opt .no { font-size: 12px; color: var(--muted); letter-spacing: 2px; }
+  .opt h3 { font-size: 18px; margin: 6px 0 4px; }
+  .opt .meta { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .opt .tagline { font-size: 13px; color: var(--accent); margin-bottom: 12px; }
+  .opt ul { margin: 0 0 16px; padding-left: 18px; font-size: 13px; line-height: 1.85; color: var(--muted); flex: 1; }
+  .opt ul b { color: var(--txt); font-weight: 600; }
+  .btnrow { display: flex; gap: 10px; }
+  a.btn { flex: 1; display: inline-block; text-align: center; text-decoration: none; font-size: 14px; font-weight: 600;
+          padding: 9px 0; border-radius: 9px; background: var(--accent); color: #1a0e04; transition: transform .12s ease; }
+  a.btn:hover { transform: translateY(-1px); }
+  a.btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--txt); }
+  .rec { display: inline-block; font-size: 11px; background: rgba(255,138,61,.15); color: var(--accent);
+         border: 1px solid rgba(255,138,61,.4); border-radius: 999px; padding: 2px 10px; margin-left: 8px; vertical-align: 3px; }
+  footer { margin-top: 34px; font-size: 12.5px; color: var(--muted); line-height: 1.9;
+           border-top: 1px solid var(--border); padding-top: 18px; }
+  code { background: rgba(255,255,255,.07); border-radius: 5px; padding: 1px 6px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>WoTB<span class="dot">.</span>Agent · UI 现代化方案对比</h1>
+    <p>共 <b>8 个示例网页</b>，内容模板完全一致（导航 / Agent 聊天 / Replay 扫描报告与 WN8 走势 / Tankopedia 卡片网格含金币金框·收藏蓝框 / Player / Compare / Settings），便于横向对比。
+       每页右上角可切换<b>暗色 ↔ 亮色</b>主题。页面需联网加载 CDN。</p>
+    <p>选中某条路线（或混搭）后告诉我，我再出正式迁移计划。</p>
+  </header>
+
+  <h2 class="batch">第二批 · GitHub 上使用量最大的组件库（按 ★ 数）</h2>
+  <div class="grid">
+    <div class="opt">
+      <div class="no">方案 5 / 构建链</div>
+      <h3>Ant Design 5 <span class="rec">国内最流行 React</span></h3>
+      <div class="meta">ant-design/ant-design · 约 93k ★</div>
+      <div class="tagline">企业级 React 组件库，国内中后台事实标准</div>
+      <ul>
+        <li><b>优点</b>：组件最全最稳（Statistic/Segmented/Table 开箱即用），暗色用算法主题一键切换、品牌色一个 token 全局生效；文档与社区资源最丰富</li>
+        <li><b>代价</b>：React + Vite 全量重写 + Node 构建链；体积较大；视觉偏「阿里系中后台」</li>
+      </ul>
+      <div class="btnrow"><a class="btn" href="05_antdesign.html">打开示例 →</a></div>
+    </div>
+
+    <div class="opt">
+      <div class="no">方案 6 / 构建链</div>
+      <h3>Element Plus</h3>
+      <div class="meta">element-plus/element-plus · 约 25k ★</div>
+      <div class="tagline">国内 Vue 3 生态使用最广的组件库</div>
+      <ul>
+        <li><b>优点</b>：Vue 3 生态最成熟的选择，暗色只需一个 <code>html.dark</code> class；中文文档一流；组件密度适中，与数据面板很搭</li>
+        <li><b>代价</b>：同样 Vue + Vite 全量重写 + Node 构建链；视觉辨识度一般（「后台管理」气质）</li>
+      </ul>
+      <div class="btnrow"><a class="btn" href="06_elementplus.html">打开示例 →</a></div>
+    </div>
+
+    <div class="opt">
+      <div class="no">方案 7 / 构建链</div>
+      <h3>Vuetify 3</h3>
+      <div class="meta">vuetifyjs/vuetify · 约 40k ★</div>
+      <div class="tagline">Material Design 组件库，国际使用量最大的 Vue UI</div>
+      <ul>
+        <li><b>优点</b>：完整 Material Design 语言（app-bar/tabs/chips/cards 观感与其它方案差异最大）；主题系统精细；组件质感高</li>
+        <li><b>代价</b>：Vue + Vite 全量重写；Material 风格与军事/游戏题材的契合度见仁见智</li>
+      </ul>
+      <div class="btnrow"><a class="btn" href="07_vuetify.html">打开示例 →</a></div>
+    </div>
+
+    <div class="opt">
+      <div class="no">方案 8 / 零构建</div>
+      <h3>Bootstrap 5.3 <span class="rec">用量之王</span></h3>
+      <div class="meta">twbs/bootstrap · 约 172k ★</div>
+      <div class="tagline">全球使用最广的 CSS 框架，5.3 起原生暗色</div>
+      <ul>
+        <li><b>优点</b>：生态与成熟度无可争议；<code>data-bs-theme</code> 一行切换明暗；编译版 CSS 放进 <code>web/vendor/</code> 即用，<b>零构建、保持单二进制</b>；与 Tabler 同底子但更轻</li>
+        <li><b>代价</b>：无聊天/统计等业务组件（本就靠自绘）；默认观感朴素，需要像示例这样调一层品牌色</li>
+      </ul>
+      <div class="btnrow"><a class="btn" href="08_bootstrap.html">打开示例 →</a></div>
+    </div>
+  </div>
+
+  <h2 class="batch">第一批 · 风格化设计体系</h2>
+  <div class="grid">
+    <div class="opt">
+      <div class="no">方案 1 / 零构建</div>
+      <h3>Tabler <span class="rec">推荐</span></h3>
+      <div class="meta">tabler/tabler · 约 39k ★</div>
+      <div class="tagline">成熟开源 dashboard 设计系统（Bootstrap 5 内核）</div>
+      <ul>
+        <li><b>优点</b>：仪表盘组件最全（卡片/表格/徽章/统计条全内置），气质与本项目最契合；<b>不引入 Node 构建链</b>，保持单二进制分发</li>
+        <li><b>代价</b>：HTML 结构需按 Bootstrap 语义重写（JS 逻辑保留）；个性弱于 shadcn</li>
+      </ul>
+      <div class="btnrow"><a class="btn ghost" href="01_tabler.html">打开示例 →</a></div>
+    </div>
+
+    <div class="opt">
+      <div class="no">方案 2 / 零构建</div>
+      <h3>Tailwind + DaisyUI</h3>
+      <div class="meta">saadeghi/daisyui · 约 35k ★</div>
+      <div class="tagline">原子化 CSS + 组件类库</div>
+      <ul>
+        <li><b>优点</b>：主题定制自由度最高（<code>data-theme</code> 切换全套配色）；chat 气泡/stats 组件观感现代；零构建</li>
+        <li><b>代价</b>：Play CDN 不适合生产；复杂排版要自己拼 utility class，长期一致性弱</li>
+      </ul>
+      <div class="btnrow"><a class="btn ghost" href="02_daisyui.html">打开示例 →</a></div>
+    </div>
+
+    <div class="opt">
+      <div class="no">方案 3 / 构建链</div>
+      <h3>Vue 3 + Naive UI</h3>
+      <div class="meta">tusen-ai/naive-ui · 约 17k ★</div>
+      <div class="tagline">对暗色数据面板支持极好的 Vue 3 组件库</div>
+      <ul>
+        <li><b>优点</b>：全组件暗色适配、主题变量细粒度可调；数据驱动渲染，长期可维护性佳</li>
+        <li><b>代价</b>：约 5700 行前端全量重写 + Node 构建链</li>
+      </ul>
+      <div class="btnrow"><a class="btn ghost" href="03_naiveui.html">打开示例 →</a></div>
+    </div>
+
+    <div class="opt">
+      <div class="no">方案 4 / 构建链</div>
+      <h3>React + shadcn/ui</h3>
+      <div class="meta">shadcn-ui/ui · 约 80k ★</div>
+      <div class="tagline">当前最流行的现代设计体系（Vercel 风格）</div>
+      <ul>
+        <li><b>优点</b>：美观度与生态最强，观感最「现代 SaaS」；组件源码进项目、完全可控</li>
+        <li><b>代价</b>：全量重写 + Node 构建链，React/TSX 对个人 Rust 工具维护成本最高</li>
+      </ul>
+      <div class="btnrow"><a class="btn ghost" href="04_shadcn.html">打开示例 →</a></div>
+    </div>
+  </div>
+
+  <footer>
+    · 所有页面位于 <code>ui_preview/</code>，纯演示用，与项目源码无关，确定方案后可整目录删除。<br>
+    · 混搭可行，例如「Tabler 布局体系 + 按方案 4 的配色 token 调品牌色」，选定时告诉我即可。<br>
+    · 其他候选（未做 demo，需要可补）：ByteDance <b>Semi Design</b>、腾讯 <b>TDesign</b>、字节 <b>Arco Design</b>、微软 <b>Fluent UI</b>、Google <b>MUI</b>。<br>
+    · 所有交互（导航高亮、主题切换、卡片渲染）均为真实可用的最小实现；离线时仅能看兜底布局。
+  </footer>
+</div>
+</body>
+</html>

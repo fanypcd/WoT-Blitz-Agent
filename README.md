@@ -18,7 +18,7 @@ AI 游戏分析助手 — 针对 World of Tanks Blitz（坦克世界闪击战）
 | 击穿判定内核 | Rust 统一实现：跳弹/转正/overmatch/间隙甲/HEAT 间隙衰减/HE 溅射/装备修正 |
 | BlitzKit 数据集成 | tanks.pb 723 辆（弹种/穿深/血量）+ models.pb（spaced 权威）+ GLB 几何 |
 | LLM Agent | 自然语言对话，10 个工具自主获取数据并生成分析（含热力图截图） |
-| 射击复现（实验性） | 从回放提取射击事件链，3D 查看器按射手视角复现弹道与判定（命中位置计算尚不完善，结果仅供参考） |
+| 射击复现（实验性） | 从回放提取射击事件链，3D 查看器按射手视角复现弹道与判定；**游戏弹孔解码点**（服务器 segment 按游戏 `DecodeShotSegment` 同构公式解出的部件 AABB 量化点，橙色 ◆ 标记，与本地 raycast 弹着点对照） |
 
 ## 快速开始
 
@@ -77,10 +77,28 @@ tank_cache_path = "data/tank_cache.json"
 | 坦克数据源 | `data/tanks.pb` | BlitzKit 坦克数据库（运行时解析元数据/武器/装填，唯一数据源） |
 | 模型节点映射 | `data/models.pb` | 炮塔/主炮→`gun/turret_0X` 模型节点映射 + spaced 分类权威 |
 | 坦克缓存 | `data/tank_cache.json` | 由 `fetch-tanks` 构建的缓存 |
-| 装甲/碰撞数据 | `data/game_data/`（723 个 JSON） | 从游戏 DVPL 提取的可移植数据 |
+| 装甲/碰撞数据 | `data/game_data/`（700+ 个 JSON） | 从游戏 DVPL 提取的可移植数据 |
+| 数据版本清单 | `data/data_version.json` | 各数据文件对应的游戏版本与更新时间（`update-data` 维护） |
 
 其他按需缓存（首次访问自动下载，无需手动准备）：3D 模型 `glb_cache/`、
 坦克封面图 `tank_images/`、前端依赖 `web/vendor/`（Three.js/Chart.js，离线可用）。
+
+### 3.1 游戏版本更新后如何更新数据
+
+游戏客户端版本更新后（如 11.20 → 11.21），一条命令即可刷新全部派生数据：
+
+```bash
+cargo run --release -- update-data          # 下载最新 BlitzKit pb → 重建 tank_cache → 更新 game_data
+cargo run --release -- update-data --check  # 只查看版本状态与将要执行的动作，不改任何文件
+```
+
+命令会读取游戏目录的 `version.txt.dvpl` 检测本机游戏版本，并与 `data/data_version.json`
+清单比对：**版本变化 → 全量重提取 game_data；版本未变 → 只补新增坦克的缺失文件**。
+常用参数：`--offline`（跳过联网下载，仅用现有 pb 重建）、`--force`（强制全量重提取）、
+`--game-dir`（手动指定游戏目录，默认自动探测 Steam 安装路径）。
+
+注意：`armor_cache.json` / `gun_angles.json` 是静态回退数据（仓库内无生成器），
+不随 `update-data` 刷新；它们仅在 `game_data/` 缺失时兜底，优先级更低。
 
 ### 4. 测试回放（可选）
 
@@ -99,15 +117,12 @@ cargo run --release -- web
 
 自然语言对话。直接输入问题，Agent 自主调用工具并给出分析：
 "查询 Anonyme 的排位战绩"、"分析最近回放并和 API 对比"、"查看 E100 的装甲模型"、
-"渲染 E100 正面的穿透热力图"、"复现 xxx.wotbreplay 的第 3 发射击"（*实验性功能有待开发）。
+"渲染 E100 正面的穿透热力图"、"复现 xxx.wotbreplay 的第 3 发射击"（*实验性）。
 顶部按钮：Interrupt（打断当前分析，仅作用于当前会话）、History（对话历史）、Save（保存会话）。
 
 **多会话管理**：左上下拉可切换会话，New 新建、Delete 删除（含磁盘持久化文件）、
 Export 导出为 Markdown；每轮对话结束自动落盘 `data/sessions/<会话名>.json`，
 服务重启后会话与历史自动恢复。同一会话同一时刻仅执行一轮对话（忙时后端返回 409）。
-
-Agent 会用到的工具：战绩查询、回放扫描/对比、3D 装甲查看器、装甲明细查询、
-击穿模拟、热力图截图（PNG 保存后可在对话中查看）、射击复现截图等（共 11 个）。
 
 ### Tankopedia
 
@@ -172,31 +187,13 @@ snapshot       # API 数据快照（take/diff）
 view           # 3D 装甲查看器
 prematch       # 对局前瞻（--replay 可从回放提取阵容）
 parse-game     # 解析单个游戏 DVPL 文件
-extract-game   # 批量提取 723 辆装甲/碰撞数据到 game_data/
+extract-game   # 批量提取装甲/碰撞数据到 game_data/
 fetch-blitzkit # 重新下载 BlitzKit 数据源
 fetch-tanks    # 重建 tank_cache.json
 fetch-icons    # 批量下载坦克封面图
+update-data    # 游戏版本更新后一键刷新全部数据（版本感知增量更新）
 config         # 查看/编辑配置
 usage          # Token 用量统计
-```
-
-## Agent 对话示例
-
-```
-> 查询Anonyme的排位战绩
-[Agent] Tool call: search_player ({"nickname":"Anonyme"})
-[Agent] Tool call: get_player_stats ({"account_id":2033684170})
-
-排位场次: 9,852 | 胜率: 58.4% | 场均伤害: 2,746
-
-> 分析Anonyme最近的排位回放，和API累计数据对比
-[Agent] Tool call: compare_replay_vs_api ({"nickname":"Anonyme","mode":"rating"})
-近期 106 场排位 vs API 累计 9852 场：
-胜率: 68.9% vs 58.4% (+10.5%)
-
-> 渲染E100正面的穿透热力图
-[Agent] Tool call: render_heatmap ({"tank":"E 100","view":"front"})
-已保存热力图截图: screenshots/heatmap_front.png
 ```
 
 ## 环境要求

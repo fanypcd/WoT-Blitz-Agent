@@ -1,14 +1,11 @@
+// 回放批量扫描：遍历目录下所有 `.wotbreplay`，逐个解析并按条件过滤，
+// 返回一场场的 BattleSummary 列表（由上层聚合成报告）。
+
 use std::path::Path;
 use anyhow::Result;
 
 use crate::models::battle::BattleSummary;
 use crate::replay::parser::{ReplayParser, list_replays_in_dir};
-
-// =====================================================================
-//  回放批量扫描
-//  遍历一个目录下的所有 `.wotbreplay`，逐个解析并按条件过滤，
-//  最终返回一场场的 BattleSummary 列表（由上层聚合成报告）。
-// =====================================================================
 
 /// 批量扫描器：内部持有 ReplayParser，按目录逐个解析回放。
 pub struct ReplayScanner<'a> {
@@ -28,7 +25,6 @@ pub struct ScanFilter {
 
 
 impl ScanFilter {
-    /// 仅保留最近 `days` 天内的战斗。
     pub fn last_n_days(days: i64) -> Self {
         let now = chrono::Utc::now().timestamp();
         Self {
@@ -84,30 +80,23 @@ impl ScanFilter {
 pub struct ScanProgress {
     /// 当前处理到的序号（从 1 开始）
     pub current: usize,
-    /// 目录下文件总数
     pub total: usize,
-    /// 当前文件名
     pub file_name: String,
     /// 是否成功解析
     pub ok: bool,
-    /// 解析失败的错误信息（成功时为 None）
     pub error: Option<String>,
 }
 
 impl<'a> ReplayScanner<'a> {
-    /// 构造不带解析器的扫描器。
     pub fn new() -> Self {
         Self { parser: ReplayParser::new() }
     }
 
-    /// 构造带 TankResolver 的扫描器（可把 tank_id 翻译成名称）。
     pub fn with_resolver(resolver: &'a crate::wargaming::tank_resolver::TankResolver) -> Self {
         Self { parser: ReplayParser::with_resolver(resolver) }
     }
 
     /// 扫描目录，逐个解析回放并按 `filter` 过滤，返回命中场次（按时间排序）。
-    ///
-    /// `progress_callback` 在每解析一个文件后被调用，可用来渲染进度。
     pub fn scan_dir(
         &self,
         dir: &Path,
@@ -135,7 +124,7 @@ impl<'a> ReplayScanner<'a> {
                     callback(ScanProgress {
                         current: i + 1,
                         total,
-                        file_name: file_name.clone(),
+                        file_name,
                         ok: true,
                         error: None,
                     });
@@ -144,7 +133,7 @@ impl<'a> ReplayScanner<'a> {
                     callback(ScanProgress {
                         current: i + 1,
                         total,
-                        file_name: file_name.clone(),
+                        file_name,
                         ok: false,
                         error: Some(e.to_string()),
                     });

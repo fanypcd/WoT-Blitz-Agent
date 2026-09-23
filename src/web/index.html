@@ -1068,12 +1068,17 @@ async function srParse() {
         srData.forEach(s=>{ if(s.target_tank_id) window.__srTargetMap[s.index]=s.target_tank_id; });
         window.__srAuthorTank=d.author_tank_id||0;
         window.__srShells=d.author_shells||[];
+        window.__srPlayers=d.players||[];
+        window.__srExtractionNotes=d.extraction_notes||[];
+        window.__srShooter='all';
         console.log('[sr] loaded', srData.length, 'shots, authorTank:', window.__srAuthorTank);
         renderShotList();
     } catch(e){ out.innerHTML='<div class="muted">⚠ '+esc(e.message)+'</div>'; }
 }
 // 弹种徽标：shell_type（tank_cache）→ AP/APCR/HEAT/HE + premium 标记 + 穿深
+// 非作者射击无槽位语义（type=28 是作者本人的选择状态），显示 shell_id 兜底
 function srShellBadge(s) {
+    if (!s.is_author) return (s.shell_id ? '<span class="muted" style="font-size:10px;">id'+s.shell_id+'</span>' : '');
     const shells = window.__srShells || [];
     const sh = (s.shell_slot != null) ? shells[s.shell_slot] : null;
     if (!sh) return (s.shell_slot != null) ? '<span class="muted">槽'+s.shell_slot+'</span>' : '';
@@ -1086,10 +1091,19 @@ function srShellBadge(s) {
     return '<span class="pill'+prem+'" style="font-size:10px;">'+label+'</span> <span class="muted" style="font-size:10px;">'+sh.penetration+'mm</span>';
 }
 // 结果徽标：hit_flags 位图 → 击穿/HE/跳弹/未穿/脱靶（语义配色）
+// 非作者射击无 method38（Avatar 专属）→ hit_flags 恒 0，按 game_hit_result 枚举降级：
+// 0=无 1=未穿 2=间隙层止 3=穿(有伤害) 4=履带/模块交互（1436 实证非纯跳弹：与全额伤害/击杀共存），255=未获取
 function srResultBadge(s) {
     const f = s.hit_flags || 0;
     let txt, cls='pill';
-    if (!f) { txt='MISS'; cls+=' miss'; }
+    if (!s.is_author && !f) {
+        const r = s.game_hit_result;
+        if (r == null || r === 255 || r === 0) { txt='MISS'; cls+=' miss'; }
+        else if (r === 3) { txt='击穿'; cls+=' pen'; }
+        else if (r === 4) { txt='履带/跳弹'; cls+=' ric'; }
+        else { txt='未穿'; cls+=' nopen'; }
+    }
+    else if (!f) { txt='MISS'; cls+=' miss'; }
     else if (f & 0x1000) { txt='HE'; cls+=' he-res'; }
     else if (f & 0x0010) { txt='击穿'; cls+=' pen'; }
     else if (f & 0x0008) { txt='跳弹'; cls+=' ric'; }
@@ -1103,37 +1117,104 @@ function srDmgCell(s){
     const col=!d?'var(--muted)':d>=1000?'var(--red)':d>=600?'var(--accent-2)':'var(--txt)';
     return `<b style="color:${col};">${d}</b>`;
 }
+// 射击者筛选下拉：battle_results 玩家列表按队伍分组（我方=作者阵营，作者置顶）。
+// fire_events（method0x00 全场开火广播）> 已提取射击数 → 标注缺失发数（AoI 裁剪）
+function srShooterFilterHtml() {
+    const players = window.__srPlayers || [];
+    if (!players.length) return '';
+    const authorTeam = (players.find(p=>p.is_author)||{}).team;
+    const allies = players.filter(p=>p.team===authorTeam).sort((a,b)=>(b.is_author?1:0)-(a.is_author?1:0));
+    const enemies = players.filter(p=>p.team!==authorTeam);
+    const shotCount = {};
+    srData.forEach(s=>{ shotCount[s.shooter_name]=(shotCount[s.shooter_name]||0)+1; });
+    const opt = p=>{
+        const miss=(p.fire_events||0)-(shotCount[p.name]||0);
+        return `<option value="${esc(p.name)}" ${window.__srShooter===p.name?'selected':''}>${esc(p.name)}${miss>0?` ·缺${miss}发`:''}</option>`;
+    };
+    return `<div style="margin:8px 0;display:flex;align-items:center;gap:8px;">
+        <span class="muted" style="font-size:11px;">射击者：</span>
+        <select id="sr-shooter" onchange="window.__srShooter=this.value;renderShotList();"
+            style="background:#1a1612;color:var(--txt);border:1px solid #555;border-radius:4px;padding:4px 8px;font-size:11px;">
+            <option value="all" ${window.__srShooter==='all'?'selected':''}>全部玩家 (${srData.length})</option>
+            <optgroup label="我方">${allies.map(opt).join('')}</optgroup>
+            <optgroup label="敌方">${enemies.map(opt).join('')}</optgroup>
+        </select>
+        <span class="muted" style="font-size:10px;">·缺N发 = 有开火事件但弹丸数据未收录（AoI 裁剪）；⚠ = 该发数据降级（悬停看详情）</span>
+    </div>`;
+}
+// 数据质量徽章：ShotQuality 降级/陈旧项汇总（⚠ 悬停显示详情）
+function srQualityBadge(s) {
+    const q = s.quality;
+    if (!q) return '';
+    const issues = [];
+    if (q.shooter_pos_from_muzzle) issues.push('射手位置为炮口坐标兜底（快照缺失）');
+    if (Math.abs(q.shooter_state_dt_ms||0) >= 300) issues.push(`射手快照偏 ${q.shooter_state_dt_ms}ms`);
+    if (q.target_state_dt_ms != null && Math.abs(q.target_state_dt_ms) >= 300) issues.push(`目标快照偏 ${q.target_state_dt_ms}ms`);
+    if ((q.turret_degraded||[]).includes('shooter')) issues.push('射手炮塔角降级为车体朝向');
+    if ((q.turret_degraded||[]).includes('target')) issues.push('目标炮塔角降级为车体朝向');
+    if (q.dmg_unattributed) issues.push('伤害未记账（血量链无区间）');
+    if (q.target_anchor_src === 'wi_hit_state') {
+        // 命中通知状态 = 正常路径，不提示
+    } else if (q.target_anchor_src === 'nearest') {
+        issues.push('命中通知缺失，目标锚点回退命中时刻最近包');
+    } else if (q.target_anchor_src === 'extrapolated') {
+        issues.push('命中通知缺失，目标姿态超出最后采样，按末段速度外推');
+    } else if (q.target_anchor_src === 'filtered') {
+        issues.push('命中通知缺失，目标锚点回退命中时刻插值');
+    }
+    if (q.shooter_anchor_src === 'extrapolated') issues.push('射手姿态超出最后采样，按末段速度外推');
+    else if (q.shooter_anchor_src === 'nearest') issues.push('射手快照用最近包（AoI 稀疏）');
+    if (q.shell_from_broadcast) issues.push('弹种来自开火广播兜底（命中通知未转发）');
+    if (q.shooter_pitch_from_velocity) issues.push('射手炮管俯仰由弹道推算（他人视角无该状态）');
+    if (s.target_name && !s.shell_id) issues.push('弹种未知（通知与广播均缺失）');
+    if (s.target_name && s.game_hit_result === 255) issues.push('服务器未通知命中结果');
+    if (!issues.length) return '';
+    return `<span title="${esc(issues.join('; '))}" style="color:var(--accent);cursor:help;font-size:10px;">⚠</span>`;
+}
 function renderShotList() {
     const out=$('sr-out');
     if(!srData.length){ out.innerHTML='<div class="muted">No shots detected.</div>'; return; }
-    // 汇总摘要：命中率 = 有 flags 的比例；穿透率 = 击穿/命中（不含跳弹）
-    const total=srData.length;
-    const hits=srData.filter(s=>(s.hit_flags||0)!==0).length;
-    const pens=srData.filter(s=>s.hit_flags&0x0010).length;
-    const rics=srData.filter(s=>s.hit_flags&0x0008).length;
-    const heHits=srData.filter(s=>s.hit_flags&0x1000).length;
-    const kills=srData.filter(s=>s.is_kill).length;
-    const dmgTotal=srData.reduce((a,s)=>a+(s.damage||0),0);
+    // 射击者筛选（默认全部玩家）：按 shooter_name 匹配下拉选择
+    const sel=window.__srShooter||'all';
+    const rows_all = (sel==='all') ? srData : srData.filter(s=>s.shooter_name===sel);
+    const notesHtml=(window.__srExtractionNotes||[]).length
+        ? '<div class="muted" style="font-size:10px;color:var(--accent);margin:4px 0;">⚠ 数据边界：'
+          + (window.__srExtractionNotes||[]).map(esc).join('；') + '</div>' : '';
+    if(!rows_all.length){ out.innerHTML=srShooterFilterHtml()+notesHtml+'<div class="muted">No shots for this shooter.</div>'; return; }
+    out.innerHTML=srShooterFilterHtml()+notesHtml;
+    // 汇总摘要（随筛选联动）：命中率 = 有 flags 或非作者命中的比例；穿透率 = 击穿/命中（不含跳弹）
+    const isHit=s=>s.is_author ? (s.hit_flags||0)!==0 : !!s.target_name;
+    const total=rows_all.length;
+    const hits=rows_all.filter(isHit).length;
+    const pens=rows_all.filter(s=>s.is_author?(s.hit_flags&0x0010):(s.game_hit_result===3)).length;
+    const rics=rows_all.filter(s=>s.is_author?(s.hit_flags&0x0008):(s.game_hit_result===4)).length;
+    const heHits=rows_all.filter(s=>s.is_author&&(s.hit_flags&0x1000)).length;
+    const kills=rows_all.filter(s=>s.is_kill).length;
+    const dmgTotal=rows_all.reduce((a,s)=>a+(s.damage||0),0);
     const hitRate=total?100*hits/total:0;
     const penRate=hits?100*pens/hits:0;
-    const rows=srData.map(s=>{
+    const rows=rows_all.map(s=>{
         const miss=!s.target_name;
         // 脱靶弹也可 3D 复现：ball_a→ball_b 弹道 + terrain_impact 落点/材质（world 模式）
         const has3d=!miss || (Array.isArray(s.ball_b) && (s.ball_b[0]||s.ball_b[1]||s.ball_b[2]));
         const btn=has3d
-            ? '<button class="btn" style="padding:2px 10px;">3D View</button>'
+            ? `<a class="btn" style="padding:2px 10px;display:inline-block;" href="${srViewerUrl(s)}" target="_blank">3D View</a>`
             : '<span class="muted">—</span>';
         const tid=s.target_tank_id;
         const targetCell=miss?'<span class="muted">—</span>'
             :`${tid?`<img loading="lazy" src="${API}/api/tank_image/${tid}" style="width:36px;height:25px;object-fit:contain;vertical-align:middle;margin-right:6px;">`:''}${esc(s.target_name)}`;
+        const shooterCell=s.is_author
+            ? `<b style="color:var(--accent-2);">★${esc(s.shooter_name)}</b>${srQualityBadge(s)}`
+            : `<span style="color:${s.shooter_team==='enemy'?'var(--red)':'var(--txt)'};">${esc(s.shooter_name)}</span>${srQualityBadge(s)}`;
         return `<tr ${has3d?'style="cursor:pointer;" onclick="openShotInViewer('+s.index+')"':''}>`
-            +`<td>#${s.index}</td><td>${s.time_s.toFixed(1)}s</td><td>${srDmgCell(s)}</td>`
+            +`<td>#${s.index}</td><td>${s.time_s.toFixed(1)}s</td><td>${shooterCell}</td><td>${srDmgCell(s)}</td>`
             +`<td>${srShellBadge(s)}</td>`
             +`<td>${srResultBadge(s)}</td>`
             +`<td>${targetCell}</td>`
             +`<td>${btn}</td></tr>`;
     }).join('');
-    out.innerHTML=`<div class="stat-grid" style="grid-template-columns:repeat(auto-fill,minmax(120px,1fr));">
+    out.innerHTML=srShooterFilterHtml()
+        +`<div class="stat-grid" style="grid-template-columns:repeat(auto-fill,minmax(120px,1fr));">
             <div class="stat-box"><div class="lbl">Shots</div><div class="val">${total}</div></div>
             <div class="stat-box"><div class="lbl">Hit rate</div><div class="val ${wrCls(hitRate)}">${hitRate.toFixed(0)}%</div><div class="sub">${hits}/${total}</div></div>
             <div class="stat-box"><div class="lbl">Pen rate</div><div class="val o">${penRate.toFixed(0)}%</div><div class="sub">${pens}/${hits}</div></div>
@@ -1141,27 +1222,21 @@ function renderShotList() {
             <div class="stat-box"><div class="lbl">Rico / HE</div><div class="val">${rics} / ${heHits}</div></div>
             <div class="stat-box"><div class="lbl">Kills</div><div class="val r">${kills}</div></div>
         </div>
-        <table class="inline-table-sm"><tr><th>#</th><th>Time</th><th>Dmg</th><th>Shell</th><th>Result</th><th>Target</th><th></th></tr>${rows}</table>
-        <div class="muted" style="margin-top:6px;">点击行 → 下方显示 3D 查看器 URL（可修改参数后打开）；脱靶弹按弹道终点提供 3D 复现（落点/材质，无目标装甲判定）</div>
-        <div id="sr-url-edit" style="display:none;margin-top:8px;gap:6px;align-items:center;">
-            <input type="text" style="flex:1;background:#1a1612;color:#ccc;border:1px solid #555;border-radius:4px;padding:6px 10px;font-size:11px;font-family:monospace;" />
-            <button class="btn btn-primary" style="padding:6px 16px;">Open 3D</button>
-        </div>`;
+        <table class="inline-table-sm"><tr><th>#</th><th>Time</th><th>Shooter</th><th>Dmg</th><th>Shell</th><th>Result</th><th>Target</th><th></th></tr>${rows}</table>
+        <div class="muted" style="margin-top:6px;">点击行 → 直接打开 3D 世界模式查看器；脱靶弹按弹道终点提供 3D 复现（落点/材质，无目标装甲判定）；★ = 回放作者</div>`;
 }
+window.srViewerUrl = function(s) {
+    // 目标 tank：命中弹用目标车辆；脱靶弹（无 target_tank_id）用射手车辆兜底
+    const shooterTank = s.shooter_tank_id || window.__srAuthorTank || 0;
+    const tid = s.target_tank_id || shooterTank || 0;
+    const sh = shooterTank ? ('&shooter='+shooterTank) : '';
+    // shell 槽位仅作者射击有意义（type=28 是作者本人的弹药选择状态）
+    const ammo = (s.is_author && s.shell_slot != null) ? ('&shell='+s.shell_slot) : '';
+    return API+'/armor_view/view/'+tid+'?heatmap=1&shot='+s.index+sh+ammo+'&world=1';
+};
 window.openShotInViewer = function(no) {
-    const tid = (window.__srTargetMap||{})[no] || window.__srAuthorTank || 0;
-    const sh = window.__srAuthorTank ? ('&shooter='+window.__srAuthorTank) : '';
-    const shot = (srData.find(s=>s.index===no)) || null;
-    const ammo = (shot && shot.shell_slot != null) ? ('&shell='+shot.shell_slot) : '';
-    const url = API+'/armor_view/view/'+tid+'?heatmap=1&shot='+no+sh+ammo+'&world=1';
-    // 显示可编辑 URL 供用户修改后打开
-    const out = document.getElementById('sr-url-edit');
-    out.style.display = 'flex';
-    out.querySelector('input').value = url;
-    out.querySelector('.btn').onclick = function() {
-        const finalUrl = out.querySelector('input').value.trim();
-        if (finalUrl) window.open(finalUrl, '_blank', 'width='+Math.round(window.innerWidth*0.85)+',height='+Math.round(window.innerHeight*0.85));
-    };
+    const shot = srData.find(s=>s.index===no);
+    if (shot) window.open(srViewerUrl(shot), '_blank', 'width='+Math.round(window.innerWidth*0.85)+',height='+Math.round(window.innerHeight*0.85));
 };
 $('btn-sr-load').addEventListener('click',srParse);
 

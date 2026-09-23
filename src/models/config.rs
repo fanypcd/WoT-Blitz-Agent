@@ -2,17 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use anyhow::Result;
 
-// =====================================================================
-//  全局配置（config.toml）
-//  顶层配置由三部分组成：WG API 接入、LLM 模型接入、回放路径。
-// =====================================================================
+// 全局配置（config.toml）：WG API 接入、LLM 模型接入、回放路径三部分。
 
-/// 顶层配置，对应 `config.toml` 文件结构。
-///
-/// 顶层分为三个小节：
-/// - `wg_api`：Wargaming 公共 API 的接入信息
-/// - `llm`   ：大模型 API（OpenAI 兼容）的接入与计价信息
-/// - `replay`：本地回放目录与坦克缓存文件路径
+/// 顶层配置，对应 `config.toml`：`wg_api`（WG API 接入）、`llm`（大模型接入与计价）、`replay`（回放路径）三小节。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub wg_api: WgApiConfig,
@@ -78,9 +70,7 @@ impl ReplayConfig {
     }
 
     /// 路径风格转换内核（mode = auto | windows | wsl | off）。
-    ///
-    /// 双向映射无歧义，盘符大小写归一：
-    ///   `/mnt/<d>/rest`  ⇄  `<D>:/rest`（反斜杠统一为正斜杠）
+    /// 双向映射无歧义，盘符大小写归一（`/mnt/<d>/rest` ⇄ `<D>:/rest`）；
     /// 其余形式（相对路径、/home/...、UNC \\server\share）原样返回。
     pub fn translate_with_mode(input: &str, mode: &str) -> String {
         // 复制粘贴常带首尾引号（资源管理器"复制文件地址"），一并剥掉
@@ -132,9 +122,7 @@ impl ReplayConfig {
 }
 
 impl Default for Config {
-    /// 生成一份默认配置（首次运行无配置文件时写入）。
-    ///
-    /// 默认值：WG 服务器 asia、LLM 指向 OpenAI、回放目录为当前目录。
+    /// 生成默认配置（首次运行无配置文件时写入）：WG 服务器 asia、LLM 指向 OpenAI、回放目录为当前目录。
     fn default() -> Self {
         Self {
             wg_api: WgApiConfig {
@@ -169,7 +157,6 @@ impl Config {
             let config: Config = toml::from_str(&content)?;
             Ok(config)
         } else {
-            // 首次运行：生成默认配置并落盘，方便用户编辑
             let config = Config::default();
             config.save(path)?;
             eprintln!("Created default config at {}", path.display());
@@ -185,55 +172,35 @@ impl Config {
     }
 }
 
-// =====================================================================
-//  Token 用量统计（R6 要求）
-//  精确记录每次调用的输入/输出 token 数、费用，支持预算上限自动中断。
-// =====================================================================
+// Token 用量统计（R6 要求）：精确记录每次调用的 token 数与费用，支持预算上限自动中断。
 
-/// 全局 token 用量累计与调用明细。
-///
-/// 每次 LLM 调用都会 [`record`](TokenUsage::record) 一条记录，
-/// 并累加到总输入/输出 token、总费用和调用次数上。
+/// 全局 token 用量累计与调用明细；每次 LLM 调用通过 [`TokenUsage::record`] 追加一条记录。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TokenUsage {
-    /// 累计输入 token 数
     pub total_input_tokens: u64,
-    /// 累计输出 token 数
     pub total_output_tokens: u64,
-    /// 累计费用（美元）
     pub total_cost: f64,
-    /// 总调用次数
     pub call_count: u32,
-    /// 每次调用的明细（按时间先后追加）
     pub calls: Vec<TokenCall>,
 }
 
 /// 单次调用的 token 用量记录。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenCall {
-    /// 调用时间（格式化字符串）
     pub timestamp: String,
-    /// 使用的模型名
     pub model: String,
-    /// 本次输入 token 数
     pub input_tokens: u64,
-    /// 本次输出 token 数
     pub output_tokens: u64,
-    /// 本次费用（美元）
     pub cost: f64,
-    /// 调用用途（如 `chat`）
     pub purpose: String,
 }
 
 impl TokenUsage {
-    /// 构造空的用量统计。
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 记录一次调用：根据模型单价换算成本，并累加各项总量。
-    ///
-    /// 费用公式：`cost = input/1000 * price_input + output/1000 * price_output`
+    /// 记录一次调用：按模型单价换算费用并累加各项总量。
     pub fn record(
         &mut self,
         model: &str,
@@ -347,11 +314,11 @@ mod path_translate_tests {
         if cfg!(windows) {
             assert_eq!(out, "C:/x/a.wotbreplay");
         } else {
-            assert_eq!(out, "/mnt/c/x/a.wotbreplay");   // 已是本地形式,不变
+            assert_eq!(out, "/mnt/c/x/a.wotbreplay");
         }
         let out = ReplayConfig::translate_with_mode("C:\\x\\a.wotbreplay", "auto");
         if cfg!(windows) {
-            assert_eq!(out, "C:\\x\\a.wotbreplay");     // 已是本地形式,不变
+            assert_eq!(out, "C:\\x\\a.wotbreplay");
         } else {
             assert_eq!(out, "/mnt/c/x/a.wotbreplay");
         }
@@ -361,7 +328,6 @@ mod path_translate_tests {
     fn off_and_native_pass_through() {
         assert_eq!(ReplayConfig::translate_with_mode("/mnt/c/x", "off"), "/mnt/c/x");
         assert_eq!(ReplayConfig::translate_with_mode("C:\\x", "off"), "C:\\x");
-        // 非盘符路径(相对路径 / home / UNC)任何模式都不动
         assert_eq!(ReplayConfig::translate_with_mode("replay_samples", "auto"), "replay_samples");
         assert_eq!(ReplayConfig::translate_with_mode("/home/u/a.wotbreplay", "auto"), "/home/u/a.wotbreplay");
         assert_eq!(ReplayConfig::translate_with_mode("\\\\srv\\share\\a", "wsl"), "\\\\srv\\share\\a");
@@ -379,6 +345,6 @@ mod path_translate_tests {
         assert_eq!(ReplayConfig::translate_with_mode("", "auto"), "");
         assert_eq!(ReplayConfig::translate_with_mode("/mnt/", "windows"), "/mnt/");
         assert_eq!(ReplayConfig::translate_with_mode("C:", "wsl"), "C:");
-        assert_eq!(ReplayConfig::translate_with_mode("/mnt/c", "windows"), "/mnt/c");  // 无尾分隔符,不强转
+        assert_eq!(ReplayConfig::translate_with_mode("/mnt/c", "windows"), "/mnt/c");
     }
 }

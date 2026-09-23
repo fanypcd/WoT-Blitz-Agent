@@ -1,9 +1,7 @@
 use anyhow::{Result, anyhow};
 
 // =====================================================================
-//  DVPL 解码 + 装甲/碰撞解析
-//  DVPL 是 Wargaming 游戏的本地资源压缩格式（末尾 20 字节 footer）。
-//  本模块负责：解码 DVPL → 从 XML 解析装甲厚度、从 YAML 解析碰撞数据。
+//  DVPL 解码 + 装甲/碰撞解析（DVPL 为 WG 本地资源压缩格式，末尾 20 字节 footer）
 // =====================================================================
 
 /// 一个已解码的 DVPL 文件（解压后的内容 + 压缩类型）。
@@ -13,10 +11,8 @@ pub struct DvplFile {
 }
 
 impl DvplFile {
-    /// 读取并解码一个 DVPL 文件。
-    ///
-    /// 文件末尾 20 字节 footer：`input_size(4) + compressed_size(4) + crc32(4)
-    /// + compression_type(4) + "DVPL"magic(4)`。
+    /// 读取并解码一个 DVPL 文件。末尾 20 字节 footer：
+    /// `input_size(4) + compressed_size(4) + crc32(4) + compression_type(4) + "DVPL"(4)`。
     pub fn read(filepath: &std::path::Path) -> Result<Self> {
         let raw = std::fs::read(filepath)?;
         if raw.len() < 20 {
@@ -29,7 +25,6 @@ impl DvplFile {
             return Err(anyhow!("Not a DVPL file (magic mismatch)"));
         }
 
-        // 解析 footer：原始大小 / 压缩大小 / CRC32 / 压缩类型
         let original_size = u32::from_le_bytes([footer[0], footer[1], footer[2], footer[3]]) as usize;
         let comp_size = u32::from_le_bytes([footer[4], footer[5], footer[6], footer[7]]) as usize;
         let _crc32 = u32::from_le_bytes([footer[8], footer[9], footer[10], footer[11]]);
@@ -173,16 +168,10 @@ pub struct ChassisArmor {
 impl ArmorModel {
     /// 从车辆 XML 文本解析装甲模型。
     pub fn parse_from_xml(text: &str) -> Option<Self> {
-        // Parse hull armor
         let hull_armor = parse_section_armor(text, "<hull>")?;
-        
-        // Parse turret armor (XML uses <turrets0> not <turret>)
+        // XML 用 <turrets0> 而非 <turret>
         let turret_armor = parse_turret_armor(text);
-        
-        // Parse gun armor (inside <guns> within turret section)
         let gun_armor = parse_gun_armor(text);
-        
-        // Parse chassis armor
         let chassis_armor = parse_chassis_armor(text);
         
         Some(ArmorModel {
@@ -194,28 +183,25 @@ impl ArmorModel {
     }
 }
 
-/// 解析某个部件的装甲块（含 `vehicleDamageFactor` 识别 spaced 装甲）。
-fn parse_section_armor(text: &str, section_tag: &str) -> Option<SectionArmor> {
-    let section_start = text.find(section_tag)?;
-    // Find the closing tag
-    let close_tag = section_tag.replace("<", "</");
-    let section_end = text[section_start..].find(&close_tag)?;
-    let section = &text[section_start..section_start + section_end];
-    
-    // 找到该部件的 <armor>...</armor> 块
-    let armor_start = section.find("<armor>")?;
-    let armor_end_marker = section[armor_start..].find("</armor>")?;
-    let armor_block = &section[armor_start + 7..armor_start + armor_end_marker];
-    
-    // 解析所有 <armor_N>VALUE</armor_N>，有的含 vehicleDamageFactor 子字段（spaced 装甲）
+/// 装甲板标签匹配（`<armor_N>厚度`），进程内只编译一次（原先三个函数各自重复编译）。
+static ARMOR_PLATE_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"<armor_(\d+)>\s*(\d+(?:\.\d+)?)").expect("armor plate regex should compile")
+});
+
+/// 遍历 `<armor_N>VALUE</armor_N>` 装甲板：厚度入 plates；板内容含 vehicleDamageFactor
+/// 的（spaced 装甲）记入 spaced。hull / turret / gun 三处装甲块解析共用。
+fn parse_armor_plates(
+    armor_block: &str,
+) -> (
+    std::collections::BTreeMap<String, f32>,
+    std::collections::BTreeSet<String>,
+) {
     let mut plates = std::collections::BTreeMap::new();
     let mut spaced = std::collections::BTreeSet::new();
-    let re = regex::Regex::new(r"<armor_(\d+)>\s*(\d+(?:\.\d+)?)").ok()?;
-    for cap in re.captures_iter(armor_block) {
+    for cap in ARMOR_PLATE_RE.captures_iter(armor_block) {
         let plate_id = cap.get(1).unwrap().as_str().to_string();
         let thickness: f32 = cap.get(2).unwrap().as_str().parse().unwrap_or(0.0);
         plates.insert(plate_id.clone(), thickness);
-        // Check if this plate has vehicleDamageFactor (spaced armor)
         let plate_end = armor_block[cap.get(0).unwrap().end()..].find(&format!("</armor_{}>", plate_id));
         if let Some(end_pos) = plate_end {
             let plate_content = &armor_block[cap.get(0).unwrap().end()..cap.get(0).unwrap().end() + end_pos];
@@ -224,8 +210,23 @@ fn parse_section_armor(text: &str, section_tag: &str) -> Option<SectionArmor> {
             }
         }
     }
-    
-    // Parse <primaryArmor>armor_X armor_Y armor_Z</primaryArmor>
+    (plates, spaced)
+}
+
+/// 解析某个部件的装甲块（含 `vehicleDamageFactor` 识别 spaced 装甲）。
+fn parse_section_armor(text: &str, section_tag: &str) -> Option<SectionArmor> {
+    let section_start = text.find(section_tag)?;
+    let close_tag = section_tag.replace("<", "</");
+    let section_end = text[section_start..].find(&close_tag)?;
+    let section = &text[section_start..section_start + section_end];
+
+    let armor_start = section.find("<armor>")?;
+    let armor_end_marker = section[armor_start..].find("</armor>")?;
+    let armor_block = &section[armor_start + 7..armor_start + armor_end_marker];
+
+    // 解析所有 <armor_N>VALUE</armor_N>，有的含 vehicleDamageFactor 子字段（spaced 装甲）
+    let (plates, spaced) = parse_armor_plates(armor_block);
+
     let primary = if let Some(pa_start) = section.find("<primaryArmor>") {
         let pa_end = section[pa_start..].find("</primaryArmor>")?;
         let pa_text = &section[pa_start + 14..pa_start + pa_end];
@@ -252,36 +253,19 @@ fn parse_turret_armor(text: &str) -> Option<SectionArmor> {
     let turrets_end = text[turrets_start..].find("</turrets0>")?;
     let turrets_section = &text[turrets_start..turrets_start + turrets_end];
 
-    // Find guns section to exclude it from turret armor search
+    // 找 <guns> 段，把炮管装甲从炮塔装甲搜索范围中排除
     let guns_start = turrets_section.find("<guns>");
 
-    // Find the first <armor> block that's before <guns> (turret armor)
     let armor_start = turrets_section.find("<armor>")?;
-    // Check this armor block is before guns section
     if let Some(gs) = guns_start {
         if armor_start >= gs {
-            // The first armor is inside guns, no separate turret armor
             return None;
         }
     }
     let armor_end = turrets_section[armor_start..].find("</armor>")?;
     let armor_block = &turrets_section[armor_start + 7..armor_start + armor_end];
 
-    let mut plates = std::collections::BTreeMap::new();
-    let mut spaced = std::collections::BTreeSet::new();
-    let re = regex::Regex::new(r"<armor_(\d+)>\s*(\d+(?:\.\d+)?)").ok()?;
-    for cap in re.captures_iter(armor_block) {
-        let plate_id = cap.get(1).unwrap().as_str().to_string();
-        let thickness: f32 = cap.get(2).unwrap().as_str().parse().unwrap_or(0.0);
-        plates.insert(plate_id.clone(), thickness);
-        let plate_end = armor_block[cap.get(0).unwrap().end()..].find(&format!("</armor_{}>", plate_id));
-        if let Some(end_pos) = plate_end {
-            let plate_content = &armor_block[cap.get(0).unwrap().end()..cap.get(0).unwrap().end() + end_pos];
-            if plate_content.contains("vehicleDamageFactor") {
-                spaced.insert(plate_id);
-            }
-        }
-    }
+    let (plates, spaced) = parse_armor_plates(armor_block);
 
     // 炮塔的 primaryArmor 在 <guns> 之前，截取该段再解析
     let search_end = guns_start.unwrap_or(turrets_section.len());
@@ -312,34 +296,17 @@ fn parse_gun_armor(text: &str) -> Option<SectionArmor> {
     let turrets_end = text[turrets_start..].find("</turrets0>")?;
     let turrets_section = &text[turrets_start..turrets_start + turrets_end];
 
-    // Find guns section
     let guns_start = turrets_section.find("<guns>")?;
     let guns_end = turrets_section[guns_start..].find("</guns>")?;
     let guns_section = &turrets_section[guns_start..guns_start + guns_end];
 
-    // Find <armor> block within guns section
     let armor_start = guns_section.find("<armor>")?;
     let armor_end = guns_section[armor_start..].find("</armor>")?;
     let armor_block = &guns_section[armor_start + 7..armor_start + armor_end];
 
-    let mut plates = std::collections::BTreeMap::new();
-    let mut spaced = std::collections::BTreeSet::new();
-    let re = regex::Regex::new(r"<armor_(\d+)>\s*(\d+(?:\.\d+)?)").ok()?;
-    for cap in re.captures_iter(armor_block) {
-        let plate_id = cap.get(1).unwrap().as_str().to_string();
-        let thickness: f32 = cap.get(2).unwrap().as_str().parse().unwrap_or(0.0);
-        plates.insert(plate_id.clone(), thickness);
-        // 与 parse_section_armor 一致：板内容含 vehicleDamageFactor → spaced 附加装甲
-        let plate_end = armor_block[cap.get(0).unwrap().end()..].find(&format!("</armor_{}>", plate_id));
-        if let Some(end_pos) = plate_end {
-            let plate_content = &armor_block[cap.get(0).unwrap().end()..cap.get(0).unwrap().end() + end_pos];
-            if plate_content.contains("vehicleDamageFactor") {
-                spaced.insert(plate_id);
-            }
-        }
-    }
+    // 后续把 <gun>N</gun> 的炮管装甲值也写入 plates，故 plates 需要 mut
+    let (mut plates, spaced) = parse_armor_plates(armor_block);
 
-    // Parse <gun>N</gun> barrel armor value
     if let Some(gun_start) = armor_block.find("<gun>") {
         let gun_end = armor_block[gun_start..].find("</gun>")?;
         let val_str = &armor_block[gun_start + 5..gun_start + gun_end];
@@ -359,15 +326,12 @@ fn parse_gun_armor(text: &str) -> Option<SectionArmor> {
     })
 }
 
-/// 解析底盘（左右履带）装甲。
+/// 解析底盘（左右履带）装甲。注意：<chassis> 段内按模块名嵌套（如 <T-34_mod_1941>…），
+/// 且 <unlocks> 里也有同名 <chassis> 引用标签——按段边界截取会在第一个内嵌 </chassis>
+/// 处提前截断（约 1/3 车辆因此丢数据，如 T-34）。leftTrack/rightTrack 全文件唯一，直接全局查找。
 fn parse_chassis_armor(text: &str) -> Option<ChassisArmor> {
-    let chassis_start = text.find("<chassis>")?;
-    let chassis_end = text[chassis_start..].find("</chassis>")?;
-    let chassis_section = &text[chassis_start..chassis_start + chassis_end];
-    
-    let left = extract_tag_value(chassis_section, "leftTrack")?;
-    let right = extract_tag_value(chassis_section, "rightTrack")?;
-    
+    let left = extract_tag_value(text, "leftTrack")?;
+    let right = extract_tag_value(text, "rightTrack")?;
     Some(ChassisArmor {
         left_track: left,
         right_track: right,
@@ -400,11 +364,9 @@ impl CollisionData {
             hull_position: None,
         };
 
-        // 定位 collision 节并逐个解析各部件
         if let Some(collision_idx) = text.find("collision:") {
             let collision_text = &text[collision_idx..];
 
-            // Parse each section within collision
             data.chassis_bbox = parse_section_bbox(collision_text, "chassis:");
             data.gun_bbox = parse_section_bbox(collision_text, "gun_01:");
             data.hull_bbox = parse_section_bbox(collision_text, "hull:");
@@ -413,10 +375,9 @@ impl CollisionData {
             data.turret_points = parse_section_points(collision_text, "turret_01:");
             data.gun_points = parse_section_points(collision_text, "gun_01:");
 
-            // 解析 hull 的平均厚度（其值在 turret_01 之前）
+            // 解析 hull 的平均厚度（其值跟在 turret_01: 之后）
             if let Some(avg_idx) = collision_text.find("averageThickness:") {
                 let after = &collision_text[avg_idx..];
-                // The value after "turret_01:" is the hull average thickness
                 if let Some(t_idx) = after.find("turret_01:") {
                     let value_str = &after[t_idx + "turret_01:".len()..];
                     let num: String = value_str.trim_start()
@@ -436,10 +397,13 @@ impl CollisionData {
 
 /// 解析某部件的 min/max 包围盒（限 400 字符搜索范围）。
 fn parse_section_bbox(text: &str, section_name: &str) -> Option<BoundingBox> {
-    // Find the section, then look for bbox within the next ~300 chars
     let section_idx = text.find(section_name)?;
-    let section_end = section_idx + 400; // Limit search range
-    let section = &text[section_idx..section_end.min(text.len())];
+    // 固定 400 字节窗口可能落在多字节 UTF-8 字符中间：向左回退到安全边界再切片
+    let mut end = (section_idx + 400).min(text.len());
+    while end > section_idx && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let section = &text[section_idx..end];
 
     let min_idx = section.find("min:")?;
     let max_idx = section.find("max:")?;
@@ -456,8 +420,12 @@ fn parse_section_bbox(text: &str, section_name: &str) -> Option<BoundingBox> {
 /// 解析某部件的 `points:` 数组（部件定位偏移）。
 fn parse_section_points(text: &str, section_name: &str) -> Option<[f32; 3]> {
     let section_idx = text.find(section_name)?;
-    let section_end = section_idx + 400;
-    let section = &text[section_idx..section_end.min(text.len())];
+    // 固定 400 字节窗口可能落在多字节 UTF-8 字符中间：向左回退到安全边界再切片
+    let mut end = (section_idx + 400).min(text.len());
+    while end > section_idx && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let section = &text[section_idx..end];
 
     let points_idx = section.find("points:")?;
     let after = &section[points_idx + 7..];
@@ -466,7 +434,6 @@ fn parse_section_points(text: &str, section_name: &str) -> Option<[f32; 3]> {
 
 /// 解析形如 `[x, y, z]` 的浮点数组。
 fn parse_float_array(s: &str) -> Option<[f32; 3]> {
-    // Extract content between [ and ]
     let start = s.find('[')?;
     let end = s.find(']')?;
     if end <= start { return None; }

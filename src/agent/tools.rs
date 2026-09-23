@@ -5,18 +5,14 @@ use std::path::Path;
 use crate::agent::llm_client::ToolDefinition;
 use crate::agent::llm_client::ToolFunction;
 use crate::wargaming::api_client::WgApiClient;
-use crate::wargaming::tank_resolver::{TankResolver, TankInfo};
+use crate::wargaming::tank_resolver::{TankResolver, TankInfo, norm_name, strip_ws};
 use crate::replay::parser::ReplayParser;
 use crate::replay::scanner::{ReplayScanner, ScanFilter};
 use crate::models::report::AggregatedReport;
 use crate::wargaming::blitzkit;
 use crate::wargaming::penetration::{self, ArmorHit, ArmorSection, PenetrationRequest};
 
-// =====================================================================
-//  Agent 工具集
-//  定义注册给 LLM 的工具 + 工具执行逻辑。LLM 通过 JSON 参数调用这些工具，
-//  Agent Loop 调用 execute() 执行并把结果回填为 tool 消息。
-// =====================================================================
+// Agent 工具集：注册给 LLM 的工具定义 + 执行逻辑；Agent Loop 调用 execute() 并把结果回填为 tool 消息。
 
 /// Agent 工具执行器：持有 WG API 客户端、可选坦克解析器、回放目录。
 pub struct AgentTools {
@@ -26,9 +22,7 @@ pub struct AgentTools {
 }
 
 impl AgentTools {
-    /// 构造工具执行器。
-    ///
-    /// `tank_cache` 若存在则加载成坦克解析器（用于把 tank_id 翻译成名称）。
+    /// 构造工具执行器；`tank_cache` 存在则加载为坦克解析器（tank_id → 名称翻译）。
     pub fn new(app_id: &str, server: &str, replay_dir: &str, tank_cache: Option<&Path>) -> Self {
         let tank_resolver = tank_cache
             .filter(|p| p.exists())
@@ -43,7 +37,6 @@ impl AgentTools {
     /// 返回注册给 LLM 的工具定义（OpenAI tools 格式，共 6 个）。
     pub fn definitions() -> Vec<ToolDefinition> {
         vec![
-            // 工具 1：按昵称搜索玩家
             ToolDefinition {
                 def_type: "function".to_string(),
                 function: ToolFunction {
@@ -58,7 +51,6 @@ impl AgentTools {
                     }),
                 },
             },
-            // 工具 2：查询玩家累计战绩
             ToolDefinition {
                 def_type: "function".to_string(),
                 function: ToolFunction {
@@ -73,7 +65,6 @@ impl AgentTools {
                     }),
                 },
             },
-            // 工具 3：批量扫描回放生成报告
             ToolDefinition {
                 def_type: "function".to_string(),
                 function: ToolFunction {
@@ -88,7 +79,6 @@ impl AgentTools {
                     }),
                 },
             },
-            // 工具 4：解析单场回放
             ToolDefinition {
                 def_type: "function".to_string(),
                 function: ToolFunction {
@@ -103,7 +93,6 @@ impl AgentTools {
                     }),
                 },
             },
-            // 工具 5：对比近期回放 vs API 累计
             ToolDefinition {
                 def_type: "function".to_string(),
                 function: ToolFunction {
@@ -119,7 +108,6 @@ impl AgentTools {
                     }),
                 },
             },
-            // 工具 6：打开 3D 装甲查看器（可指定射击车辆 + 受击车辆）
             ToolDefinition {
                 def_type: "function".to_string(),
                 function: ToolFunction {
@@ -136,7 +124,6 @@ impl AgentTools {
                     }),
                 },
             },
-            // 工具 7：查询坦克装甲数据（明细板件 + spaced 分类 + 顶配弹种）
             ToolDefinition {
                 def_type: "function".to_string(),
                 function: ToolFunction {
@@ -151,7 +138,6 @@ impl AgentTools {
                     }),
                 },
             },
-            // 工具 8：击穿模拟（对齐 BlitzKit 判定）
             ToolDefinition {
                 def_type: "function".to_string(),
                 function: ToolFunction {
@@ -174,7 +160,6 @@ impl AgentTools {
                     }),
                 },
             },
-            // 工具 10：回放射击事件复现（3D 查看器射手 POV 热力图截图）
             ToolDefinition {
                 def_type: "function".to_string(),
                 function: ToolFunction {
@@ -190,7 +175,6 @@ impl AgentTools {
                     }),
                 },
             },
-            // 工具 9：无头渲染 3D 查看器热力图截图
             ToolDefinition {
                 def_type: "function".to_string(),
                 function: ToolFunction {
@@ -258,11 +242,7 @@ impl AgentTools {
                 let mode = args["mode"].as_str().unwrap_or("all");
                 let days = args["days"].as_i64();
 
-                let scanner = if let Some(ref r) = self.tank_resolver {
-                    ReplayScanner::with_resolver(r)
-                } else {
-                    ReplayScanner::new()
-                };
+                let scanner = self.scanner();
 
                 let filter = ScanFilter::from_mode(mode, days);
 
@@ -273,8 +253,8 @@ impl AgentTools {
                     return Ok("No replays found matching the filter.".to_string());
                 }
 
-                let room_type = battles.first().map(|b| b.room_type.as_str()).unwrap_or("Unknown");
-                let report = AggregatedReport::from_battles(&battles, room_type);
+                let room_type = battles.first().map(|b| b.room_type.clone()).unwrap_or_else(|| "Unknown".to_string());
+                let report = AggregatedReport::from_battles(battles, &room_type);
 
                 let mut result = format!(
                     "Replay Scan Results:\n\
@@ -299,11 +279,7 @@ impl AgentTools {
             }
             "parse_replay" => {
                 let file_path = args["file_path"].as_str().unwrap_or("");
-                let parser = if let Some(ref r) = self.tank_resolver {
-                    ReplayParser::with_resolver(r)
-                } else {
-                    ReplayParser::new()
-                };
+                let parser = self.parser();
                 let summary = parser.parse_file(Path::new(file_path))?;
 
                 Ok(format!(
@@ -331,11 +307,7 @@ impl AgentTools {
                 let account_id = results[0].1;
                 let api_stats = self.wg_client.get_player_stats(account_id)?;
 
-                let scanner = if let Some(ref r) = self.tank_resolver {
-                    ReplayScanner::with_resolver(r)
-                } else {
-                    ReplayScanner::new()
-                };
+                let scanner = self.scanner();
 
                 let filter = ScanFilter::from_mode(mode, None);
 
@@ -344,8 +316,8 @@ impl AgentTools {
                     return Ok("No replays found.".to_string());
                 }
 
-                let room_type = battles.first().map(|b| b.room_type.as_str()).unwrap_or("Unknown");
-                let report = AggregatedReport::from_battles(&battles, room_type);
+                let room_type = battles.first().map(|b| b.room_type.clone()).unwrap_or_else(|| "Unknown".to_string());
+                let report = AggregatedReport::from_battles(battles, &room_type);
 
                 let is_rating = mode == "rating";
                 let (api_battles, api_wins, api_dmg, api_frags, api_shots, api_hits) = if is_rating {
@@ -359,6 +331,7 @@ impl AgentTools {
                 };
 
                 let an = api_battles.max(1) as f64;
+                let api_hit_rate = if api_shots > 0 { api_hits as f64 / api_shots as f64 * 100.0 } else { 0.0 };
                 Ok(format!(
                     "Comparison: {} ({} mode)\n\
                      \n  Metric          Replay     API Total   Difference\n\
@@ -375,8 +348,8 @@ impl AgentTools {
                     report.win_rate, api_wins as f64 / an * 100.0, report.win_rate - api_wins as f64 / an * 100.0,
                     report.avg_damage, api_dmg as f64 / an, report.avg_damage - api_dmg as f64 / an,
                     report.avg_frags, api_frags as f64 / an, report.avg_frags - api_frags as f64 / an,
-                    report.hit_rate, if api_shots > 0 { api_hits as f64 / api_shots as f64 * 100.0 } else { 0.0 },
-                    report.hit_rate - (if api_shots > 0 { api_hits as f64 / api_shots as f64 * 100.0 } else { 0.0 }),
+                    report.hit_rate, api_hit_rate,
+                    report.hit_rate - api_hit_rate,
                     report.rating_start.unwrap_or(0.0), report.rating_end.unwrap_or(0.0), report.rating_delta.unwrap_or(0.0),
                     api_stats.rating_mm_rating.unwrap_or(0.0), api_stats.rating_display_rating.unwrap_or(0),
                     report.total_battles as f64 / api_battles.max(1) as f64 * 100.0,
@@ -391,14 +364,9 @@ impl AgentTools {
         }
     }
 
-    /// 处理 `view_tank` 工具：解析射击/受击坦克，后台启动 3D 查看器并打开浏览器。
-    ///
-    /// `target`（受击/查看方）与可选 `shooter`（射击方）都做模糊匹配：
-    /// - 数字 ID 直接用；
-    /// - 名称不区分大小写，优先精确、其次"最短子串"；
-    /// - 命中多个候选时返回编号列表让用户选择（不直接启动）。
-    ///
-    /// 在独立线程用 tokio runtime 启动 viewer::serve（阻塞服务），因此不会卡住 Agent 循环。
+    /// view_tank：target/shooter 模糊匹配（数字 ID 直用；名称优先精确、其次最短子串；
+    /// 多候选返回编号列表由用户选择）。viewer::serve 为阻塞服务，在独立线程 + tokio
+    /// runtime 中启动，不卡 Agent 循环。
     fn execute_view_tank(&self, args: &Value) -> Result<String> {
         let target_ref = args["target"].as_str().unwrap_or("").trim();
         let shooter_ref = args["shooter"].as_str().map(|s| s.trim()).filter(|s| !s.is_empty());
@@ -407,17 +375,14 @@ impl AgentTools {
             return Ok("Please provide a tank name or ID to view (e.g. target: 'E 100').".to_string());
         }
 
-        // 装载坦克解析器（tank_cache.json 含 723 辆坦克），用于模糊搜索 + 名称解析
-        let resolver = TankResolver::load_from_json_file(&crate::data::data_path("tank_cache.json"))
-            .or_else(|_| self.tank_resolver.clone().ok_or_else(|| anyhow::anyhow!("no resolver")))?;
+        let resolver = self.load_resolver()?;
 
-        // 解析受击车辆
         let target = self.resolve_tank(&resolver, target_ref);
         let target = match target {
             ResolveTank::One(id) => id,
             ResolveTank::Ambiguous(cands) => {
                 return Ok(format!(
-                    "\"\u{9}The name '{}' matches multiple tanks. Please pick one:\n{}",
+                    "The name '{}' matches multiple tanks. Please pick one:\n{}",
                     target_ref,
                     format_candidates(&cands)
                 ));
@@ -430,13 +395,12 @@ impl AgentTools {
             }
         };
 
-        // 解析射击车辆（可选）
         let shooter = if let Some(sref) = shooter_ref {
             match self.resolve_tank(&resolver, sref) {
                 ResolveTank::One(id) => Some(id),
                 ResolveTank::Ambiguous(cands) => {
                     return Ok(format!(
-                        "\u{9}The shooter name '{}' matches multiple tanks. Please pick one:\n{}",
+                        "The shooter name '{}' matches multiple tanks. Please pick one:\n{}",
                         sref,
                         format_candidates(&cands)
                     ));
@@ -455,7 +419,6 @@ impl AgentTools {
         let target_name = resolver.resolve(target).unwrap_or_else(|| format!("tank_{}", target));
         let shooter_name = shooter.map(|id| resolver.resolve(id).unwrap_or_else(|| format!("tank_{}", id)));
 
-        // 后台线程启动查看器，避免阻塞 Agent 循环
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new();
             if let Ok(rt) = rt {
@@ -473,7 +436,6 @@ impl AgentTools {
         ))
     }
 
-    /// 模糊解析一辆坦克：`ResolveTank::One(id)` 唯一命中，`Ambiguous` 多候选，`None` 未命中。
     /// 弹种正式显示名（AP/APCR/HEAT/HE）。
     fn shell_label(shell_type: &str) -> String {
         match shell_type.to_lowercase().as_str() {
@@ -489,6 +451,24 @@ impl AgentTools {
     fn load_resolver(&self) -> Result<TankResolver> {
         TankResolver::load_from_json_file(&crate::data::data_path("tank_cache.json"))
             .or_else(|_| self.tank_resolver.clone().ok_or_else(|| anyhow::anyhow!("no resolver")))
+    }
+
+    /// 构建 ReplayScanner：有坦克解析器则带车名翻译，否则退化为 ID 显示。
+    fn scanner(&self) -> ReplayScanner<'_> {
+        if let Some(ref r) = self.tank_resolver {
+            ReplayScanner::with_resolver(r)
+        } else {
+            ReplayScanner::new()
+        }
+    }
+
+    /// 构建 ReplayParser：有坦克解析器则带车名翻译，否则退化为 ID 显示。
+    fn parser(&self) -> ReplayParser<'_> {
+        if let Some(ref r) = self.tank_resolver {
+            ReplayParser::with_resolver(r)
+        } else {
+            ReplayParser::new()
+        }
     }
 
     /// get_tank_armor 工具：装甲汇总 + 逐板明细（含 spaced 分类）+ 顶配弹种。
@@ -507,8 +487,9 @@ impl AgentTools {
         };
         let name = resolver.resolve(target).unwrap_or_else(|| format!("tank_{}", target));
 
-        // 装甲汇总（前/侧/后，mm）
-        let summary = resolver.resolve_info(target).and_then(|i| i.armor.clone());
+        // 装甲汇总（前/侧/后，mm）与血量（一次 resolve_info 复用）
+        let info = resolver.resolve_info(target);
+        let summary = info.and_then(|i| i.armor.clone());
         // 逐板厚度（armor_cache.json，models.pb 派生）
         let plates: Value = std::fs::read_to_string(crate::data::data_path("armor_cache.json")).ok()
             .and_then(|s| serde_json::from_str::<Value>(&s).ok())
@@ -519,19 +500,20 @@ impl AgentTools {
         let mut sp: Value = json!(null);
         let mut shells_json: Vec<Value> = Vec::new();
         let mut gun_name = String::new();
-        let hp = resolver.resolve_info(target).and_then(|i| i.hp);
+        let hp = info.and_then(|i| i.hp);
         if let Some(tank) = blitzkit::tank_full(target) {
             let mi = blitzkit::model_info(target);
             let mut sp_map = serde_json::Map::new();
             sp_map.insert("hull".into(), json!(mi.as_ref().map(|m| m.hull_spaced.clone()).unwrap_or_default()));
             if let Some(t) = tank.turrets.last() {
-                if let Some(ti) = mi.as_ref().and_then(|m| m.turrets.iter().find(|x| x.module_id == t.module_id)) {
+                // 同一炮塔只查一次，turret/gun 的 spaced 分类复用
+                let ti = mi.as_ref().and_then(|m| m.turrets.iter().find(|x| x.module_id == t.module_id));
+                if let Some(ti) = ti {
                     sp_map.insert("turret".into(), json!(ti.turret_spaced.clone()));
                 }
                 if let Some(g) = t.guns.last() {
                     gun_name = g.name.clone();
-                    if let Some(gi) = mi.as_ref().and_then(|m| m.turrets.iter().find(|x| x.module_id == t.module_id))
-                        .and_then(|x| x.guns.iter().find(|y| y.gun_module_id == g.module_id)) {
+                    if let Some(gi) = ti.and_then(|x| x.guns.iter().find(|y| y.gun_module_id == g.module_id)) {
                         sp_map.insert("gun".into(), json!(gi.gun_spaced.clone()));
                     }
                     for s in &g.shells {
@@ -584,7 +566,6 @@ impl AgentTools {
         let target_name = resolver.resolve(target).unwrap_or_else(|| format!("tank_{}", target));
         let shooter_name = resolver.resolve(shooter).unwrap_or_else(|| format!("tank_{}", shooter));
 
-        // 射手顶配炮的弹种（turrets.at(-1).guns.at(-1)，对齐 BlitzKit 默认）
         let Some(tank) = blitzkit::tank_full(shooter) else {
             return Ok(format!("No shell data for shooter {}.", shooter_name));
         };
@@ -597,7 +578,6 @@ impl AgentTools {
         if gun.shells.is_empty() {
             return Ok(format!("No shells for shooter {}.", shooter_name));
         }
-        // 弹种选择：按正式名/原始串过滤，默认第一发
         let shell = match args["shell"].as_str() {
             Some(filt) => {
                 gun.shells.iter().find(|s| {
@@ -612,7 +592,6 @@ impl AgentTools {
         let rad = (angle as f32).to_radians();
         let view = [0.0f32, 1.0, 0.0];
         let normal = [0.0f32, rad.cos(), rad.sin()];
-        let mpu_note = "";
 
         // 命中层：显式 hits 优先，否则 aim 预设（装甲汇总单板）
         let mut hits: Vec<ArmorHit> = Vec::new();
@@ -689,14 +668,10 @@ impl AgentTools {
         if res.damage > 0.0 {
             out.push_str(&format!("Damage: {:.0}\n", res.damage));
         }
-        let _ = mpu_note;
         Ok(out)
     }
 
-    /// render_heatmap 工具：无头浏览器渲染 3D 查看器热力图并保存 PNG。
-    ///
-    /// 流程：启动独立查看器服务器（随机端口）→ 构造带 URL 参数的热力图链接
-    /// （heatmap=1&clean=1&shell/yaw/pitch/az）→ Chrome/Chromium 无头截图。
+    /// render_heatmap：启动独立查看器服务器（随机端口）→ 带参热力图 URL → Chrome 无头截图。
     /// WSL 环境自动探测 Windows 侧 Chrome 并转换输出路径。
     fn execute_render_heatmap(&self, args: &Value) -> Result<String> {
         let target_ref = args["target"].as_str().unwrap_or("").trim();
@@ -729,8 +704,9 @@ impl AgentTools {
 
         // 弹种索引（查看器弹种选择器 = 射手首配弹种列表，按正式名过滤）
         let shell_filter = args["shell"].as_str().map(|s| s.trim().to_string());
+        let shooter_tank = blitzkit::tank_full(shooter_id);
         let shell_idx = shell_filter.as_ref().and_then(|f| {
-            blitzkit::tank_full(shooter_id).and_then(|t| t.turrets.first().and_then(|tu| tu.guns.first()).map(|g| {
+            shooter_tank.as_ref().and_then(|t| t.turrets.first().and_then(|tu| tu.guns.first()).map(|g| {
                 g.shells.iter().position(|s| {
                     Self::shell_label(&s.shell_type).eq_ignore_ascii_case(f) || s.shell_type.eq_ignore_ascii_case(f)
                 })
@@ -738,7 +714,7 @@ impl AgentTools {
         });
         if let Some(f) = &shell_filter {
             if shell_idx.is_none() {
-                let avail = blitzkit::tank_full(shooter_id)
+                let avail = shooter_tank.as_ref()
                     .and_then(|t| t.turrets.first().and_then(|tu| tu.guns.first()).map(|g|
                         g.shells.iter().map(|s| Self::shell_label(&s.shell_type)).collect::<Vec<_>>().join("/")))
                     .unwrap_or_default();
@@ -746,8 +722,7 @@ impl AgentTools {
             }
         }
 
-        // 视角预设由前端按炮线高度解析（水平/卖头/俯视），工具只传语义名称；
-        // azimuth_deg 可覆盖预设方位角
+        // 视角预设由前端按炮线高度解析（水平/卖头/俯视），工具只传语义名称；azimuth_deg 可覆盖方位角
         let view_raw = args["view"].as_str().unwrap_or("front").trim().to_string();
         let view: String = {
             let safe: String = view_raw.chars().filter(|c| c.is_ascii_lowercase() || *c == '_').collect();
@@ -844,8 +819,7 @@ impl AgentTools {
         ))
     }
 
-    /// replay_shot 工具：复用回放解析管线（extract_shot_replays_auto）→
-    /// 启动带复现数据的查看器 → 无头截图（相机 = 射手 POV）。
+    /// replay_shot：回放解析（extract_shot_replays_auto）→ 带复现数据的查看器 → 射手 POV 无头截图。
     fn execute_replay_shot(&self, args: &Value) -> Result<String> {
         let file = args["replay_file"].as_str().unwrap_or("").trim().to_string();
         if file.is_empty() {
@@ -859,7 +833,6 @@ impl AgentTools {
         let resolver = self.load_resolver()?;
         let fname2 = format!("screenshots/replay_shot_{:02}.png", shot_no);
 
-        // 独立线程 + 独立 runtime：解析回放 → 启动带数据的查看器 → 无头截图
         let handle = std::thread::spawn(move || -> Result<String> {
             let rt = tokio::runtime::Runtime::new()?;
             let (port, shell_slot) = rt.block_on(crate::wargaming::viewer::start_viewer_server_for_replay(
@@ -896,42 +869,41 @@ impl AgentTools {
         });
         let result = handle.join().map_err(|_| anyhow::anyhow!("screenshot thread panicked"))??;
         Ok(format!(
-            "Shot #{} replay view saved: {}\nCamera placed at the recorded shooter position aiming at the target (position/angle mapping is best-guess; feedback welcome).",
+            "Shot #{} replay view saved (世界模式双车视角): {}\n相机置于双车侧后 3/4 视角，弹着点按服务器部件约束；◎渲染位/双 tick 下拉可对照渲染滞后。",
             shot_no, result
         ))
     }
 
+    /// 模糊解析坦克：One 唯一命中 / Ambiguous 多候选 / None 未命中。
     fn resolve_tank(&self, resolver: &TankResolver, tank_ref: &str) -> ResolveTank {
         // 数字 ID 直接用（即使 tank_cache 里没有该 ID，也透传给查看器）
         if let Ok(id) = tank_ref.parse::<u32>() {
             return ResolveTank::One(id);
         }
 
-        // 名称归一：-/·/./ 全部视为空格，使 "E 100" 与 "E-100"、"IS-7" 与 "IS 7" 等可互相命中
-        let norm = |s: &str| s.chars().map(|c| if c=='-'||c=='·'||c=='.'||c=='_' {' '} else {c}).collect::<String>().to_lowercase();
-        // 去空格形态：连字符转空格后再剥掉全部空白——"hori"↔"Ho-Ri"、"e100"↔"E 100"。
-        // 否则 "hori" 无法命中 "ho ri"（工具返回查不到 → LLM 用目标车数据幻觉补全）。
-        let strip = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
-        let needle = norm(tank_ref);
-        let needle_ns = strip(&needle);
+        // 查询词只归一化一次；候选名在 TankResolver 加载时已预归一（name_index），零分配匹配。
+        // 归一规则（'-'/'·'/'.'/'_' → 空格 + 小写；再剥空白）见 tank_resolver::norm_name/strip_ws。
+        let needle = norm_name(tank_ref);
+        let needle_ns = strip_ws(&needle);
         if needle.is_empty() { return ResolveTank::None; }
         let mut exacts: Vec<(u32, &TankInfo)> = Vec::new();
         let mut subs: Vec<(u32, &TankInfo, usize)> = Vec::new(); // (id, info, score)
-        for (id, info) in resolver.iter() {
-            let cand = norm(&info.name);
-            let cand_ns = strip(&cand);
-            let exact = cand == needle || (!needle_ns.is_empty() && cand_ns == needle_ns);
+        for e in resolver.name_index() {
+            let exact = e.norm == needle || (!needle_ns.is_empty() && e.norm_ns == needle_ns);
             if exact {
-                exacts.push((id, info));
-            } else if let Some(pos) = cand.find(&needle)
-                .or_else(|| if needle_ns.is_empty() { None } else { cand_ns.find(&needle_ns) }) {
+                if let Some(info) = resolver.resolve_info(e.id) {
+                    exacts.push((e.id, info));
+                }
+            } else if let Some(pos) = e.norm.find(&needle)
+                .or_else(|| if needle_ns.is_empty() { None } else { e.norm_ns.find(&needle_ns) }) {
                 // 命中位置越靠前越好；同名不同短名长度带来惩罚
-                let score = pos + cand.len().saturating_sub(needle.len());
-                subs.push((id, info, score));
+                let score = pos + e.norm.len().saturating_sub(needle.len());
+                if let Some(info) = resolver.resolve_info(e.id) {
+                    subs.push((e.id, info, score));
+                }
             }
         }
 
-        // 优先精确集；否则用子串集
         let base: Vec<(u32, &TankInfo)> = if !exacts.is_empty() {
             exacts
         } else {
@@ -943,7 +915,6 @@ impl AgentTools {
             [] => ResolveTank::None,
             [single] => ResolveTank::One(single.0),
             many => {
-                // 同一名称多个实体（如不同国家/等级的同类坦克）→ 交给用户选
                 let candidates: Vec<TankCandidate> = many.iter()
                     .map(|(id, info)| TankCandidate {
                         id: *id,
@@ -1007,6 +978,18 @@ fn find_chrome() -> Option<String> {
         "/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe",
         "/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe",
         "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+    ] {
+        if Path::new(p).exists() {
+            return Some(p.to_string());
+        }
+    }
+    // Windows 原生路径（非 WSL）
+    for p in [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files (x86)\Microsoft\Edge\Core\msedge.exe",
     ] {
         if Path::new(p).exists() {
             return Some(p.to_string());
@@ -1118,8 +1101,7 @@ mod tests {
         assert!(matches!(tools().resolve_tank(&r, "Maus"), ResolveTank::None));
     }
 
-    // 用真实 tank_cache.json（723 辆）验证常见模糊查询的实际表现。
-    // 若文件缺失则跳过（不依赖构建环境的静态数据）。
+    // 用真实 tank_cache.json（723 辆）验证模糊查询；文件缺失则跳过。
     #[test]
     fn simulate_penetration_smoke() {
         let tools = tools();
@@ -1177,10 +1159,8 @@ mod tests {
         let out = tools.execute_render_heatmap(&args).unwrap();
         eprintln!("render_heatmap: {}", out);
         assert!(out.contains("Heatmap screenshot saved:"), "{}", out);
-        // 提取路径并确认 PNG 文件真实存在且非空
         let _path = out.split("saved: ").nth(1).and_then(|s| s.split('\n').next()).unwrap().trim().to_string();
-        // Windows 浏览器场景下路径可能被转换为 Windows 形式——同时探测两种
-        // 完成判据 = 浏览器 stderr 的 "bytes written to file"（WSL stat 缓存不可靠）
+        // 完成判据 = 浏览器 stderr "bytes written to file"（WSL stat 缓存不可靠）
         assert!(out.contains("bytes written to file"), "no written confirmation: {}", out);
     }
 
@@ -1190,26 +1170,21 @@ mod tests {
             eprintln!("tank_cache.json missing, skipping real_cache test");
             return;
         };
-        // "IS-7" 唯一命中 → One(7169)
         match tools().resolve_tank(&r, "IS-7") {
             ResolveTank::One(id) => assert_eq!(id, 7169),
             other => panic!("IS-7 should be unique, got {:?}", other),
         }
-        // "E 100" 精确命中 → One(9489)
         match tools().resolve_tank(&r, "E 100") {
             ResolveTank::One(id) => assert_eq!(id, 9489),
             other => panic!("E 100 should be exact match, got {:?}", other),
         }
-        // "Tiger" 多命中 → Ambiguous
         assert!(matches!(tools().resolve_tank(&r, "Tiger"), ResolveTank::Ambiguous(_)));
-        // "Maus" 精确命中 → One(6929)
         match tools().resolve_tank(&r, "Maus") {
             ResolveTank::One(id) => assert_eq!(id, 6929),
             other => panic!("Maus should be unique, got {:?}", other),
         }
     }
 
-    // 验证 view_tank 工具定义已改用 target/shooter 参数（而非旧 tank）。
     #[test]
     fn view_tank_tool_definition_uses_target_shooter() {
         let defs = AgentTools::definitions();

@@ -7,17 +7,10 @@ use wotbreplay_parser::models::battle_results::TeamNumber;
 use crate::models::battle::{BattleSummary, AuthorStats, PlayerSummary};
 use crate::wargaming::tank_resolver::TankResolver;
 
-// =====================================================================
-//  回放解析（单场战斗）
-//  通过第三方 crate `wotbreplay-parser` 读取 `.wotbreplay` ZIP 包，
-//  解析其 meta（元信息）与 battle_results（战斗结果），
-//  再提取成项目内部的 BattleSummary（含 14 名玩家战绩）。
-// =====================================================================
+// 回放解析（单场）：用 `wotbreplay-parser` 读取 `.wotbreplay` ZIP 包的
+// meta 与 battle_results，提取成项目内部的 BattleSummary（含 14 名玩家战绩）。
 
-/// 单场回放解析器。
-///
-/// 持有可选的 `TankResolver`（用于把 tank_id 解析成坦克名）。
-/// 若解析器存在则坦克名可读；否则退化为 `tank_{id}`。
+/// 单场回放解析器。持有可选的 `TankResolver`：有则可把 tank_id 解析成坦克名，否则退化为 `tank_{id}`。
 pub struct ReplayParser<'a> {
     tank_resolver: Option<&'a TankResolver>,
 }
@@ -28,20 +21,17 @@ impl<'a> ReplayParser<'a> {
         Self { tank_resolver: None }
     }
 
-    /// 构造带 TankResolver 的解析器（可把 tank_id 翻译成坦克名）。
     pub fn with_resolver(resolver: &'a TankResolver) -> Self {
         Self { tank_resolver: Some(resolver) }
     }
 
     /// 解析单个回放文件，返回该场战斗的汇总结构。
     pub fn parse_file(&self, path: &Path) -> Result<BattleSummary> {
-        // 回放文件名（如 `20260730_1916__Anonyme_E-100_xxx.wotbreplay`）
         let file_name = path.file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("?")
             .to_string();
 
-        // 打开回放 ZIP 包
         let mut replay = Replay::open(File::open(path)?)
             .with_context(|| format!("Failed to open replay: {}", path.display()))?;
 
@@ -50,7 +40,6 @@ impl<'a> ReplayParser<'a> {
         let br = replay.read_battle_results()
             .with_context(|| format!("Failed to parse battle_results: {}", path.display()))?;
 
-        // 对局模式：用 Debug 格式化枚举（如 Rating / Regular）
         let room_type = format!("{:?}", br.room_type());
         let winner_team = match br.winner_team_number() {
             TeamNumber::One => 1u8,
@@ -67,7 +56,6 @@ impl<'a> ReplayParser<'a> {
             .map(|m| m.battle_duration_secs)
             .unwrap_or(0.0);
 
-        // 作者（当前玩家）的信息
         let author = &br.author;
         let author_account_id = author.account_id;
         let author_team = if author.team_number == 1 { 1u8 } else { 2u8 };
@@ -85,7 +73,6 @@ impl<'a> ReplayParser<'a> {
 
         // hitpoints_left == -2 表示"自动击毁"（溺水、坠桥、友军击杀等）
         let is_auto_destroyed = author.hitpoints_left == -2;
-
         let author_stats = AuthorStats {
             hitpoints_left: author.hitpoints_left,
             total_credits: author.total_credits,
@@ -98,7 +85,6 @@ impl<'a> ReplayParser<'a> {
             is_auto_destroyed,
         };
 
-        // 作者昵称：meta 有则用，否则从玩家列表里按账号 ID 查
         let author_nickname = meta.as_ref()
             .map(|m| m.player_name.clone())
             .unwrap_or_else(|| {
@@ -114,21 +100,19 @@ impl<'a> ReplayParser<'a> {
             let info = &pr.info;
             let tank_name = self.resolve_tank_name(info.tank_id);
 
-            let player_team = br.players.iter()
-                .find(|p| p.account_id == info.account_id)
+            // team/platoon/clan/nickname 同取自该账号在 players 里的记录，只查一次
+            let joined = br.players.iter()
+                .find(|p| p.account_id == info.account_id);
+
+            let player_team = joined
                 .map(|p| if p.info.team == 1 { 1u8 } else { 2u8 })
                 .unwrap_or(0);
 
-            let platoon_id = br.players.iter()
-                .find(|p| p.account_id == info.account_id)
-                .and_then(|p| p.info.platoon_id);
+            let platoon_id = joined.and_then(|p| p.info.platoon_id);
 
-            let clan_tag = br.players.iter()
-                .find(|p| p.account_id == info.account_id)
-                .and_then(|p| p.info.clan_tag.clone());
+            let clan_tag = joined.and_then(|p| p.info.clan_tag.clone());
 
-            let nickname = br.players.iter()
-                .find(|p| p.account_id == info.account_id)
+            let nickname = joined
                 .map(|p| p.info.nickname.clone())
                 .unwrap_or_default();
 
@@ -158,7 +142,6 @@ impl<'a> ReplayParser<'a> {
             });
         }
 
-        // —— 组装最终 BattleSummary ——
         let mut summary = BattleSummary::from_naive(br.timestamp_secs);
         summary.file_name = file_name;
         summary.room_type = room_type;

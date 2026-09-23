@@ -2,9 +2,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 // =====================================================================
-//  Wargaming 公共 API 客户端（仅用于战绩查询）
-//  提供"按昵称搜玩家"和"查询玩家累计战绩"两个核心能力。
-//  注意：坦克百科数据已全部来自 BlitzKit，不再走 WG 百科。
+//  Wargaming 公共 API 客户端（仅战绩查询：按昵称搜玩家 + 查询累计战绩；
+//  坦克百科数据已全部来自 BlitzKit，不走 WG 百科）
 // =====================================================================
 
 /// 一名玩家的累计战绩（随机战 + 排位战两套）。
@@ -38,18 +37,18 @@ pub struct PlayerStats {
     pub rating_mm_rating: Option<f32>,
     /// 排位显示评级（由 mm 换算：3000 + mm*10）
     pub rating_display_rating: Option<u32>,
-    /// 当前赛季
     pub rating_season: Option<u32>,
 }
 
-/// WG API 客户端（保存 Application ID 与服务器分区对应的域名）。
+/// WG API 客户端（保存 Application ID、服务器分区域名与复用的 HTTP 客户端）。
 pub struct WgApiClient {
     application_id: String,
     base_url: String,
+    /// 复用连接池，避免每次请求都新建 `reqwest::blocking::get` 的临时客户端
+    client: reqwest::blocking::Client,
 }
 
 impl WgApiClient {
-    /// 构造客户端，按服务器分区选域名。
     pub fn new(application_id: &str, server: &str) -> Self {
         let base_url = match server {
             "asia" => "https://api.wotblitz.asia",
@@ -60,19 +59,18 @@ impl WgApiClient {
         Self {
             application_id: application_id.to_string(),
             base_url: base_url.to_string(),
+            client: reqwest::blocking::Client::new(),
         }
     }
 
-    /// 按昵称搜索玩家，返回 `(昵称, 账号ID)` 列表。
-    ///
-    /// `exact=true` 用精确匹配，否则用前缀匹配。
+    /// 按昵称搜索玩家，返回 `(昵称, 账号ID)` 列表；exact=true 精确匹配，否则前缀匹配。
     pub fn search_player(&self, nickname: &str, exact: bool) -> Result<Vec<(String, u32)>> {
         let search_type = if exact { "exact" } else { "startswith" };
         let url = format!(
             "{}/wotb/account/list/?application_id={}&search={}&type={}&limit=10",
             self.base_url, self.application_id, nickname, search_type
         );
-        let resp: serde_json::Value = reqwest::blocking::get(&url)?.json()?;
+        let resp: serde_json::Value = self.client.get(&url).send()?.json()?;
         if resp["status"] != "ok" {
             anyhow::bail!("API error: {}", resp["error"]["message"]);
         }
@@ -87,13 +85,12 @@ impl WgApiClient {
         Ok(results)
     }
 
-    /// 查询玩家的累计战绩（随机 + 排位 + 评级信息）。
     pub fn get_player_stats(&self, account_id: u32) -> Result<PlayerStats> {
         let url = format!(
             "{}/wotb/account/info/?application_id={}&account_id={}&extra=statistics.rating",
             self.base_url, self.application_id, account_id
         );
-        let resp: serde_json::Value = reqwest::blocking::get(&url)?.json()?;
+        let resp: serde_json::Value = self.client.get(&url).send()?.json()?;
         if resp["status"] != "ok" {
             anyhow::bail!("API error: {}", resp["error"]["message"]);
         }
@@ -165,7 +162,6 @@ impl WgApiClient {
         println!("========================================================");
     }
 
-    /// 打印单个模式（随机/排位）的战绩小节。
     fn print_section(battles: u32, wins: u32, losses: u32, dmg: u64, frags: u64,
         shots: u64, hits: u64, xp: u64, spotted: u64)
     {

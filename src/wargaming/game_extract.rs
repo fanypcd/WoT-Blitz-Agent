@@ -5,10 +5,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 // =====================================================================
-//  游戏数据批量提取
-//  从本机 WoTB 游戏安装目录的 DVPL 文件里，把每辆坦克的装甲模型与
-//  碰撞数据解析出来，导出为 `game_data/{tank_id}.json`，实现"可移植"：
-//  其他设备无需安装游戏即可用这些数据做分析。
+//  游戏数据批量提取：从本机 WoTB 安装目录的 DVPL 文件解析每辆坦克的
+//  装甲模型与碰撞数据，导出为 game_data/{tank_id}.json（其他设备免装游戏）。
 // =====================================================================
 
 /// 常见游戏安装目录（WSL / Windows 各一份，供自动探测）。
@@ -41,16 +39,13 @@ pub struct TankGameData {
     pub collision: Option<CollisionData>,
 }
 
-/// 读取之前提取好的某辆坦克数据（`game_data/{tank_id}.json`）。
-///
-/// 3D 查看器优先用这份便携数据，缺失时才回退到游戏安装目录。
+/// 读取之前提取好的某辆坦克数据；3D 查看器优先用便携数据，缺失时才回退游戏目录。
 pub fn load_game_data(tank_id: u32, dir: &Path) -> Option<TankGameData> {
     let path = dir.join(format!("{}.json", tank_id));
     let content = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&content).ok()
 }
 
-/// 确定游戏数据目录：优先用显式路径，否则在常见目录里自动探测。
 /// 从 item_defs XML 提取 `<hullPosition>x y z</hullPosition>`（车体相对底盘位置）。
 fn parse_hull_position(xml: &str) -> Option<[f32; 3]> {
     let start = xml.find("<hullPosition>")? + "<hullPosition>".len();
@@ -62,6 +57,7 @@ fn parse_hull_position(xml: &str) -> Option<[f32; 3]> {
     if nums.len() == 3 { Some([nums[0], nums[1], nums[2]]) } else { None }
 }
 
+/// 确定游戏数据目录：优先用显式路径，否则在常见目录里自动探测。
 pub fn resolve_game_dir(explicit: Option<&Path>) -> Result<PathBuf> {
     if let Some(d) = explicit {
         if d.exists() {
@@ -82,14 +78,11 @@ pub fn resolve_game_dir(explicit: Option<&Path>) -> Result<PathBuf> {
 fn norm_file_name(s: &str) -> String {
     s.chars().filter(|c| c.is_ascii_alphanumeric()).flat_map(|c| c.to_lowercase()).collect()
 }
-/// 在民族目录内解析某坦克的车辆 DVPL 文件（XML/YAML）。
-/// 匹配优先级（处理 tanks.pb dev_name 与游戏文件名不一致，如
-/// "super-conqueror" → "GB91_Super_Conqueror"）：
-///   1. 精确 `{dev_name}{ext}` / 归一化相等
-///   2. 正向：文件名归一化后【包含】dev_name（最短优先，通常是基准车而非衍生）
-///   3. 反向：dev_name 以文件名归一化为【前缀或后缀】（最长优先）
-/// 反向匹配必须锚定在词缀边界且不允许纯内嵌子串——否则 "xm66f" 会被
-/// "M6"（norm "m6" 是 "xm66f" 的内嵌子串且更短）抢走匹配，装上别人的装甲。
+/// 在民族目录内解析某坦克的车辆 DVPL 文件。tanks.pb 的 dev_name 与游戏文件名常
+/// 不一致（如 "super-conqueror" → "GB91_Super_Conqueror"），匹配优先级：
+/// 1) 精确/归一化相等；2) 文件名归一化后【包含】dev_name（最短优先，通常是基准车）；
+/// 3) dev_name 以文件名归一化为【前缀或后缀】（最长优先）。反向匹配必须锚定词缀边界、
+/// 不允许纯内嵌子串——否则 "xm66f" 会被 "M6"（内嵌子串且更短）抢走匹配，装上别人的装甲。
 fn resolve_vehicle_file(
     game_dir: &Path,
     rel: &str,
@@ -98,7 +91,7 @@ fn resolve_vehicle_file(
     ext: &str,
 ) -> Option<PathBuf> {
     let dir = game_dir.join(rel).join(nation);
-    let exact = game_dir.join(rel).join(nation).join(format!("{}{}", dev_name, ext));
+    let exact = dir.join(format!("{}{}", dev_name, ext));
     if exact.exists() {
         return Some(exact);
     }
@@ -113,7 +106,8 @@ fn resolve_vehicle_file(
         if !name.ends_with(ext) { continue; }
         let base = &name[..name.len() - ext.len()];
         // 排除 tutorial/bot 等衍生变体
-        if base.to_lowercase().contains("tutorial") || base.to_lowercase().contains("bot") {
+        let base_lower = base.to_lowercase();
+        if base_lower.contains("tutorial") || base_lower.contains("bot") {
             continue;
         }
         let norm = norm_file_name(base);
@@ -129,7 +123,7 @@ fn resolve_vehicle_file(
         cands.push((rank, tie, e.path()));
     }
     cands.sort_by_key(|&(rank, tie, _)| (rank, tie));
-    cands.first().map(|(_, _, p)| p.clone())
+    cands.into_iter().next().map(|(_, _, p)| p)
 }
 
 /// 批量提取全部坦克的装甲/碰撞数据到 `game_data/`（`extract-game` 命令）。
@@ -139,12 +133,11 @@ pub fn extract_all(
     force: bool,
 ) -> Result<ExtractStats> {
     let game_dir = resolve_game_dir(game_dir)?;
-    // 运行时解析 tanks.pb（唯一数据源），拿到各坦克的 dev_name/nation 用于定位游戏文件。
     let tanks: Vec<PbTankEntry> = crate::wargaming::blitzkit::load_tanks()
-        .into_values().map(|t| PbTankEntry {
+        .values().map(|t| PbTankEntry {
             tank_id: t.tank_id,
-            model_name: if t.dev_name.is_empty() { None } else { Some(t.dev_name) },
-            nation: if t.nation.is_empty() { None } else { Some(t.nation) },
+            model_name: if t.dev_name.is_empty() { None } else { Some(t.dev_name.clone()) },
+            nation: if t.nation.is_empty() { None } else { Some(t.nation.clone()) },
         }).collect();
 
     std::fs::create_dir_all(output_dir)?;
@@ -165,10 +158,8 @@ pub fn extract_all(
             continue;
         }
 
-        // 该坦克在游戏目录里的 XML（装甲）+ YAML（碰撞）DVPL 文件。
-        // 注意：tanks.pb 的 dev_name（如 "super-conqueror"）与游戏实际文件名
-        // （如 "GB91_Super_Conqueror"）不一致，需按文件名模糊匹配（忽略非字母数字、
-        // 忽略大小写地包含 dev_name 片段）。
+        // dev_name（如 "super-conqueror"）与游戏实际文件名（如 "GB91_Super_Conqueror"）
+        // 不一致，需按归一化文件名模糊匹配。
         let xml_path = resolve_vehicle_file(&game_dir, "XML/item_defs/vehicles", nation, model_name, ".xml.dvpl");
         let yaml_path = resolve_vehicle_file(&game_dir, "3d/Tanks/Parameters", nation, model_name, ".yaml.dvpl");
 
@@ -230,5 +221,60 @@ pub struct ExtractStats {
     pub missing_files: usize,
     pub parse_failed: usize,
     pub write_failed: usize,
+}
+
+/// 读取本机游戏客户端版本号（游戏目录根的 version.txt.dvpl，内容形如
+/// "10.30.0.903 release/11.20.0 WOTB_Win7-"，优先取 release/X.Y.Z 段）。
+/// 读不到或解码失败时返回 None。
+pub fn game_version(game_dir: &Path) -> Option<String> {
+    let dvpl = DvplFile::read(&game_dir.join("version.txt.dvpl")).ok()?;
+    let content = String::from_utf8_lossy(&dvpl.data);
+    let content = content.trim();
+    if content.is_empty() {
+        return None;
+    }
+    content
+        .split_whitespace()
+        .find(|t| t.starts_with("release/"))
+        .map(str::to_string)
+        .or_else(|| Some(content.to_string()))
+}
+
+/// game_data/ 中已不在当前 tanks.pb 里的孤立 {tank_id}.json（版本更新后坦克被移除的情形，
+/// 调用方只报告不删除）。注意：会触发 blitzkit::load_tanks 的进程内缓存加载。
+pub fn orphan_game_data_ids(output_dir: &Path) -> Vec<u32> {
+    let tanks = crate::wargaming::blitzkit::load_tanks();
+    let mut orphans = Vec::new();
+    let Ok(entries) = std::fs::read_dir(output_dir) else {
+        return orphans;
+    };
+    for e in entries.flatten() {
+        let file_name = e.file_name();
+        let Some(name) = file_name.to_str() else { continue };
+        let Some(id) = name.strip_suffix(".json").and_then(|s| s.parse::<u32>().ok()) else { continue };
+        if !tanks.contains_key(&id) {
+            orphans.push(id);
+        }
+    }
+    orphans.sort_unstable();
+    orphans
+}
+
+/// mtime 兜底启发式（清单缺失时判断游戏是否在数据提取之后更新过）：
+/// version.txt.dvpl 的修改时间晚于 game_data/ 里最新的 json → 视为已更新。
+/// game_data 为空/不可读时返回 false（增量提取本来就会补齐全部缺失文件）。
+pub fn game_dir_newer_than_data(game_dir: &Path, game_data_dir: &Path) -> bool {
+    let Ok(vt_mtime) = game_dir.join("version.txt.dvpl").metadata().and_then(|m| m.modified())
+    else {
+        return false;
+    };
+    let mut newest_data: Option<std::time::SystemTime> = None;
+    for e in std::fs::read_dir(game_data_dir).into_iter().flatten().flatten() {
+        let Ok(m) = e.metadata().and_then(|m| m.modified()) else { continue };
+        if newest_data.map(|n| m > n).unwrap_or(true) {
+            newest_data = Some(m);
+        }
+    }
+    newest_data.is_some_and(|n| vt_mtime > n)
 }
 

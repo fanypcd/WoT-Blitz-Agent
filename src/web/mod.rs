@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
 use axum::{
     routing::{delete, get, post},
@@ -8,22 +10,107 @@ use axum::{
 };
 use serde_json::{json, Value};
 
-use crate::agent::AgentEvent;
+use crate::models::config::Config;
 use crate::web::sessions::{ChatError, SessionManager};
 
 pub mod sessions;
 
-/// 全局共享状态：配置路径 + 会话管理器（actor-per-session，见 sessions.rs）。
+/// 配置缓存：按 config.toml 的 mtime 判定是否需要重新解析。
+/// 保留"每请求都能读到最新配置"的原语义（用户手动编辑、config_set 写回均即时生效），
+/// 只是 mtime 未变时免去重复读盘 + TOML 解析。解析失败不缓存（保持每次重试）。
+struct ConfigCache {
+    path: std::path::PathBuf,
+    cached: Mutex<Option<(Option<SystemTime>, Config)>>,
+}
+
+impl ConfigCache {
+    fn new(path: std::path::PathBuf) -> Self {
+        Self { path, cached: Mutex::new(None) }
+    }
+
+    fn load(&self) -> anyhow::Result<Config> {
+        let cur = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
+        {
+            let guard = self.cached.lock().unwrap();
+            if let Some((mt, cfg)) = guard.as_ref() {
+                if *mt == cur {
+                    return Ok(cfg.clone());
+                }
+            }
+        }
+        let cfg = Config::load_or_create(&self.path)?;
+        // 以解析成功后的 mtime 入缓存；解析期间文件又被改则下次请求自然重载
+        let mtime = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
+        *self.cached.lock().unwrap() = Some((mtime, cfg.clone()));
+        Ok(cfg)
+    }
+
+    /// config_set 写回成功后调用：保存的配置即为文件最新内容，直接入缓存。
+    fn refresh(&self, cfg: Config) {
+        let mtime = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
+        *self.cached.lock().unwrap() = Some((mtime, cfg));
+    }
+}
+
+/// tank_cache.json 缓存：该文件只在离线 fetch-tanks 时变化，按 mtime 判定失效
+/// （服务运行期间被外部重建，下次请求自动重新加载，语义与逐请求重读等价）。
+struct TankCache {
+    path: std::path::PathBuf,
+    state: Mutex<TankCacheState>,
+}
+
+#[derive(Default)]
+struct TankCacheState {
+    mtime: Option<SystemTime>,
+    resolver: Option<Arc<crate::wargaming::tank_resolver::TankResolver>>,
+    json: Option<Arc<Value>>,
+}
+
+impl TankCache {
+    fn new(path: std::path::PathBuf) -> Self {
+        Self { path, state: Mutex::new(TankCacheState::default()) }
+    }
+
+    /// mtime 变化时重新解析；加载失败时 resolver=None、json=None
+    /// （与原逐请求 `.ok()` / `unwrap_or(Value::Null)` 的降级行为一致）。
+    fn snapshot(&self) -> (Option<Arc<crate::wargaming::tank_resolver::TankResolver>>, Arc<Value>) {
+        let mtime = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
+        let mut st = self.state.lock().unwrap();
+        if st.mtime != mtime {
+            let resolver = crate::wargaming::tank_resolver::TankResolver::load_from_json_file(&self.path)
+                .ok().map(Arc::new);
+            let json = std::fs::read_to_string(&self.path).ok()
+                .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+                .map(Arc::new);
+            *st = TankCacheState { mtime, resolver, json };
+        }
+        (st.resolver.clone(), st.json.clone().unwrap_or_else(|| Arc::new(Value::Null)))
+    }
+
+    fn resolver(&self) -> Option<Arc<crate::wargaming::tank_resolver::TankResolver>> {
+        self.snapshot().0
+    }
+
+    /// 原始 JSON（文件缺失/损坏时为 Null，与原 read_to_string+from_str 兜底一致）。
+    fn json(&self) -> Arc<Value> {
+        self.snapshot().1
+    }
+}
+
+/// 全局共享状态：配置缓存 + 坦克缓存 + 会话管理器（actor-per-session，见 sessions.rs）。
 #[derive(Clone)]
 struct AppState {
+    config: Arc<ConfigCache>,
+    tank_cache: Arc<TankCache>,
     config_path: std::path::PathBuf,
     sessions: SessionManager,
 }
 
-/// 启动 Web 服务器（绑定随机端口，自动打开浏览器）。
 pub async fn serve(config_path: std::path::PathBuf) -> anyhow::Result<()> {
     let state = AppState {
         sessions: SessionManager::new(config_path.clone(), std::path::PathBuf::from("data/sessions")),
+        config: Arc::new(ConfigCache::new(config_path.clone())),
+        tank_cache: Arc::new(TankCache::new(crate::data::data_path("tank_cache.json"))),
         config_path,
     };
 
@@ -80,7 +167,6 @@ pub async fn serve(config_path: std::path::PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// 首页：返回内嵌的前端 HTML。
 async fn index_handler() -> Html<&'static str> {
     Html(include_str!("index.html"))
 }
@@ -112,8 +198,7 @@ async fn armor_view_root() -> axum::response::Redirect {
     axum::response::Redirect::temporary("/armor_view/view/7169")
 }
 
-/// 3D 检视的坦克数据：调用 viewer 核心逻辑并给 model_url 加 `/armor_view` 前缀，
-/// 否则 iframe 内前端会去请求顶层的 `/glb/...`（404）。
+/// 3D 检视坦克数据：model_url 加 `/armor_view` 前缀，否则 iframe 内会去请求顶层 `/glb/...`（404）。
 async fn armor_tank_data_handler(axum::extract::Path(tank_id): axum::extract::Path<u64>) -> Json<Value> {
     Json(crate::wargaming::viewer::tank_data_value_prefixed(tank_id as u32, "/armor_view"))
 }
@@ -152,9 +237,8 @@ async fn chat_events_handler(
     axum::extract::Query(q): axum::extract::Query<HashMap<String, String>>,
 ) -> Response {
     let session_id = q.get("session_id").cloned().unwrap_or("default".into());
-    let events: Vec<AgentEvent> = state.sessions.events_of(&session_id).await;
-    let arr: Vec<Value> = events.iter()
-        .map(|e| serde_json::to_value(e).unwrap_or(Value::Null)).collect();
+    // events_of 已在锁内直接序列化为 JSON（避免先深拷贝事件缓冲）
+    let arr: Vec<Value> = state.sessions.events_of(&session_id).await;
     Json(json!({ "events": arr })).into_response()
 }
 
@@ -176,12 +260,11 @@ async fn session_get(
     axum::extract::Query(q): axum::extract::Query<HashMap<String, String>>,
 ) -> Response {
     let session_id = q.get("session_id").cloned().unwrap_or("default".into());
-    let history: Vec<Value> = state.sessions.history_of(&session_id).await.iter()
-        .map(|m| serde_json::to_value(m).unwrap_or(Value::Null)).collect();
+    // history_of 已在锁内直接序列化为 JSON（避免先深拷贝消息历史）
+    let history: Vec<Value> = state.sessions.history_of(&session_id).await;
     Json(json!({ "messages": history })).into_response()
 }
 
-/// 列出全部会话 ID（活跃 ∪ 磁盘持久化的）。
 async fn sessions_list(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Response {
@@ -189,7 +272,6 @@ async fn sessions_list(
     Json(json!({ "sessions": ids })).into_response()
 }
 
-/// 删除指定会话（含持久化文件；运行中的对话一并终止）。
 async fn session_delete(
     axum::extract::State(state): axum::extract::State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
@@ -198,7 +280,6 @@ async fn session_delete(
     Json(json!({ "status": "deleted" })).into_response()
 }
 
-/// 导出会话为 Markdown（浏览器下载）。
 async fn session_export(
     axum::extract::State(state): axum::extract::State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
@@ -206,11 +287,9 @@ async fn session_export(
     // 会话不存在 → 返回空 Markdown（而非 404），保证导出按钮始终可用
     let history = state.sessions.history_of(&id).await;
     let mut md = format!("# WoTB Agent Session: {}\n\n", id);
-    for m in &history {
-        let v = serde_json::to_value(m).unwrap_or(Value::Null);
+    for v in &history {
         let role = v["role"].as_str().unwrap_or("").to_string();
-        // 只导出用户提问 + assistant 最终回答：
-        // 跳过 tool 结果、带 tool_calls 的中间轮次、空内容
+        // 只导出用户提问与 assistant 最终回答：跳过 tool 结果、带 tool_calls 的中间轮次、空内容
         if role == "user" {
             let content = v["content"].as_str().unwrap_or("");
             if content.is_empty() { continue; }
@@ -234,11 +313,10 @@ async fn session_export(
         .into_response()
 }
 
-/// 读取当前配置（返回给设置页）。
 async fn config_get(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Response {
-    match crate::models::config::Config::load_or_create(&state.config_path) {
+    match state.config.load() {
         Ok(c) => Json(json!({
             "llm": { "model": c.llm.model, "endpoint": c.llm.endpoint,
                      "context_length": c.llm.context_length,
@@ -253,12 +331,11 @@ async fn config_get(
     }
 }
 
-/// 保存配置（从设置页表单字段更新并写回 config.toml）。
 async fn config_set(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(req): Json<Value>,
 ) -> Response {
-    let mut c = match crate::models::config::Config::load_or_create(&state.config_path) {
+    let mut c = match state.config.load() {
         Ok(c) => c,
         Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     };
@@ -270,12 +347,15 @@ async fn config_set(
     if let Some(max) = req["max_tokens"].as_u64() { c.llm.max_tokens = Some(max as u32); }
     if let Some(budget) = req["budget"].as_f64() { c.llm.budget = Some(budget); }
     match c.save(&state.config_path) {
-        Ok(_) => Json(json!({ "status": "saved" })).into_response(),
+        Ok(_) => {
+            // 写回成功后刷新配置缓存（内容与文件一致，无需下次请求重读）
+            state.config.refresh(c);
+            Json(json!({ "status": "saved" })).into_response()
+        }
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     }
 }
 
-/// 返回 Token 用量统计（供用量面板）。
 async fn usage_get(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Response {
@@ -296,12 +376,11 @@ async fn usage_get(
     })).into_response()
 }
 
-/// 按昵称查询玩家战绩（返回前 10 个匹配玩家的统计）。
 async fn player_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
     axum::extract::Path(nickname): axum::extract::Path<String>,
 ) -> Response {
-    let config = match crate::models::config::Config::load_or_create(&state.config_path) {
+    let config = match state.config.load() {
         Ok(c) => c,
         Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     };
@@ -331,12 +410,11 @@ async fn player_handler(
     }
 }
 
-/// 按模式/日期扫描回放目录，返回聚合报告 JSON。
 async fn scan_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(req): Json<Value>,
 ) -> Response {
-    let config = match crate::models::config::Config::load_or_create(&state.config_path) {
+    let config = match state.config.load() {
         Ok(c) => c,
         Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     };
@@ -346,16 +424,16 @@ async fn scan_handler(
     let mode = req["mode"].as_str().unwrap_or("all").to_string();
     let days = req["days"].as_i64();
 
+    // 坦克缓存：mtime 未变时复用 AppState 缓存（原每次请求重新读盘解析）
+    let resolver = state.tank_cache.resolver();
     let res = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
         let filter = crate::replay::scanner::ScanFilter::from_mode(&mode, days);
-        let resolver = crate::wargaming::tank_resolver::TankResolver::load_from_json_file(
-            crate::data::data_path("tank_cache.json").as_path()).ok();
         let scanner = match &resolver {
             Some(r) => crate::replay::scanner::ReplayScanner::with_resolver(r),
             None => crate::replay::scanner::ReplayScanner::new(),
         };
         let battles = scanner.scan_dir(std::path::Path::new(&replay_dir), &filter, |_| {})?;
-        let report = crate::models::report::AggregatedReport::from_battles(&battles, &mode);
+        let report = crate::models::report::AggregatedReport::from_battles(battles, &mode);
         Ok(serde_json::to_value(&report).unwrap_or(Value::Null))
     }).await;
 
@@ -366,12 +444,11 @@ async fn scan_handler(
     }
 }
 
-/// 快照操作：take（采集）/ list（列出）/ diff（新旧差值）。
 async fn snapshot_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(req): Json<Value>,
 ) -> Response {
-    let config = match crate::models::config::Config::load_or_create(&state.config_path) {
+    let config = match state.config.load() {
         Ok(c) => c,
         Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     };
@@ -381,7 +458,6 @@ async fn snapshot_handler(
     let action = req["action"].as_str().unwrap_or("take").to_string();
     let dir = req["dir"].as_str().unwrap_or("snapshots").to_string();
 
-    // WG API 是阻塞调用，放到 spawn_blocking 避免阻塞 tokio 运行时
     let res = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
         let client = crate::wargaming::api_client::WgApiClient::new(&app_id, &server);
         let results = client.search_player(&nickname, true)?;
@@ -427,7 +503,7 @@ async fn prematch_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(req): Json<Value>,
 ) -> Response {
-    let config = match crate::models::config::Config::load_or_create(&state.config_path) {
+    let config = match state.config.load() {
         Ok(c) => c,
         Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     };
@@ -438,13 +514,13 @@ async fn prematch_handler(
         .unwrap_or_default();
     let replay = req["replay"].as_str().map(|s| s.to_string());
 
+    // 坦克缓存：mtime 未变时复用 AppState 缓存（原每次请求重新读盘解析）
+    let resolver = state.tank_cache.resolver();
     let res = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
         let client = crate::wargaming::api_client::WgApiClient::new(&app_id, &server);
         let mut threat = String::new();
 
         if let Some(rp) = &replay {
-            let resolver = crate::wargaming::tank_resolver::TankResolver::load_from_json_file(
-                crate::data::data_path("tank_cache.json").as_path()).ok();
             let parser = match &resolver {
                 Some(r) => crate::replay::parser::ReplayParser::with_resolver(r),
                 None => crate::replay::parser::ReplayParser::new(),
@@ -469,8 +545,7 @@ async fn prematch_handler(
                 }
             }
         }
-        // 完整阵容分析报告（LineupReport 已 Serialize）序列化返回，供前端渲染
-        // 威胁/薄弱点/建议；查不到玩家时保持 null。
+        // LineupReport 序列化返回（威胁/薄弱点/建议）；查不到玩家时保持 null
         let lineup = if players.is_empty() {
             Value::Null
         } else {
@@ -490,12 +565,11 @@ async fn prematch_handler(
     }
 }
 
-/// 全部坦克列表：id/名称/等级/国家/类型/血量/装甲摘要/主炮穿深，供百科网格与筛选。
-/// 数据源：tanks.pb（运行时解析，元数据/名称）+ tank_cache.json（属性）。
-/// 解析单个回放文件，返回每发射击的复现数据（双方位置/朝向/伤害/目标）。
-/// POST { file: "..." } → [{ index, time_s, damage, target_name, is_kill, shooter_pos, shooter_ang, target_pos, target_ang }]
+/// 最近一次 /api/replay/shots 的响应缓存，供内嵌 3D 查看器拉取。
 static LAST_REPLAY_SHOTS: std::sync::OnceLock<std::sync::Mutex<Value>> = std::sync::OnceLock::new();
 
+/// 解析单个回放文件，返回每发射击的复现数据（双方位置/朝向/伤害/目标）。
+/// POST { file: "..." } → [{ index, time_s, damage, target_name, is_kill, shooter_pos, shooter_ang, target_pos, target_ang }]
 async fn replay_shots_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
     axum::Json(body): axum::Json<Value>,
@@ -504,10 +578,9 @@ async fn replay_shots_handler(
     if file.is_empty() {
         return (axum::http::StatusCode::BAD_REQUEST, "missing file").into_response();
     }
-    // 程序有 Windows / WSL 两种运行版本，用户输入的路径可能是任一风格；
-    // 按配置（replay.path_translate，默认 auto=转成本地形式）转换。
-    // 配置读取失败时按 auto 兜底，不让路径转换阻断回放解析。
-    let file = match crate::models::config::Config::load_or_create(&state.config_path) {
+    // Windows / WSL 两种运行版本的路径风格按配置转换（replay.path_translate，默认 auto）；
+    // 配置读取失败按 auto 兜底，不让路径转换阻断解析。
+    let file = match state.config.load() {
         Ok(c) => c.replay.translate(&file),
         Err(e) => {
             eprintln!("[replay_shots] config load failed, pathTranslate=auto fallback: {e}");
@@ -555,8 +628,13 @@ async fn replay_shots_handler(
     let shots = timeline.infer_shots(author_eid);
     eprintln!("[replay_shots] author_eid={:08x} shots={}", author_eid, shots.len());
     let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    // 双方炮管俯仰的车型极限锚定表（battle_results 昵称→tank_id × TankResolver 极限）
+    let pitch_limits = replay.read_battle_results().ok()
+        .and_then(|br| state.tank_cache.resolver()
+            .map(|r| r.pitch_limits_from_battle_results(&br)))
+        .unwrap_or_default();
     // fail-fast：提取失败直接返回 500 + 错误信息（前端可见），不做静默降级
-    let shot_replay = match crate::replay::combat::extract_shot_replays_auto(&raw_packets, file_name) {
+    let shot_replay = match crate::replay::combat::extract_shot_replays_auto_with_limits(&raw_packets, file_name, &pitch_limits) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("[replay_shots] 提取失败: {}", e);
@@ -565,25 +643,97 @@ async fn replay_shots_handler(
         }
     };
     eprintln!("[replay_shots] shot_replay={}", shot_replay.len());
+    // 其他玩家射击：宽松提取后合并、按时间全局重编号（index 是 viewer `shot=N` 与列表共用的选择键）
+    let author_eid_file = crate::replay::combat::resolve_author_player_eid(&raw_packets, file_name);
+    let mut all_shots = shot_replay;
+    let others = crate::replay::combat::extract_other_shot_replays_with_limits(&raw_packets, author_eid_file, &pitch_limits);
+    // 数据边界提示（前端射击列表头部展示）：他人路径收录覆盖 + 跳过/兜底统计
+    let mut extraction_notes: Vec<String> = Vec::new();
+    if others.total_launches > 0 {
+        extraction_notes.push(format!("其他玩家弹丸已收录 {}/{} 发", others.shots.len(), others.total_launches));
+    }
+    if others.skipped_no_endpoint > 0 {
+        extraction_notes.push(format!("其他玩家 {} 发因弹道终点未转发被跳过", others.skipped_no_endpoint));
+    }
+    if others.skipped_no_target_state > 0 {
+        extraction_notes.push(format!("其他玩家 {} 发因受击方状态缺失被跳过", others.skipped_no_target_state));
+    }
+    if others.muzzle_fallback > 0 {
+        extraction_notes.push(format!("其他玩家 {} 发射手位置用炮口坐标兜底", others.muzzle_fallback));
+    }
+    all_shots.extend(others.shots);
+    all_shots.sort_by(|a, b| a.time_s.partial_cmp(&b.time_s).unwrap());
+    for (i, s) in all_shots.iter_mut().enumerate() { s.index = i + 1; }
+    eprintln!("[replay_shots] total_shots={} (含其他玩家)", all_shots.len());
 
     // 目标坦克 ID：battle_results 按目标昵称关联（供 3D 查看器打开正确目标车辆）
     let br = replay.read_battle_results().ok();
+    // 预构建查找表（循环外一次，替代每发子弹的双重线性 find）：
+    // 昵称 → (account_id, 队伍)：同名玩家取首个匹配（与原 iter().find 语义一致）
+    let mut nick_info: HashMap<&str, (u32, i32)> = HashMap::new();
+    // account_id → tank_id：同样取首个匹配
+    let mut tank_by_account: HashMap<u32, u32> = HashMap::new();
+    if let Some(br) = br.as_ref() {
+        for p in &br.players {
+            nick_info.entry(p.info.nickname.as_str())
+                .or_insert((p.account_id, p.info.team));
+        }
+        for pr in &br.player_results {
+            tank_by_account.entry(pr.info.account_id).or_insert(pr.info.tank_id);
+        }
+    }
     let tank_of = |nick: &str| -> Option<u32> {
-        let br = br.as_ref()?;
-        br.players.iter().find(|p| p.info.nickname == nick)
-            .and_then(|p| br.player_results.iter().find(|pr| pr.info.account_id == p.account_id))
-            .map(|pr| pr.info.tank_id)
+        let (aid, _) = nick_info.get(nick)?;
+        tank_by_account.get(aid).copied()
     };
-    let enriched: Vec<Value> = shot_replay.iter().map(|s| {
+    // 玩家 → (队伍 1/2, 坦克 id)：射击者归属与筛选下拉的数据源
+    let author_name = all_shots.iter().find(|s| s.is_author)
+        .map(|s| s.shooter_name.clone()).unwrap_or_default();
+    let author_team: Option<i32> = nick_info.get(author_name.as_str()).map(|(_, t)| *t);
+    let team_tank_of = |nick: &str| -> Option<(i32, u32)> {
+        let (aid, team) = *nick_info.get(nick)?;
+        Some((team, tank_by_account.get(&aid).copied().unwrap_or(0)))
+    };
+    let enriched: Vec<Value> = all_shots.iter().map(|s| {
         let mut v = serde_json::to_value(s).unwrap_or(json!(null));
-        if let Some(tid) = tank_of(&s.target_name) { v["target_tank_id"] = json!(tid); }
+        if let Some(tid) = tank_of(&s.target_name) {
+            v["target_tank_id"] = json!(tid);
+        }
+        if let Some((team, tid)) = team_tank_of(&s.shooter_name) {
+            v["shooter_tank_id"] = json!(tid);
+            if let Some(at) = author_team {
+                v["shooter_team"] = json!(if team == at { "ally" } else { "enemy" });
+            }
+        }
         v
     }).collect();
-    // 作者坦克弹种表（弹药槽位顺序）：供前端把 shell_slot 渲染成弹种徽标。
-    // 查不到坦克时给空数组，前端降级显示"槽N"。
+    // 玩家列表（name/team/tank_id/is_author）：前端射击者筛选下拉的数据源。
+    // fire_events = method0x00 开火事件数（全场广播、AoI 独立裁剪）；与已提取射击数之差 = 未收录发数（method29 缺失，弹道无法复现）
+    let fire_events: HashMap<String, u32> = {
+        let mut m: HashMap<u32, u32> = HashMap::new();
+        for pkt in raw_packets.iter() {
+            let (t, _, p) = pkt;
+            if *t != 8 || p.len() < 12 { continue; }
+            if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x00 { continue; }
+            *m.entry(u32::from_le_bytes([p[0], p[1], p[2], p[3]])).or_insert(0) += 1;
+        }
+        m.into_iter()
+            .filter_map(|(eid, c)| timeline.entity_names.get(&eid).map(|n| (n.clone(), c)))
+            .collect()
+    };
+    let players: Vec<Value> = br.as_ref().map(|br| br.players.iter().map(|p| {
+        let tid = tank_by_account.get(&p.account_id).copied().unwrap_or(0);
+        json!({
+            "name": p.info.nickname,
+            "team": p.info.team,
+            "tank_id": tid,
+            "is_author": p.info.nickname == author_name,
+            "fire_events": fire_events.get(&p.info.nickname).copied().unwrap_or(0),
+        })
+    }).collect()).unwrap_or_default();
+    // 作者坦克弹种表（按弹药槽位顺序）；查不到坦克时给空数组，前端降级显示"槽N"。
     let author_shells: Vec<Value> = if author_tank_id != 0 {
-        crate::wargaming::tank_resolver::TankResolver::load_from_json_file(
-            crate::data::data_path("tank_cache.json").as_path()).ok()
+        state.tank_cache.resolver()
             .and_then(|r| r.resolve_info(author_tank_id).map(|info| {
                 info.shells.iter().map(|sh| json!({
                     "shell_type": sh.shell_type,
@@ -597,6 +747,8 @@ async fn replay_shots_handler(
         "shots": enriched,
         "author_tank_id": author_tank_id,
         "author_shells": author_shells,
+        "players": players,
+        "extraction_notes": extraction_notes,
     });
     *LAST_REPLAY_SHOTS.get_or_init(|| std::sync::Mutex::new(json!([]))).lock().unwrap() = v.clone();
 
@@ -609,13 +761,14 @@ async fn replay_shots_embedded_handler() -> Response {
     Json(v).into_response()
 }
 
-async fn tanks_handler() -> Response {
-    let cache: Value = std::fs::read_to_string(crate::data::data_path("tank_cache.json")).ok()
-        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-        .unwrap_or(Value::Null);
+async fn tanks_handler(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Response {
+    // 坦克缓存：mtime 未变时复用 AppState 缓存（原每次请求重新读盘解析）
+    let cache = state.tank_cache.json();
 
     let mut out: Vec<Value> = crate::wargaming::blitzkit::load_tanks()
-        .into_values().map(|t| {
+        .values().map(|t| {
         let id = t.tank_id as u64;
         let id_s = id.to_string();
         let info = cache.get(&id_s);
@@ -626,7 +779,6 @@ async fn tanks_handler() -> Response {
         let armor = info.and_then(|i| i.get("armor"));
         let hull_front = armor.and_then(|a| a.get("hull_front")).and_then(|v| v.as_u64());
         let turret_front = armor.and_then(|a| a.get("turret_front")).and_then(|v| v.as_u64());
-        // 同级对比/雷达图所需补充指标（均来自 tank_cache.json，零额外解析成本）
         let view_range = info.and_then(|i| i.get("view_range")).and_then(|v| v.as_f64());
         let speed_forward = info.and_then(|i| i.get("speed_forward")).and_then(|v| v.as_f64());
         let speed_reverse = info.and_then(|i| i.get("speed_reverse")).and_then(|v| v.as_f64());
@@ -634,13 +786,13 @@ async fn tanks_handler() -> Response {
         let dmg_max = info.and_then(|i| i.get("shells")).and_then(|v| v.as_array())
             .map(|a| a.iter().filter_map(|s| s.get("damage").and_then(|d| d.as_f64())).fold(f64::NEG_INFINITY, f64::max));
         let dmg_max = dmg_max.filter(|m| m.is_finite()).map(|m| m as u64);
-        let name = if t.name.is_empty() { t.dev_name.clone() } else { t.name };
+        let name = if t.name.is_empty() { t.dev_name.clone() } else { t.name.clone() };
         json!({
             "id": id,
             "name": name,
             "tier": t.tier,
-            "nation": t.nation,
-            "type": t.tank_type,
+            "nation": t.nation.clone(),
+            "type": t.tank_type.clone(),
             "hp": hp,
             "is_premium": premium,
             "is_collector": t.is_collector,
@@ -660,11 +812,12 @@ async fn tanks_handler() -> Response {
     Json(json!(out)).into_response()
 }
 
-/// 坦克详情：完整属性（元数据/装甲/弹种/俯仰角/血量/速度），供百科详情弹窗。
-async fn tank_detail_handler(axum::extract::Path(tank_id): axum::extract::Path<u64>) -> Response {
-    let cache: Value = std::fs::read_to_string(crate::data::data_path("tank_cache.json")).ok()
-        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-        .unwrap_or(Value::Null);
+async fn tank_detail_handler(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    axum::extract::Path(tank_id): axum::extract::Path<u64>,
+) -> Response {
+    // 坦克缓存：mtime 未变时复用 AppState 缓存（原每次请求重新读盘解析）
+    let cache = state.tank_cache.json();
     let info = cache.get(tank_id.to_string()).cloned().unwrap_or(Value::Null);
 
     let name = info.get("name").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
@@ -740,8 +893,7 @@ fn image_response(bytes: Vec<u8>) -> Response {
     ).into_response()
 }
 
-/// 提供 `web/vendor/` 下的静态文件（带路径穿越防护）。
-/// Agent 工具生成的截图（screenshots/ 目录，render_heatmap 输出）。
+/// Agent 工具生成的截图（screenshots/，render_heatmap 输出）；仅允许纯文件名，防路径穿越。
 async fn screenshots_handler(axum::extract::Path(path): axum::extract::Path<String>) -> Response {
     if path.contains("..") || path.contains('/') || path.contains('\\') {
         return (axum::http::StatusCode::BAD_REQUEST, "invalid path").into_response();
@@ -758,6 +910,7 @@ async fn screenshots_handler(axum::extract::Path(path): axum::extract::Path<Stri
     }
 }
 
+/// 提供 web/vendor/ 静态文件（防路径穿越）。
 async fn vendor_handler(axum::extract::Path(path): axum::extract::Path<String>) -> Response {
     if path.contains("..") {
         return (axum::http::StatusCode::BAD_REQUEST, "invalid path").into_response();

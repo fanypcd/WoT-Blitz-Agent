@@ -1,0 +1,258 @@
+player:          Anonyme team=1 tank_id=10785
+player: F0rget_U_F0rever team=2 tank_id=18977
+
+敌车 0x0813ce12 首包时刻: 37.486s
+窗口内 type=8 方法包（eid@0, method@4）：
+  t=49.785 method=0x27 len=14
+  t=59.790 method=0x27 len=14
+  t=69.790 method=0x27 len=14
+  t=75.393 method=0x2f len=74
+
+prop2 frac6 分段统计：
+  P0 初摆 (1.5s, 13包): frac变化4/s coarse变化8/s 双变6 钳0:7包 钳63:0包 步长64整倍率 6/12
+  P1 振荡 (13s, 95包): frac变化5.8/s coarse变化5.6/s 双变54 钳0:15包 钳63:11包 步长64整倍率 19/94
+  P2 旋转 (8.400002s, 84包): frac变化2.9/s coarse变化9.9/s 双变24 钳0:0包 钳63:14包 步长64整倍率 59/83
+  P3 极限 (7.5s, 61包): frac变化5.2/s coarse变化6.3/s 双变26 钳0:16包 钳63:9包 步长64整倍率 21/60
+
+frac 时间线（45~74s，每包）：
+   45.281 coarse= 466 frac= 7
+   45.384 coarse= 472 frac=14
+   45.485 coarse= 477 frac=21
+   45.589 coarse= 484 frac=27
+   45.690 coarse= 490 frac=34
+   45.783 coarse= 494 frac=41
+   45.894 coarse= 499 frac=48
+   45.988 coarse= 501 frac=55
+   46.090 coarse= 503 frac=62
+   46.185 coarse= 501 frac=63 <63>
+   46.390 coarse= 498 frac=60
+   46.492 coarse= 496 frac=53
+   46.584 coarse= 495 frac=46
+   46.685 coarse= 494 frac=42
+   46.787 coarse= 493 frac=35
+   46.891 coarse= 493 frac=28
+   46.986 coarse= 494 frac=21
+   47.087 coarse= 495 frac=14
+   47.182 coarse= 496 frac= 7
+   47.286 coarse= 498 frac= 0 <0>
+   47.483 coarse= 497 frac= 0 <0>
+   47.590 coarse= 498 frac= 0 <0>
+   47.785 coarse= 499 frac= 0 <0>
+   47.885 coarse= 498 frac= 0 <0>
+   48.083 coarse= 499 frac= 0 <0>
+   48.282 coarse= 498 frac= 0 <0>
+   48.490 coarse= 499 frac= 7
+   48.584 coarse= 499 frac=14
+   48.684 coarse= 500 frac=21
+   48.786 coarse= 502 frac=27
+   48.889 coarse= 505 frac=34
+   48.988 coarse= 509 frac=41
+   49.081 coarse= 512 frac=48
+   49.193 coarse= 514 frac=53
+   49.285 coarse= 515 frac=56
+   49.393 coarse= 515 frac=60
+   49.488 coarse= 514 frac=63 <63>
+   49.592 coarse= 513 frac=63 <63>
+   49.785 coarse= 512 frac=63 <63>
+   50.493 coarse= 511 frac=63 <63>
+   50.587 coarse= 510 frac=63 <63>
+   50.692 coarse= 500 frac=58
+   50.793 coarse= 498 frac=51
+   50.894 coarse= 497 frac=48
+   50.987 coarse= 496 frac=43
+   51.088 coarse= 496 frac=36
+   51.190 coarse= 496 frac=29
+   51.293 coarse= 496 frac=22
+   51.387 coarse= 496 frac=17
+   51.489 coarse= 497 frac=10
+   51.684 coarse= 497 frac= 7
+   51.786 coarse= 497 frac= 4
+   51.889 coarse= 497 frac= 3
+   51.985 coarse= 498 frac= 2
+   52.085 coarse= 498 frac= 1
+   52.189 coarse= 498 frac= 0 <0>
+   52.485 coarse= 497 frac= 0 <0>
+   52.589 coarse= 496 frac= 0 <0>
+   52.788 coarse= 497 frac= 0 <0>
+   52.884 coarse= 498 frac= 0 <0>
+   52.986 coarse= 501 frac= 1
+   53.080 coarse= 502 frac= 8
+   53.191 coarse= 503 frac=15
+   53.291 coarse= 504 frac=21
+   53.392 coarse= 504 frac=28
+   53.491 coarse= 504 frac=35
+   53.585 coarse= 503 frac=42
+   53.686 coarse= 501 frac=49
+   53.787 coarse= 500 frac=56
+   53.892 coarse= 499 frac=63 <63>
+   53.992 coarse= 498 frac=63 <63>
+   54.488 coarse= 492 frac=63 <63>
+   54.588 coarse= 488 frac=56
+   54.690 coarse= 486 frac=49
+   54.794 coarse= 484 frac=42
+   54.895 coarse= 484 frac=36
+   54.987 coarse= 484 frac=29
+   55.088 coarse= 486 frac=22
+   55.197 coarse= 489 frac=15
+   55.290 coarse= 492 frac= 8
+   55.392 coarse= 497 frac= 1
+   55.487 coarse= 497 frac= 0 <0>
+   55.783 coarse= 498 frac= 0 <0>
+   55.990 coarse= 499 frac= 0 <0>
+   56.187 coarse= 499 frac= 7
+   56.291 coarse= 497 frac=14
+   56.391 coarse= 496 frac=21
+   56.495 coarse= 495 frac=27
+   56.587 coarse= 493 frac=34
+   56.689 coarse= 493 frac=41
+   56.792 coarse= 492 frac=48
+   56.896 coarse= 492 frac=55
+   56.984 coarse= 491 frac=62
+   57.087 coarse= 491 frac=63 <63>
+   57.390 coarse= 490 frac=63 <63>
+   58.090 coarse= 489 frac=63 <63>
+   58.189 coarse= 487 frac=63 <63>
+   58.292 coarse= 485 frac=63 <63>
+   58.385 coarse= 481 frac=63 <63>
+   58.487 coarse= 472 frac=63 <63>
+   58.589 coarse= 459 frac=63 <63>
+   58.687 coarse= 447 frac=63 <63>
+   58.797 coarse= 435 frac=63 <63>
+   58.891 coarse= 422 frac=63 <63>
+   58.986 coarse= 410 frac=63 <63>
+   59.089 coarse= 398 frac=63 <63>
+   59.183 coarse= 386 frac=63 <63>
+   59.295 coarse= 373 frac=63 <63>
+   59.387 coarse= 361 frac=63 <63>
+   59.485 coarse= 349 frac=63 <63>
+   59.596 coarse= 337 frac=62
+   59.689 coarse= 324 frac=61
+   59.790 coarse= 312 frac=61
+   59.891 coarse= 300 frac=60
+   59.984 coarse= 287 frac=59
+   60.084 coarse= 275 frac=58
+   60.186 coarse= 263 frac=58
+   60.289 coarse= 251 frac=57
+   60.389 coarse= 238 frac=56
+   60.492 coarse= 226 frac=56
+   60.592 coarse= 214 frac=55
+   60.686 coarse= 201 frac=54
+   60.785 coarse= 189 frac=54
+   60.887 coarse= 177 frac=53
+   60.988 coarse= 165 frac=52
+   61.091 coarse= 152 frac=52
+   61.185 coarse= 140 frac=51
+   61.287 coarse= 128 frac=51
+   61.387 coarse= 115 frac=50
+   61.488 coarse= 103 frac=50
+   61.590 coarse=  91 frac=50
+   61.691 coarse=  79 frac=49
+   61.785 coarse=  66 frac=49
+   61.893 coarse=  54 frac=48
+   61.985 coarse=  42 frac=48
+   62.086 coarse=  29 frac=47
+   62.186 coarse=  17 frac=47
+   62.287 coarse=   5 frac=47
+   62.389 coarse=1017 frac=46
+   62.490 coarse=1004 frac=46
+   62.582 coarse= 992 frac=46
+   62.689 coarse= 980 frac=45
+   62.790 coarse= 968 frac=45
+   62.890 coarse= 955 frac=45
+   62.989 coarse= 943 frac=44
+   63.091 coarse= 931 frac=44
+   63.183 coarse= 918 frac=44
+   63.292 coarse= 906 frac=44
+   63.392 coarse= 894 frac=45
+   63.490 coarse= 882 frac=45
+   63.592 coarse= 869 frac=45
+   63.698 coarse= 857 frac=45
+   63.783 coarse= 845 frac=45
+   63.891 coarse= 832 frac=46
+   63.985 coarse= 820 frac=46
+   64.085 coarse= 808 frac=46
+   64.187 coarse= 796 frac=46
+   64.292 coarse= 783 frac=46
+   64.394 coarse= 771 frac=46
+   64.486 coarse= 759 frac=46
+   64.585 coarse= 746 frac=47
+   64.687 coarse= 734 frac=47
+   64.790 coarse= 722 frac=48
+   64.889 coarse= 710 frac=48
+   64.990 coarse= 697 frac=48
+   65.091 coarse= 685 frac=48
+   65.185 coarse= 673 frac=48
+   65.293 coarse= 660 frac=49
+   65.401 coarse= 648 frac=49
+   65.488 coarse= 636 frac=49
+   65.592 coarse= 624 frac=49
+   65.688 coarse= 611 frac=49
+   65.787 coarse= 599 frac=49
+   65.886 coarse= 587 frac=49
+   65.987 coarse= 575 frac=49
+   66.088 coarse= 562 frac=49
+   66.191 coarse= 550 frac=49
+   66.290 coarse= 538 frac=49
+   66.389 coarse= 525 frac=49
+   66.487 coarse= 513 frac=49
+   66.587 coarse= 509 frac=49
+   66.887 coarse= 508 frac=48
+   66.986 coarse= 504 frac=43
+   67.086 coarse= 504 frac=36
+   67.191 coarse= 505 frac=29
+   67.284 coarse= 508 frac=22
+   67.386 coarse= 512 frac=15
+   67.487 coarse= 518 frac= 8
+   67.590 coarse= 523 frac= 1
+   67.690 coarse= 521 frac= 0 <0>
+   67.790 coarse= 516 frac= 0 <0>
+   67.893 coarse= 511 frac= 0 <0>
+   67.986 coarse= 509 frac= 0 <0>
+   68.086 coarse= 508 frac= 0 <0>
+   68.290 coarse= 509 frac= 0 <0>
+   68.389 coarse= 510 frac= 0 <0>
+   68.491 coarse= 516 frac= 0 <0>
+   68.591 coarse= 520 frac= 7
+   68.691 coarse= 521 frac=14
+   68.791 coarse= 523 frac=21
+   68.892 coarse= 524 frac=27
+   68.983 coarse= 524 frac=34
+   69.087 coarse= 523 frac=41
+   69.190 coarse= 524 frac=48
+   69.289 coarse= 524 frac=55
+   69.391 coarse= 524 frac=62
+   69.489 coarse= 520 frac=63 <63>
+   69.687 coarse= 515 frac=63 <63>
+   69.790 coarse= 510 frac=63 <63>
+   69.892 coarse= 505 frac=63 <63>
+   70.291 coarse= 505 frac=62
+   70.386 coarse= 505 frac=55
+   70.489 coarse= 505 frac=48
+   70.587 coarse= 504 frac=41
+   70.686 coarse= 503 frac=34
+   70.786 coarse= 503 frac=27
+   70.888 coarse= 503 frac=20
+   70.992 coarse= 503 frac=13
+   71.085 coarse= 504 frac= 7
+   71.183 coarse= 505 frac= 0 <0>
+   71.284 coarse= 504 frac= 0 <0>
+   71.498 coarse= 505 frac= 0 <0>
+   71.588 coarse= 507 frac= 0 <0>
+   71.691 coarse= 508 frac= 0 <0>
+   71.795 coarse= 509 frac= 0 <0>
+   71.988 coarse= 511 frac= 0 <0>
+   72.088 coarse= 517 frac= 0 <0>
+   72.182 coarse= 519 frac= 7
+   72.290 coarse= 520 frac=14
+   72.390 coarse= 520 frac=21
+   72.492 coarse= 520 frac=27
+   72.584 coarse= 518 frac=34
+   72.694 coarse= 516 frac=41
+   72.792 coarse= 514 frac=48
+   72.885 coarse= 511 frac=55
+   72.994 coarse= 507 frac=62
+   73.088 coarse= 507 frac=63 <63>
+   73.192 coarse= 506 frac=63 <63>
+   73.285 coarse= 507 frac=63 <63>
+   73.387 coarse= 509 frac=63 <63>
+   73.590 coarse= 510 frac=63 <63>

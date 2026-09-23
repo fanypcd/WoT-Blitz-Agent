@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>方案 3 · Vue 3 + Naive UI — WoTB.Agent UI 对比</title>
+<!-- Vue 3 + Naive UI（UMD 版，全局 naive 变量） -->
+<script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/naive-ui@2.38.1/dist/index.prod.js"></script>
+<style>
+  /* 兜底基础样式：CDN 不可用时仍可读 */
+  html { scroll-behavior: smooth; }
+  body { margin: 0; font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif; background: #101014; color: #fff; }
+  [v-cloak] { display: none; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 0 16px; }
+  section { margin-top: 20px; }
+  .tank-thumb { padding: 16px 12px 8px; }
+  .tank-thumb svg { width: 100%; height: 62px; opacity: .55; display: block; }
+  .tier-chip { position: absolute; top: 8px; left: 8px; }
+  .premium-card   { border: 1.5px solid rgba(255, 207, 92, .7) !important; }
+  .collector-card { border: 1.5px solid rgba(95, 168, 232, .8) !important; }
+  .chat-log { height: 300px; overflow-y: auto; padding-right: 6px; }
+  .bubble-bot  { max-width: 82%; background: rgba(255,255,255,.06); border-radius: 10px; padding: 9px 12px; font-size: 13px; line-height: 1.6; margin-bottom: 10px; }
+  .bubble-user { max-width: 82%; background: rgba(255,138,61,.16); border: 1px solid rgba(255,138,61,.4);
+                 border-radius: 10px; padding: 9px 12px; font-size: 13px; line-height: 1.6; margin-bottom: 10px; margin-left: auto; width: fit-content; }
+  .tool-chip { display: inline-block; font-size: 11px; padding: 2px 9px; border-radius: 999px; border: 1px dashed rgba(255,255,255,.2);
+               opacity: .65; margin-bottom: 4px; }
+  .session-row { padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+  .session-row:hover { background: rgba(255,255,255,.05); }
+  .session-row.active { background: rgba(255,138,61,.15); color: #ff8a3d; }
+</style>
+</head>
+<body>
+<div id="app" v-cloak></div>
+
+<script type="text/x-template" id="tpl">
+<n-config-provider :theme="dark ? darkTheme : null" :theme-overrides="overrides" :locale="zhCN" style="min-height:100vh">
+  <div style="min-height:100vh">
+
+    <!-- ═══ 顶部导航 ═══ -->
+    <div style="padding:10px 20px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; position:sticky; top:0; z-index:40; border-bottom:1px solid rgba(255,255,255,.08); background:rgba(16,16,20,.85); backdrop-filter:blur(6px);">
+      <span style="font-weight:700; font-size:16px;">WoTB<span style="color:#ff8a3d">.</span>Agent</span>
+      <n-tabs type="segment" :value="active" size="small" style="max-width:560px" @update:value="onNav">
+        <n-tab name="sec-agent">Agent</n-tab>
+        <n-tab name="sec-tanks">Tankopedia</n-tab>
+        <n-tab name="sec-player">Player</n-tab>
+        <n-tab name="sec-replay">Replay</n-tab>
+        <n-tab name="sec-compare">Compare</n-tab>
+        <n-tab name="sec-settings">Settings</n-tab>
+      </n-tabs>
+      <span style="margin-left:auto; display:flex; align-items:center; gap:10px;">
+        <a href="index.html" style="font-size:12px; opacity:.6; color:inherit;">← 对比首页</a>
+        <span style="font-size:12px; opacity:.6;">{{ dark ? '暗色' : '亮色' }}</span>
+        <n-switch v-model:value="dark" size="small"></n-switch>
+      </span>
+    </div>
+
+    <div style="padding:16px 0 32px;">
+      <div class="wrap">
+
+        <!-- ═══ Agent 聊天 ═══ -->
+        <section id="sec-agent">
+          <div style="display:grid; grid-template-columns:250px 1fr; gap:16px;" class="chat-grid">
+            <n-card size="small" :bordered="true">
+              <template #header><span style="font-size:13px">会话</span></template>
+              <template #header-extra><n-button size="tiny" type="primary">＋ 新会话</n-button></template>
+              <div class="session-row active">IS-7 走位分析<div style="font-size:11px; opacity:.5">今天 21:34</div></div>
+              <div class="session-row">本周排位复盘<div style="font-size:11px; opacity:.5">昨天</div></div>
+              <div class="session-row">Tier X 弱势车盘点<div style="font-size:11px; opacity:.5">09-16</div></div>
+              <div class="session-row">Skorpion G 配件推荐<div style="font-size:11px; opacity:.5">09-14</div></div>
+            </n-card>
+            <n-card size="small">
+              <template #header><span style="font-size:13px">Agent · IS-7 走位分析</span></template>
+              <template #header-extra><n-tag type="success" size="small" round>● idle</n-tag></template>
+              <div class="chat-log">
+                <div class="bubble-user">帮我分析这局 IS-7 的走位，replay 在 D:\replays\2025_09_18_is7.wotbreplay</div>
+                <span class="tool-chip">⚙ scan_replays · 12 场 · 3.2s</span>
+                <div class="bubble-bot">这局你在 <b>4:10</b> 从铁路侧推进过早，在没有队友视野支援的情况下进入了 268 工程的射界。建议：城市缠斗阶段贴掩体推进，等对方 TD 暴露后再转场……</div>
+                <span class="tool-chip">⚙ tank_detail · IS-7 · 1.1s</span>
+                <div class="bubble-bot">对照 IS-7 顶级炮塔数据（俯角 -5°），该位置实际可以卡住斜坡卖头，命中率可提升约 12%。</div>
+              </div>
+              <div style="display:flex; gap:8px; padding-top:10px;">
+                <n-input placeholder="输入消息，Enter 发送…" size="small"></n-input>
+                <n-button type="primary" size="small">发送 ↵</n-button>
+              </div>
+            </n-card>
+          </div>
+        </section>
+
+        <!-- ═══ Replay 扫描报告 ═══ -->
+        <section id="sec-replay">
+          <n-grid :cols="4" :x-gap="12" item-responsive responsive="screen">
+            <n-gi span="4 s:2 m:1" v-for="s in stats" :key="s.label">
+              <n-card size="small">
+                <n-statistic :label="s.label">
+                  <span :style="{ color: s.color, fontWeight: 700, fontSize: '22px' }">{{ s.value }}</span>
+                  <template #suffix><span style="font-size:12px; opacity:.6">{{ s.desc }}</span></template>
+                </n-statistic>
+              </n-card>
+            </n-gi>
+          </n-grid>
+          <n-card size="small" title="WN8 评级走势" style="margin-top:12px">
+            <template #header-extra><n-tag type="primary" size="small" round>近 12 个月</n-tag></template>
+            <svg viewBox="0 0 300 80" style="width:100%; height:130px;">
+              <polyline :points="spark" fill="none" stroke="#ff8a3d" stroke-width="2" stroke-linejoin="round"></polyline>
+              <circle v-for="(p, i) in sparkDots" :key="i" :cx="p[0]" :cy="p[1]" r="2.5" fill="#ff8a3d"></circle>
+            </svg>
+          </n-card>
+        </section>
+
+        <!-- ═══ Tankopedia ═══ -->
+        <section id="sec-tanks">
+          <n-card size="small">
+            <template #header><span style="font-size:13px">Tankopedia · 坦克百科</span></template>
+            <template #header-extra><n-tag type="info" size="small">1,204 辆</n-tag></template>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+              <n-input placeholder="搜索坦克名称…" size="small" style="width:200px"></n-input>
+              <n-select v-model:value="fTier" size="small" :options="tierOpts" style="width:120px"></n-select>
+              <n-select v-model:value="fNation" size="small" :options="nationOpts" style="width:120px"></n-select>
+              <n-select v-model:value="fType" size="small" :options="typeOpts" style="width:120px"></n-select>
+              <n-button type="primary" size="small" style="margin-left:auto">筛选</n-button>
+            </div>
+            <n-grid :cols="4" :x-gap="12" :y-gap="12" item-responsive responsive="screen">
+              <n-gi span="4 s:2 m:1" v-for="t in tanks" :key="t.name">
+                <n-card size="small" hoverable
+                        :class="t.premium ? 'premium-card' : (t.collector ? 'collector-card' : '')">
+                  <div class="tank-thumb" style="position:relative;">
+                    <n-tag type="primary" size="small" round class="tier-chip">{{ t.tier }}</n-tag>
+                    <svg viewBox="0 0 140 60" fill="currentColor">
+                      <path d="M18 40 L26 30 L48 27 L52 16 L86 16 L90 27 L108 29 L122 34 L122 40 Z" opacity=".85"></path>
+                      <rect x="88" y="19" width="44" height="3.5" rx="1.7"></rect>
+                      <rect x="126" y="17.5" width="8" height="6.5" rx="1.5"></rect>
+                      <circle cx="40" cy="46" r="7"></circle><circle cx="60" cy="46" r="7"></circle>
+                      <circle cx="80" cy="46" r="7"></circle><circle cx="100" cy="46" r="7"></circle>
+                    </svg>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; align-items:center; gap:4px;">
+                    <b style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ t.name }}</b>
+                    <n-tag v-if="t.premium" type="warning" size="small">金币</n-tag>
+                    <n-tag v-else-if="t.collector" type="info" size="small">收藏</n-tag>
+                  </div>
+                  <div style="font-size:12px; opacity:.55; margin:2px 0 6px;">{{ t.nation }} · {{ t.type }}</div>
+                  <div style="display:flex; justify-content:space-between; font-size:12px;">
+                    <span>胜率 <b>{{ t.win }}%</b></span><span style="opacity:.5">均伤 {{ t.dmg }}</span>
+                  </div>
+                </n-card>
+              </n-gi>
+            </n-grid>
+          </n-card>
+        </section>
+
+        <!-- ═══ Player ═══ -->
+        <section id="sec-player">
+          <n-card size="small">
+            <template #header><span style="font-size:13px">Player · 玩家战绩查询</span></template>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+              <n-input v-model:value="nickname" size="small" style="width:220px"></n-input>
+              <n-select v-model:value="realm" size="small" :options="realmOpts" style="width:110px"></n-select>
+              <n-button type="primary" size="small">查询</n-button>
+            </div>
+            <n-grid :cols="4" :x-gap="12">
+              <n-gi><n-statistic label="场次" value="31,204"></n-statistic></n-gi>
+              <n-gi><n-statistic label="胜率"><span style="color:#63e2b7; font-weight:700;">54.3%</span></n-statistic></n-gi>
+              <n-gi><n-statistic label="三环"><span style="color:#ff8a3d; font-weight:700;">27</span></n-statistic></n-gi>
+              <n-gi><n-statistic label="K/D" value="1.42"></n-statistic></n-gi>
+            </n-grid>
+          </n-card>
+        </section>
+
+        <!-- ═══ Compare ═══ -->
+        <section id="sec-compare">
+          <n-card size="small">
+            <template #header><span style="font-size:13px">Compare · 本局 Replay vs API 战绩</span></template>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+              <div>
+                <n-tag type="primary" size="small">本局 Replay</n-tag>
+                <n-table size="small" :single-line="false" style="margin-top:8px">
+                  <tr><td>伤害</td><td style="text-align:right"><b>4,861</b></td></tr>
+                  <tr><td>击毁</td><td style="text-align:right"><b>3</b></td></tr>
+                  <tr><td>命中率</td><td style="text-align:right"><b>76%</b></td></tr>
+                </n-table>
+              </div>
+              <div>
+                <n-tag type="info" size="small">API 近 100 场均值</n-tag>
+                <n-table size="small" :single-line="false" style="margin-top:8px">
+                  <tr><td>伤害</td><td style="text-align:right; opacity:.5">2,187</td></tr>
+                  <tr><td>击毁</td><td style="text-align:right; opacity:.5">1.3</td></tr>
+                  <tr><td>命中率</td><td style="text-align:right; opacity:.5">71%</td></tr>
+                </n-table>
+              </div>
+            </div>
+          </n-card>
+        </section>
+
+        <!-- ═══ Settings ═══ -->
+        <section id="sec-settings">
+          <n-card size="small">
+            <template #header><span style="font-size:13px">Settings · 配置</span></template>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+              <div>
+                <div style="font-size:12px; opacity:.6; margin-bottom:4px;">模型</div>
+                <n-select v-model:value="model" size="small" :options="modelOpts"></n-select>
+                <div style="font-size:12px; opacity:.6; margin:14px 0 4px;">温度 {{ temp.toFixed(1) }}</div>
+                <n-slider v-model:value="temp" :step="0.1" :min="0" :max="1"></n-slider>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:14px; justify-content:center;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="font-size:13px">回放目录自动扫描</span><n-switch size="small" :value="true"></n-switch>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="font-size:13px">工具调用前确认</span><n-switch size="small" :value="true"></n-switch>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="font-size:13px">Token 用量告警</span><n-switch size="small" :value="false"></n-switch>
+                </div>
+              </div>
+            </div>
+          </n-card>
+        </section>
+
+        <footer style="text-align:center; font-size:12px; opacity:.5; margin:24px 0 8px;">
+          方案 3 / 4 · Vue 3 + Naive UI（构建链方案）· 示例数据仅供对比 · 需联网加载 CDN
+        </footer>
+      </div>
+    </div>
+  </div>
+</n-config-provider>
+</script>
+
+<script>
+const { createApp, ref, computed } = Vue;
+
+createApp({
+  template: '#tpl',
+  setup() {
+    /* ── 状态 ── */
+    const dark = ref(true);
+    const active = ref('sec-agent');
+    const nickname = ref('fyp25');
+    const temp = ref(0.7);
+
+    /* ── 示例数据 ── */
+    const tanks = [
+      { name: 'IS-7',                 nation: '苏联',   type: '重型坦克', tier: 'X',    win: 52.8, dmg: 2204 },
+      { name: 'Object 260',           nation: '苏联',   type: '重型坦克', tier: 'X',    win: 53.4, dmg: 2310, collector: true },
+      { name: '121B',                 nation: '中国',   type: '中型坦克', tier: 'X',    win: 54.6, dmg: 2458, premium: true },
+      { name: 'E 100',                nation: '德国',   type: '重型坦克', tier: 'X',    win: 51.2, dmg: 2265 },
+      { name: 'Leopard 1',            nation: '德国',   type: '中型坦克', tier: 'X',    win: 52.1, dmg: 2372 },
+      { name: 'T110E5',               nation: '美国',   type: '重型坦克', tier: 'X',    win: 50.9, dmg: 2190 },
+      { name: 'Progetto M35 mod. 46', nation: '意大利', type: '中型坦克', tier: 'VIII', win: 55.3, dmg: 1690, premium: true },
+      { name: 'Skorpion G',           nation: '德国',   type: '坦克歼击车', tier: 'VIII', win: 54.0, dmg: 1852, premium: true },
+    ];
+    const stats = [
+      { label: '扫描场次', value: '12,483', desc: '近30天 +412' },
+      { label: '总胜率', value: '54.3%', desc: '▲ +0.8%', color: '#63e2b7' },
+      { label: '场均伤害', value: '2,187', desc: '▲ +42' },
+      { label: 'WN8', value: '2,845', desc: '优秀', color: '#ff8a3d' },
+    ];
+    const TREND = [1950,2010,1985,2100,2210,2180,2340,2405,2510,2480,2620,2845];
+
+    /* ── SVG 折线走势 ── */
+    const sparkDots = TREND.map((v, i) => [ +(i / (TREND.length - 1) * 292 + 4).toFixed(1), +(76 - (v - 1800) / 1100 * 68).toFixed(1) ]);
+    const spark = sparkDots.map(p => p.join(',')).join(' ');
+
+    /* ── 下拉选项 ── */
+    const opt = (label, value) => ({ label, value });
+    const tierOpts   = [opt('全部等级','all'), opt('X','x'), opt('VIII','viii')];
+    const nationOpts = [opt('全部国家','all'), opt('苏联','ussr'), opt('德国','germany'), opt('美国','usa'), opt('中国','china'), opt('意大利','italy')];
+    const typeOpts   = [opt('全部类型','all'), opt('重型','heavy'), opt('中型','medium'), opt('坦克歼击车','td')];
+    const realmOpts  = [opt('国服','cn'), opt('亚服','asia'), opt('欧服','eu')];
+    const modelOpts  = [opt('deepseek-chat','ds'), opt('gpt-4o','gpt'), opt('claude-sonnet','cla')];
+    const fTier = ref('all'), fNation = ref('all'), fType = ref('all');
+    const realm = ref('cn'), model = ref('ds');
+
+    /* ── 导航滚动 ── */
+    function onNav(name) {
+      active.value = name;
+      const el = document.getElementById(name);
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    /* Naive UI 主色 → 品牌橙 */
+    const overrides = {
+      common: {
+        primaryColor: '#ff8a3d',
+        primaryColorHover: '#ffa05e',
+        primaryColorPressed: '#e8762a',
+        primaryColorSuppl: '#ff8a3d',
+      },
+    };
+
+    return {
+      dark, active, nickname, temp, tanks, stats, spark, sparkDots,
+      tierOpts, nationOpts, typeOpts, realmOpts, modelOpts,
+      fTier, fNation, fType, realm, model, onNav, overrides,
+      darkTheme: naive.darkTheme, zhCN: naive.zhCN,
+    };
+  },
+}).use(naive).mount('#app');
+</script>
+</body>
+</html>

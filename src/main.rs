@@ -6,7 +6,7 @@ mod agent;
 mod web;
 mod data;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::io::{self, Write, BufRead};
 use clap::{Parser as ClapParser, Subcommand};
 use anyhow::Result;
@@ -20,7 +20,6 @@ use crate::wargaming::snapshot::SnapshotStore;
 use crate::replay::combat::{CombatTimeline, CombatEventType};
 use crate::agent::Agent;
 
-/// CLI 顶层入口：解析出的子命令。
 #[derive(ClapParser)]
 #[command(name = "wotb-agent", version = "0.1.0", about = "WoTB Replay Analysis Agent")]
 struct Cli {
@@ -28,7 +27,6 @@ struct Cli {
     command: Commands,
 }
 
-/// 全部子命令（各含自己的参数，由 clap 生成 --help）。
 #[derive(Subcommand)]
 enum Commands {
     /// Parse a single replay file
@@ -143,6 +141,34 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// One-click update of all derived game data after a game patch
+    /// (BlitzKit pb -> tank_cache.json -> game_data/), game-version aware
+    UpdateData {
+        /// Game data directory (auto-detected if omitted)
+        #[arg(long)]
+        game_dir: Option<PathBuf>,
+        /// tanks.pb output path (models.pb is written alongside)
+        #[arg(long, default_value = "data/tanks.pb")]
+        output: PathBuf,
+        /// tank_cache.json output path
+        #[arg(long, default_value = "data/tank_cache.json")]
+        tank_cache: PathBuf,
+        /// game_data output directory
+        #[arg(long, default_value = "data/game_data")]
+        game_data: PathBuf,
+        /// Skip BlitzKit download (rebuild from existing pb)
+        #[arg(long)]
+        offline: bool,
+        /// Force full game_data re-extraction even if game version unchanged
+        #[arg(long)]
+        force: bool,
+        /// Only report version status and planned actions, change nothing
+        #[arg(long)]
+        check: bool,
+        /// Also download missing tank icons into tank_images/
+        #[arg(long)]
+        icons: bool,
+    },
     /// View 3D tank model in browser
     View {
         /// Tank ID
@@ -230,6 +256,9 @@ enum Commands {
         /// Write per-shot replay data (positions/orientations) as JSON to this path
         #[arg(long)]
         shots_json: Option<PathBuf>,
+        /// Write raw entity streams (type=10/prop2/launches/endpoints/direct-hits) as JSON for WI alignment scans
+        #[arg(long)]
+        streams_json: Option<PathBuf>,
     },
     /// Dump raw method38 / method8 / type=32 packet bytes (RE tool, wotinspector alignment)
     DumpMethods {
@@ -254,7 +283,6 @@ enum Commands {
     },
 }
 
-/// 程序入口：解析参数 → 分发到对应子命令。
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -391,6 +419,10 @@ fn main() -> Result<()> {
                 downloaded, cached, failed, dir.display());
             return Ok(());
         }
+        Commands::UpdateData { game_dir, output, tank_cache, game_data, offline, force, check, icons } => {
+            cmd_update_data(game_dir.as_deref(), &output, &tank_cache, &game_data, offline, force, check, icons)?;
+            return Ok(());
+        }
         Commands::View { .. } => unreachable!(),
         Commands::Web { .. } => unreachable!(),
         Commands::Single { file, json, tank_cache } => {
@@ -471,8 +503,8 @@ fn main() -> Result<()> {
                 return Ok(());
             }
 
-            let room_type = battles.first().map(|b| b.room_type.as_str()).unwrap_or("Unknown");
-            let report = AggregatedReport::from_battles(&battles, room_type);
+            let room_type = battles.first().map(|b| b.room_type.clone()).unwrap_or_else(|| "Unknown".to_string());
+            let report = AggregatedReport::from_battles(battles, &room_type);
 
             if let Some(output) = output {
                 let json = serde_json::to_string_pretty(&report)?;
@@ -483,7 +515,6 @@ fn main() -> Result<()> {
             report.print_summary();
         }
         Commands::Snapshot { app_id, server, nickname, action, dir } => {
-        // snapshot：定期采集 API 快照（take/list/diff），实现阶段性分析
             let store = SnapshotStore::new(&dir);
             
             match action.as_str() {
@@ -685,8 +716,8 @@ fn main() -> Result<()> {
                 return Ok(());
             }
 
-            let room_type = battles.first().map(|b| b.room_type.as_str()).unwrap_or("Unknown");
-            let report = AggregatedReport::from_battles(&battles, room_type);
+            let room_type = battles.first().map(|b| b.room_type.clone()).unwrap_or_else(|| "Unknown".to_string());
+            let report = AggregatedReport::from_battles(battles, &room_type);
 
             let is_rating = mode == "rating";
             let (api_battles, api_wins, api_dmg, api_frags, api_shots, api_hits) = if is_rating {
@@ -779,33 +810,14 @@ fn main() -> Result<()> {
                     None => crate::replay::parser::ReplayParser::new(),
                 };
                 let summary = parser.parse_file(rp)?;
-                let mut team_a = Vec::new();
-                let mut team_b = Vec::new();
-                for p in &summary.players {
-                    if p.team == 1 { team_a.push(p.nickname.clone()); }
-                    else { team_b.push(p.nickname.clone()); }
-                }
                 eprintln!("\n=== 回放: {} ===", summary.file_name);
 
+                // 双方阵容直接按队伍过滤迭代（不再先收集昵称 Vec，消除昵称 clone）
                 let (report_a, report_b) = {
-                    let mut pa = Vec::new();
-                    for n in &team_a {
-                        eprintln!("查询我方玩家 '{}'...", n);
-                        if let Ok(results) = client.search_player(n, true) {
-                            if !results.is_empty() {
-                                if let Ok(stats) = client.get_player_stats(results[0].1) { pa.push(stats); }
-                            }
-                        }
-                    }
-                    let mut pb = Vec::new();
-                    for n in &team_b {
-                        eprintln!("查询敌方玩家 '{}'...", n);
-                        if let Ok(results) = client.search_player(n, true) {
-                            if !results.is_empty() {
-                                if let Ok(stats) = client.get_player_stats(results[0].1) { pb.push(stats); }
-                            }
-                        }
-                    }
+                    let pa = query_lineup_stats(&client,
+                        summary.players.iter().filter(|p| p.team == 1).map(|p| p.nickname.as_str()), "我方");
+                    let pb = query_lineup_stats(&client,
+                        summary.players.iter().filter(|p| p.team != 1).map(|p| p.nickname.as_str()), "敌方");
                     (
                         crate::wargaming::prematch::analyze_lineup(pa)?,
                         crate::wargaming::prematch::analyze_lineup(pb)?,
@@ -876,12 +888,11 @@ fn main() -> Result<()> {
             resolver.save_to_json_file(&output)?;
             eprintln!("Saved to: {}", output.display());
         }
-        Commands::Combat { file, json, dump: _, shots_json } => {
+        Commands::Combat { file, json, dump: _, shots_json, streams_json } => {
             use wotbreplay_parser::replay::Replay;
             use std::fs::File;
 
-            // 路径风格兼容：程序存在 Windows / WSL 两种运行版本，任一风格输入
-            // 按运行平台自动转换（C:\... ⇄ /mnt/c/...；[replay].path_translate=off 可关闭）
+            // 路径风格兼容：Windows/WSL 任一风格输入按运行平台自动转换（C:\... ⇄ /mnt/c/...；path_translate=off 可关闭）
             let file = std::path::PathBuf::from(
                 crate::models::config::ReplayConfig::translate_with_mode(&file.to_string_lossy(), "auto"));
 
@@ -904,23 +915,33 @@ fn main() -> Result<()> {
 
             let timeline = CombatTimeline::parse_packets(&raw_packets);
 
-            // 射击事件 + 复现数据：解析即产出（两个输出分支共用）
             let author_eid = *timeline.entity_names.iter()
                 .find(|(eid, _)| {
-                    timeline.events.iter().any(|e| 
+                    timeline.events.iter().any(|e|
                         e.entity_id == **eid && matches!(e.event_type, CombatEventType::DamageCounter { .. }))
                 })
                 .map(|(eid, _)| eid)
                 .unwrap_or(&0);
             let shots = timeline.infer_shots(author_eid);
-            let shot_replay = crate::replay::combat::extract_shot_replays_auto(
-                &raw_packets, &file.file_name().and_then(|n| n.to_str()).unwrap_or(""))?;
+            // 双方炮管俯仰的车型极限锚定表：battle_results × tank_cache.json（best-effort，
+            // 缓存缺失时俯仰走回退路径并打质量标记）
+            let pitch_limits = replay.read_battle_results().ok()
+                .and_then(|br| TankResolver::load_from_json_file(std::path::Path::new("data/tank_cache.json")).ok()
+                    .map(|r| r.pitch_limits_from_battle_results(&br)))
+                .unwrap_or_default();
+            let shot_replay = crate::replay::combat::extract_shot_replays_auto_with_limits(
+                &raw_packets, &file.file_name().and_then(|n| n.to_str()).unwrap_or(""), &pitch_limits)?;
+            // UpdateArena 竞技场状态流（子类型名表 + PERIOD 战局阶段时间线，报告 §4.5）
+            let arena_updates = crate::replay::combat::collect_arena_updates(&raw_packets);
+            let arena_periods = crate::replay::combat::parse_arena_periods(&arena_updates);
 
             if json {
                 let combined = serde_json::json!({
                     "timeline": timeline,
                     "shots": shots,
                     "shot_replay": shot_replay,
+                    "arena_updates": arena_updates,
+                    "arena_periods": arena_periods,
                 });
                 println!("{}", serde_json::to_string_pretty(&combined)?);
             } else {
@@ -931,20 +952,14 @@ fn main() -> Result<()> {
 
                 timeline.print_shots(&shots);
                 println!("\n========================================================");
-                // 射击复现数据：解析即产出（作者实体由文件名内昵称自动匹配）
-                let shot_replay = crate::replay::combat::extract_shot_replays_auto(&raw_packets, &file.file_name().and_then(|n| n.to_str()).unwrap_or(""))?;
                 if let Some(path) = shots_json {
                     std::fs::write(&path, serde_json::to_string_pretty(&shot_replay)?)?;
                     println!("Shot replay data written: {} ({} shots)", path.display(), shot_replay.len());
                 }
-                if json {
-                    let combined = serde_json::json!({
-                        "timeline": timeline,
-                        "shots": shots,
-                        "shot_replay": shot_replay,
-                    });
-                    println!("{}", serde_json::to_string_pretty(&combined)?);
-                }
+            }
+            if let Some(path) = streams_json {
+                std::fs::write(&path, serde_json::to_string(&crate::replay::combat::dump_replay_streams(&raw_packets))?)?;
+                eprintln!("Entity streams written: {}", path.display());
             }
         }
         Commands::DumpMethods { file } => {
@@ -1057,12 +1072,14 @@ fn main() -> Result<()> {
             for pkt in &data.packets {
                 if pkt.clock_secs < t0 || pkt.clock_secs > t1 { continue; }
                 let p = &pkt.raw_payload[..];
-                if p.len() < 4 { continue; }
                 let pat_hit = !pat_bytes.is_empty() && pat_bytes.iter().any(|pb| {
                     (0..=p.len().saturating_sub(pb.len())).any(|o| &p[o..o+pb.len()] == pb.as_slice())
                 });
-                if !pat_bytes.is_empty() && !pat_hit { continue; }
-                if pat_bytes.is_empty() {
+                if !pat_bytes.is_empty() {
+                    if !pat_hit { continue; }
+                } else {
+                    // eid 过滤读 4 字节实体前缀；短载荷包（tick/标志）仅在 eid 模式下无意义，模式搜索须保留
+                    if p.len() < 4 { continue; }
                     let e = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
                     if e != eid { continue; }
                 }
@@ -1087,6 +1104,121 @@ fn main() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// `update-data` 命令：游戏版本更新后的一键数据更新。
+/// 链路：下载 BlitzKit pb（--offline 可跳过）→ 重建 tank_cache.json → 提取 game_data/
+/// （版本变化或 --force 全量重提，否则增量补缺失的新坦克）→ 刷新 data_version.json 清单。
+/// 注意顺序：必须先写新 tanks.pb 再调 load_tanks（OnceLock 进程内缓存），否则读到旧数据。
+fn cmd_update_data(
+    game_dir: Option<&Path>,
+    output: &Path,
+    tank_cache_path: &Path,
+    game_data_dir: &Path,
+    offline: bool,
+    force: bool,
+    check: bool,
+    icons: bool,
+) -> Result<()> {
+    use crate::wargaming::data_version::{now_rfc3339, DataVersionManifest};
+    use crate::wargaming::game_extract as ge;
+
+    let gdir = ge::resolve_game_dir(game_dir).ok();
+    let current_version = gdir.as_deref().and_then(ge::game_version);
+
+    // 版本变化判定：清单已记录 → 直接比对；清单缺失 → version.txt.dvpl 的 mtime
+    // 晚于 game_data 最新文件则视为游戏已更新（mtime 兜底启发式）。
+    let manifest = DataVersionManifest::load();
+    let version_changed = match current_version.as_deref() {
+        Some(cur) if manifest.has_version() => cur != manifest.game_version,
+        Some(_) => match (&gdir, game_data_dir.exists()) {
+            (Some(d), true) => ge::game_dir_newer_than_data(d, game_data_dir),
+            _ => false,
+        },
+        None => false,
+    };
+
+    println!("=== Data Update (game-version aware) ===");
+    println!("  Game dir:       {}", gdir.as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "<not found>".into()));
+    println!("  Game version:   {} (manifest: {})",
+        current_version.as_deref().unwrap_or("<unknown>"),
+        if manifest.has_version() { manifest.game_version.as_str() } else { "<none>" });
+    println!("  Version change: {}", if version_changed { "YES" } else { "no" });
+
+    if check {
+        println!("  Plan: {} -> rebuild {} -> {} ({}); refresh data_version.json",
+            if offline { "rebuild from existing pb" } else { "download BlitzKit pb" },
+            tank_cache_path.display(),
+            game_data_dir.display(),
+            if force || version_changed { "full re-extract" } else { "incremental, missing only" });
+        println!("  --check mode: nothing was changed.");
+        return Ok(());
+    }
+
+    if gdir.is_none() {
+        anyhow::bail!("Game directory not found (needed for version detection and extraction). Pass --game-dir explicitly.");
+    }
+
+    // 1. BlitzKit pb（tanks.pb + models.pb 一起下载）
+    let mut blitzkit_at = manifest.blitzkit_updated_at.clone();
+    let mut tank_count = manifest.tank_count;
+    if !offline {
+        eprintln!("Downloading BlitzKit definitions ...");
+        let n = tokio::runtime::Runtime::new()?
+            .block_on(crate::wargaming::blitzkit::fetch_and_save(output))?;
+        blitzkit_at = Some(now_rfc3339());
+        tank_count = Some(n);
+        println!("  BlitzKit: downloaded tanks.pb + models.pb ({} tanks)", n);
+    } else {
+        println!("  BlitzKit: skipped (--offline)");
+    }
+
+    // 2. 重建 tank_cache.json（与 fetch-tanks 一致：from_blitzkit + save_to_json_file）
+    let resolver = TankResolver::from_blitzkit()?;
+    resolver.save_to_json_file(tank_cache_path)?;
+    println!("  Tank cache: rebuilt {} ({} tanks)", tank_cache_path.display(), resolver.len());
+
+    // 3. 提取 game_data
+    let full = force || version_changed;
+    if full {
+        eprintln!("Re-extracting ALL game_data (version changed or --force) ...");
+    }
+    let stats = ge::extract_all(game_dir, game_data_dir, full)?;
+    println!("  Game data: extracted={} cached={} missing={} failed={} ({})",
+        stats.extracted, stats.cached, stats.missing_files,
+        stats.parse_failed + stats.write_failed,
+        if full { "full" } else { "incremental" });
+
+    // 4. 可选：补缺失的坦克图标
+    if icons {
+        let dir = Path::new("tank_images");
+        let (downloaded, cached, failed) =
+            crate::wargaming::blitzkit::download_all_icons(dir, false)?;
+        println!("  Icons: downloaded={} cached={} failed={} -> {}", downloaded, cached, failed, dir.display());
+    }
+
+    // 5. 孤立 game_data 报告（版本更新后被移除的坦克，只提示不删除）
+    let orphans = ge::orphan_game_data_ids(game_data_dir);
+    if !orphans.is_empty() {
+        println!("  Orphan game_data (not in current tanks.pb): {} files, e.g. {:?}",
+            orphans.len(), &orphans[..orphans.len().min(5)]);
+    }
+
+    // 6. 刷新版本清单
+    DataVersionManifest {
+        game_version: current_version.unwrap_or_default(),
+        blitzkit_updated_at: blitzkit_at,
+        tank_cache_updated_at: Some(now_rfc3339()),
+        game_data_updated_at: Some(now_rfc3339()),
+        tank_count,
+        game_data_files: Some(stats.extracted + stats.cached),
+    }.save()?;
+
+    println!("  Manifest: data/data_version.json updated");
+    println!("Note: armor_cache.json / gun_angles.json are static fallback data and are NOT refreshed by this command.");
     Ok(())
 }
 
@@ -1134,4 +1266,23 @@ fn print_single_replay(summary: &crate::models::battle::BattleSummary) {
     }
     println!("\n  (* = replay author)");
     println!("\n========================================================");
+}
+
+/// 逐个查询一队玩家战绩（search + stats），失败/未找到的玩家静默跳过。
+/// label 用于日志（"我方"/"敌方"），输出与原先内联循环保持一致。
+fn query_lineup_stats<'a>(
+    client: &WgApiClient,
+    names: impl Iterator<Item = &'a str>,
+    label: &str,
+) -> Vec<crate::wargaming::api_client::PlayerStats> {
+    let mut stats = Vec::new();
+    for n in names {
+        eprintln!("查询{}玩家 '{}'...", label, n);
+        if let Ok(results) = client.search_player(n, true) {
+            if !results.is_empty() {
+                if let Ok(s) = client.get_player_stats(results[0].1) { stats.push(s); }
+            }
+        }
+    }
+    stats
 }

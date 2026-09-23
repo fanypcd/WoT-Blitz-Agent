@@ -3,8 +3,7 @@ use anyhow::Result;
 use serde::Serialize;
 
 // =====================================================================
-//  对局前瞻（阵容强度分析）
-//  进入对局前，对比双方玩家的累计战绩，识别高威胁与薄弱点，
+//  对局前瞻：进入对局前对比双方玩家累计战绩，识别高威胁与薄弱点，
 //  生成"重点规避谁、优先集火谁"的开局建议。
 // =====================================================================
 
@@ -36,7 +35,6 @@ pub struct PlayerInfo {
 }
 
 impl From<&PlayerStats> for PlayerInfo {
-    /// 从 PlayerStats 提取排位战力指标。
     fn from(s: &PlayerStats) -> Self {
         let battles = s.rating_battles.max(1);
         let win_rate = if battles > 0 {
@@ -68,15 +66,19 @@ pub fn analyze_lineup(players: Vec<PlayerStats>) -> Result<LineupReport> {
 
     let infos: Vec<PlayerInfo> = players.iter().map(PlayerInfo::from).collect();
 
-    // 阵容均值
     let avg_win_rate = infos.iter().map(|p| p.win_rate).sum::<f32>() / infos.len() as f32;
     let avg_damage = infos.iter().map(|p| p.avg_damage).sum::<f32>() / infos.len() as f32;
 
-    // 按场均伤害排序，取最强 / 最弱
-    let mut sorted = infos.clone();
-    sorted.sort_by(|a, b| b.avg_damage.partial_cmp(&a.avg_damage).unwrap());
-    let strongest = sorted[0].clone();
-    let weakest = sorted[sorted.len() - 1].clone();
+    // 按场均伤害取最强 / 最弱（与原先"降序稳定排序后取首/尾"等价：
+    // 并列时最强取原顺序靠前者、最弱取靠后者）
+    let strongest = infos.iter()
+        .min_by(|a, b| b.avg_damage.partial_cmp(&a.avg_damage).unwrap())
+        .unwrap()
+        .clone();
+    let weakest = infos.iter()
+        .max_by(|a, b| b.avg_damage.partial_cmp(&a.avg_damage).unwrap())
+        .unwrap()
+        .clone();
 
     // 高威胁：场均伤害 ≥ 均值 × 1.2
     let threat_threshold = avg_damage * 1.2;
@@ -92,7 +94,7 @@ pub fn analyze_lineup(players: Vec<PlayerStats>) -> Result<LineupReport> {
         .cloned()
         .collect();
 
-    let suggestion = build_suggestion(&infos, &strongest, &weakest, &threats, &weaknesses);
+    let suggestion = build_suggestion(&strongest, &weakest, &threats, &weaknesses);
 
     Ok(LineupReport {
         total_players: infos.len(),
@@ -106,9 +108,7 @@ pub fn analyze_lineup(players: Vec<PlayerStats>) -> Result<LineupReport> {
     })
 }
 
-/// 根据分析结果拼装人类可读的开局建议文本。
 fn build_suggestion(
-    _infos: &[PlayerInfo],
     strongest: &PlayerInfo,
     weakest: &PlayerInfo,
     threats: &[PlayerInfo],
@@ -145,7 +145,7 @@ fn build_suggestion(
     parts.join("；")
 }
 
-/// 把阵容分析报告打印到 stdout（`prematch` 命令 / Web 前瞻面板用）。
+/// 打印阵容分析报告到 stdout（`prematch` 命令 / Web 前瞻面板用）。
 pub fn print_report(report: &LineupReport) {
     println!("\n=== 阵容强度分析 ===");
     println!("玩家总数: {}", report.total_players);
@@ -158,9 +158,9 @@ pub fn print_report(report: &LineupReport) {
         report.weakest.nickname, report.weakest.avg_damage, report.weakest.win_rate);
     println!();
     println!("高威胁: {}", report.threats.iter()
-        .map(|p| p.nickname.clone()).collect::<Vec<_>>().join(", "));
+        .map(|p| p.nickname.as_str()).collect::<Vec<_>>().join(", "));
     println!("薄弱点: {}", report.weaknesses.iter()
-        .map(|p| p.nickname.clone()).collect::<Vec<_>>().join(", "));
+        .map(|p| p.nickname.as_str()).collect::<Vec<_>>().join(", "));
     println!();
     println!("建议: {}", report.suggestion);
     println!();

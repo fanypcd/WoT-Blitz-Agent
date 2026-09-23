@@ -106,14 +106,6 @@
         .radar-wrap canvas { max-width:100%; }
         /* 间隙甲徽章 */
         .spaced-badge { display:inline-block; margin:2px 6px 2px 0; padding:2px 10px; border-radius:11px; font-size:0.78em; font-weight:700; background:rgba(255,207,92,0.12); color:var(--yellow); border:1px dashed rgba(255,207,92,0.45); }
-        /* 3D 检视器内嵌 */
-        #md-inspector { display:none; margin-top:12px; border:1px solid var(--border); border-radius:12px; overflow:hidden; background:#140e0c; }
-        #md-inspector.open { display:block; }
-        #md-inspector iframe { width:100%; height:78vh; min-height:560px; border:none; display:block; background:#140e0c; }
-        .viewer-btns { display:flex; gap:10px; flex-wrap:wrap; }
-        .viewer-btns button { flex:1; min-width:200px; padding:11px; font-weight:700; font-size:0.95em; border-radius:var(--radius-sm); }
-        #toggle-3d { background:linear-gradient(135deg,var(--accent),var(--accent-2)); border:none; color:#1a1208; }
-        #open-3d { background:var(--panel3); border:1px solid var(--border-hi); color:var(--txt); }
         #open-3d:hover { border-color:var(--accent); }
     </style>
 </head>
@@ -354,7 +346,7 @@ function shellsSec(d,cfg){
         </table></div>
     </div>`;
 }
-function armorSec(d,cfg,viewerHtml){
+function armorSec(d,cfg){
     const a=d.armor||{};
     const gt=cfg&&cfg.gun_thickness, gm=cfg&&cfg.gun_mask;
     const gs=(cfg&&cfg.gun_spaced)||[], ts=(cfg&&cfg.turret_spaced)||[];
@@ -379,7 +371,6 @@ function armorSec(d,cfg,viewerHtml){
             ${gm!=null?`<div class="stat-box"><div class="lbl">Gun Mantlet 炮盾</div><div class="val">${Math.round(gm)} mm</div></div>`:''}
         </div>
         ${spacedHtml.length?`<div style="margin-top:4px;">${spacedHtml.join('')}</div>`:''}
-        ${viewerHtml}
     </div>`;
 }
 function mobilitySec(d,cfg,eng,track){
@@ -499,12 +490,6 @@ function renderDetail() {
         ${tracks.length>1?sel('md-track','Tracks 履带',tracks.map(t=>t.name||'track'),mdTrackIdx)
             :(track?`<span class="muted" style="font-size:0.85em;">Tracks: <b style="color:var(--txt);">${esc(track.name||'-')}</b></span>`:'')}
     </div>`;
-    // 3D 检视器：与装甲卡合并展示
-    const viewerHtml=`<div class="viewer-btns" style="margin-top:12px;">
-            <button id="toggle-3d">🛡 在下方展开 3D 检视器</button>
-            <button id="open-3d">🔍 在新窗口打开 3D 检视器</button>
-        </div>
-        <div id="md-inspector"><iframe title="3D armor inspector"></iframe></div>`;
     out.innerHTML=`
         <div id="md-head">
             <img src="${d.image}" alt="">
@@ -525,30 +510,22 @@ function renderDetail() {
         ${overviewSec(d,cfg,eng)}
         ${firepowerSec(d,cfg)}
         ${shellsSec(d,cfg)}
-        ${armorSec(d,cfg,viewerHtml)}
+        ${armorSec(d,cfg)}
         ${mobilitySec(d,cfg,eng,track)}
         ${turretSec(d,cfg)}
-        ${peersSec(d,cfg)}`;
+        ${peersSec(d,cfg)}
+        <div class="card">
+            <div class="sec-title">3D 装甲检视器</div>
+            <button id="open-3d" style="width:100%;padding:11px;background:var(--panel3);border:1px solid var(--border-hi);color:var(--txt);font-weight:700;font-size:0.95em;border-radius:var(--radius-sm);cursor:pointer;">🔍 在新的浏览器窗口打开 3D 检视器</button>
+        </div>`;
     const bindSel=(id,fn)=>{ const el=$(id); if(el) el.addEventListener('change',()=>{ fn(parseInt(el.value)); }); };
     bindSel('md-engine',v=>{ mdEngIdx=v; renderDetail(); });
     bindSel('md-track',v=>{ mdTrackIdx=v; renderDetail(); });
     const cfgSel=$('md-config');
     if(cfgSel) cfgSel.addEventListener('change',()=>{ mdCfgIdx=parseInt(cfgSel.value); renderDetail(); });
     $('open-3d').addEventListener('click',()=>{ window.open('/armor_view/view/'+d.id+'?config='+mdCfgIdx,'_blank'); });
-    const insp=$('md-inspector'), frame=insp.querySelector('iframe');
-    $('toggle-3d').addEventListener('click',()=>{
-        const open=insp.classList.toggle('open');
-        mdInspectorOpen=open;
-        if(open){ frame.src='/armor_view/view/'+d.id+'?config='+mdCfgIdx; }
-    });
-    // renderDetail 重建 DOM 会重置检视器：若此前处于展开状态则恢复，并跟随配置切换模型
-    if(mdInspectorOpen){
-        insp.classList.add('open');
-        frame.src='/armor_view/view/'+d.id+'?config='+mdCfgIdx;
-    }
     renderRadar(d,cfg);
 }
-let mdInspectorOpen=false;
 
 loadDetail();
 </script>
