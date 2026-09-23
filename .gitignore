@@ -35,3 +35,15 @@ tmp_wi2/
 !replay_samples/20260902_2045__Anonyme_J39_Type_5_Exp_3354568815024678.wotbreplay
 !replay_samples/20260902_2053__Anonyme_J20_Type_2605_3354220922674233.wotbreplay
 !replay_samples/20260902_2104__Anonyme_A116_XM551_Exp_3355505117896350.wotbreplay
+
+# 本地临时分析转储（examples 探针的输出）
+tmp_*.txt
+tmp_*.json
+
+# UI 框架选型预览页（本地试验）
+ui_preview/
+
+# 射击/坦克数据临时导出
+shots_*.json
+t110_shots.json
+tank_*.json
