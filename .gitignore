@@ -29,3 +29,9 @@ tmp_wi/
 
 # 逆向 wotinspector wasm 的本地临时工作目录
 tmp_wi2/
+
+# 回放测试样本（大体积二进制，本地保留不入仓库；replay_samples 下已跟踪的历史样例除外）
+*.wotbreplay
+!replay_samples/20260902_2045__Anonyme_J39_Type_5_Exp_3354568815024678.wotbreplay
+!replay_samples/20260902_2053__Anonyme_J20_Type_2605_3354220922674233.wotbreplay
+!replay_samples/20260902_2104__Anonyme_A116_XM551_Exp_3355505117896350.wotbreplay
