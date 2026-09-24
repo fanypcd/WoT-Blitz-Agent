@@ -1935,8 +1935,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 _armorPrefixCache = null;   // 装甲模型重建后前缀缓存失效
                 tagArmorPlates(armorModel);
                 armorModel.traverse(function(node) {
-                    if (node.isMesh && node.geometry) {
-                        if (node.geometry.index) node.geometry = node.geometry.toNonIndexed();
+                    if (node.isMesh && node.geometry && !node.geometry.attributes.normal) {
+                        // 保留 GLB 自带的原始平滑法线（对齐 BlitzKit：直接使用游戏法线，
+                        // 热力图入射角逐像素连续变化→颜色平缓过渡）；仅缺失时兜底计算
                         node.geometry.computeVertexNormals();
                     }
                 });
@@ -3451,6 +3452,23 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                         dbgInfo('dbg-impact', '#ff2222', '弹着点', '（射线无交点）');
                                     }
                                 }
+                                // 弦判定实时重跑（节流尾随 100ms）：滑块连续拖动时模型位姿每刻
+                                // 不同，判定/弹道/对比面板若不跟随重算就停留在上次 tick 的结果，
+                                // 与弹着点红点（上方 raycast）不一致。射线与 applyWorldTick 同参
+                                // （launch + 弦向量），判定经 doPenetrationCheck → /api/penetrate，
+                                // 过期响应由 __penCheckSeq 丢弃，上屏结果恒对应当前位姿。
+                                if (window.__worldTickCtx && window.__worldTickCtx.lvDir && window.__worldPenMode) {
+                                    if (timeSlider.__penTimer) clearTimeout(timeSlider.__penTimer);
+                                    timeSlider.__penTimer = setTimeout(function() {
+                                        timeSlider.__penTimer = null;
+                                        const wc2 = window.__worldTickCtx;
+                                        if (!wc2 || !wc2.lvDir || !armorModel) return;
+                                        __shotRayOrigin = wc2.launch.clone();
+                                        __shotRayTarget = wc2.launch.clone().addScaledVector(wc2.lvDir, wc2.rayFar);
+                                        doPenetrationCheck(0, 0);
+                                        __shotRayOrigin = null; __shotRayTarget = null;
+                                    }, 100);
+                                }
                             };
                         }
                         // 初始按各自默认 tick 渲染一次（模型异步加载完成前调用为 no-op，加载回调内补同步）
@@ -4220,6 +4238,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
         let __shotRayOrigin = null;   // 射击复现：射线起点（射手方向，固定距离）
         let __shotRayTarget = null;   // 射击复现：射线终点（瞄准点）
+        let __penCheckSeq = 0;        // 判定代数序号：滑块连续重跑判定时丢弃过期的 /api/penetrate 响应
         // 射击复现错误面板（模块级：doPenetrationCheck 等顶层函数也要调用）
         function showShotError(msg) {
             console.error('[shot-replay] ' + msg);
@@ -4272,6 +4291,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
         function doPenetrationCheck(ndcX, ndcY) {
             if (!armorModel) return;
+            // 代数序号：仅最新一次判定的响应可上屏（滑块拖动会连续触发判定）
+            const penSeq = ++__penCheckSeq;
 
             armorModel.traverse(function(node) {
                 if (!node.isMesh) return;
@@ -4319,6 +4340,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 document.getElementById('traj-info').style.display = 'none';
                 trajInfoPos = null;
                 if (trajGroup) { scene.remove(trajGroup); trajGroup = null; }
+                // 弦不再与装甲相交（滑块拖到命中前位姿等）：同步清掉上次判定的命中
+                // 标记，避免旧位置的绿/红点残留与"不相交"提示并存
+                if (window.__hitMarker) { scene.remove(window.__hitMarker); window.__hitMarker = null; }
                 if (window.__shotIsHit) {
                     if (window.__worldPenMode) {
                         // 世界模式：默认 tick 在命中前 ≈0.2s，弦不相交是正常数据态而非几何错误。
@@ -4330,6 +4354,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                             + 'white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,0.5);">'
                             + '当前 tick 位姿与弹道弦不相交（命中前采样，坦克未到命中点）— 切换 tick 查看命中判定</div>';
                         trajInfoPos = controls.target.clone();
+                        // 对比面板同步置中性：否则残留上一次判定的"✓ 一致/✗ 不一致"误导
+                        const cmpEl = document.getElementById('world-pen-cmp');
+                        if (cmpEl) cmpEl.innerHTML = '<span style="color:#888;">— 当前位姿弹道弦未命中装甲，无判定</span>';
                     } else {
                         showShotError('服务器判定命中但射线未命中任何装甲板——弹道/模型几何错位');
                     }
@@ -4443,6 +4470,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(req),
             }).then(r => { if (!r.ok) throw new Error('API ' + r.status); return r.json(); }).then(res => {
+                if (penSeq !== __penCheckSeq) return;   // 过期响应：更新位姿的判定已在途，直接丢弃
                 let trajLayers = res.layers.map(l => {
                     const ah = hitsForCheck.find(ah => ah.partName === l.part_name);
                     return {
@@ -4492,6 +4520,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                             };
                             fetch('/api/penetrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ricReq) })
                                 .then(r => r.ok ? r.json() : null).then(ricRes => {
+                                    if (penSeq !== __penCheckSeq) return;   // 过期响应丢弃
                                     if (ricRes) {
                                         const ricLayers = ricRes.layers.map(l => ({ point: ricHits.find(ah => ah.partName === l.part_name)?.point || lastLayer.point, name: l.part_name, thickness: l.thickness, eff: l.effective, remainBefore: l.remaining_before, penetrated: l.penetrated, ricochet: l.ricochet, seg: 1 }));
                                         const combined = { result: 'RICOCHET → ' + ricRes.result, total_effective: res.total_effective, layers: [...trajLayers, ...ricLayers] };
@@ -4505,6 +4534,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
                 showTrajectory(point, res.result, res.total_effective, trajLayers, penDisp, dmg, modDmg, dist, shotRayO);
             }).catch(err => {
+                if (penSeq !== __penCheckSeq) return;   // 过期请求的失败不覆盖最新结果
                 console.error('Penetration API error:', err);
                 showTrajectory(point, 'ERROR', 0, [], penDisp, dmg, modDmg, dist, shotRayO);
             });
