@@ -132,10 +132,10 @@ fn main() {
             geo_pitch.to_degrees(), mz[1], tp[1],
         );
         println!(
-            "     launchPitch={:+.3} aimRel=[{:+.2},{:+.2},{:+.2}] seg32={:016x} incDir={:?}",
+            "     launchPitch={:+.3} aimRel=[{:+.2},{:+.2},{:+.2}] seg32={:016x}",
             launch_pitch.to_degrees(),
             s.aim_point[0] - tp[0], s.aim_point[1] - tp[1], s.aim_point[2] - tp[2],
-            s.segment, s.target_inc_dir,
+            s.segment,
         );
         let _ = victim_state;
     }

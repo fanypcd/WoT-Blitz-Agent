@@ -489,7 +489,7 @@ pub struct ShotReplayData {
     /// 回退（无 prop2 采样/无车型极限）：车体 pitch（type10，正=车头下坡，语义不同仅兜底），
     /// 见 quality.gun_pitch_degraded。流断流 >2s 时 quality.pitch_frozen 提示陈旧。
     pub target_gun_pitch: f32,
-    /// 存在 type=32 服务器解码的抵达成角（来向方位角校验通过，正=仰角，入 target_inc_dir）。
+    /// 存在 type=32 服务器解码的抵达成角（来向方位角校验通过，正=仰角）。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub target_gun_pitch_server: bool,
     /// 恒 0（占位兼容字段）。type=32 通知包内**无**受击者炮塔角——26/27B 的
@@ -543,11 +543,9 @@ pub struct ShotReplayData {
     /// 履带吸收零伤与击杀穿透，与 0x0001/伤害共存证伪"跳弹"旧标注）；255 = 未获取。
     pub game_hit_result: u8,
     /// method8 ↔ type=32 同事件共享的 6 字节（86/86 一致）。
-    /// 语义 = [弹种 u16][来向 yaw u16][抵达 pitch u16]（方向/弹种数据，2026-09 四轮
-    /// 字节分布定论：量化字节高频压在 0x00/0xff 端点，坐标解释已证伪）；yaw/pitch
-    /// 解码见 `decoded_target_gun_pitch`（→ target_inc_dir）。命中位置以弹道射线 ×
-    /// 部件约束为准（曾按 DecodeShotSegment AABB 解码复现"客户端弹孔"，因语义不实
-    /// 已移除，2026-09-23）。
+    /// 语义 = 游戏客户端 DecodeShotSegment 两点编码：出入点的部件 AABB 量化坐标
+    /// （轴序/解码/盒源详见《WI 射击参数与命中位置分析》§5.1）；3D 查看器据此
+    /// 标注出入点并构建 P1→P2 判定射线。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hit_token: Option<String>,
     /// 特殊弹药效果 ID（WotbTools PROVEN：1=精准火力 2=钨芯弹，可同发共存）。
@@ -590,11 +588,6 @@ pub struct ShotReplayData {
     /// 弹着点（报告 §4.7）；与本地 raycast 的部件选择对照 = 命中位置偏差的校准基准。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server_part_index: Option<u8>,
-    /// 来向方向 [yaw, pitch]（弧度）——hash6 解码的入射弹道方向（受击者指向射手），
-    /// 游戏 showDamageFromShot 由此构造入射射线放置弹着点（报告 §4.7）。
-    /// None = 无匹配的 type=32 警告（警告覆盖 ~2/3 命中）。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target_inc_dir: Option<[f32; 2]>,
     /// 射手渲染层锚点（客户端位置滤波器输出；None = type=10 采样缺失不可构建时间线）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shooter_render: Option<RenderAnchorData>,
@@ -2431,10 +2424,9 @@ pub fn extract_shot_replays_with_limits(
         let bearing = if tp != [0.0; 3] && sp != [0.0; 3] {
             Some((sp[0] - tp[0]).atan2(sp[2] - tp[2]))
         } else { None };
-        let (server_gun_pitch, target_inc_dir) = if hit {
-            let decoded = decoded_target_gun_pitch(&warnings32, target_eid.unwrap_or(0), end_time, bearing);
-            (decoded.map(|(p, _)| p), decoded.map(|(p, y)| (y, p)))
-        } else { (None, None) };
+        let server_gun_pitch = if hit {
+            decoded_target_gun_pitch(&warnings32, target_eid.unwrap_or(0), end_time, bearing).map(|(p, _)| p)
+        } else { None };
 
         // ⑩ 目标炮塔朝向 = prop2 + hullYaw（命中弹必须有）；prop2 索引保持包序，min_by_key 首最小语义与原扫包一致
         let state_time = end_time;   // 炮塔/炮管取样基准 = 命中通知时刻（与 WI turret_yaw 同域）
@@ -2643,7 +2635,6 @@ pub fn extract_shot_replays_with_limits(
             shooter_gun_timeline,
             target_gun_timeline,
             server_part_index,
-            target_inc_dir: target_inc_dir.map(|(y, p)| [y, p]),
         });
     }
 
@@ -2900,10 +2891,7 @@ pub fn extract_other_shot_replays_with_limits(
         let bearing = if tp != [0.0; 3] && sp != [0.0; 3] {
             Some((sp[0] - tp[0]).atan2(sp[2] - tp[2]))
         } else { None };
-        let decoded_inc = decoded_target_gun_pitch(&warnings32, target_eid.unwrap_or(0), end_time, bearing);
-        let server_gun_pitch = decoded_inc.map(|(p, _)| p);
-        // 来向方向（hash6 解码的 yaw/pitch 对，报告 §4.7）
-        let target_inc_dir = decoded_inc.map(|(pi, y)| [y, pi]);
+        let server_gun_pitch = decoded_target_gun_pitch(&warnings32, target_eid.unwrap_or(0), end_time, bearing).map(|(p, _)| p);
 
         // 炮塔朝向（prop2 相对角 @ 命中通知时刻；method8 流序快照优先 = WI 逐位同基准，
         // 见 DirectHit8::victim_prop2；AoI 裁剪缺失时降级为车体朝向，不跳过）
@@ -3085,7 +3073,6 @@ pub fn extract_other_shot_replays_with_limits(
             shooter_gun_timeline,
             target_gun_timeline,
             server_part_index,
-            target_inc_dir,
         });
     }
     eprintln!("[replay_others] 其他玩家射击提取: {} 发（终点缺失跳过 {}、受击方状态缺失跳过 {}、射手状态炮口兜底 {}）",
