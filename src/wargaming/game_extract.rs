@@ -25,6 +25,12 @@ struct PbTankEntry {
     model_name: Option<String>,
     #[serde(default)]
     nation: Option<String>,
+    /// 顶级炮塔模块 id（tanks.pb turrets 末位；0 = 无数据）。
+    #[serde(default)]
+    top_turret_module: u32,
+    /// 顶级主炮模块 id（顶级炮塔下 guns 末位；0 = 无数据）。
+    #[serde(default)]
+    top_gun_module: u32,
 }
 
 /// 一辆坦克的提取结果（可移植的游戏数据替代品）。
@@ -134,10 +140,15 @@ pub fn extract_all(
 ) -> Result<ExtractStats> {
     let game_dir = resolve_game_dir(game_dir)?;
     let tanks: Vec<PbTankEntry> = crate::wargaming::blitzkit::load_tanks()
-        .values().map(|t| PbTankEntry {
-            tank_id: t.tank_id,
-            model_name: if t.dev_name.is_empty() { None } else { Some(t.dev_name.clone()) },
-            nation: if t.nation.is_empty() { None } else { Some(t.nation.clone()) },
+        .values().map(|t| {
+            let top_turret = t.turrets.last();
+            PbTankEntry {
+                tank_id: t.tank_id,
+                model_name: if t.dev_name.is_empty() { None } else { Some(t.dev_name.clone()) },
+                nation: if t.nation.is_empty() { None } else { Some(t.nation.clone()) },
+                top_turret_module: top_turret.map(|x| x.module_id).unwrap_or(0),
+                top_gun_module: top_turret.and_then(|x| x.guns.last()).map(|g| g.module_id).unwrap_or(0),
+            }
         }).collect();
 
     std::fs::create_dir_all(output_dir)?;
@@ -181,6 +192,39 @@ pub fn extract_all(
             .and_then(|d| CollisionData::parse_from_yaml(&String::from_utf8_lossy(&d.data)));
         if let (Some(t), Some(ref mut c)) = (&xml_text, collision.as_mut()) {
             c.hull_position = parse_hull_position(t);
+        }
+        // 顶级配置的炮塔/炮管碰撞盒：YAML 段名带模型节点号（turret_02/gun_06…），
+        // 经 models.pb 的 模块id→节点号 映射挑出本车顶级配置对应的段。
+        // （turret_bbox 旧字段只认 turret_01:，多炮塔节段名的车全为 null。）
+        if let Some(ref mut c) = collision {
+            let mi = crate::wargaming::blitzkit::model_info(tank.tank_id);
+            // 顶级炮塔：models.pb 内按模块 id 匹配，缺失时取末位（BlitzKit 库存→顶级序）
+            let top_turret = mi.as_ref().and_then(|m| {
+                m.turrets.iter().find(|t| t.module_id == tank.top_turret_module)
+                    .or_else(|| m.turrets.last())
+            });
+            if let Some(tur) = top_turret {
+                if c.turret_bbox.is_none() {
+                    c.turret_bbox = c.turret_bboxes.iter().find(|n| n.node == tur.model_node)
+                        .map(|n| n.bbox.clone());
+                }
+                // 顶级主炮：同炮塔下按模块 id 匹配，缺失取末位
+                let top_gun = tur.guns.iter().find(|g| g.gun_module_id == tank.top_gun_module)
+                    .or_else(|| tur.guns.last());
+                if let Some(g) = top_gun {
+                    if c.gun_bbox.is_none() {
+                        c.gun_bbox = c.gun_bboxes.iter().find(|n| n.node == g.model_node)
+                            .map(|n| n.bbox.clone());
+                    }
+                }
+            }
+            // 兜底：无 models.pb 映射时取首个节点段（单炮塔车即唯一段）
+            if c.turret_bbox.is_none() {
+                c.turret_bbox = c.turret_bboxes.first().map(|n| n.bbox.clone());
+            }
+            if c.gun_bbox.is_none() {
+                c.gun_bbox = c.gun_bboxes.first().map(|n| n.bbox.clone());
+            }
         }
 
         if armor_model.is_none() && collision.is_none() {

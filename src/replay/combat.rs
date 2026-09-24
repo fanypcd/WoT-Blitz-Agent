@@ -1371,7 +1371,16 @@ pub fn parse_hp_events(packets: &[(u32, f32, &[u8])]) -> Vec<HpEvent> {
 
 /// method29 (0x1d) 发射事件。args 布局（alen=37）：
 /// [shooterEntityId u32][shotId u32][rawFlag u8][launchPoint 3×f32][launchVelocity 3×f32][terminalRaw f32]
-struct LaunchEntry { t: f32, shooter: u32, shot_id: u32, point: [f32; 3], vel: [f32; 3] }
+struct LaunchEntry {
+    t: f32,
+    shooter: u32,
+    shot_id: u32,
+    point: [f32; 3],
+    vel: [f32; 3],
+    /// method29 包处理时刻（**流序**）射手的最后已知 prop2 原始 u16——WI 解析器同构快照。
+    /// 与时钟序"≤t 最后采样"的差异仅在同 tick 内包序：method29 包之前到达的 prop2 才计入。
+    shooter_prop2: Option<(f32, u16)>,   // (采样钟, 原始 u16)
+}
 
 /// method20 (0x14) 弹道终点（shotId 配对）。
 /// method8 直击通知（全局广播，envelope eid = 受击者）；
@@ -1392,6 +1401,11 @@ struct DirectHit8 {
     component_index: Option<u8>,
     hash6: [u8; 6],
     victim_state: Option<([f32; 3], [f32; 3], f32)>,   // (pos, ang[yaw,pitch,roll], 状态采样时钟)
+    /// method8 包处理时刻（**流序**）受击者的最后已知 prop2 原始 u16——WI 解析器同构快照
+    /// （battle.json turret_yaw/gun_pitch 的取样基准，2026-09-24 T110E5 回放 21/21 逐位验证：
+    /// 炮塔 coarse10 与流序快照精确相等，时钟序仅 8/21——同 tick 内 prop2 与 method8 的包序
+    /// 决定取值）。(采样钟, 原始 u16)
+    victim_prop2: Option<(f32, u16)>,
 }
 
 /// type=32 来袭炮弹警告/命中通知（eid = 受击者，AoI 广播含他人命中）。
@@ -1423,8 +1437,15 @@ fn collect_launches(
     let mut out: Vec<LaunchEntry> = Vec::new();
     let mut seen_shots: std::collections::HashSet<u32> = std::collections::HashSet::new();
     let mut short_args: Option<usize> = None;
-    for (_, clock, p) in packets {
+    // 流序当前 prop2（全实体维护——keep 过滤只作用于发射事件本身）
+    let mut ang2: std::collections::HashMap<u32, (f32, u16)> = Default::default();
+    for (t2, clock, p) in packets {
         if *clock < 5.0 || p.len() < 12 { continue; }
+        if *t2 == 7 && p.len() >= 14 && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 2 {
+            ang2.insert(u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
+                (*clock, u16::from_le_bytes([p[12], p[13]])));
+            continue;
+        }
         if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x1d { continue; }
         let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
         if args_len < 4 || 12 + args_len > p.len() { continue; }   // 连 shooter 都读不出：无法归属，跳过
@@ -1444,6 +1465,7 @@ fn collect_launches(
             shot_id,
             point: [f(9), f(13), f(17)],
             vel: [f(21), f(25), f(29)],
+            shooter_prop2: ang2.get(&shooter).copied(),
         });
     }
     out.sort_by(|x, y| x.t.partial_cmp(&y.t).unwrap());
@@ -1477,12 +1499,19 @@ fn collect_direct_hits8(packets: &[(u32, f32, &[u8])]) -> Vec<DirectHit8> {
     // 文件序状态机：按包出现顺序维护每实体最后已知 type=10 姿态，method8 到达时快照受击者。
     // （wi 对齐验证：distance = |state[shooter] − state[victim]|@method8，99/99 发 median 残差 2μm）
     let mut pose: HashMap<u32, ([f32; 3], [f32; 3], f32)> = HashMap::new();
+    // 同一状态机的 prop2 通道：method8 到达时快照受击者最后已知 prop2（WI turret_yaw 同基准）
+    let mut ang2: HashMap<u32, (f32, u16)> = HashMap::new();
     let mut direct_hits8: Vec<DirectHit8> = Vec::new();
     for (t2, clock, p) in packets {
         if *t2 == 10 && p.len() >= 48 {
             let f = |o: usize| f32::from_le_bytes([p[o], p[o+1], p[o+2], p[o+3]]);
             pose.insert(u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
                 ([f(12), f(16), f(20)], [f(36), f(40), f(44)], *clock));
+            continue;
+        }
+        if *t2 == 7 && p.len() >= 14 && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 2 {
+            ang2.insert(u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
+                (*clock, u16::from_le_bytes([p[12], p[13]])));
             continue;
         }
         if p.len() < 12 + 10 { continue; }
@@ -1503,6 +1532,7 @@ fn collect_direct_hits8(packets: &[(u32, f32, &[u8])]) -> Vec<DirectHit8> {
             component_index,
             hash6: [a[11], a[12], a[13], a[14], a[15], a[16]],
             victim_state: pose.get(&victim).map(|(pos, ang, c)| (*pos, *ang, *c)),
+            victim_prop2: ang2.get(&victim).copied(),
         });
     }
     direct_hits8.sort_by(|x, y| x.t.partial_cmp(&y.t).unwrap());
@@ -1782,6 +1812,15 @@ fn gun_pitch_range_at(r: &GunPitchRange, turret_rel_deg: f32) -> (f32, f32) {
 pub fn decode_prop2_gun_pitch(frac: f32, range: &GunPitchRange, turret_rel_rad: f32) -> f32 {
     let (dep, ele) = gun_pitch_range_at(range, turret_rel_rad * 57.29578);
     (ele - frac / 63.0 * (dep + ele)).to_radians()
+}
+
+/// prop2 原始 u16 → (炮塔相对偏航 rad, frac6)。与 [`build_entity_indexes`] 同一解码
+/// （高 10 位 coarse = 偏航、低 6 位 = 俯仰比例）。供流序快照
+/// （[`DirectHit8::victim_prop2`] / [`LaunchEntry::shooter_prop2`]）消费。
+fn decode_prop2_u16(v: u16) -> (f32, f32) {
+    let rel = (v >> 6) as f32 / 1024.0 * std::f32::consts::TAU - std::f32::consts::PI;
+    let rel = if rel > std::f32::consts::PI { rel - std::f32::consts::TAU } else { rel };
+    (rel, (v & 63) as f32)
 }
 
 /// prop2 时间线 → **客户端语义密集采样**（0.1s 网格，与 render_timeline 同惯例）：
@@ -2399,53 +2438,86 @@ pub fn extract_shot_replays_with_limits(
 
         // ⑩ 目标炮塔朝向 = prop2 + hullYaw（命中弹必须有）；prop2 索引保持包序，min_by_key 首最小语义与原扫包一致
         let state_time = end_time;   // 炮塔/炮管取样基准 = 命中通知时刻（与 WI turret_yaw 同域）
+        // ⑩' method8 流序 prop2 快照（WI 逐位对齐，2026-09-24 T110E5 21/21 验证）：method8 包
+        // 处理时刻受击者的最后已知 prop2——时钟序"≤t 最后采样"在同 tick 包序错位时会取到
+        // method8 之后的更新（炮塔转动中差 1~8 个 coarse 步），流序快照与 WI battle.json 逐位相等。
+        let d8_prop2 = if hit {
+            let teid = target_eid.unwrap_or(0);
+            direct_hits8.iter()
+                .find(|d| d.shooter == author_player_eid && d.victim == teid && (d.t - end_time).abs() <= 0.05)
+                .and_then(|d| d.victim_prop2)
+        } else { None };
         let turret_yaw = if hit {
-            let rel = target_eid.and_then(|eid| prop2_at_arrived(prop2.get(&eid), state_time))
-                .map(|(r, _)| r)
+            let teid = target_eid.unwrap();
+            let rel = match d8_prop2 {
+                Some((_, v)) => { let (r, _) = decode_prop2_u16(v); Some(r) }
+                None => prop2_at_arrived(prop2.get(&teid), state_time).map(|(r, _)| r),
+            }
                 .ok_or_else(|| anyhow::anyhow!("{}: 目标炮塔朝向（type=7 prop2）缺失", ctx()))?;
             rel + ta[0]
         } else { 0.0 };
 
-        // ⑪ 射手炮塔朝向 = prop2 + 射手 hullYaw，@ 开火时刻
-        let shooter_rel = prop2_at_arrived(prop2.get(&author_player_eid), fire_time)
-            .map(|(r, _)| r)
+        // ⑪ 射手炮塔朝向 = prop2 + 射手 hullYaw，@ 开火时刻（method29 流序快照优先，语义同 ⑩'）
+        let shooter_rel = match l.shooter_prop2 {
+            Some((_, v)) => { let (r, _) = decode_prop2_u16(v); Some(r) }
+            None => prop2_at_arrived(prop2.get(&author_player_eid), fire_time).map(|(r, _)| r),
+        }
             .ok_or_else(|| anyhow::anyhow!("{}: 射手炮塔朝向（type=7 prop2）缺失", ctx()))?;
         let shooter_turret_yaw = shooter_rel + sa[0];
 
         // ⑪' 受击方炮管俯仰 = prop2 frac 比例解码（车型极限锚定）@ 命中通知时刻；
-        // prop2 采样或锚定缺失 → 回退车体 pitch（type10，语义不同仅兜底，质量标记 "target"）
+        // 流序快照优先（扇区选择用同一快照的偏航角，与 WI 同基准）；prop2 采样或锚定缺失
+        // → 回退车体 pitch（type10，语义不同仅兜底，质量标记 "target"）
         let mut gun_pitch_degraded: Vec<String> = Vec::new();
         let mut pitch_frozen: Vec<String> = Vec::new();
         let target_gun_pitch_val = if hit {
             let teid = target_eid.unwrap();
-            match prop2_at_arrived(prop2.get(&teid), state_time).zip(target_limits) {
-                Some(((y, fr), lim)) => {
+            match d8_prop2.zip(target_limits) {
+                Some(((_, v), lim)) => {
+                    let (y, fr) = decode_prop2_u16(v);
                     if prop2_frac_frozen(prop2.get(&teid), state_time) {
                         pitch_frozen.push("target".into());
                     }
                     decode_prop2_gun_pitch(fr, lim, y)
                 }
-                None => { gun_pitch_degraded.push("target".into()); ta[1] }
+                None => match prop2_at_arrived(prop2.get(&teid), state_time).zip(target_limits) {
+                    Some(((y, fr), lim)) => {
+                        if prop2_frac_frozen(prop2.get(&teid), state_time) {
+                            pitch_frozen.push("target".into());
+                        }
+                        decode_prop2_gun_pitch(fr, lim, y)
+                    }
+                    None => { gun_pitch_degraded.push("target".into()); ta[1] }
+                },
             }
         } else { ta[1] };
 
-        // ⑫ 射手炮管俯仰 = prop2 frac 比例解码 @ 开火时刻（与受击方同源同锚定）；
+        // ⑫ 射手炮管俯仰 = prop2 frac 比例解码 @ 开火时刻（与受击方同源同锚定；method29 流序快照优先）；
         // prop2/锚定缺失 → 回退 prop9（avatar 瞄准角，狙击模式下≈炮管角），仍缺则 fail-fast
         let (shooter_gun_pitch, shooter_pitch_from_prop9) =
-            match prop2_at_arrived(prop2.get(&author_player_eid), fire_time).zip(shooter_limits) {
-                Some(((y, fr), lim)) => {
+            match l.shooter_prop2.zip(shooter_limits) {
+                Some(((_, v), lim)) => {
+                    let (y, fr) = decode_prop2_u16(v);
                     if prop2_frac_frozen(prop2.get(&author_player_eid), fire_time) {
                         pitch_frozen.push("shooter".into());
                     }
                     (decode_prop2_gun_pitch(fr, lim, y), false)
                 }
-                None => {
-                    gun_pitch_degraded.push("shooter".into());
-                    (prop9.iter()
-                        .min_by_key(|(c, _)| (((*c - fire_time).abs()) * 1000.0) as u32)
-                        .map(|(_, v)| *v)
-                        .ok_or_else(|| anyhow::anyhow!("{}: 射手炮管俯仰（prop2 与 prop9 均缺失）", ctx()))?, true)
-                }
+                None => match prop2_at_arrived(prop2.get(&author_player_eid), fire_time).zip(shooter_limits) {
+                    Some(((y, fr), lim)) => {
+                        if prop2_frac_frozen(prop2.get(&author_player_eid), fire_time) {
+                            pitch_frozen.push("shooter".into());
+                        }
+                        (decode_prop2_gun_pitch(fr, lim, y), false)
+                    }
+                    None => {
+                        gun_pitch_degraded.push("shooter".into());
+                        (prop9.iter()
+                            .min_by_key(|(c, _)| (((*c - fire_time).abs()) * 1000.0) as u32)
+                            .map(|(_, v)| *v)
+                            .ok_or_else(|| anyhow::anyhow!("{}: 射手炮管俯仰（prop2 与 prop9 均缺失）", ctx()))?, true)
+                    }
+                },
             };
 
         // ⑬ aim_point / launch_point_rel = 相对【命中通知状态】目标位置（type10 接地高度）的偏移
@@ -2833,48 +2905,71 @@ pub fn extract_other_shot_replays_with_limits(
         // 来向方向（hash6 解码的 yaw/pitch 对，报告 §4.7）
         let target_inc_dir = decoded_inc.map(|(pi, y)| [y, pi]);
 
-        // 炮塔朝向（prop2 相对角最近值 @ 命中通知时刻，与 WI turret_yaw 同域；
-        // AoI 裁剪缺失时降级为车体朝向，不跳过）
+        // 炮塔朝向（prop2 相对角 @ 命中通知时刻；method8 流序快照优先 = WI 逐位同基准，
+        // 见 DirectHit8::victim_prop2；AoI 裁剪缺失时降级为车体朝向，不跳过）
+        let d8_prop2 = dhit.and_then(|d| d.victim_prop2);
         let mut turret_degraded: Vec<String> = Vec::new();
         let mut gun_pitch_degraded: Vec<String> = Vec::new();
         let mut pitch_frozen: Vec<String> = Vec::new();
         let target_turret_yaw = if hit {
             let teid = target_eid.unwrap_or(0);
-            match prop2_yaw_at(teid, end_time) {
+            let rel = match d8_prop2 {
+                Some((_, v)) => { let (r, _) = decode_prop2_u16(v); Some(r) }
+                None => prop2_yaw_at(teid, end_time),
+            };
+            match rel {
                 Some(rel) => rel + ta[0],
                 None => { turret_degraded.push("target".into()); ta[0] }
             }
         } else { 0.0 };
-        let shooter_turret_yaw = match prop2_yaw_at(l.shooter, l.t) {
+        let shooter_turret_yaw = match l.shooter_prop2.map(|(_, v)| decode_prop2_u16(v).0).or_else(|| prop2_yaw_at(l.shooter, l.t)) {
             Some(rel) => rel + sa[0],
             None => { if !pos_from_muzzle { turret_degraded.push("shooter".into()); } sa[0] }
         };
 
-        // 炮管俯仰：prop2 frac 比例解码（双方同源）；prop2/锚定缺失 → 射手回退发射速度
-        // 向量反解（垂直/水平分量），受击方回退车体 pitch，均打质量标记
-        let shooter_gun_pitch = match prop2_at_arrived(prop2.get(&l.shooter), l.t).zip(shooter_limits) {
-            Some(((y, fr), lim)) => {
+        // 炮管俯仰：prop2 frac 比例解码（双方同源，method29/8 流序快照优先）；prop2/锚定缺失
+        // → 射手回退发射速度向量反解（垂直/水平分量），受击方回退车体 pitch，均打质量标记
+        let shooter_gun_pitch = match l.shooter_prop2.zip(shooter_limits) {
+            Some(((_, v), lim)) => {
+                let (y, fr) = decode_prop2_u16(v);
                 if prop2_frac_frozen(prop2.get(&l.shooter), l.t) {
                     pitch_frozen.push("shooter".into());
                 }
                 decode_prop2_gun_pitch(fr, lim, y)
             }
-            None => {
-                gun_pitch_degraded.push("shooter".into());
-                let horiz = (l.vel[0] * l.vel[0] + l.vel[2] * l.vel[2]).sqrt();
-                if horiz > 1e-6 { l.vel[1].atan2(horiz) } else { 0.0 }
-            }
+            None => match prop2_at_arrived(prop2.get(&l.shooter), l.t).zip(shooter_limits) {
+                Some(((y, fr), lim)) => {
+                    if prop2_frac_frozen(prop2.get(&l.shooter), l.t) {
+                        pitch_frozen.push("shooter".into());
+                    }
+                    decode_prop2_gun_pitch(fr, lim, y)
+                }
+                None => {
+                    gun_pitch_degraded.push("shooter".into());
+                    let horiz = (l.vel[0] * l.vel[0] + l.vel[2] * l.vel[2]).sqrt();
+                    if horiz > 1e-6 { l.vel[1].atan2(horiz) } else { 0.0 }
+                }
+            },
         };
         let target_gun_pitch_val = if hit {
             let teid = target_eid.unwrap();
-            match prop2_at_arrived(prop2.get(&teid), end_time).zip(target_limits) {
-                Some(((y, fr), lim)) => {
+            match d8_prop2.zip(target_limits) {
+                Some(((_, v), lim)) => {
+                    let (y, fr) = decode_prop2_u16(v);
                     if prop2_frac_frozen(prop2.get(&teid), end_time) {
                         pitch_frozen.push("target".into());
                     }
                     decode_prop2_gun_pitch(fr, lim, y)
                 }
-                None => { gun_pitch_degraded.push("target".into()); ta[1] }
+                None => match prop2_at_arrived(prop2.get(&teid), end_time).zip(target_limits) {
+                    Some(((y, fr), lim)) => {
+                        if prop2_frac_frozen(prop2.get(&teid), end_time) {
+                            pitch_frozen.push("target".into());
+                        }
+                        decode_prop2_gun_pitch(fr, lim, y)
+                    }
+                    None => { gun_pitch_degraded.push("target".into()); ta[1] }
+                },
             }
         } else { ta[1] };
 

@@ -127,6 +127,21 @@ pub struct CollisionData {
     /// visual 模型中车体即放在此位置，是 collision 坐标与 visual 坐标之间的权威桥梁。
     #[serde(default)]
     pub hull_position: Option<[f32; 3]>,
+    /// YAML 内全部 `turret_NN:` 段的包围盒（按模型节点号索引；extract 阶段按
+    /// models.pb 模块→节点映射挑选顶级配置写入 turret_bbox）。
+    #[serde(default)]
+    pub turret_bboxes: Vec<NumberedBBox>,
+    /// YAML 内全部 `gun_NN:` 段的包围盒（同上，对应 gun_bbox）。
+    #[serde(default)]
+    pub gun_bboxes: Vec<NumberedBBox>,
+}
+
+/// 带模型节点号的包围盒（`turret_02:` → node=2）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NumberedBBox {
+    pub node: u32,
+    #[serde(flatten)]
+    pub bbox: BoundingBox,
 }
 
 /// 从游戏 XML 解析出的完整装甲模型（hull / turret / gun / chassis 各部件）。
@@ -362,6 +377,8 @@ impl CollisionData {
             turret_points: None,
             gun_points: None,
             hull_position: None,
+            turret_bboxes: Vec::new(),
+            gun_bboxes: Vec::new(),
         };
 
         if let Some(collision_idx) = text.find("collision:") {
@@ -374,6 +391,11 @@ impl CollisionData {
             data.hull_points = parse_section_points(collision_text, "hull:");
             data.turret_points = parse_section_points(collision_text, "turret_01:");
             data.gun_points = parse_section_points(collision_text, "gun_01:");
+            // 全量收集带节点号的炮塔/炮管段（段名不全是 _01：如 T110E5 的游戏文件
+            // 里唯一炮塔叫 turret_02、主炮叫 gun_06）。顶级配置的挑选在 extract 阶段
+            // 按 models.pb 模块→节点映射完成。
+            data.turret_bboxes = parse_numbered_section_bboxes(collision_text, "turret_");
+            data.gun_bboxes = parse_numbered_section_bboxes(collision_text, "gun_");
 
             // 解析 hull 的平均厚度（其值跟在 turret_01: 之后）
             if let Some(avg_idx) = collision_text.find("averageThickness:") {
@@ -397,7 +419,12 @@ impl CollisionData {
 
 /// 解析某部件的 min/max 包围盒（限 400 字符搜索范围）。
 fn parse_section_bbox(text: &str, section_name: &str) -> Option<BoundingBox> {
-    let section_idx = text.find(section_name)?;
+    parse_section_bbox_from(text, 0, section_name)
+}
+
+/// 从 `from` 偏移起找段名并解析 min/max 包围盒（供同段名多处出现时按位置区分）。
+fn parse_section_bbox_from(text: &str, from: usize, section_name: &str) -> Option<BoundingBox> {
+    let section_idx = text.get(from..)?.find(section_name)? + from;
     // 固定 400 字节窗口可能落在多字节 UTF-8 字符中间：向左回退到安全边界再切片
     let mut end = (section_idx + 400).min(text.len());
     while end > section_idx && !text.is_char_boundary(end) {
@@ -415,6 +442,34 @@ fn parse_section_bbox(text: &str, section_name: &str) -> Option<BoundingBox> {
     let max = parse_float_array(max_str)?;
 
     Some(BoundingBox { min, max })
+}
+
+/// 收集 collision 段内全部 `turret_NN:` / `gun_NN:` 部件头及其包围盒。
+/// 头行判定 = 名称+节点号后紧跟冒号且行尾（排除 hull 段 averageThickness 里的
+/// `turret_02: 186.08` 引用行——那行冒号后跟数值，不是行尾）。
+pub(crate) fn parse_numbered_section_bboxes(text: &str, prefix: &str) -> Vec<NumberedBBox> {
+    let mut out: Vec<NumberedBBox> = Vec::new();
+    let mut search_from = 0;
+    while let Some(rel) = text[search_from..].find(prefix) {
+        let idx = search_from + rel;
+        search_from = idx + prefix.len();
+        let after = &text[idx + prefix.len()..];
+        let digits: usize = after.chars().take_while(|c| c.is_ascii_digit()).count();
+        if digits == 0 { continue; }
+        let Ok(node) = after[..digits].parse::<u32>() else { continue };
+        let rest = &after[digits..];
+        let is_header = rest.starts_with(":\n") || rest.starts_with(":\r\n")
+            || rest.starts_with(':') && rest[1..].trim_start_matches('\r').starts_with('\n');
+        if !is_header { continue; }
+        // 段名用原始数字串（YAML 零填充：turret_02: 而非 turret_2:）；node 存数值供 models.pb 匹配
+        let name = format!("{prefix}{}:", &after[..digits]);
+        if let Some(bb) = parse_section_bbox_from(text, idx, &name) {
+            if !out.iter().any(|n| n.node == node) {
+                out.push(NumberedBBox { node, bbox: bb });
+            }
+        }
+    }
+    out
 }
 
 /// 解析某部件的 `points:` 数组（部件定位偏移）。
