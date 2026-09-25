@@ -1,9 +1,0 @@
-<rml>
-	<head>
-		<title>Wait Icon</title>
-        <link type="text/rcss" href="/rml/main.rcss"/>
-    </head>
-	<body id="wait_icon" class="right-0 bottom-0 h-8 hidden" onload="document:Show()">
-        <img src="materials/wait_icon.material" width="32dp" height="32dp" />
-    </body>
-</rml>

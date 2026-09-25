@@ -1,9 +1,0 @@
-<template name="button" content="content">
-<head>
-	<link type="text/rcss" href="/rml/main.rcss"/>
-</head>
-<body>
-	<div id="content" class="inline-flex flex-1 gap-2 items-center justify-center min-w-16 shadow-md text-base leading-none lowercase px-4 min-h-8">
-	</div>
-</body>
-</template>
