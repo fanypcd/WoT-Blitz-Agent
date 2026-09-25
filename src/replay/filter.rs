@@ -508,8 +508,7 @@ mod referee {
         let mut n_moving = 0usize;
         let mut n_stationary = 0usize;
         let mut max_frame_speed_all: f32 = 0.0;
-        let mut frames_total = 0usize;
-        let mut frames_over_30 = 0usize;
+
         let mut render_vs_raw_all: Vec<f32> = Vec::new();
         let mut frames_checked = 0usize;
 
@@ -638,11 +637,9 @@ mod referee {
                 for w in tl.frames.windows(2) {
                     let dt = (w[1].time - w[0].time) as f32;
                     if dt <= 0.0 { continue; }
-                    let spd = dist3(w[1].pos, w[0].pos) / dt;
-                    if spd > 30.0 { frames_over_30 += 1; }
-                    max_frame_speed_all = max_frame_speed_all.max(spd);
+                    max_frame_speed_all = max_frame_speed_all.max(
+                        dist3(w[1].pos, w[0].pos) / dt);
                 }
-                frames_total += tl.frames.len();
             }
             let name = file.file_name().unwrap().to_string_lossy().to_string();
             eprintln!("--- {name}: 命中 {} 发，机动 {} / 静止 {}",

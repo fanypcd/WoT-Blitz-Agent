@@ -1881,7 +1881,7 @@ pub(crate) fn prop2_at(
     }
     let q = t - 0.1;
     let m = list.iter().filter(|(c, _, _)| *c <= q).count();
-    let lerp = |(ca, ya, fa): (f32, f32, u16), (cb, yb, fb): (f32, f32, u16), f: f32| -> (f32, f32) {
+    let lerp = |(_ca, ya, fa): (f32, f32, u16), (_cb, yb, fb): (f32, f32, u16), f: f32| -> (f32, f32) {
         let mut dy = yb - ya;
         while dy > std::f32::consts::PI { dy -= std::f32::consts::TAU; }
         while dy < -std::f32::consts::PI { dy += std::f32::consts::TAU; }
@@ -1940,6 +1940,8 @@ fn prop2_frac_frozen(series: Option<&Vec<(f32, f32, u16)>>, t: f32) -> bool {
 /// 从射击事件抽取复现数据（WotbTools 权威弹丸生命周期，全部 shotId 确定性配对）：
 /// method29 (0x1d) 发射 / method20 (0x14) 终点 / method38 (0x26) 命中结果（仅作者）；目标 = method38 victimVehicleId（服务器权威，无则 miss）；
 /// 伤害 = method1 血量链差值（victim + source=作者 + cause=0）。数据完整性 fail-fast：任何缺失/歧义直接返回 Err，不做保守降级（零值掩盖问题）。
+/// 便捷入口（作者 eid 版）：保留作文档引用的外部调用面，当前管线走 with_limits 路径。
+#[allow(dead_code)]
 pub fn extract_shot_replays(
     packets: &[(u32, f32, &[u8])],
     author_player_eid: u32,
@@ -2702,6 +2704,8 @@ pub fn resolve_author_player_eid_by_nick(packets: &[(u32, f32, &[u8])], author_n
         .unwrap_or(0)
 }
 
+/// 便捷入口：默认无俯仰极限锚定。
+#[allow(dead_code)]
 pub fn extract_shot_replays_auto(
     packets: &[(u32, f32, &[u8])],
     author_nick: &str,
@@ -2740,6 +2744,8 @@ pub struct OtherShotsExtraction {
 /// 伤害 = 血量链降幅（source=射手，cause=0）；双方炮管俯仰 = prop2 frac 解码（无锚定时射手回退发射速度向量、受击方回退车体 pitch）；
 /// method36 瞄准快照 / type=28 弹药槽 = Avatar 专属 → None / 0。
 /// 宽松模式：数据缺失的射击跳过并计数，绝不 bail（AoI 裁剪致远端数据稀疏是预期，与作者路径 fail-fast 不同）。
+/// 便捷入口：默认无俯仰极限锚定。
+#[allow(dead_code)]
 pub fn extract_other_shot_replays(
     packets: &[(u32, f32, &[u8])],
     author_player_eid: u32,

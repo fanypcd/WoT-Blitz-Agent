@@ -67,6 +67,8 @@ impl ShellKindTable {
         }
     }
 
+    /// 单点查询工具（诊断/探针用；主管线走 annotate）。
+    #[allow(dead_code)]
     pub fn kind_of(&self, global_id: u32) -> Option<&str> {
         self.by_global.get(&global_id).map(String::as_str)
     }
