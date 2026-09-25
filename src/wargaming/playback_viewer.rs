@@ -1156,6 +1156,22 @@ function initControls() {
   });
 }
 
+// ---------- 姿态抖动修复 ----------
+// 滤波层输出的 yaw 落盘在 ±π 内回绕：真实朝向连续越过 ±π 时，相邻网格样本会出现
+// ≈2π 的数值跳变，线性插值会让车身在 0.1s 内反方向甩 300°+（飞天/翻车事件前后
+// 尤其剧烈）。加载后按最短弧原则去缠绕，使插值全程连续。
+function unwrapAngleArray(arr) {
+  let shift = 0;
+  let prev = arr[0];
+  for (let i = 1; i < arr.length; i++) {
+    const d = arr[i] + shift - prev;
+    if (d > Math.PI) shift -= 2 * Math.PI;
+    else if (d < -Math.PI) shift += 2 * Math.PI;
+    arr[i] += shift;
+    prev = arr[i];
+  }
+}
+
 // ---------- 数据加载 ----------
 async function loadData(file) {
   $('err').textContent = '';
@@ -1169,6 +1185,10 @@ async function loadData(file) {
     });
     if (!resp.ok) throw new Error(await resp.text());
     DATA = await resp.json();
+    for (const v of DATA.vehicles) {
+      unwrapAngleArray(v.hull_yaw);
+      unwrapAngleArray(v.turret_yaw);
+    }
     startPlayback();
     $('loader').style.display = 'none';
   } catch (e) {
