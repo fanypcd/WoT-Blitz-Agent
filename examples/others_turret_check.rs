@@ -59,7 +59,7 @@ fn main() {
     println!("others: {} 发（总发射 {}，跳过：终点缺 {} 受击态缺 {} 炮口兜底 {}）",
         others.shots.len(), others.total_launches, others.skipped_no_endpoint, others.skipped_no_target_state, others.muzzle_fallback);
     for s in others.shots.iter().take(12) {
-        let q = s.quality.clone().unwrap_or(combat_mod::ShotQuality { shooter_state_dt_ms: 0, shooter_pos_from_muzzle: false, target_state_dt_ms: None, turret_degraded: Vec::new(), dmg_unattributed: false, shell_from_broadcast: false, shooter_pitch_from_velocity: false, shooter_pitch_from_prop9: false, gun_pitch_degraded: Vec::new(), pitch_frozen: Vec::new(), shooter_anchor_src: None, target_anchor_src: None });
+        let q = s.quality.clone().unwrap_or(combat_mod::ShotQuality { shooter_state_dt_ms: 0, shooter_pos_from_muzzle: false, target_state_dt_ms: None, turret_degraded: Vec::new(), dmg_unattributed: false, shell_from_broadcast: false, shell_from_terrain: false, shooter_pitch_from_velocity: false, shooter_pitch_from_prop9: false, gun_pitch_degraded: Vec::new(), pitch_frozen: Vec::new(), shooter_anchor_src: None, target_anchor_src: None });
         println!("#{} t={:.2} shooter={:>14} target={:<14} tgt_turret_yaw={:+8.2}° hull={:+8.2}° rel={:+8.2}° tgt_gun_pitch={:+7.2}° frozen={:?} degraded={:?} tl={}",
             s.index, s.time_s, s.shooter_name, s.target_name,
             s.target_turret_yaw*57.2958, s.target_ang[0]*57.2958,

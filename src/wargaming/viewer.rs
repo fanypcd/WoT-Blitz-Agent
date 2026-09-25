@@ -236,7 +236,9 @@ pub async fn start_viewer_server_for_replay(
             .and_then(|p| br.player_results.iter().find(|pr| pr.info.account_id == p.account_id))
             .map(|pr| pr.info.tank_id)
     };
-    let replay_data = crate::replay::combat::extract_shot_replays_with_limits(&raw_packets, author_player_eid, &pitch_limits)?;
+    let mut replay_data = crate::replay::combat::extract_shot_replays_with_limits(&raw_packets, author_player_eid, &pitch_limits)?;
+    // 弹种回填：全局 shell_id → tanks.pb 原始弹种串（/api/replay_shot 透传给 3D 视图）
+    crate::replay::loadout::ShellKindTable::from_tanks_pb().annotate(&mut replay_data);
     if shot_no == 0 || shot_no > replay_data.len() {
         return Err(anyhow::anyhow!("shot {} out of range (1..={})", shot_no, replay_data.len()));
     }
@@ -750,6 +752,8 @@ pub(crate) async fn shells_handler(axum::extract::Path(tank_id): axum::extract::
             let caliber_mm = parse_gun_caliber(&g.name).map(|c| c.round() as u32).unwrap_or(120);
             let shells: Vec<Value> = g.shells.iter().map(|s| json!({
                 "type": s.shell_type,
+                // 全局弹种 id（与回放 shell_id 同域）：射击复现按 shell_id 反查槽位弹种用
+                "global_id": crate::replay::loadout::blitzkit_shell_global_id(&t.nation, s.id as u64),
                 "name": s.name,
                 "penetration": s.penetration,
                 "damage": s.damage,
@@ -1505,6 +1509,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             if ((q.turret_degraded || []).includes('target')) issues.push('目标炮塔角降级为车体朝向');
             if ((q.turret_degraded || []).includes('shooter')) issues.push('射手炮塔角降级为车体朝向');
             if (q.shell_from_broadcast) issues.push('弹种来自开火广播兜底');
+            if (q.shell_from_terrain) issues.push('弹种来自地形命中广播兜底（0x1b）');
             if (q.shooter_pitch_from_velocity) issues.push('射手炮管俯仰由弹道推算');
             if (q.dmg_unattributed) issues.push('伤害未记账');
             if (s.target_name && !s.shell_id) issues.push('弹种未知');
@@ -2528,7 +2533,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                 '<span style="color:#cc66ff;">●</span> 炮闩(发射起点) ' +
                                 '<span style="color:#00aaff;">●</span> 基准点·射手(type10锚)</div>' +
                                 '<div class="ctrl-row" style="font-size:10px;color:#888;">flags=' + flgM.toString(16) +
-                                ' · shell_id=' + (s.shell_id || '—') + '</div>'; }
+                                ' · shell_id=' + (s.shell_id || '—') +
+                                (s.shell_kind ? ' (' + s.shell_kind + ')' : '') +
+                                (s.quality && s.quality.shell_from_terrain ? ' · <span style="color:#8ab4ff;">弹种来自 0x1b 地形广播</span>' : '') +
+                                '</div>'; }
                             // 脱靶弹分支同样受调试开关收纳:默认隐藏面板与标注
                             const dbgBtnM = makeDebugToggle(null);
                             // URL debug=1 自动开启（与命中分支同语义）
@@ -3190,10 +3198,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                         if (tksW.length > 1) {
                             // 弹种自动匹配：按回放数据推断本发实际弹种并切换选择器（修正
                             // BLOCKED vs SPLASH 类差异）。优先级：① hit_flags 0x1000(HE 爆炸)
-                            // → explosion_radius>0 的弹；② shell_slot 兜底（槽位序与 blitzkit
-                            // shells 数组序不完全一致）。切换后经 shell-select change 重跑弦判定。
+                            // → explosion_radius>0 的弹；② shell_id 全局 id ↔ /api/shells
+                            // global_id 同域精确匹配（兜底链来源同样命中）；③ shell_slot 兜底
+                            //（槽位序与 blitzkit shells 数组序不完全一致）。切换后经 shell-select change 重跑弦判定。
                             window.__worldShellSlot = (typeof s.shell_slot === 'number') ? s.shell_slot : null;
                             window.__worldIsHE = !!(s.hit_flags & 0x1000);
+                            window.__worldShellId = (typeof s.shell_id === 'number' && s.shell_id) ? s.shell_id : null;
                             setTimeout(function() {
                                 const sel = document.getElementById('shell-select');
                                 if (!sel) return;
@@ -3201,6 +3211,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                 if (window.__worldIsHE) {
                                     want = (shooterShells || []).findIndex(sh =>
                                         shellTypeOf(sh) === 'he' || (sh && sh.explosion_radius > 0));
+                                }
+                                if (want == null || want < 0) {
+                                    want = (shooterShells || []).findIndex(sh => sh && sh.global_id === window.__worldShellId && window.__worldShellId);
+                                    if (want != null && want < 0) want = null;
                                 }
                                 if (want == null || want < 0) want = window.__worldShellSlot;
                                 if (want != null && want >= 0 && want < sel.options.length) {
@@ -3223,6 +3237,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                 if (!sp3) return '';
                                 return '<div class="ctrl-row" style="font-size:10px;color:#8ab4ff;">弹种: shell_id=' + s.shell_id +
                                     ' (局部' + sp3.local + ' · 国家0x' + sp3.nation.toString(16) + ')' +
+                                    (s.shell_kind ? ' · <b>' + s.shell_kind + '</b>' : '') +
+                                    ((s.quality && s.quality.shell_from_broadcast) ? ' · 来源0x07广播' : '') +
+                                    ((s.quality && s.quality.shell_from_terrain) ? ' · 来源0x1b广播' : '') +
                                     (s.segment ? ' · 装甲组=' + (s.armor_group || '—') : '') + '</div>';
                             })() +
                             (function() {

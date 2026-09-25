@@ -664,6 +664,8 @@ async fn replay_shots_handler(
     all_shots.extend(others.shots);
     all_shots.sort_by(|a, b| a.time_s.partial_cmp(&b.time_s).unwrap());
     for (i, s) in all_shots.iter_mut().enumerate() { s.index = i + 1; }
+    // 弹种回填：全局 shell_id → tanks.pb 原始弹种串（作者+他人统一，兜底链各级来源均识别）
+    crate::replay::loadout::ShellKindTable::from_tanks_pb().annotate(&mut all_shots);
     eprintln!("[replay_shots] total_shots={} (含其他玩家)", all_shots.len());
 
     // 目标坦克 ID：battle_results 按目标昵称关联（供 3D 查看器打开正确目标车辆）

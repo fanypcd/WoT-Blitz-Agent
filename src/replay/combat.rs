@@ -35,6 +35,10 @@ pub struct ShotQuality {
     /// 弹种来自 method0x07 开火广播兜底（type=32 命中通知未转发）；false = segment 权威来源
     #[serde(skip_serializing_if = "is_false")]
     pub shell_from_broadcast: bool,
+    /// 弹种来自 method0x1b 地形命中广播兜底（0x07 亦未覆盖：他人脱靶弹/作者 0x07 空窗）；
+    /// 同时意味着 terrain_impact 附带精确落点（撞静态物的弹无 0x1b，不适用）
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub shell_from_terrain: bool,
     /// 射手炮管俯仰由发射速度向量推算（prop2 缺失回退；作者路径恒 false——作者回退走 prop9）
     #[serde(skip_serializing_if = "is_false")]
     pub shooter_pitch_from_velocity: bool,
@@ -531,6 +535,10 @@ pub struct ShotReplayData {
     pub segment: u64,
     /// 命中弹种全局 id（24 位，含国家基数字节；与 WI shell_id 同值同源；0 = 未获取）
     pub shell_id: u32,
+    /// 弹种原始串（tanks.pb shells.xml：ap/ap_cr/heat/he 及 *_premium 修饰；ShellKindTable 按
+    /// shell_id 全局 id 回填，兜底链各级均可命中；未识别为空串）。前端自行做标签映射与金弹判定，勿在此归一化。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub shell_kind: String,
     /// segment[7]（B7）= 命中装甲板 plateId——五回放 15 型号 27 发渲染位姿 raycast
     /// 对照 23 匹配/3 相邻板/1 miss（逆向分析 §10.2）；viewer 片元验证 fragOk 用同源值
     pub armor_group: u8,
@@ -566,7 +574,8 @@ pub struct ShotReplayData {
     /// 射手坦克 type=10 采样（开火 ±0.2s，世界系绝对坐标）；末项可能为合成渲染位采样（render=true）
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub shooter_tick_samples: Vec<TickSample>,
-    /// 地形命中数据（Avatar method 0x1b；仅当该发未命中任何坦克且服务器广播时存在，约覆盖 2/3 地形弹）。
+    /// 地形命中数据（Avatar method 0x1b；全局广播含所有玩家脱靶弹，shotId 精确配对；
+    /// 仅当该发未命中任何坦克且撞到地形时存在，约覆盖 2/3 地形弹）。
     /// args(34) = [shotId u32][shell_global_id u32][material u8][impactPoint 3×f32][segmentStartPoint 3×f32][tail u8]。
     /// impact_point == method20 弹道终点（4 回放逐发一致）；segment_start = 弹道末段起点（直线弹 = method29 发射点，误差 0.000m；其余为弹跳点）；
     /// material 落点材质类（观测 0/1/2/4/5，命名未定）。
@@ -2117,7 +2126,9 @@ pub fn extract_shot_replays_with_limits(
     shell_broadcasts.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
 
     // ⑤''' Avatar method 0x1b 地形命中包（仅无坦克命中时广播）：shotId 配对，args(34) 布局见 TerrainImpactData。
-    let mut terrain_impacts: std::collections::HashMap<u32, TerrainImpactData> =
+    // 全局广播含所有玩家脱靶弹（J39 实证 30 发他人命中）——作者/他人路径共用，args[4..8] 的
+    // shell_global_id 同时是弹种兜底链第三级的数据源。
+    let mut terrain_impacts: std::collections::HashMap<u32, (u32, TerrainImpactData)> =
         std::collections::HashMap::new();
     for (_, _, p) in packets {
         if p.len() < 46 { continue; }
@@ -2126,13 +2137,14 @@ pub fn extract_shot_replays_with_limits(
         if args_len < 34 || 12 + args_len > p.len() { continue; }
         let a = &p[12..12 + args_len];
         let f = |o: usize| f32::from_le_bytes([a[o], a[o + 1], a[o + 2], a[o + 3]]);
-        terrain_impacts.entry(u32::from_le_bytes([a[0], a[1], a[2], a[3]])).or_insert(
+        terrain_impacts.entry(u32::from_le_bytes([a[0], a[1], a[2], a[3]])).or_insert((
+            u32::from_le_bytes([a[4], a[5], a[6], a[7]]),
             TerrainImpactData {
                 material: a[8],
                 impact_point: [f(9), f(13), f(17)],
                 segment_start: [f(21), f(25), f(29)],
             },
-        );
+        ));
     }
 
     // ⑤'''' Avatar method36 (0x24) 瞄准快照时间线（envelope = avatar = 录像者本人）；
@@ -2296,15 +2308,21 @@ pub fn extract_shot_replays_with_limits(
             }
         }
 
-        // ⑧'' 弹种兜底：命中通知未转发（segment=0，含脱靶弹）时用 method 0x07 广播 @ 发射时刻补全（30/30 一致）；
-        // 兜底发生时置 shell_from_broadcast 供 UI 徽章提示
+        // ⑧'' 弹种三级兜底：type=32 segment 权威 → method 0x07 广播 @ 发射时刻（命中通知未转发，
+        // 含脱靶弹；30/30 一致）→ 0x1b 地形命中广播（0x07 空窗时；args 自带 shell_global_id）。
+        // 兜底发生时置对应质量标记供 UI 徽章提示
         let mut shell_from_broadcast = false;
+        let mut shell_from_terrain = false;
+        let terrain_hit = terrain_impacts.get(&shot_id);
         if shell_id == 0 {
             for (t_sel, sh) in &shell_broadcasts {
                 if *t_sel <= fire_time { shell_id = *sh; shell_from_broadcast = true; } else { break; }
             }
+            if shell_id == 0 {
+                if let Some((gid, _)) = terrain_hit { shell_id = *gid; shell_from_terrain = true; }
+            }
         }
-        let terrain_impact = terrain_impacts.get(&shot_id).cloned();
+        let terrain_impact = terrain_hit.map(|(_, d)| d.clone());
 
         // ⑧''' 开火时刻瞄准快照（method36 成对，|dt|≤0.05）：前=射击前，后=射击后。
         let shooter_aim = {
@@ -2596,6 +2614,7 @@ pub fn extract_shot_replays_with_limits(
             destroyed_modules,
             segment,
             shell_id,
+            shell_kind: String::new(),
             armor_group,
             hit_triangle,
             game_hit_result,
@@ -2618,6 +2637,7 @@ pub fn extract_shot_replays_with_limits(
                 turret_degraded: Vec::new(),   // 作者路径 prop2 缺失即 fail-fast，不存在降级
                 dmg_unattributed,
                 shell_from_broadcast,
+                shell_from_terrain,
                 shooter_pitch_from_velocity: false,
                 shooter_pitch_from_prop9,
                 gun_pitch_degraded,
@@ -2698,9 +2718,10 @@ pub struct OtherShotsExtraction {
 
 /// 其他玩家（队友/敌方）射击的宽松提取：与 [`extract_shot_replays`] 同源数据，但 Avatar 专属包不可得，对应字段降级：
 /// method38 命中反馈（作者专属）→ hit_flags/crit/destroyed/modifiers 恒空，结果 = method8 result 枚举；目标 = method8 就近匹配（±0.05s）；
-/// segment/弹种/装甲组 = method8 hash6 令牌 ↔ type=32 精确配对（86/86 实测同源）；伤害 = 血量链降幅（source=射手，cause=0）；
-/// 双方炮管俯仰 = prop2 frac 解码（无锚定时射手回退发射速度向量、受击方回退车体 pitch）；
-/// 0x1b 地形命中 / method36 瞄准快照 / type=28 弹药槽 = Avatar 专属 → None / None / 0。
+/// segment/弹种/装甲组 = method8 hash6 令牌 ↔ type=32 精确配对（86/86 实测同源），未配对时弹种回退
+/// 0x1b 地形命中广播的 shell_global_id（全局广播含所有玩家脱靶弹，shotId 配对）并置 shell_from_terrain；
+/// 伤害 = 血量链降幅（source=射手，cause=0）；双方炮管俯仰 = prop2 frac 解码（无锚定时射手回退发射速度向量、受击方回退车体 pitch）；
+/// method36 瞄准快照 / type=28 弹药槽 = Avatar 专属 → None / 0。
 /// 宽松模式：数据缺失的射击跳过并计数，绝不 bail（AoI 裁剪致远端数据稀疏是预期，与作者路径 fail-fast 不同）。
 pub fn extract_other_shot_replays(
     packets: &[(u32, f32, &[u8])],
@@ -2726,6 +2747,27 @@ pub fn extract_other_shot_replays_with_limits(
 
     // ③' type=32 命中通知（AoI 广播含他人；按 hash6 令牌与 method8 精确配对）
     let warnings32 = collect_warnings32(packets);
+
+    // ③'' method 0x1b 地形命中广播（全局，含所有玩家脱靶弹；与作者路径 ⑤''' 同构）：
+    // 脱靶弹的 terrain_impact 精确落点 + shell_id 兜底链第三级数据源
+    let mut terrain_impacts: std::collections::HashMap<u32, (u32, TerrainImpactData)> =
+        std::collections::HashMap::new();
+    for (_, _, p) in packets {
+        if p.len() < 46 { continue; }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x1b { continue; }
+        let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
+        if args_len < 34 || 12 + args_len > p.len() { continue; }
+        let a = &p[12..12 + args_len];
+        let f = |o: usize| f32::from_le_bytes([a[o], a[o + 1], a[o + 2], a[o + 3]]);
+        terrain_impacts.entry(u32::from_le_bytes([a[0], a[1], a[2], a[3]])).or_insert((
+            u32::from_le_bytes([a[4], a[5], a[6], a[7]]),
+            TerrainImpactData {
+                material: a[8],
+                impact_point: [f(9), f(13), f(17)],
+                segment_start: [f(21), f(25), f(29)],
+            },
+        ));
+    }
 
     let names = extract_entity_names(packets);
 
@@ -2796,9 +2838,11 @@ pub fn extract_other_shot_replays_with_limits(
         let target_eid = dhit.map(|d| d.victim);
         let hit = target_eid.is_some();
 
-        // segment/弹种/装甲组：method8 hash6 令牌 ↔ type=32 精确配对（优于时间窗）
+        // segment/弹种/装甲组：method8 hash6 令牌 ↔ type=32 精确配对（优于时间窗）；
+        // type=32 未配对（AoI 裁剪）时弹种回退 0x1b 地形命中广播（shotId 精确配对，含所有玩家脱靶弹）
         let mut segment: u64 = 0;
         let mut shell_id: u32 = 0;
+        let mut shell_from_terrain = false;
         let mut armor_group: u8 = 0;
         let mut hit_triangle: u16 = 0;
         let mut game_hit_result: u8 = dhit.map(|d| d.result).unwrap_or(255);
@@ -2816,6 +2860,11 @@ pub fn extract_other_shot_replays_with_limits(
                 }
             }
         }
+        let terrain_hit = terrain_impacts.get(&l.shot_id);
+        if shell_id == 0 {
+            if let Some((gid, _)) = terrain_hit { shell_id = *gid; shell_from_terrain = true; }
+        }
+        let terrain_impact = terrain_hit.map(|(_, d)| d.clone());
 
         // 伤害归属：互斥预归属结果（assign_dmg_losses：区间内 end_time 最大者得降幅）
         let mut damage = 0u32;
@@ -3034,6 +3083,7 @@ pub fn extract_other_shot_replays_with_limits(
             destroyed_modules: 0,
             segment,
             shell_id,
+            shell_kind: String::new(),
             armor_group,
             hit_triangle,
             game_hit_result,
@@ -3047,7 +3097,7 @@ pub fn extract_other_shot_replays_with_limits(
             tick_samples,
             shooter_tick_samples,
             fire_tick,
-            terrain_impact: None,   // 0x1b 地形命中 = 作者 Avatar 专属
+            terrain_impact,         // 0x1b 全局广播：他人脱靶弹同样有精确落点
             shooter_aim: None,      // method36 瞄准快照 = 作者 Avatar 专属
             quality: Some(ShotQuality {
                 shooter_state_dt_ms: (sp_dt * 1000.0).round() as i32,
@@ -3055,7 +3105,8 @@ pub fn extract_other_shot_replays_with_limits(
                 target_state_dt_ms: if hit { Some((tp_dt * 1000.0).round() as i32) } else { None },
                 turret_degraded,
                 dmg_unattributed,
-                shell_from_broadcast: false,   // 他人无广播兜底：type=32 未配对则弹种直接未知（shell_id=0）
+                shell_from_broadcast: false,   // 0x07 弹种广播 = 作者 Avatar 弹药状态，他人不可得
+                shell_from_terrain,
                 shooter_pitch_from_velocity: gun_pitch_degraded.iter().any(|s| s == "shooter"),
                 shooter_pitch_from_prop9: false,
                 gun_pitch_degraded,

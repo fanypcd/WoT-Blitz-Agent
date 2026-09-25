@@ -260,6 +260,14 @@ enum Commands {
         #[arg(long)]
         streams_json: Option<PathBuf>,
     },
+    /// 解析回放文件玩家开局配置（队伍/坦克/初始血量/耐久加成/弹种表）
+    Loadout {
+        /// Path to the .wotbreplay file (Windows `C:\...` and WSL `/mnt/c/...` styles both accepted)
+        file: PathBuf,
+        /// Output JSON instead of text
+        #[arg(short, long)]
+        json: bool,
+    },
     /// Dump raw method38 / method8 / type=32 packet bytes (RE tool, wotinspector alignment)
     DumpMethods {
         /// Path to the .wotbreplay file
@@ -929,8 +937,10 @@ fn main() -> Result<()> {
                 .and_then(|br| TankResolver::load_from_json_file(std::path::Path::new("data/tank_cache.json")).ok()
                     .map(|r| r.pitch_limits_from_battle_results(&br)))
                 .unwrap_or_default();
-            let shot_replay = crate::replay::combat::extract_shot_replays_auto_with_limits(
+            let mut shot_replay = crate::replay::combat::extract_shot_replays_auto_with_limits(
                 &raw_packets, &file.file_name().and_then(|n| n.to_str()).unwrap_or(""), &pitch_limits)?;
+            // 弹种回填：全局 shell_id → tanks.pb 原始弹种串（兜底链各级来源统一识别）
+            crate::replay::loadout::ShellKindTable::from_tanks_pb().annotate(&mut shot_replay);
             // UpdateArena 竞技场状态流（子类型名表 + PERIOD 战局阶段时间线，报告 §4.5）
             let arena_updates = crate::replay::combat::collect_arena_updates(&raw_packets);
             let arena_periods = crate::replay::combat::parse_arena_periods(&arena_updates);
@@ -960,6 +970,54 @@ fn main() -> Result<()> {
             if let Some(path) = streams_json {
                 std::fs::write(&path, serde_json::to_string(&crate::replay::combat::dump_replay_streams(&raw_packets))?)?;
                 eprintln!("Entity streams written: {}", path.display());
+            }
+        }
+        Commands::Loadout { file, json } => {
+            use wotbreplay_parser::replay::Replay;
+            use std::fs::File;
+
+            // 路径风格兼容：Windows/WSL 任一风格输入按运行平台自动转换（C:\... ⇄ /mnt/c/...；path_translate=off 可关闭）
+            let file = std::path::PathBuf::from(
+                crate::models::config::ReplayConfig::translate_with_mode(&file.to_string_lossy(), "auto"));
+
+            let mut replay = Replay::open(File::open(&file)?)
+                .map_err(|e| anyhow::anyhow!("Failed to open replay: {}", e))?;
+            let data = replay.read_data()
+                .map_err(|e| anyhow::anyhow!("Failed to read data: {}", e))?;
+            let br = replay.read_battle_results()
+                .map_err(|e| anyhow::anyhow!("Failed to read battle results: {}", e))?;
+
+            let raw_packets: Vec<(u32, f32, &[u8])> = data.packets.iter()
+                .map(|pkt| {
+                    let pkt_type = match &pkt.payload {
+                        wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate { .. } => 5,
+                        wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
+                        wotbreplay_parser::models::data::payload::Payload::Unknown { packet_type } => *packet_type,
+                    };
+                    (pkt_type, pkt.clock_secs, &pkt.raw_payload[..])
+                })
+                .collect();
+
+            let loadouts = crate::replay::loadout::collect_player_loadouts(&raw_packets, &br);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&loadouts)?);
+            } else {
+                println!("\n========================================================");
+                println!("  Player Loadouts: {}", file.display());
+                println!("========================================================");
+                for l in &loadouts {
+                    println!("T{} {} {} (eid={:08x})", l.team, l.nickname, l.tank_name, l.entity_id);
+                    match (l.hp_base, l.hp_bonus_pct) {
+                        (0, _) => println!("  HP {} (基准未知)", l.hp_initial),
+                        (base, Some(pct)) => println!("  HP {}/{} (+{:.1}% {})", l.hp_initial, base, pct,
+                            if l.durability_equipment.is_empty() { "" } else { &l.durability_equipment }),
+                        (base, None) => println!("  HP {}/{}", l.hp_initial, base),
+                    }
+                    for (i, s) in l.shells.iter().enumerate() {
+                        println!("  shell {} 0x{:06x} {} dmg={} pen={}", i, s.global_id, s.kind, s.damage, s.penetration);
+                    }
+                }
+                println!("共 {} 名玩家", loadouts.len());
             }
         }
         Commands::DumpMethods { file } => {

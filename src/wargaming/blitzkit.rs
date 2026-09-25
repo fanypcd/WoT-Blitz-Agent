@@ -101,6 +101,10 @@ pub struct GunReload {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ShellData {
+    /// field1 = (弹种局部 id << 8) | (国家序×16+1)——BlitzKit items id 形式（usa 低字节 0x21）。
+    /// 局部 id = field1>>8；回放 shell_id 的国家基数 = 序号×16+10（usa=0x2a），组全局 id 用
+    /// `loadout::blitzkit_shell_global_id` 统一入口
+    pub id: u32,
     pub name: String,
     pub shell_type: String,
     pub damage: f64,
@@ -548,14 +552,14 @@ fn parse_gun(gb: &[u8]) -> Result<Option<GunData>> {
 
 fn parse_shell(sb: &[u8]) -> Result<Option<ShellData>> {
     let mut sr = Reader { buf: sb, pos: 0 };
-    let mut shell = ShellData { name: String::new(), shell_type: String::new(), damage: 0.0, penetration: 0.0, module_damage: 0.0, velocity: 0.0, range: 0.0, penetration_far: 0.0, caliber: 0.0, normalization: 0.0, ricochet: 0.0, explosion_radius: 0.0 };
+    let mut shell = ShellData { id: 0, name: String::new(), shell_type: String::new(), damage: 0.0, penetration: 0.0, module_damage: 0.0, velocity: 0.0, range: 0.0, penetration_far: 0.0, caliber: 0.0, normalization: 0.0, ricochet: 0.0, explosion_radius: 0.0 };
     // Reader::bytes 返回的切片与输入缓冲同生命周期，可直接借用，无需 to_vec
     let mut name_bytes: &[u8] = &[];
     let mut type_bytes: &[u8] = &[];
     while let Some(res) = sr.tag() {
         let (f, w) = res?;
         match (f, w) {
-            (1, 0) => { let _ = sr.varint()?; },
+            (1, 0) => shell.id = sr.varint()? as u32,                // 弹种局部 id（shells.xml 域）
             (2, 2) => { let l = sr.varint()? as usize; name_bytes = sr.bytes(l)?; },
             (3, 0) => shell.velocity = sr.varint()? as f64,          // 弹速 m/s
             (4, 0) => shell.damage = sr.varint()? as f64,

@@ -1075,20 +1075,29 @@ async function srParse() {
         renderShotList();
     } catch(e){ out.innerHTML='<div class="muted">⚠ '+esc(e.message)+'</div>'; }
 }
-// 弹种徽标：shell_type（tank_cache）→ AP/APCR/HEAT/HE + premium 标记 + 穿深
-// 非作者射击无槽位语义（type=28 是作者本人的选择状态），显示 shell_id 兜底
+// 弹种徽标：shell_kind（tanks.pb 原始串，ShellKindTable 兜底链回填）→ AP/APCR/HEAT/HE + premium 标记，
+// 作者+他人统一；作者缺 kind 时按槽位查 tank_cache；非作者缺 kind 时显示 shell_id 兜底
+//（type=28 槽位是作者本人的选择状态，对他人无槽位语义）
 function srShellBadge(s) {
-    if (!s.is_author) return (s.shell_id ? '<span class="muted" style="font-size:10px;">id'+s.shell_id+'</span>' : '');
+    const kindOf = (t) => {
+        t = (t || '').toLowerCase();
+        if (/^(ap_cr|apcr)/.test(t)) return 'APCR';
+        if (/^(hc|heat)/.test(t)) return 'HEAT';
+        if (/^he/.test(t)) return 'HE';
+        if (/^ap/.test(t)) return 'AP';
+        return '';
+    };
     const shells = window.__srShells || [];
     const sh = (s.shell_slot != null) ? shells[s.shell_slot] : null;
-    if (!sh) return (s.shell_slot != null) ? '<span class="muted">槽'+s.shell_slot+'</span>' : '';
-    const t = sh.shell_type || '';
-    let label = 'AP';
-    if (/^(ap_cr|apcr)/.test(t)) label = 'APCR';
-    else if (/^(hc|heat)/.test(t)) label = 'HEAT';
-    else if (/^he/.test(t)) label = 'HE';
+    const t = s.shell_kind || (sh && sh.shell_type) || '';
+    const label = kindOf(t);
+    if (!label) {
+        if (s.is_author && sh) return '<span class="muted">槽'+s.shell_slot+'</span>';
+        return (s.shell_id ? '<span class="muted" style="font-size:10px;">id'+s.shell_id+'</span>' : '');
+    }
     const prem = /premium/.test(t) ? ' gold' : '';
-    return '<span class="pill'+prem+'" style="font-size:10px;">'+label+'</span> <span class="muted" style="font-size:10px;">'+sh.penetration+'mm</span>';
+    const pen = (sh && sh.penetration) ? ' <span class="muted" style="font-size:10px;">'+sh.penetration+'mm</span>' : '';
+    return '<span class="pill'+prem+'" style="font-size:10px;">'+label+'</span>'+pen;
 }
 // 结果徽标：hit_flags 位图 → 击穿/HE/跳弹/未穿/脱靶（语义配色）
 // 非作者射击无 method38（Avatar 专属）→ hit_flags 恒 0，按 game_hit_result 枚举降级：
@@ -1165,6 +1174,7 @@ function srQualityBadge(s) {
     if (q.shooter_anchor_src === 'extrapolated') issues.push('射手姿态超出最后采样，按末段速度外推');
     else if (q.shooter_anchor_src === 'nearest') issues.push('射手快照用最近包（AoI 稀疏）');
     if (q.shell_from_broadcast) issues.push('弹种来自开火广播兜底（命中通知未转发）');
+    if (q.shell_from_terrain) issues.push('弹种来自地形命中广播兜底（0x1b，含精确落点）');
     if (q.shooter_pitch_from_velocity) issues.push('射手炮管俯仰由弹道推算（他人视角无该状态）');
     if (s.target_name && !s.shell_id) issues.push('弹种未知（通知与广播均缺失）');
     if (s.target_name && s.game_hit_result === 255) issues.push('服务器未通知命中结果');
