@@ -3155,13 +3155,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                                 const fh = Math.hypot(e[4], e[6]) || 1;
                                                 dirS = new THREE.Vector3(-e[4] / fh, 0, -e[6] / fh);
                                             }
-                                            // 段线入射端"无限"延长（工程取 900m，相机远平面内），
-                                            // 入射弹向一目了然；P2（穿出端）与标记保持在解码出入点
+                                            // 段线入射端"无限"延长（工程取 900m，相机远平面内）：
+                                            // 沿判定弹向 dirS（世界系，与 __segRay 同源）的反向，
+                                            // 入射弹向一目了然；P2（穿出端）与标记保持在解码出入点。
+                                            // 勿用未变换的 chordL 方向——部件盒带姿态时外延会指向错误方向
                                             const EXT = 900;
-                                            let dirN = (chordL.lengthSq() > 1e-9)
-                                                ? chordL.clone().normalize() : null;
-                                            if (!dirN && dirS) dirN = dirS.clone().normalize();
-                                            const aPt = mkP1.position.clone().addScaledVector(dirN, -EXT);
+                                            const aPt = mkP1.position.clone().addScaledVector(dirS, -EXT);
                                             const bPt = mkP2.position.clone();
                                             segLine.geometry.setFromPoints([aPt, bPt]);
                                             segLine.computeLineDistances();
