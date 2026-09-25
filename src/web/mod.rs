@@ -756,6 +756,15 @@ async fn replay_shots_handler(
         if let Some(idx) = nick_cfg.get(&s.shooter_name) {
             v["shooter_config_idx"] = json!(idx);
         }
+        // 发射弹种在射手弹表中的下标（确定性；type=28 槽位快照有切弹竞态）
+        let shooter_tank = team_tank_of(&s.shooter_name).map(|(_, t)| t);
+        if s.shell_id != 0 {
+            if let Some(st) = shooter_tank {
+                if let Some(idx) = crate::wargaming::viewer::shell_index_by_global_id(st, s.shell_id) {
+                    v["shooter_shell_idx"] = json!(idx);
+                }
+            }
+        }
         v
     }).collect();
     // 玩家列表（name/team/tank_id/is_author）：前端射击者筛选下拉的数据源。

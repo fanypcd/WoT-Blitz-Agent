@@ -293,6 +293,12 @@ pub async fn start_viewer_server_for_replay(
 
     let viewed_tank = target_tank.or(shooter_tank).unwrap_or(0);
     let shell_slot = shot.shell_slot;
+    // 发射弹种的权威标识 = shell_id（type=28 槽位快照存在切弹竞态）；
+    // URL 的 shell 参数按「弹种在射手弹表中的下标」传递
+    let shell_for_url = shooter_tank
+        .and_then(|st| shell_index_by_global_id(st, shot.shell_id))
+        .map(|i| i as u32)
+        .unwrap_or(shell_slot);
     // 实际搭载配置下标（目标/射手）：comp blob → 发射弹种 → 初始血量 证据链，注入每发数据
     let valid_tanks: Vec<u32> = br.as_ref().map(|br| br.player_results.iter()
         .map(|pr| pr.info.tank_id).collect()).unwrap_or_default();
@@ -333,11 +339,19 @@ pub async fn start_viewer_server_for_replay(
             if let Some(idx) = tank_of(&target_name).and_then(|t| cfg_of(&target_name, t)) {
                 s["target_config_idx"] = json!(idx);
             }
+            let shell_id = s["shell_id"].as_u64().unwrap_or(0) as u32;
+            if let Some(st) = tank_of(&shooter_name) {
+                if shell_id != 0 {
+                    if let Some(si) = shell_index_by_global_id(st, shell_id) {
+                        s["shooter_shell_idx"] = json!(si);
+                    }
+                }
+            }
         }
     }
     eprintln!("[replay_shot] 配置下标注入完成（shot={}，viewed_cfg={:?}）", shot_no, viewed_cfg);
     let port = start_viewer_server_with_data(tank_resolver, viewed_tank, shooter_tank, Some(replay_json)).await?;
-    Ok((port, shell_slot, viewed_cfg))
+    Ok((port, shell_for_url, viewed_cfg))
 }
 
 pub async fn start_viewer_server_with_data(
@@ -798,6 +812,19 @@ pub(crate) fn build_configs(tank_id: u32) -> Vec<Value> {
         }));
     }
     configs
+}
+
+/// 发射弹种 → 射手弹表下标（确定性弹种选择）：
+/// 按 shell_global_ids（= tanks.pb 弹种全局 id）匹配 build_configs 各配置的弹表，
+/// 返回首个包含该弹的配置中弹的下标。type=28 槽位快照存在切弹竞态（shot6 实测），
+/// shell_id 才是发射弹种的权威标识。
+pub fn shell_index_by_global_id(tank_id: u32, shell_id: u32) -> Option<usize> {
+    if shell_id == 0 { return None; }
+    build_configs(tank_id).iter().find_map(|c| {
+        c["shell_global_ids"].as_array().and_then(|a| {
+            a.iter().position(|s| s.as_u64() == Some(shell_id as u64))
+        })
+    })
 }
 
 /// 实际搭载配置解析（共享证据链，射击复现与实时回放同步使用）：

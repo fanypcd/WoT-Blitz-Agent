@@ -1241,8 +1241,11 @@ window.srViewerUrl = function(s) {
     const shooterTank = s.shooter_tank_id || window.__srAuthorTank || 0;
     const tid = s.target_tank_id || shooterTank || 0;
     const sh = shooterTank ? ('&shooter='+shooterTank) : '';
-    // shell 槽位仅作者射击有意义（type=28 是作者本人的弹药选择状态）
-    const ammo = (s.is_author && s.shell_slot != null) ? ('&shell='+s.shell_slot) : '';
+    // 弹种下标：优先确定性 shell_id 匹配结果（shell_id 是发射弹种的权威标识，
+    // type=28 槽位快照存在切弹竞态且仅作者有），回退作者槽位
+    const shIdx = (s.shooter_shell_idx != null) ? s.shooter_shell_idx
+        : (s.is_author && s.shell_slot != null) ? s.shell_slot : null;
+    const ammo = (shIdx != null) ? ('&shell='+shIdx) : '';
     // 实际搭载配置（comp blob/弹种/血量证据链解析）：命中弹用目标配置，脱靶弹用射手配置
     const cfgId = s.target_tank_id ? s.target_config_idx : (s.shooter_config_idx ?? s.target_config_idx);
     const cfg = (cfgId != null) ? ('&config='+cfgId) : '';
