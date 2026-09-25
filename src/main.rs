@@ -5,6 +5,8 @@ mod wargaming;
 mod agent;
 mod web;
 mod data;
+#[cfg(feature = "bundle")]
+mod bundle;
 
 use std::path::{Path, PathBuf};
 use std::io::{self, Write, BufRead};
@@ -141,6 +143,16 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// Batch-download ALL tank GLB models (model.glb + collision.glb) into
+    /// glb_cache/ so the viewer/playback work fully offline (~2 GB total)
+    FetchModels {
+        /// Re-download models even if already cached
+        #[arg(long)]
+        force: bool,
+        /// Concurrent download tasks
+        #[arg(long, default_value = "6")]
+        concurrency: usize,
+    },
     /// One-click update of all derived game data after a game patch
     /// (BlitzKit pb -> tank_cache.json -> game_data/), game-version aware
     UpdateData {
@@ -168,6 +180,9 @@ enum Commands {
         /// Also download missing tank icons into tank_images/
         #[arg(long)]
         icons: bool,
+        /// Also pre-download missing tank GLB models into glb_cache/ (~2 GB)
+        #[arg(long)]
+        models: bool,
     },
     /// View 3D tank model in browser
     View {
@@ -297,6 +312,9 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
+    #[cfg(feature = "bundle")]
+    bundle::bootstrap()?;
+
     let cli = Cli::parse();
 
     if let Commands::View { tank_id, tank_cache } = &cli.command {
@@ -313,6 +331,7 @@ fn main() -> Result<()> {
             let name = resolver.resolve(tank_id).unwrap_or_else(|| format!("tank_{}", tank_id));
             eprintln!("Starting 3D viewer for {} (id={})...", name, tank_id);
             eprintln!("Models served via local cache proxy (/glb/{}/...), first fetch cached to glb_cache/.", tank_id);
+            eprintln!("Tip: run `fetch-models` once to pre-download ALL tank models for full offline use.");
 
             crate::wargaming::viewer::serve(resolver, tank_id, None).await
         });
@@ -439,8 +458,18 @@ fn main() -> Result<()> {
                 downloaded, cached, failed, dir.display());
             return Ok(());
         }
-        Commands::UpdateData { game_dir, output, tank_cache, game_data, offline, force, check, icons } => {
-            cmd_update_data(game_dir.as_deref(), &output, &tank_cache, &game_data, offline, force, check, icons)?;
+        Commands::FetchModels { force, concurrency } => {
+            let (downloaded, cached, failed, bytes) = tokio::runtime::Runtime::new()?
+                .block_on(crate::wargaming::model_fetch::fetch_all_models(force, concurrency))?;
+            println!("Tank models ready: downloaded={} cached={} failed={} ({:.2} GB) -> glb_cache/",
+                downloaded, cached, failed, bytes as f64 / 1024.0 / 1024.0 / 1024.0);
+            if failed > 0 {
+                eprintln!("Warning: {} model files failed (rerun `fetch-models` to retry only the failures).", failed);
+            }
+            return Ok(());
+        }
+        Commands::UpdateData { game_dir, output, tank_cache, game_data, offline, force, check, icons, models } => {
+            cmd_update_data(game_dir.as_deref(), &output, &tank_cache, &game_data, offline, force, check, icons, models)?;
             return Ok(());
         }
         Commands::View { .. } => unreachable!(),
@@ -1196,6 +1225,7 @@ fn cmd_update_data(
     force: bool,
     check: bool,
     icons: bool,
+    models: bool,
 ) -> Result<()> {
     use crate::wargaming::data_version::{now_rfc3339, DataVersionManifest};
     use crate::wargaming::game_extract as ge;
@@ -1225,11 +1255,12 @@ fn cmd_update_data(
     println!("  Version change: {}", if version_changed { "YES" } else { "no" });
 
     if check {
-        println!("  Plan: {} -> rebuild {} -> {} ({}); refresh data_version.json",
+        println!("  Plan: {} -> rebuild {} -> {} ({}); refresh data_version.json{}",
             if offline { "rebuild from existing pb" } else { "download BlitzKit pb" },
             tank_cache_path.display(),
             game_data_dir.display(),
-            if force || version_changed { "full re-extract" } else { "incremental, missing only" });
+            if force || version_changed { "full re-extract" } else { "incremental, missing only" },
+            if models { " + GLB models preload" } else { "" });
         println!("  --check mode: nothing was changed.");
         return Ok(());
     }
@@ -1274,6 +1305,14 @@ fn cmd_update_data(
         let (downloaded, cached, failed) =
             crate::wargaming::blitzkit::download_all_icons(dir, false)?;
         println!("  Icons: downloaded={} cached={} failed={} -> {}", downloaded, cached, failed, dir.display());
+    }
+
+    // 4.5 可选：GLB 模型全量预热（只补缺失项，已有缓存自动跳过）
+    if models {
+        let (downloaded, cached, failed, bytes) = tokio::runtime::Runtime::new()?
+            .block_on(crate::wargaming::model_fetch::fetch_all_models(false, 6))?;
+        println!("  Models: downloaded={} cached={} failed={} ({:.2} GB) -> glb_cache/",
+            downloaded, cached, failed, bytes as f64 / 1024.0 / 1024.0 / 1024.0);
     }
 
     // 5. 孤立 game_data 报告（版本更新后被移除的坦克，只提示不删除）

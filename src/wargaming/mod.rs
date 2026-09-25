@@ -11,5 +11,6 @@ pub mod penetration;
 pub mod prematch;
 pub mod game_extract;
 pub mod blitzkit;
+pub mod model_fetch;
 pub mod data_version;
 pub mod heatmap_ready;

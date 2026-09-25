@@ -1,0 +1,81 @@
+{
+  "core_data": {
+    "tanks.pb": {
+      "path": "D:\\Class\\Rust\\Project\\data\\tanks.pb",
+      "exists": true,
+      "bytes": 847224
+    },
+    "models.pb": {
+      "path": "D:\\Class\\Rust\\Project\\data\\models.pb",
+      "exists": true,
+      "bytes": 434316
+    },
+    "tank_cache.json": {
+      "path": "D:\\Class\\Rust\\Project\\data\\tank_cache.json",
+      "exists": true,
+      "bytes": 818926
+    },
+    "gun_angles.json": {
+      "path": "D:\\Class\\Rust\\Project\\data\\gun_angles.json",
+      "exists": true,
+      "bytes": 51216
+    },
+    "data_version.json": {
+      "path": "D:\\Class\\Rust\\Project\\data\\data_version.json",
+      "exists": true,
+      "bytes": 236
+    }
+  },
+  "game_data": {
+    "path": "D:\\Class\\Rust\\Project\\data\\game_data",
+    "files": 728,
+    "bytes": 1077145
+  },
+  "tank_images": {
+    "path": "D:\\Class\\Rust\\Project\\tank_images",
+    "files": 730,
+    "bytes": 3967854
+  },
+  "vendor_three": {
+    "path": "D:\\Class\\Rust\\Project\\web\\vendor\\three",
+    "files": 4,
+    "bytes": 1478751
+  },
+  "maps": {
+    "source": "mobile_assets/maps",
+    "count": 26,
+    "expected": 26,
+    "bytes": 2139008,
+    "failed": []
+  },
+  "glb": {
+    "expected_tanks": 735,
+    "have_model_glb": 276,
+    "have_collision_glb": 310,
+    "bytes": 613306596,
+    "missing_count": 459,
+    "missing_sample": [
+      "4193",
+      "4433",
+      "5761",
+      "5921",
+      "6529",
+      "6689",
+      "6785",
+      "6961",
+      "6977",
+      "7009",
+      "7041",
+      "7281",
+      "7425",
+      "7441",
+      "7521",
+      "7697",
+      "7777",
+      "7937",
+      "8049",
+      "8225"
+    ],
+    "extra_cached_ids": 0
+  }
+}

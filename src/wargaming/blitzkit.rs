@@ -993,14 +993,30 @@ fn parse_model_gun(gb: &[u8]) -> Result<Option<GunModelInfo>> {
     Ok(Some(GunModelInfo { gun_module_id: gmod, model_node, thickness, mask, gun_spaced, pitch_limits }))
 }
 
-pub fn model_info(tank_id: u32) -> Option<TankModelInfo> {
+/// 读取并解析 models.pb（进程内缓存，只解析一次）；文件缺失或解析失败返回 None。
+fn models_vec() -> &'static Option<Vec<TankModelInfo>> {
     use std::sync::OnceLock;
     static CACHE: OnceLock<Option<Vec<TankModelInfo>>> = OnceLock::new();
-    let vec = CACHE.get_or_init(|| {
+    CACHE.get_or_init(|| {
         let bytes = std::fs::read(crate::data::data_path("models.pb")).ok()?;
         parse_models_pb(&bytes).ok().filter(|v| !v.is_empty())
-    });
-    vec.as_ref().and_then(|v| v.iter().find(|t| t.tank_id == tank_id)).cloned()
+    })
+}
+
+pub fn model_info(tank_id: u32) -> Option<TankModelInfo> {
+    models_vec().as_ref().and_then(|v| v.iter().find(|t| t.tank_id == tank_id)).cloned()
+}
+
+/// models.pb 内全部坦克 id（升序去重）——有模型车辆的权威清单，
+/// `fetch-models` 全量预热以此为枚举源（tank_cache 含无模型车，比它更准）。
+pub fn load_model_ids() -> Vec<u32> {
+    let mut ids: Vec<u32> = models_vec()
+        .as_ref()
+        .map(|v| v.iter().map(|t| t.tank_id).collect())
+        .unwrap_or_default();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
 }
 
 #[cfg(test)]

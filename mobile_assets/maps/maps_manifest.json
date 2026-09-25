@@ -1,0 +1,322 @@
+{
+  "maps": [
+    {
+      "name": "DesertSands",
+      "internal": "desert_train",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\desert_train\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 51532,
+      "sha256": "50006a2901de32f0428eaf9e22bb364058672b7171f412ea85614373c502215a",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "Middleburg",
+      "internal": "erlenberg",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\erlenberg\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 91748,
+      "sha256": "8c51f3863618ca4360c456f69f4b771574bafc93708830bfa0887750292d6094",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "Copperfield",
+      "internal": "karieri",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\karieri\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 78458,
+      "sha256": "82e63c665e482f833f08bb502063b74e3ec90d1eaaa67552823648f31706cf63",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "Alpenstadt",
+      "internal": "lumber",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\lumber\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 83556,
+      "sha256": "491b67222ca4c1a9d5d170878c2ed4421cd1781df3a584eecb96d67969e793ba",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "Mines",
+      "internal": "rudniki",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\rudniki\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 82942,
+      "sha256": "ba8ae0860969d610580ec74bf27e49bcb433b4e355ca317490af0da5c2fe8860",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "DeadRail",
+      "internal": "medvedkovo",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\medvedkovo\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 85632,
+      "sha256": "587a3310124936aee1fb97cb545ebbb49df6941ef44e9723dad100c16f6f25b5",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "FortDespair",
+      "internal": "fort",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\fort\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 92238,
+      "sha256": "e1bbc3e3b60099902594e4f399756c9af4fe417ec3428a558807cd61d6b3d7ab",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "Himmelsdorf",
+      "internal": "himmelsdorf",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\himmelsdorf\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 115660,
+      "sha256": "e33104e102b9247ce02b42668f2eff2ad27e977ca8ec5f2112d45bc09c32b9ec",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "BlackGoldville",
+      "internal": "mountain",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\mountain\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 80776,
+      "sha256": "02c4c39bf1fd381e2558e045cc81b59ddc452c65cdee51a944afb77514e83de2",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "OasisPalms",
+      "internal": "savanna",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\savanna\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 55338,
+      "sha256": "2d308e5d1e72fe78ac4353859653e7c8ae52abbebf388118aa5626c66bb686ef",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "GhostFactory",
+      "internal": "plant",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\plant\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 84234,
+      "sha256": "87f5f7f587e774b47851d4961e31378738d68d3ae67c5747f58e500f9570efc9",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "Molendijk",
+      "internal": "holland",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\holland\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 65968,
+      "sha256": "8e860499b1197f39d72586ba3559cb06ddeddf285ade5a7a259e48932f4a22d3",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "PortBay",
+      "internal": "port",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\port\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 80998,
+      "sha256": "e7a43d29dedd60a37eebe9033ffdf00d87e683c3652b65092031d2283b9fa461",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "WinterMalinovka",
+      "internal": "malinovka",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\malinovka\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 85676,
+      "sha256": "41aaceb9b8a8271d2e8cb460023914ea71cd092cb1bbb9504a1d88d47cbfce08",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "Castilla",
+      "internal": "pliego",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\pliego\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 79642,
+      "sha256": "78e970c960c05d1043694785cca50670e179a71db4f52c294c953c48bec0c0cd",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "Canal",
+      "internal": "canal",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\canal\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 90548,
+      "sha256": "79ffe14f53d71593061cec35a464685d5c32ee1231ccae862d8b72a84afb60f5",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "Vineyards",
+      "internal": "italy",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\italy\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 83326,
+      "sha256": "8bc4adc59d0ca9dcae2dc4f4391d9774cb23534bd992d0b60fba143e61821e88",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "YamatoHarbor",
+      "internal": "milbase",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\milbase\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 78306,
+      "sha256": "08f506a50e93b0adca13820bc758f1df610ce51167e3f86408f8467f5f18982a",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "Canyon",
+      "internal": "canyon",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\canyon\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 99652,
+      "sha256": "40dc79cc7c71a10a007fbf7dd5fdd3d291b331cf404997f96dd016df4d52ebce",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "MayanRuins",
+      "internal": "rock",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\rock\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 81718,
+      "sha256": "9acb8ad978046858126850936aa1f3e4588c17c5b8d46351261e13dbc6182146",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "DynastyPearl",
+      "internal": "grossberg",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\grossberg\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 76024,
+      "sha256": "c46850bf2ab47b51254e947cb3b733f26c930e4633c7030db77d8ec35d8c2404",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "NavalFrontier",
+      "internal": "skit",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\skit\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 89630,
+      "sha256": "9d86f976c0fa234ba45c39afe9fb9bb63da977e4999d501d96d008f45d452807",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "FallsCreek",
+      "internal": "amigosville",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\amigosville\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 102210,
+      "sha256": "fc461e8573371df980abfe7ee1a7dcc2cb338220025514fce0806a8b998700a5",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "NewBay",
+      "internal": "forgecity",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\forgecity\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 61584,
+      "sha256": "e46c4155e7b30c2800519fc363a2c21fcde7487b2d3c4cd63c17510f08a09710",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "Normandy",
+      "internal": "neptune",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\neptune\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 69228,
+      "sha256": "1fd2bc826e6cb910f4a6fb0c9170b995290bfc5daac6aedf32f0bc6f7d5c3769",
+      "dimensions": [
+        512,
+        512
+      ]
+    },
+    {
+      "name": "Wasteland",
+      "internal": "holmeisk",
+      "source": "D:\\SteamLibrary\\steamapps\\common\\World of Tanks Blitz\\Data\\Gfx\\UI\\BattleScreenHUD\\minimap\\holmeisk\\MiniMapSmall@2x.packed.webp.dvpl",
+      "variant": "@2x",
+      "bytes": 92384,
+      "sha256": "97db2409f74bf694fb357344dfac0b0f6ad965756a9f0968381c678a6740efd9",
+      "dimensions": [
+        512,
+        512
+      ]
+    }
+  ],
+  "summary": {
+    "total": 26,
+    "exported": 26,
+    "failed": [],
+    "total_bytes": 2139008
+  }
+}

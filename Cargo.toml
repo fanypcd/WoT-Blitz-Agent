@@ -19,3 +19,9 @@ tokio-util = "0.7"
 ctrlc = "3"
 axum = "0.8"
 webbrowser = "1"
+rust-embed = { version = "8", features = ["debug-embed", "include-exclude"], optional = true }
+
+[features]
+# 自包含分发：把 data/、web/vendor/、replay_samples/、config.toml.example 编译进 exe，
+# 首次运行自释放（见 src/bundle.rs）。构建：cargo build --release --features bundle
+bundle = ["dep:rust-embed"]

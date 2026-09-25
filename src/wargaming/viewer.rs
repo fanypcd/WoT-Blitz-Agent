@@ -134,14 +134,23 @@ pub fn build_viewer_router(
         .with_state(())
 }
 
+/// 单个 GLB 的缓存路径（glb_cache/{tank_id}/{filename}），按需服务与 fetch-models 全量预热共用。
+pub(crate) fn glb_cache_path(tank_id: u32, filename: &str) -> std::path::PathBuf {
+    Path::new(GLB_CACHE_DIR).join(tank_id.to_string()).join(filename)
+}
+
 pub(crate) async fn ensure_glb_bytes(tank_id: u32, filename: &str) -> Result<Vec<u8>, String> {
     if !GLB_FILES.contains(&filename) {
         return Err(format!("invalid GLB filename: {}", filename));
     }
-    let cache_dir = Path::new(GLB_CACHE_DIR).join(tank_id.to_string());
-    let cache_path = cache_dir.join(filename);
+    let cache_path = glb_cache_path(tank_id, filename);
+    let cache_dir = cache_path.parent().unwrap_or(Path::new(GLB_CACHE_DIR)).to_path_buf();
     if let Ok(bytes) = std::fs::read(&cache_path) {
-        return Ok(bytes);
+        // 损坏自愈：无 glTF magic（截断/HTML 错误页）视作未命中，走重下覆盖
+        if bytes.starts_with(b"glTF") {
+            return Ok(bytes);
+        }
+        eprintln!("[glb-cache] 缓存文件损坏（缺 glTF magic），重新下载: {}", cache_path.display());
     }
 
     let url = format!("https://api.blitzkit.app/tanks/{}/{}", tank_id, filename);
@@ -163,15 +172,24 @@ pub(crate) async fn ensure_glb_bytes(tank_id: u32, filename: &str) -> Result<Vec
                 match resp.bytes().await {
                     Ok(bytes) => {
                         let vec = bytes.to_vec();
-                        let _ = std::fs::create_dir_all(&cache_dir);
-                        match std::fs::write(&cache_path, &vec) {
-                            Ok(_) => eprintln!("[glb-cache] cached {} ({} bytes)", cache_path.display(), vec.len()),
-                            Err(e) => eprintln!("[glb-cache] cache write failed: {}", e),
+                        if !vec.starts_with(b"glTF") {
+                            last_err = "响应体不是合法 GLB（缺 glTF magic）".to_string();
+                        } else {
+                            let _ = std::fs::create_dir_all(&cache_dir);
+                            match std::fs::write(&cache_path, &vec) {
+                                Ok(_) => eprintln!("[glb-cache] cached {} ({} bytes)", cache_path.display(), vec.len()),
+                                Err(e) => eprintln!("[glb-cache] cache write failed: {}", e),
+                            }
+                            return Ok(vec);
                         }
-                        return Ok(vec);
                     }
                     Err(e) => last_err = format!("read body failed: {}", e),
                 }
+            }
+            Ok(resp) if resp.status() == reqwest::StatusCode::NOT_FOUND => {
+                // 确定性 404：该车辆在 CDN 无此模型文件，重试与 curl 回退都无意义
+                // （批量预热遇到大量缺失车辆时，逐个重试会拖慢整体进度）
+                return Err(format!("BlitzKit CDN 404: {url} (模型不存在)"));
             }
             Ok(resp) => last_err = format!("BlitzKit CDN returned {}", resp.status()),
             Err(e) => last_err = format!("{}", e),
@@ -195,13 +213,14 @@ pub(crate) async fn ensure_glb_bytes(tank_id: u32, filename: &str) -> Result<Vec
     match out {
         Ok(o) if o.status.success() && tmp_path.exists() => {
             match std::fs::read(&tmp_path) {
-                Ok(bytes) if !bytes.is_empty() => {
+                Ok(bytes) if !bytes.is_empty() && bytes.starts_with(b"glTF") => {
                     let _ = std::fs::create_dir_all(&cache_dir);
                     let _ = std::fs::write(&cache_path, &bytes);
                     let _ = std::fs::remove_file(&tmp_path);
                     eprintln!("[glb-cache] curl 回退成功，已入缓存 {} ({} bytes)", cache_path.display(), bytes.len());
                     return Ok(bytes);
                 }
+                Ok(bytes) if !bytes.is_empty() => last_err = "curl 回退：响应体不是合法 GLB（缺 glTF magic）".to_string(),
                 Ok(_) => last_err = "curl 回退：响应体为空".to_string(),
                 Err(e) => last_err = format!("curl 回退：读取失败 {}", e),
             }

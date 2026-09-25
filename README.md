@@ -106,6 +106,8 @@ tank_cache_path = "data/tank_cache.json"
 
 其他按需缓存（首次访问自动下载，无需手动准备）：3D 模型 `glb_cache/`、
 坦克封面图 `tank_images/`、前端依赖 `web/vendor/`（Three.js/Chart.js，离线可用）。
+如需**完全离线**（查看器/回放不再联网拉模型），运行 `fetch-models` 一次性全量预下载
+全部坦克 GLB（约 2 GB，可断点续跑）。
 
 ### 3.1 游戏版本更新后如何更新数据
 
@@ -128,6 +130,45 @@ cargo run --release -- update-data --check  # 只查看版本状态与将要执�
 
 `replay_samples/` 提供 3 个示例 `.wotbreplay` 文件（无游戏也可测试）。
 把 `config.toml` 的 `replay_dir` 设为 `replay_samples` 即可。
+
+## 打包分发（Windows）
+
+项目可打包成免安装的桌面端应用，三种形态按需选择（脚本：`scripts/package.ps1`，产物在 `dist/`）。
+**有代码改动后重新打包**，一条命令产出全部三种产物：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -All
+```
+
+也可以只产出某一种：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1              # 轻量便携 zip（~18MB），模型首次查看自动联网下载
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Full        # 全量便携目录（~1.9GB），完全离线
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Bundled     # 单文件 exe（~29MB），首次运行自释放
+```
+
+> `-SkipBuild` 可跳过 cargo 编译（只改了数据/文档时用；改了 Rust 代码不要加）。
+> 脚本最后一步会把 `target/release` 下的 exe 换成 bundle 版，日常开发建议再跑一次
+> `cargo build --release` 还原（不影响已打包产物）。
+
+| 形态 | 产物 | 适用场景 |
+|------|------|------|
+| 轻量便携 zip | `wotb-agent-portable-win64.zip` | 日常分发，解压即用，模型按需联网下载 |
+| 全量便携目录 | `wotb-agent-portable-win64\` | 无网/内网环境，完全离线 |
+| 单文件 exe | `wotb-agent-standalone-win64.exe` | 极简分发，双击首次运行自动释放数据到 exe 旁 |
+
+说明：
+
+- 便携包双击 `start-web.bat` 启动（自动打开浏览器）；单文件版直接双击 exe 即可。
+- 三种形态均只带 `config.toml.example` 模板，**绝不含真实密钥**；首次运行自动生成
+  `config.toml`，LLM key 可在网页 Settings 页在线填写。
+- 单文件版实现在 `src/bundle.rs`（`cargo build --release --features bundle`）：
+  `data/`、`web/vendor/`、`replay_samples/`、`config.toml.example` 经 rust-embed 编译进
+  二进制，首次运行释放到 exe 所在目录（不可写时回退 `%APPDATA%\wotb-agent`），
+  之后 `update-data` 等数据维护照常可用；在数据完整的目录里运行则不做任何事，
+  不影响仓库内日常开发。
+- 未签名 exe 首次运行会触发 SmartScreen 提示，属正常现象（「仍要运行」即可）。
 
 ## Web UI 使用
 
@@ -222,6 +263,7 @@ extract-game   # 批量提取装甲/碰撞数据到 game_data/
 fetch-blitzkit # 重新下载 BlitzKit 数据源
 fetch-tanks    # 重建 tank_cache.json
 fetch-icons    # 批量下载坦克封面图
+fetch-models   # 全量预下载坦克 GLB 模型到 glb_cache/（约 2GB，完全离线）
 update-data    # 游戏版本更新后一键刷新全部数据（版本感知增量更新）
 config         # 查看/编辑配置
 usage          # Token 用量统计
