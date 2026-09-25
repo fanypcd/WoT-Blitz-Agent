@@ -56,3 +56,6 @@ tmp_wi_js/
 
 # 逆向探针工具集（仅本地开发用，不入仓库；cargo test 仍会编译本地副本）
 examples/
+
+# Python 字节码缓存
+tools/**/__pycache__/

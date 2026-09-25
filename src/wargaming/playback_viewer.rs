@@ -198,6 +198,28 @@ pub async fn playback_map_handler(
         .unwrap_or_else(|_| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "map task failed").into_response())
 }
 
+/// GET /api/playback/terrain?name=WinterMalinovka —— 高度场地形（u16 LE + X-Terrain-Meta；
+/// 不可用 404，前端回退 2D 底图平面）
+pub async fn playback_terrain_handler(
+    axum::extract::Query(q): axum::extract::Query<HashMap<String, String>>,
+) -> Response {
+    let name = q.get("name").cloned().unwrap_or_default();
+    tokio::task::spawn_blocking(move || crate::wargaming::map_assets::terrain_response(&name))
+        .await
+        .unwrap_or_else(|_| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "terrain task failed").into_response())
+}
+
+/// GET /api/playback/scenery?name=WinterMalinovka —— 静态场景 GLB（建筑等，离线预生成；
+/// 缺失 404，前端静默跳过）
+pub async fn playback_scenery_handler(
+    axum::extract::Query(q): axum::extract::Query<HashMap<String, String>>,
+) -> Response {
+    let name = q.get("name").cloned().unwrap_or_default();
+    tokio::task::spawn_blocking(move || crate::wargaming::map_assets::scenery_response(&name))
+        .await
+        .unwrap_or_else(|_| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "scenery task failed").into_response())
+}
+
 /// 播放器页面（web 模式 asset prefix = /armor_view：GLB/vendor 复用 armor_view 路由）
 pub async fn playback_page_handler() -> Html<String> {
     Html(playback_index_html("/armor_view"))
@@ -225,6 +247,8 @@ pub async fn serve_standalone(replay_path: &Path) -> anyhow::Result<()> {
         }))
         .route("/api/playback/data", post(playback_data_handler))
         .route("/api/playback/map", get(playback_map_handler))
+        .route("/api/playback/terrain", get(playback_terrain_handler))
+        .route("/api/playback/scenery", get(playback_scenery_handler))
         .route("/api/tank/{tank_id}", get(crate::wargaming::viewer::tank_data_handler))
         .route("/vendor/three/{*path}", get(crate::wargaming::viewer::vendor_handler))
         .route("/glb/{tank_id}/{filename}", get(crate::wargaming::viewer::glb_handler))
@@ -355,6 +379,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     <button data-cam="top">俯视</button>
     <button data-cam="follow">跟随</button>
     <span style="flex:1"></span>
+    <label class="toggle"><input type="checkbox" id="terrainToggle" disabled> 3D 地形</label>
     <label class="toggle"><input type="range" id="mapOpacity" min="0" max="1" step="0.05" value="0.92" style="width:74px"> 底图</label>
     <label class="toggle"><input type="checkbox" id="glbToggle"> 真实车模（GLB）</label>
     <label class="toggle"><input type="checkbox" id="labelToggle" checked> 昵称标签</label>
@@ -390,6 +415,10 @@ const tracers = [], impacts = [];
 let renderer, scene, camera, controls, clock, raycaster;
 let glbCache = new Map(), glbOn = false;
 let mapPlane = null, mapOpacity = 0.92;
+let mapTexture = null, mapMetaInfo = null;          // 底图贴图 + 铺设参数
+let terrainMesh = null, heightField = null, heightMeta = null;  // 3D 地形
+let mapScenery = null;                              // 静态场景 GLB（建筑等）
+let terrainOn = true;
 
 // ---------- 工具 ----------
 const fmtTime = (s) => { s = Math.max(0, s); const m = Math.floor(s / 60);
@@ -497,32 +526,114 @@ function buildWorld() {
 }
 let WORLD_CENTER = { cx: 0, cz: 0, ext: 300 };
 
-// ---------- 底图 ----------
+// ---------- 底图 + 3D 地形 ----------
 // 后端返回小地图贴图（标准 webp/png）+ X-Map-Meta 铺设参数（size_m/x/z/rot90/flip_x）。
 // 方向约定：图上边 = 世界 +z，图右边 = 游戏 +x = 场景 −x（与 pos = (−x,y,z) 镜像自洽，
-// 故默认 rotation.z = π：平面放平时图顶落在 +z、图右落在 −x）。底图覆盖世界
-// [-300,+300]²（600m 方框，原点居中）。个别图不对时用 data/maps/<MapName>.json 微调。
+// 故平面 rotation.z = π）。底图/高度场覆盖世界 [-300,+300]²（600m 方框，原点居中）。
+// terrain 端点返回 u16 LE 高度场（行 0=南，行主序）+ X-Terrain-Meta（size/zmax/span）；
+// 有高度场时用起伏地形替换 2D 平面（MeshLambert + 场景光照自然成阴影），404 时保持 2D。
+// 个别图不对时用 data/maps/<MapName>.json 微调，不动代码。
 async function loadMapImage() {
   if (mapPlane) { scene.remove(mapPlane); mapPlane = null; }
+  if (terrainMesh) { scene.remove(terrainMesh); terrainMesh = null; }
+  if (mapScenery) { scene.remove(mapScenery); mapScenery = null; }
+  mapTexture = null; mapMetaInfo = null; heightField = null; heightMeta = null;
+  $('terrainToggle').disabled = true;
+  const name = encodeURIComponent(DATA.meta.map_name || '');
   try {
-    const resp = await fetch('/api/playback/map?name=' + encodeURIComponent(DATA.meta.map_name || ''));
-    if (!resp.ok) return;                       // 无底图：保持程序化地面+网格
-    const meta = JSON.parse(resp.headers.get('X-Map-Meta') || '{}');
-    const url = URL.createObjectURL(await resp.blob());
-    const tex = await new THREE.TextureLoader().loadAsync(url);
-    URL.revokeObjectURL(url);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-    if (meta.flip_x) { tex.wrapS = THREE.RepeatWrapping; tex.repeat.x = -1; tex.offset.x = 1; }
-    const size = meta.size_m || 600;
-    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: mapOpacity, depthWrite: false });
+    const resp = await fetch('/api/playback/map?name=' + name);
+    if (resp.ok) {
+      mapMetaInfo = JSON.parse(resp.headers.get('X-Map-Meta') || '{}');
+      const url = URL.createObjectURL(await resp.blob());
+      mapTexture = await new THREE.TextureLoader().loadAsync(url);
+      URL.revokeObjectURL(url);
+      mapTexture.colorSpace = THREE.SRGBColorSpace;
+      mapTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      if (mapMetaInfo.flip_x) { mapTexture.wrapS = THREE.RepeatWrapping; mapTexture.repeat.x = -1; mapTexture.offset.x = 1; }
+    }
+  } catch (e) { console.warn('底图加载失败（回退网格）:', e); }
+  try {
+    const resp = await fetch('/api/playback/terrain?name=' + name);
+    if (resp.ok) {
+      const meta = JSON.parse(resp.headers.get('X-Terrain-Meta') || '{}');
+      const n = meta.size || 512;
+      const buf = await resp.arrayBuffer();
+      if (buf.byteLength === n * n * 2) {
+        const u16 = new Uint16Array(buf);
+        heightMeta = meta;
+        // 预转米制高度（行 0=南，行主序）
+        heightField = new Float32Array(n * n);
+        const k = (meta.zmax || 100) / 65535;
+        for (let i = 0; i < u16.length; i++) heightField[i] = u16[i] * k;
+      }
+    }
+  } catch (e) { console.warn('地形加载失败（回退 2D）:', e); }
+  $('terrainToggle').disabled = !heightField;
+  $('terrainToggle').checked = !!heightField && terrainOn;
+  rebuildGround();
+  // 静态场景模型（建筑/桥/岩石，tools/export_map_glb.py 预生成；缺失静默跳过）。
+  // GLB 为游戏系（z 上、+y 北），qFrame = Ry(π)·Rx(-π/2)（YXZ 序）转到回放场景系——
+  // 与坦克 GLB 同一帧变换，纯旋转无镜像，绕序天然正确。
+  try {
+    const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+    const gltf = await new Promise((res) => {
+      new GLTFLoader().load('/api/playback/scenery?name=' + name,
+        (g) => res(g), undefined, () => res(null));
+    });
+    if (gltf && gltf.scene) {
+      mapScenery = new THREE.Group();
+      mapScenery.rotation.order = 'YXZ';
+      mapScenery.rotation.set(-Math.PI / 2, Math.PI, 0);
+      mapScenery.add(gltf.scene);
+      scene.add(mapScenery);
+    }
+  } catch (e) { console.warn('场景模型加载失败（忽略）:', e); }
+}
+
+// 双线性采样世界 (x,z) 处高度（米）；无高度场返回 0
+function sampleHeight(x, z) {
+  if (!heightField) return 0;
+  const n = heightMeta.size, span = heightMeta.span || 600;
+  const fx = (x / span + 0.5) * (n - 1), fy = (z / span + 0.5) * (n - 1);
+  const x0 = Math.max(0, Math.min(n - 2, Math.floor(fx))), y0 = Math.max(0, Math.min(n - 2, Math.floor(fy)));
+  const tx = Math.max(0, Math.min(1, fx - x0)), ty = Math.max(0, Math.min(1, fy - y0));
+  const at = (r, c) => heightField[r * n + c];
+  const top = at(y0, x0) * (1 - tx) + at(y0, x0 + 1) * tx;
+  const bot = at(y0 + 1, x0) * (1 - tx) + at(y0 + 1, x0 + 1) * tx;
+  return top * (1 - ty) + bot * ty;
+}
+
+// 依据 mapTexture/heightField/terrainOn 重建地面（2D 平面或 3D 地形二选一）
+function rebuildGround() {
+  if (mapPlane) { scene.remove(mapPlane); mapPlane = null; }
+  if (terrainMesh) { scene.remove(terrainMesh); terrainMesh = null; }
+  if (!mapTexture && !heightField) return;
+  const meta = mapMetaInfo || {};
+  const size = meta.size_m || heightMeta?.span || 600;
+  if (heightField && terrainOn) {
+    // 3D 地形：平面局部 (x,y) 经 rotation(-π/2,0,π) 后世界 x=-local.x、z=local.y，
+    // 高度沿局部 +z（=世界 +y）。按世界坐标采样高度场，保证与车辆坐标一致。
+    const geo = new THREE.PlaneGeometry(size, size, 256, 256);
+    const pos = geo.attributes.position;
+    for (let k = 0; k < pos.count; k++) {
+      pos.setZ(k, sampleHeight(-pos.getX(k), pos.getY(k)));
+    }
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshLambertMaterial({
+      map: mapTexture, transparent: mapOpacity < 1, opacity: mapOpacity,
+    });
+    terrainMesh = new THREE.Mesh(geo, mat);
+    terrainMesh.rotation.set(-Math.PI / 2, 0, Math.PI);
+    terrainMesh.position.set(meta.x || 0, 0, meta.z || 0);
+    terrainMesh.visible = mapOpacity > 0.01;
+    scene.add(terrainMesh);
+  } else if (mapTexture) {
+    const mat = new THREE.MeshBasicMaterial({ map: mapTexture, transparent: true, opacity: mapOpacity, depthWrite: false });
     mapPlane = new THREE.Mesh(new THREE.PlaneGeometry(size, size), mat);
     mapPlane.rotation.set(-Math.PI / 2, 0, Math.PI + (meta.rot90 || 0) * Math.PI / 2);
     mapPlane.position.set(meta.x || 0, 0.04, meta.z || 0);
     mapPlane.visible = mapOpacity > 0.01;
     scene.add(mapPlane);
-  } catch (e) {
-    console.warn('底图加载失败（回退网格）:', e);
   }
 }
 
@@ -1022,9 +1133,15 @@ function initControls() {
   document.querySelectorAll('[data-cam]').forEach((b) =>
     b.addEventListener('click', () => setCam(b.dataset.cam)));
   $('glbToggle').addEventListener('change', (e) => applyGlbToggle(e.target.checked));
+  $('terrainToggle').addEventListener('change', (e) => {
+    terrainOn = e.target.checked;
+    rebuildGround();
+  });
   $('mapOpacity').addEventListener('input', (e) => {
     mapOpacity = parseFloat(e.target.value);
-    if (mapPlane) { mapPlane.material.opacity = mapOpacity; mapPlane.visible = mapOpacity > 0.01; }
+    for (const m of [mapPlane, terrainMesh]) {
+      if (m) { m.material.opacity = mapOpacity; m.material.transparent = mapOpacity < 1; m.visible = mapOpacity > 0.01; }
+    }
   });
   $('labelToggle').addEventListener('change', (e) => {
     for (const v of V) v.label.visible = e.target.checked;

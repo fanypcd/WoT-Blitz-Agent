@@ -139,6 +139,8 @@ pub async fn serve(config_path: std::path::PathBuf) -> anyhow::Result<()> {
         .route("/playback", get(crate::wargaming::playback_viewer::playback_page_handler))
         .route("/api/playback/data", post(playback_data_handler))
         .route("/api/playback/map", get(crate::wargaming::playback_viewer::playback_map_handler))
+        .route("/api/playback/terrain", get(crate::wargaming::playback_viewer::playback_terrain_handler))
+        .route("/api/playback/scenery", get(crate::wargaming::playback_viewer::playback_scenery_handler))
         .route("/api/snapshot", post(snapshot_handler))
         .route("/api/prematch", post(prematch_handler))
         .route("/api/tanks", get(tanks_handler))
