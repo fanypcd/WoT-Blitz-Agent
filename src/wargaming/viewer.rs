@@ -156,7 +156,7 @@ pub(crate) async fn ensure_glb_bytes(tank_id: u32, filename: &str) -> Result<Vec
         Ok(c) => c,
         Err(_) => reqwest::Client::new(),
     };
-    let mut last_err: Option<String> = None;
+    let mut last_err;   // 循环内每个分支都会先赋值
     for _attempt in 0..3 {
         match client.get(&url).send().await {
             Ok(resp) if resp.status().is_success() => {
@@ -170,16 +170,53 @@ pub(crate) async fn ensure_glb_bytes(tank_id: u32, filename: &str) -> Result<Vec
                         }
                         return Ok(vec);
                     }
-                    Err(e) => last_err = Some(format!("read body failed: {}", e)),
+                    Err(e) => last_err = format!("read body failed: {}", e),
                 }
             }
-            Ok(resp) => last_err = Some(format!("BlitzKit CDN returned {}", resp.status())),
-            Err(e) => last_err = Some(format!("{}", e)),
+            Ok(resp) => last_err = format!("BlitzKit CDN returned {}", resp.status()),
+            Err(e) => last_err = format!("{}", e),
         }
-        eprintln!("[glb-cache] attempt failed, retrying... ({})", last_err.clone().unwrap_or_default());
+        eprintln!("[glb-cache] attempt failed, retrying... ({last_err})");
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
-    Err(format!("BlitzKit CDN unreachable: {} (model not in glb_cache/)", last_err.unwrap_or_default()))
+
+    // reqwest 全部重试失败 → 系统 curl 回退。实测（GFW 环境）rustls 指纹的大文件
+    // 流会被中途重置（reqwest 报 read body failed: error decoding response body），
+    // 而 curl（不同 TLS 栈）可完整拉取同一资源。
+    eprintln!("[glb-cache] reqwest 失败，尝试系统 curl 回退...");
+    let tmp_path = cache_path.with_extension("download");
+    let out = std::process::Command::new("curl")
+        .args([
+            "-sfL", "--max-time", "180",
+            "-o", tmp_path.to_string_lossy().as_ref(),
+            &url,
+        ])
+        .output();
+    match out {
+        Ok(o) if o.status.success() && tmp_path.exists() => {
+            match std::fs::read(&tmp_path) {
+                Ok(bytes) if !bytes.is_empty() => {
+                    let _ = std::fs::create_dir_all(&cache_dir);
+                    let _ = std::fs::write(&cache_path, &bytes);
+                    let _ = std::fs::remove_file(&tmp_path);
+                    eprintln!("[glb-cache] curl 回退成功，已入缓存 {} ({} bytes)", cache_path.display(), bytes.len());
+                    return Ok(bytes);
+                }
+                Ok(_) => last_err = "curl 回退：响应体为空".to_string(),
+                Err(e) => last_err = format!("curl 回退：读取失败 {}", e),
+            }
+        }
+        Ok(o) => {
+            last_err = format!(
+                "curl 回退失败（exit {:?}: {}）",
+                o.status.code(),
+                String::from_utf8_lossy(&o.stderr).chars().take(200).collect::<String>()
+            );
+        }
+        Err(e) => last_err = format!("curl 回退不可用: {}", e),
+    }
+    let _ = std::fs::remove_file(&tmp_path);
+    Err(format!("BlitzKit CDN unreachable: {last_err} (model not in glb_cache/)"))
 }
 
 pub async fn start_viewer_server(tank_resolver: TankResolver, tank_id: u32, shooter_id: u32) -> anyhow::Result<u16> {
