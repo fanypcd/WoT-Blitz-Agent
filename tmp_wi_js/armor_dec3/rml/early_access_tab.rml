@@ -1,0 +1,38 @@
+<rml>
+    <head>
+        <title>Early Access Tab</title>
+        <link type="text/template" href="/rml/templates/info_panel.rml" />
+        <link type="text/template" href="/rml/templates/button.rml" />
+        <script>
+EarlyAccessTab = {}
+
+function EarlyAccessTab:new(o)
+    self.__index = self
+    setmetatable(self, {__index = InfoPanel})
+
+    local obj = InfoPanel:new(o)
+    setmetatable(obj, self)
+
+    obj:setMainTitle("UI_early_access")
+    obj.document:GetElementById("header"):SetClass("text-premium", true)
+    
+    EarlyAccessTab = obj
+    return obj
+end
+
+function EarlyAccessTab:open(subtitle)
+    self:setSecondTitle(subtitle)
+	InfoPanel.open(self)
+end
+        </script>
+    </head>
+    <body id="early_access_tab" template="info_panel" onload="EarlyAccessTab:new{document = document}">
+        <p class="text-xs">UI_early_access_description</p>
+        <button class="mt-3 w-full flex bg-premium text-primary-foreground rounded" onclick="ui_service:navigateToPurchase(IAPService.WOTINSPECTOR_SUB)">
+            <template src="button">
+                <svg src="/rml/icons/Shop-.svg" class="w-8 flex-none" />
+                <p>UI_subscribe_now</p>
+            </template>
+        </button>
+    </body>
+</rml>

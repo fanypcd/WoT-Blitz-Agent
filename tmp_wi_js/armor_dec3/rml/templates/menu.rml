@@ -1,0 +1,140 @@
+<template name="menu" content="content">
+<head>
+	<link type="text/rcss" href="/rml/main.rcss"/>
+    <style>
+        @keyframes slide-in-keyframes {
+            to { left: 0dp; opacity: 1.0; }
+        }
+
+        @keyframes slide-out-keyframes {
+            to { left: -100%; opacity: 0.0; }
+        }
+
+        @keyframes slide-in-right-keyframes {
+            to { right: 0dp; opacity: 1.0; }
+        }
+
+        @keyframes slide-out-right-keyframes {
+            to { right: -100%; opacity: 0.0; }
+        }
+
+        .slide-in {
+            animation: 0.6s quartic-in-out slide-in-keyframes;
+        }
+
+        .slide-out {
+            animation: 0.6s quartic-in-out slide-out-keyframes;
+        }
+
+        .slide-in-right {
+            animation: 0.6s quartic-in-out slide-in-right-keyframes;
+        }
+
+        .slide-out-right {
+            animation: 0.6s quartic-in-out slide-out-right-keyframes;
+        }
+    </style>
+    <script>
+Menu = Menu or {_registry = {}}
+Menu.__index = Menu
+
+function Menu:new(obj)
+    setmetatable(obj, self)
+    
+	local panel = obj.document:GetElementById("content")
+
+    if obj.is_right then
+        obj.document:SetClass("right-0", true)
+    else
+        obj.document:SetClass("left", true)
+        obj.document:SetClass("left-0", true)
+    end
+
+    if obj.opened then
+        obj.document:Show()
+    else
+        obj.document:SetClass("hidden", true)
+    end
+
+	Menu._registry[obj.document.id] = obj
+
+    return obj
+end
+
+function Menu._onAnimationEnd(document, element)
+	if element:IsClassSet("slide-out") or element:IsClassSet("slide-out-right") then
+		element.style.right = "auto"
+		element.style.left = "auto"
+		element.style.opacity = 1.0
+		document:Hide()
+        document:SetClass("hidden", true)
+	end
+end
+
+function Menu:isVisible()
+	local element = self.document:GetElementById("content")
+    return not (element:IsClassSet("slide-out") or element:IsClassSet("slide-out-right") or self.document:IsClassSet("hidden"))
+end
+
+function Menu:close(slide_out_right)
+    if not self:isVisible() then
+        return
+    end
+    
+    local element = self.document:GetElementById("content")
+    
+	element:SetClass('slide-in-right', false) 
+	element:SetClass('slide-in', false) 
+    
+    if slide_out_right then
+	    if element.style.right == "auto" or element.style.right == "0" then
+		    element.style.right = "-1px"
+		    element.style.left = "auto"
+	    end
+	    element:SetClass('slide-out-right', true)
+    else
+	    if element.style.left == "auto" or element.style.left == "0" then
+		    element.style.left = "-1px"
+		    element.style.right = "auto"
+	    end
+	    element:SetClass('slide-out', true)
+    end
+end
+
+function Menu:open(slide_in_left)
+	-- close all other menus of the same type
+	for _, m in pairs(Menu._registry) do
+		if m ~= self and m.is_right == self.is_right then
+			m:close(slide_in_left)
+        end
+	end
+    
+    if self:isVisible() then
+        return
+    end
+    
+    local content = self.document:GetElementById("content")
+
+    content:SetClass("slide-out", false)
+    content:SetClass("slide-out-right", false)
+
+    content.style.opacity = "0.0"
+    if slide_in_left then
+        content.style.left = "-100%"
+        content:SetClass("slide-in", true)
+    else
+        content.style.right = "-100%"
+        content:SetClass("slide-in-right", true)
+    end
+    
+	self.document:Show()
+    self.document:SetClass("hidden", false)
+end
+
+    </script>
+</head>
+<body>
+    <div id="content" class="flex flex-col gap-1 bg-content text-secondary p-0_5 relative" onanimationend="Menu._onAnimationEnd(document, element)">
+    </div>
+</body>
+</template>

@@ -1,0 +1,204 @@
+<rml>
+    <head>
+        <title>Version List Tab</title>
+        <link type="text/template" href="/rml/templates/info_panel.rml" />
+        <script>
+VersionListTab = {}
+setmetatable(VersionListTab, {__index = InfoPanel})
+VersionListTab.__index = VersionListTab
+
+local utils = require ("rml.scripts.utils")
+
+local function dismissVersionNotification()
+    if not db_service.are_versions_loaded or not db_service.versions then
+        return
+    end
+
+    local max_unix = 0
+    for _, version in ipairs(db_service.versions) do
+        local unix = version.date_created_unix or 0
+        if unix > max_unix then
+            max_unix = unix
+        end
+    end
+    if max_unix > 0 then
+        settings:setInt("ui.versionsOpened", max_unix)
+    end
+end
+
+local function getLoadedWebPackages(game_code)
+    local web_code = utils.toWebGameCode(game_code)
+    local packages = {}
+    for i = 0, db_service.platform_count - 1 do
+        local platform = db_service:getPlatform(i)
+        if utils.toWebGameCode(platform.game_code) == web_code then
+            packages[platform.web_package] = true
+        end
+    end
+    return packages
+end
+
+local function getFilteredVersions(game_code)
+    local platform_enum = utils.platformCodeToEnum(game_code)
+    if platform_enum == nil then
+        return {}
+    end
+
+    local result = {}
+    if not db_service.versions then
+        return result
+    end
+
+    for _, version in ipairs(db_service.versions) do
+        if version.platform == platform_enum then
+            table.insert(result, version)
+        end
+    end
+    return result
+end
+
+local function isVersionUnlocked(game_code, version, index, loaded_packages, has_subscription)
+    if has_subscription then
+        return true
+    end
+    if index == 1 then
+        return true
+    end
+    if loaded_packages[version.package] then
+        return true
+    end
+    return false
+end
+
+local function onVersionsLoaded(success)
+    local self = VersionListTab
+    if success and self.current_game_code and self:isVisible() then
+        self:populate(self.current_game_code)
+        dismissVersionNotification()
+    end
+end
+
+function VersionListTab:new(o)
+    local obj = InfoPanel:new(o)
+    setmetatable(obj, self)
+
+    obj:setSecondTitle("UI_choose_version")
+
+    obj.elements = {}
+
+    local element_ids = {
+        "version_list", "versions_locked_info", "versions_error"
+    }
+
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+
+    VersionListTab = obj
+    obj.current_game_code = nil
+
+    db_service:connect_versionsLoadedSignal(onVersionsLoaded)
+    return obj
+end
+
+function VersionListTab:populate(game_code)
+    local self = VersionListTab
+    local web_code = utils.toWebGameCode(game_code)
+    self.current_game_code = web_code
+
+    local container = self.elements["version_list"]
+    container.inner_rml = ""
+
+    if not db_service.are_versions_loaded then
+        self.elements["versions_error"]:SetClass("hidden", false)
+        self.elements["version_list"]:SetClass("hidden", true)
+        self.elements["versions_locked_info"]:SetClass("hidden", true)
+        return
+    end
+
+    self.elements["versions_error"]:SetClass("hidden", true)
+    self.elements["version_list"]:SetClass("hidden", false)
+
+    local versions = getFilteredVersions(web_code)
+    local loaded_packages = getLoadedWebPackages(web_code)
+    local has_subscription = iap_service:hasProduct(IAPService.WOTINSPECTOR_SUB)
+    local current_platform = db_service.platform
+    local current_package = nil
+    if current_platform and utils.toWebGameCode(current_platform.game_code) == web_code then
+        current_package = current_platform.web_package
+    end
+
+    self.elements["versions_locked_info"]:SetClass("hidden", has_subscription)
+
+    local version_template = [[
+        <p></p>
+    ]]
+
+    for index, version in ipairs(versions) do
+        local unlocked = isVersionUnlocked(web_code, version, index, loaded_packages, has_subscription)
+        local display_name = utils.getVersionDisplayName(web_code, version.package)
+
+        local option = container:AppendChild(self.document:CreateElement("div"))
+        option.inner_rml = version_template
+        option:SetClass("option", true)
+        option:SetClass("flex", true)
+        option:SetClass("gap-2", true)
+        option:SetClass("items-center", true)
+        option:SetClass("p-1", true)
+        option:SetClass("h-6", true)
+        option:SetClass("checked", version.package == current_package)
+
+        if not unlocked then
+            option:SetClass("text-premium", true)
+            option:AddEventListener("click", function()
+                PlatformSelector:close()
+                self:close()
+                ui_service:navigateToPurchase(IAPService.WOTINSPECTOR_SUB)
+            end, true)
+        else
+            option:AddEventListener("click", function()
+                PlatformSelector:close()
+                self:close()
+                db_service:loadAndSelectPlatformPackage(
+                    web_code,
+                    version.package,
+                    version.has_visual_models,
+                    display_name
+                )
+            end, true)
+        end
+
+        option:QuerySelector("p").inner_rml = display_name
+    end
+end
+
+function VersionListTab:open(game_code, left)
+    if not game_code then
+        return
+    end
+
+    local web_code = utils.toWebGameCode(game_code)
+    self:setMainTitle(web_code)
+    self.document.style.left = left .. "px"
+    self:populate(web_code)
+    InfoPanel.open(self)
+    dismissVersionNotification()
+end
+
+function VersionListTab:close()
+    self.current_game_code = nil
+    InfoPanel.close(self)
+end
+
+        </script>
+    </head>
+    <body id="version_list_tab" template="info_panel" onload="VersionListTab:new{document = document, group = 'platform_versions'}">
+        <p class="text-xs">UI_versions</p>
+        <p id="versions_error" class="text-sm">UI_versions_requires_internet</p>
+        <div id="version_list" class="list leading-none text-sm hidden">
+        </div>
+        <div id="versions_locked_info" class="hidden">
+            <p class="text-xs mt-4 mb-1">UI_versions_locked</p>
+        </div>
+    </body>
+</rml>

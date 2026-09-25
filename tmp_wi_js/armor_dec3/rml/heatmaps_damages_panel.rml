@@ -1,0 +1,272 @@
+<rml>
+    <head>
+        <title>Heatmaps Damages</title>
+        <link type="text/template" href="/rml/templates/info_panel.rml" />
+        <link type="text/template" href="/rml/templates/button_icon.rml" />
+        <script>
+HeatmapsDamagesPanel = {}
+
+local function onCheckVisiblity()
+    local self = HeatmapsDamagesPanel
+    self:updateVisibility()
+end
+
+local function onPlatformChanged(platform)
+    local self = HeatmapsDamagesPanel
+    if platform then
+        self.elements["max_distance"].inner_rml = fmt("UI_meters_format", fmt("{:.0Lf}", platform.damage_distance_limit))
+    end
+end
+
+local function onHeatmapUpdated()
+    local self = HeatmapsDamagesPanel
+    self:updateData()
+end
+
+local function onVehicleUnlocked(vehicle_id)
+    local self = HeatmapsDamagesPanel
+    self:updateVisibility()
+end
+    
+local function onCameraShooterUpdate(distance, shooter_position)
+    local self = HeatmapsDamagesPanel
+
+    self.elements["shooter_label"]:SetClass("hidden", distance == 0.0)
+    self.elements["shooter_to_target_camera"]:SetClass("disabled", distance == 0.0)
+    self.elements["target_to_shooter_camera"]:SetClass("disabled", distance == 0.0)
+
+    local platform = db_service:getPlatform()
+    if distance > 0.0 and platform then
+        local distance_limit = platform.damage_distance_limit
+        self.elements["shooter_label"].inner_rml = fmt("UI_meters_format", fmt("{:.0Lf}", distance))
+        
+        local offset_left = self.elements["damage_minimap"].offset_left
+        local img_width = self.elements["damage_minimap"].offset_width
+        local img_height = self.elements["damage_minimap"].offset_height
+        self.elements["shooter_label"].style.left = (offset_left + 0.5 * (shooter_position.x / distance_limit + 1.0) * img_width) .. "px"
+        self.elements["shooter_label"].style.top = (0.5 * (1.0 - shooter_position.z / distance_limit) * img_height) .. "px"
+    end
+end
+
+local function onTargetVehicleChanged(old_vehicle, vehicle, vehicle_info)
+    local self = HeatmapsDamagesPanel
+    self:updateVisibility()
+end
+    
+function HeatmapsDamagesPanel:new(o)
+    self.__index = self
+    setmetatable(self, {__index = InfoPanel})
+
+    local obj = InfoPanel:new(o)
+    setmetatable(obj, self)
+
+    obj:setMainTitle("UI_title_heatmap_impacts")
+    obj:setSecondTitle(fmt("UI_title_heatmaps") .. '<span class="text-black bg-beta px-1 ml-1">' .. fmt("UI_beta_badge") .. '</span>')
+
+    obj.elements = {}
+    
+    local label_ids = {
+        "total_shots", "pen_shots", "blocked_shots", "gold_shots", "damage_blocked",
+        "pen_chance", "damage_per_shot", "blocked_per_shot", "average_distance",
+        "gradient_legend_top", "gradient_legend_middle", "gradient_legend_bottom",
+        "max_distance", "shooter_label", "damage_minimap", "shooter_to_target_camera",
+        "target_to_shooter_camera", "top_down_camera"
+    }
+    
+    for _, id in ipairs(label_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+    
+    HeatmapsDamagesPanel = obj
+    
+    -- connect signals
+    runOnChange(onCheckVisiblity, "scene.viewMode", "scene.heatmapType", "scene.heatmapDamageView")
+    db_service:connect_platformChangedSignal(onPlatformChanged)
+    scene_service.shots_heatmap:connect_heatmapUpdatedSignal(onHeatmapUpdated)
+    scene_service.shots_heatmap:connect_shooterCameraUpdatedSignal(onCameraShooterUpdate)
+    arena_service:connect_targetVehicleChangedSignal(onTargetVehicleChanged)
+    account_service:connect_vehicleUnlockedSignal(onVehicleUnlocked)
+
+    -- sync ui
+    onTargetVehicleChanged(nil, arena_service.target_vehicle, arena_service.target_vehicle_info)
+    return obj
+end
+
+function HeatmapsDamagesPanel:onShooterToTargetCamera(element)
+    if element:IsClassSet("disabled") then
+        return
+    end
+  
+    scene_service.shots_heatmap:setCameraFromShooterToTarget()
+end
+
+function HeatmapsDamagesPanel:onTargetToShooterCamera(element)
+    if element:IsClassSet("disabled") then
+        return
+    end
+    
+    scene_service.shots_heatmap:setCameraFromTargetToShooter()
+end
+
+function HeatmapsDamagesPanel:onTopDownCamera()
+    local camera_controller = scene_service.camera_controller
+    if camera_controller.is_top_down then
+        camera_controller:setupCamera(math.pi/2 * 0.1, camera_controller.yaw)
+    else
+        camera_controller:setupCamera(math.pi/2 * 0.99, camera_controller.yaw)
+    
+        local platform = db_service:getPlatform()
+        if platform then
+            camera_controller:setTopDownScale(platform.damage_distance_limit)
+        end
+    end
+end
+
+function HeatmapsDamagesPanel:checkVisibility()
+    local view_mode = settings:getInt("scene.viewMode")
+    local heatmap_type = settings:getInt("scene.heatmapType")
+    local heatmap_damage_view = settings:getInt("scene.heatmapDamageView")
+    local target_locked = arena_service.target_vehicle_info and account_service:isVehicleLocked(arena_service.target_vehicle_info.shared, false)
+    return view_mode == ViewMode.HEATMAP and not target_locked and heatmap_type == HeatmapType.HEATMAP_DAMAGES and heatmap_damage_view == HeatmapDamageView.HEATMAP_DAMAGE_RECEIVED
+end
+
+function HeatmapsDamagesPanel:updateData()
+    if not self:checkVisibility() then
+        return
+    end
+
+    local point = ShotsHeatmap.Point.new()
+    local damage_regular = ShotsHeatmap.Point.new()
+    local damage_premium = ShotsHeatmap.Point.new()
+    local blocked_regular = ShotsHeatmap.Point.new()
+    local blocked_premium = ShotsHeatmap.Point.new()
+    
+    local shots_heatmap = scene_service.shots_heatmap
+
+    shots_heatmap:getAveragePoint(ShotsHeatmap.TextureType.DAMAGE_RECEIVED_REGULAR, damage_regular)
+    shots_heatmap:getAveragePoint(ShotsHeatmap.TextureType.DAMAGE_RECEIVED_PREMIUM, damage_premium)
+    shots_heatmap:getAveragePoint(ShotsHeatmap.TextureType.DAMAGE_BLOCKED_REGULAR, blocked_regular)
+    shots_heatmap:getAveragePoint(ShotsHeatmap.TextureType.DAMAGE_BLOCKED_PREMIUM, blocked_premium)
+
+    point:add(damage_regular)
+    point:add(blocked_regular)
+    point:add(damage_premium)
+    point:add(blocked_premium)
+
+    local total_premium = damage_premium.count + blocked_premium.count
+    local total_penetrated = damage_regular.count + damage_premium.count
+    local total_blocked = blocked_regular.count + blocked_premium.count
+    local total_shots = point.count
+    
+    self.elements["gold_shots"].inner_rml = fmt("UI_percent_format", fmt("{:.0Lf}", total_shots > 0.0 and 100.0 * total_premium / total_shots or 0.0))
+    self.elements["pen_shots"].inner_rml = fmt("{:.0Lf}", total_penetrated)
+    self.elements["blocked_shots"].inner_rml = fmt("{:.0Lf}", total_blocked)
+    self.elements["pen_chance"].inner_rml = fmt("UI_percent_format", fmt("{:.0Lf}", total_shots > 0.0 and 100.0 * total_penetrated / total_shots or 0.0))
+    self.elements["damage_blocked"].inner_rml = fmt("UI_percent_format", fmt("{:.0Lf}", total_shots > 0.0 and 100.0 * total_blocked / total_shots or 0.0))
+    self.elements["damage_per_shot"].inner_rml = fmt("UI_hp_format", fmt("{:.0Lf}", total_shots > 0.0 and (damage_regular.weight + damage_premium.weight) / total_shots or 0.0))
+    self.elements["blocked_per_shot"].inner_rml = fmt("UI_hp_format", fmt("{:.0Lf}", total_shots > 0.0 and (blocked_regular.weight + blocked_premium.weight) / total_shots or 0.0))
+    
+    local distance = total_shots > 0.0 and point.distance or 0.0
+    self.elements["average_distance"].inner_rml = fmt("UI_meters_format", fmt("{:.0Lf}", distance))
+    self.elements["total_shots"].inner_rml = fmt("{:.0Lf}", point.count)
+    
+    local max_weight = shots_heatmap:getMaxWeight()
+    self.elements["gradient_legend_top"].inner_rml = fmt("UI_hp_per_pixel_format", max_weight)
+    self.elements["gradient_legend_middle"].inner_rml = fmt("UI_hp_per_pixel_format", math.sqrt(max_weight))
+    self.elements["gradient_legend_bottom"].inner_rml = fmt("UI_hp_per_pixel_format", 0)
+end
+
+
+        </script>
+    </head>
+    <body id="heatmaps_damages_panel" template="info_panel" onload="HeatmapsDamagesPanel:new{document = document}">
+        <div class="text-xs">
+            <div class="flex gap-2">
+                <img src="materials/heatmap_gradient.material" width="24dp" height="86dp" />
+                <div class="flex flex-col justify-between">
+                    <p id="gradient_legend_top">10000</p>
+                    <p id="gradient_legend_middle">10000</p>
+                    <p id="gradient_legend_bottom">10000</p>
+                </div>
+            </div>
+            <div class="flex justify-between items-end mt-3">
+                <div>
+                    <p class="font-bold">UI_data</p>
+                    <p>UI_total_shots</p>
+                </div>
+                <p id="total_shots" class="text-xl font-light leading-none">100</p>
+            </div>
+            <div class="flex justify-between items-end">
+                <p>UI_penetrated_shots</p>
+                <p id="pen_shots">100</p>
+            </div>
+            <div class="flex justify-between items-end">
+                <p>UI_blocked_shots</p>
+                <p id="blocked_shots">100</p>
+            </div>
+            <div class="flex justify-between items-end">
+                <p>UI_gold_shots</p>
+                <p id="gold_shots">100</p>
+            </div>
+
+            <div class="flex justify-between items-end mt-3">
+                <div>
+                    <p class="font-bold">UI_armor_efficiency</p>
+                    <p>UI_damage_blocked</p>
+                </div>
+                <p id="damage_blocked" class="text-xl font-light leading-none">100</p>
+            </div>
+            <div class="flex justify-between items-end">
+                <p>UI_pen_chance</p>
+                <p id="pen_chance">100</p>
+            </div>
+            <div class="flex justify-between items-end">
+                <p>UI_damage_per_shot</p>
+                <p id="damage_per_shot">100</p>
+            </div>
+            <div class="flex justify-between items-end">
+                <p>UI_blocked_per_shot</p>
+                <p id="blocked_per_shot">100</p>
+            </div>
+
+            <div class="flex justify-between items-end mt-3">
+                <p class="font-bold">UI_average_distance</p>
+                <p id="average_distance" class="text-xl font-light leading-none">100</p>
+            </div>
+
+            <p class="font-bold mt-3">UI_shots_origin</p>
+            <div class="relative">
+                <img id="damage_minimap" class="mx-auto" src="materials/ground_heatmap.material#impacts" width="160dp" height="160dp"/>
+                <p id="max_distance" class="absolute right-0 top-0">100m</p>
+                <p id="shooter_label" class="absolute hidden" style="transform:translateX(-50%) translateY(4dp)">100m</p>
+            </div>
+
+            <div class="mt-3 flex gap-1">
+                <div class="flex-1">
+                    <template src="button_icon">
+                        <p>UI_icon_camera</p>
+                        <svg src="/rml/icons/Controls-Camera.svg" class="w-8 flex-none" />
+                    </template>
+                </div>
+                <button id="shooter_to_target_camera" class="disabled text-secondary" onclick="HeatmapsDamagesPanel:onShooterToTargetCamera(element)">
+                    <template src="button_icon">
+                        <p>UI_icon_shooter</p>
+                        <svg src="/rml/icons/AI-Confrontation-Shooter-1.svg" class="w-8 flex-none" />
+                    </template>
+                </button>
+                <button id="target_to_shooter_camera" class="disabled text-secondary" onclick="HeatmapsDamagesPanel:onTargetToShooterCamera(element)">
+                    <template src="button_icon">
+                        <p>UI_icon_target</p>
+                        <svg src="/rml/icons/AI-Confrontation-Target.svg" class="w-8 flex-none" />
+                    </template>
+                </button>
+                <button id="top_down_camera" class="text-secondary" onclick="HeatmapsDamagesPanel:onTopDownCamera()">
+                    <template src="button_icon">
+                        <p>UI_icon_top_camera</p>
+                        <svg src="/rml/icons/Tank-ViewTop-1.svg" class="w-8 flex-none" />
+                    </template>
+                </button>
+            </div>
+        </div>
+    </body>
+</rml>

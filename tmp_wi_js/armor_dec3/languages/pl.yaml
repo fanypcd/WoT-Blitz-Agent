@@ -1,0 +1,661 @@
+UI_icon_link: "Link"
+UI_icon_email: "adres e-mail"
+UI_icon_pic: "Zdj."
+UI_icon_photo: "Zdjęcie"
+UI_icon_cancel: "Anuluj"
+UI_icon_xray: "X-Ray"
+UI_icon_confrontation: "Pen."
+UI_icon_collision: "Kol."
+UI_icon_options: "Opcje"
+UI_icon_language: "Język"
+UI_icon_shop: "Sklep"
+UI_icon_about: "O nas"
+UI_icon_contact: "Kontakt"
+UI_icon_account: "Konto"
+UI_icon_back: "Cofnij"
+UI_icon_target: "Cel"
+UI_icon_modules: "Moduły"
+UI_icon_armor: "Pancerz"
+UI_icon_model: "Model"
+UI_icon_hdmodel: "Tekstura"
+UI_icon_turret: "Wieża"
+UI_icon_slot: "otwór"
+UI_icon_none: "Brak"
+UI_icon_camonet: "Siatka"
+UI_icon_china: "Chiny"
+UI_icon_france: "Francja"
+UI_icon_germany: "Niemcy"
+UI_icon_japan: "Japonia"
+UI_icon_uk: "U.K"
+UI_icon_ussr: "Z.S.R.R"
+UI_icon_usa: "U.S.A"
+UI_icon_czech: "Czechy"
+UI_icon_sweden: "Szwecja"
+UI_icon_poland: "Polska"
+UI_icon_blitz: "Blitz"
+UI_icon_italy: "Włochy"
+UI_icon_merc: "Najemn."
+UI_icon_lt: "Lekki"
+UI_icon_mt: "Średni"
+UI_icon_ht: "Ciężki"
+UI_icon_td: "TD"
+UI_icon_arty: "Artyleria"
+UI_icon_remove: "Usuń"
+UI_icon_gun: "Działo"
+UI_icon_skill: "Umiejętność"
+UI_icon_bonus: "Bonus"
+UI_icon_shooter: "Strzelający"
+UI_icon_swap: "Zamień"
+UI_icon_pen_chance: "R/G"
+UI_icon_hitskin: "Blitz"
+UI_icon_rammer: "Dosyłacz"
+UI_icon_spall_liner: "Osł. odłamkowa"
+UI_icon_forum: "Forum"
+UI_icon_hd_textures: "Tekstu."
+UI_icon_views: "Widok"
+UI_icon_front_view: "Przód"
+UI_icon_left_view: "Lewo"
+UI_icon_back_view: "Tył"
+UI_icon_right_view: "Prawo"
+UI_icon_specs: "Specyf."
+UI_icon_crosssection: "przekrój"
+UI_icon_premium: "Premium"
+UI_icon_bigbundle: "duży pakiet"
+UI_icon_close: "Zamknij"
+UI_icon_info: "Informacje"
+UI_icon_tank: "Czołg"
+UI_icon_height: "Wysokość"
+UI_icon_distance: "Odległość"
+UI_icon_traverse: "Kąt obrótu"
+UI_icon_fullscreen: "P. ekr."
+UI_icon_calibrated_shells: "Kal. pocisków"
+UI_icon_enhanced_armor: "Ulepszony pancerz"
+UI_icon_shots: "Strzały"
+UI_icon_euro: "Euro"
+UI_title_root_menu: "Platforma"
+UI_title_xray: "X-Ray"
+UI_title_confrontation: "Konfrontacja"
+UI_title_collision: "Kolizja"
+UI_title_specs: "Specyfikacje"
+UI_title_options: "Ustawienia"
+UI_title_hd_settings: "Tekstury HD"
+UI_purchases_tab_help: "Użyj przycisku Przywróć zakupy, jeśli Twoje zakupy są z jakiegoś powodu zablokowane."
+UI_about_title: "O nas"
+UI_contacts: "Kontakt"
+UI_shop: "Sklep"
+UI_wg_account: "Konto "
+UI_contacts_text: "Dziękujemy za korzystanie z Armor Inspectora. Więcej informacji na temat Armor Inspectora znajdziesz tutaj:"
+UI_hd_textures_desc: "Tekstury HD są pobierane z naszego serwera i wymagają połączenia z internetem oraz wolnego miejsca na urządzeniu. Ponieważ są bardziej szczegółowe, mogą też lekko spowolnić działanie urządzenia.<br /><br />Po naciśnięciu przycisku tekstury zostaną pobrane osobno dla każdego czołgu. Utrzymanie naszych serwerów jest kosztowne, dlatego użytkownicy wersji darmowej mogą pobrać tekstury raz dziennie."
+UI_hd_textures_erase_desc: "Jeśli masz mało miejsca na urządzeniu, możesz usunąć wszystkie wcześniejsze tekstury w panelu ustawień."
+UI_download: "Pobierz"
+UI_hd_download_desc: "Pobierz tekstury dla tego czołgu: {:.1Lf} MB"
+UI_hd_download_progress: "Pobieranie: {:.1Lf} MB"
+UI_hd_already_downloaded: "Już pobrano"
+UI_collision_model_not_available: "Niestety nie mamy jeszcze modelu grubości pancerza dla tego pojazdu, ale możesz sprawdzić jego parametry w panelu informacji."
+UI_discord: "Dołącz do naszego Discorda"
+UI_forum: "Forum, artykuły, poradniki"
+UI_hd_erase_all: "Usuń tekstury"
+UI_hd_erase_tab_desc: "Tekstury HD zajmują <b>{:.1Lf} MB</b> miejsca na Twoim urządzeniu. Możesz usunąć je wszystkie, aby zwolnić miejsce, korzystając z poniższego przycisku.<br /><br />W trybie X-ray będzie można ponownie pobrać je osobno dla każdego czołgu."
+UI_hd_erase_all_desc: "Usuń wszystkie tekstury, aby zwolnić <b>{:.1Lf} MB</b> pamięci"
+UI_hitpoints: "Punkty wytrzymałość"
+UI_hitpoints_repaired: "Aby uszkodzić"
+UI_dpm: "DPM"
+UI_reload_time: "Czas przeładowania"
+UI_reload_times: "Czas przeładowania"
+UI_clip_count: "Pojemność magazynka"
+UI_clip_time: "Wystrzelenie magazynka "
+UI_dispersion: "Celność"
+UI_pen: "Penetracja"
+UI_caliber: "Kaliber"
+UI_damage: "Uszkodzenia"
+UI_viewrange: "Zasięg widzenia"
+UI_viewrange_still: "Zasięg Widzenia (w miejscu)"
+UI_information: "Informacje"
+UI_thickness: "Grubość"
+UI_primary_armor: "Pancerz główny"
+UI_spaced_armor: "Pancerz warstwowy"
+UI_external_modules_legend: "Moduły zewnętrzne"
+UI_internal_modules_legend: "Moduły wewnętrzne"
+UI_modules: "Moduły"
+UI_module_track: "Gąsienice"
+UI_module_gun: "Działo"
+UI_module_surveying_device: "Wizjery "
+UI_module_engine: "Silnik"
+UI_module_ammo_bay: "Ammorack"
+UI_module_fuel_tank: "Zbiornik Paliwa"
+UI_module_radio: "Radio "
+UI_module_turret_rotator: "Wieża"
+UI_module_wheel: "Koło"
+UI_crew_legend: "Załoga"
+UI_crew_commander: "Dowódca"
+UI_crew_driver: "Kierowca"
+UI_crew_radioman: "Radiooperator"
+UI_crew_gunner: "Celowniczy"
+UI_crew_loader: "Ładowniczy"
+UI_show: "Pokaż"
+UI_hide: "Ukryj"
+UI_not_set: "Nie wybrano"
+UI_ram_info: "Informacje o taranowaniu"
+UI_ramming_impact_speed_label: "Prędkość uderzenia"
+UI_weight: "Masa"
+UI_speed: "Prędkość"
+UI_max_speed: "Maksymalna prędkość"
+UI_shot_info: "Informacje o strzale"
+UI_minimal_damage: "Min. uszkodzenia"
+UI_pen_by: "Przebity przez"
+UI_pen_by_format: "{:.0Lf}/{:.0Lf} Strzały"
+UI_total_damage_received: "Otrzymane uszkodzenia"
+UI_pen_effective_armor: "Efektywny pancerz"
+UI_pen_ricochet: "Rykoszet"
+UI_pen_piercing_power_loss: "Utrata penetracji"
+UI_pen_travel_distance: "Odległość"
+UI_primary_armor_not_hit: "Nie trafiono w pancerz"
+UI_damage_to_modules: "Uszkodzenia dla Modułów"
+UI_general: "Ogólne"
+UI_economics: "Ekonomia"
+UI_camouflage: "Maskowanie"
+UI_mobility: "Mobilność"
+UI_weaponry: "Uzbrojenie"
+UI_hull_armor: "Pancerz kadłuba"
+UI_turret_armor: "Pancerz wieży"
+UI_max_load: "Maks. udźwig"
+UI_price: "Cena"
+UI_repair_cost: "Koszt naprawy"
+UI_repair_speed: "Szybkość Naprawy"
+UI_tracks_repair_speed: "Szybkość Naprawy Gąsienic"
+UI_he_damage_reduction: "HE damage reduction"
+UI_credits_factor: "Mnożnik kredytów"
+UI_xp_factor: "Mnożnik XPa"
+UI_crew_xp_factor: "Mnożnik XPa załogi"
+UI_free_xp_factor: "Mnożnik wolnego XPa"
+UI_camo_still: "w Miejscu"
+UI_camo_still_composite: "Po Strzale w Miejscu"
+UI_camo_moving: "w Ruchu"
+UI_camo_moving_composite: "Po Strzale w Ruchu"
+UI_camo_bonus: "Bonus maskowania"
+UI_camo_net_bonus: "Bonus siatki maskującej"
+UI_invisibility_at_shot: "Maskowanie po strzale"
+UI_camo_fire_penalty: "Kara kamuflażu po strzale"
+UI_speedlimits: "Prędkość maksymalna"
+UI_engine_power_weight: "moc/tonę"
+UI_ramming_potential: "Potencjał taranowania"
+UI_engine_power: "Moc silnika"
+UI_hull_turret_traverse: "Obrót kadłuba/wieży"
+UI_terrain_resistance: "Opory dla gruntu"
+UI_aiming_time: "Czas celowania"
+UI_rate_of_fire: "Szybkostrzelność"
+UI_clip_rate: "Przeładowanie między pociskami"
+UI_burst_rate: "Czas Między Pociskami w Seri"
+UI_dispersion_after_shot: "Po Strzale"
+UI_dispersion_movement: "w Ruchu"
+UI_dispersion_rotation: "Przy Obrocie Kadłuba"
+UI_dispersion_turret_rotation: "Przy Obrocie Wieży"
+UI_dispersion_gun_damaged: "Uszkodzone Działo"
+UI_max_ammo: "Liczba pocisków"
+UI_shellkind_ap: "PP"
+UI_shellkind_apcr: "APCR"
+UI_shellkind_he: "OB"
+UI_shellkind_hc: "HEAT"
+UI_shellkind_smoke: "SMOKE"
+UI_shellkind_apfsds: "APFSDS"
+UI_shellkind_flame: "FLAME"
+UI_distance: "Odległość"
+UI_explosion_radius: "Promień eksplozji"
+UI_more_specs: "Więcej"
+UI_about_text: "Wersja Armor Inspectora: <b>{}</b><br /><br />Pomysł, projekt i wykonanie:<br />Andrew Karpushin<br /><br />Doświadczenie użytkownika i interfejs:<br />Clément Durand<br /><br />Specjalne podziękowania dla tłumaczy:<br />Chiński: 三ツ橋 小宵, Alien_robot, Oliver_s, David Copperfield<br />Japoński: alphasave1<br />Niemiecki: Weihan, Liner8<br />Turecki: Metin61<br />Polski: ­­<br /><br />Armor Inspector jest niezależny od twórców World of Tanks i Mir Tankov. Twoje wsparcie jest dla nas bardzo ważne! dziękujemy!<br /><br />Ten produkt nie należy do Wargaming.net ani Lesta Games i jest rozwijany zgodnie z warunkami oraz zasadami programu Developer Partner Program."
+UI_modules_no_information: "Przepraszamy, ale {} nie udostępnia informacji o modułach wewnętrznych dla tego czołgu."
+UI_modules_try_heatmaps: "Wypróbuj tryb <b>Heatmaps</b>, aby zobaczyć, gdzie moduły najczęściej otrzymują trafienia krytyczne."
+UI_help_confrontation: "Tryb <b>Konfrontacji</b> symuluje strzał w pancerz czołgu.<br /><br />• wybierz dwa czołgi: strzelający i cel.<br />• kliknij w cel, aby ustawić punkt trafienia.<br />• przeanalizuj wynik jednym z narzędzi.<br />• szczegóły sprawdź w zakładce Info."
+UI_help_collision: "<b>Tryb kolizji</b> symuluje taranowanie pojazdów.<br /><br />• wybierz pojazd taranujący i cel<br />• ustaw prędkość pojazdu<br />• kliknij cel, aby ustawić miejsce i kąt taranowania<br />• szczegóły sprawdź w zakładce Informacje"
+UI_paid_content_descr_premium: "Aby użyć tego widoku, trzeba pobrać teksturę. Domyślnie pobierane są tekstury SD. Pobierz tekstury HD, żeby uzyskać lepszą jakość."
+UI_paid_content_descr_confrontation: "Kamera jest zablokowana dla pojazdów IX–X poziomu i premium. Kup pakiet Konfrontacji i pomóż nam rozwijać Armor Inspectora."
+UI_paid_content_descr_collision: "Kamera jest zablokowana dla trybu taranowania. Kup pakiet Kolizje i pomóż nam rozwijać Armor Inspectora."
+UI_paid_content_descr_heatmaps: "Kamera dla trybu Heatmaps jest zablokowana.<br /><br />Heatmaps wymagają dodatkowego przetwarzania danych na naszych serwerach, dlatego pełna funkcjonalność jest dostępna tylko dla subskrybentów WOTInspectora."
+UI_paid_content_descr_cutaway: "Kamera dla trybu Cutaways jest zablokowana. Kup pakiet Cutaway, aby odblokować tę funkcję i wesprzeć rozwój Armor Inspectora."
+UI_paid_content_descr_cutaway_xray: "Kamera w trybie Cutaways jest zablokowana.\n\nW trybie X-ray możesz przeciąć pancerz dowolnego czołgu, aby zobaczyć jego grubość i moduły.\nW trybie Konfrontacji możesz śledzić tor lotu pocisku wewnątrz czołgu, wraz z trafieniami w pancerz, załogę i moduły.\n\nKup pakiet Cutaway, aby odblokować tę funkcję i wesprzeć rozwój Armor Inspectora."
+UI_visit_purchases: "Odwiedź sklep"
+UI_navigate_xray: "Sprawdź to w trybie X-ray"
+UI_try_low_tier: "Przetestuj to na pojeździe niskiego poziomu"
+UI_iap_confrontation_desc: "Tryb Konfrontacji pozwala sprawdzić pancerz i penetrację, wybierając dwa czołgi.\n\nZakup odblokowuje kamerę dla czołgów IX–X i premium oraz pozwala pobierać tekstury HD dla Blitz HistSkin.\n\nNarzędzie Cutaway można kupić osobno."
+UI_iap_collision_desc: "Tryb Kolizji pokazuje siłę taranowania oraz otrzymywane uszkodzenia dla dowolnego czołgu.\n\nTen zakup odblokowuje kamerę, pozwalając ustawić prędkość, kierunek i punkt uderzenia."
+UI_iap_bigbundle_desc: "Pakiet Big Bundle odblokowuje wszystkie obecne funkcje oraz wszystkie przyszłe treści i funkcje dodawane w kolejnych aktualizacjach, na zawsze.\n\nArmor Inspector analizuje wiele mechanik gry, penetrację, kolizje, uszkodzenia dla modułów… ale wciąż wiele pozostaje tajemnicą, jak wykrywanie, rozrzut działa, wyposażenie i inne.\n\nZ Twoją pomocą możemy odkryć je wszystkie."
+UI_iap_cutaway_desc: "Nowe narzędzie Cutaway. W trybie X-ray pozwala przeciąć pancerz dowolnego czołgu, aby zobaczyć grubość pancerza i moduły. W trybie konfrontacji Cutaway pokazuje szczegółowo tor lotu pocisku wewnątrz czołgu, wraz z trafieniami w pancerz, załogę i moduły.\n\nTen zakup odblokowuje kamerę oraz pozwala przecinać czołg i analizować wewnętrzną trajektorię każdego strzału."
+UI_patreon_desc: "Wspierając WotInspectora subskrypcją, odblokujesz całą stronę i aplikacje dla siebie oraz dla wszystkich swoich klanowych kolegów z WoT Blitz i WoT PC.\nDostępne są następujące poziomy subskrypcji:"
+UI_patreon_tier3: "$3/miesięcznie"
+UI_patreon_tier3_desc: "Odblokuj Armor Inspectora dla swojego konta WoT. Możesz też swobodnie korzystać z aplikacji na smartfonach z iOS i Androidem."
+UI_patreon_tier5: "$5/miesięcznie"
+UI_patreon_tier5_desc: "Odblokuj Armor Inspectora i Map Inspectora dla swojego konta WoT."
+UI_patreon_tier15: "$15/miesięcznie"
+UI_patreon_tier15_desc: "Odblokuj Armor Inspectora i Map Inspectora dla swojego klanu WoT Blitz. Wszyscy członkowie klanu WoT Blitz będą mogli swobodnie korzystać z aplikacji na dowolnej platformie."
+UI_patreon_tier20: "$20/miesięcznie"
+UI_patreon_tier20_desc: "Odblokuj Armor Inspectora i Map Inspectora dla swoich klanów WoT Blitz i WoT PC. Wszyscy członkowie klanów z obu gier będą mogli swobodnie korzystać z aplikacji na dowolnej platformie."
+UI_learn_more: "Dowiedz się więcej"
+UI_restore_purchases: "Przywróć zakupy"
+UI_patreon_support: "Odblokuj od $3/miesięcznie"
+UI_patreon_title: "Wesprzyj nas subskrypcją"
+UI_iap_owned: "Już odblokowane"
+UI_confrontation_purchase: "Konfrontacja"
+UI_collision_purchase: "Kolizja"
+UI_cutaway_purchase: "cutaway"
+UI_bigbundle_purchase: "big bundle"
+UI_iap_unlock: "Kup<br />{}"
+UI_yes: "Tak"
+UI_no: "Nie"
+UI_loading: "ładowanie"
+UI_language_help: "Każda zmiana ustawień języka wymaga ponownego uruchomienia."
+UI_uploading: "Wysyłanie…"
+UI_uploaded: "Wysłano!"
+UI_error_title: "Błąd"
+UI_error_code: "Kod błędu {}. {}."
+UI_ok: "OK"
+UI_transaction_failed: "Transakcja nieudana"
+UI_purchasing: "Odblokowywanie..."
+UI_connecting_to_server: "Łączenie z serwerem…"
+UI_connection_failed: "Nie można połączyć się z serwerem."
+UI_done: "Gotowe."
+UI_authorization_error: "Błąd autoryzacji."
+UI_pen_impact_angle: "Kąt uderzenia"
+UI_pen_normalization_angle: "Normalizacja"
+UI_1st_shot: "1. strzał"
+UI_2nd_shot: "2. strzał"
+UI_3rd_shot: "3. strzał"
+UI_too_far_away: "Zbyt daleko"
+UI_survived_with: "Przetrwał z"
+UI_dead_in: "Zniszczony w"
+UI_escapes: "escapes"
+UI_too_slow: "Zbyt wolno"
+UI_contact_topic_select: "Wybierz temat"
+UI_contact_topic_question: "Pytania i błędy"
+UI_contact_topic_interface: "Interfejs i sugestie"
+UI_equipment: "Wyposażenie"
+UI_select_game_folder: "Wybierz folder gry"
+UI_add_account: "Dodaj konto"
+UI_logout: "Wyloguj"
+UI_failed_to_save_screenshot: "Nie udało się zapisać zrzutu ekranu"
+UI_failed_to_connect: "Nie udało się połączyć ze zdalnym hostem: Błąd {}\n{}"
+UI_link_copied: "Kliknij OK, aby skopiować link do schowka."
+UI_language: "Język"
+UI_accounts_description: "Użyj swojego konta w grze, aby dokonywać zakupów i synchronizować je na wszystkich urządzeniach."
+UI_pen_chance: "Szansa na przebicie."
+UI_type: "Typ"
+UI_details: "Szczegóły"
+UI_hd_time_left: "Pozostały czas do następnego pobrania: {:02.0f}h{:02.0f}m"
+UI_hd_textures: "Tekstury HD"
+UI_shots_desc: "Ostatnie strzały"
+UI_title_shots: "Lista strzałów"
+UI_shots_mod_description: "Ten panel pokazuje listę strzałów z Twojej ostatniej bitwy. Jest on dostępny tylko po zainstalowaniu Armor Inspectora jako moda dla WoT PC. Kliknij przycisk poniżej, aby pobrać modyfikację."
+UI_download_mod: "Pobierz moda"
+UI_icon_camera: "Kamera"
+UI_icon_animate: "loop"
+UI_reset: "Reset"
+UI_season_0: "Zima"
+UI_season_1: "Lato  "
+UI_season_2: "Pustynia"
+UI_icon_camo: "Kamuflaż"
+UI_icon_search: "Szukaj"
+UI_icon_game: "Gra"
+UI_default: "Domyślne"
+UI_piercing_power: "Moc przebicia"
+UI_turret_traverse: "Obrót wieży"
+UI_icon_position: "Pozycja"
+UI_icon_share: "Udostępnij"
+UI_crew_members: "Członkowie załogi"
+UI_downloading: "Pobieranie"
+UI_icon_reset: "Reset"
+UI_icon_apply: "Zastosuj"
+UI_icon_verticalcut: "Pionowo"
+UI_icon_horizontalcut: "Poziomo"
+UI_icon_nation: "Nacja"
+UI_icon_type: "Typ"
+UI_icon_years: "lata"
+UI_icon_tiers: "Tiery"
+UI_tap_to_change: "Naciśnij aby zmienić "
+UI_please_login: Zaloguj się
+UI_please_login_desc: Aby dokonać zakupu, zaloguj się najpierw używając konta w grze
+UI_login: Zaloguj
+UI_about_widget: about widget
+UI_armor_inspector_widget: armor inspector widget
+UI_about_widget_text: Ten panel pokazuje podstawowy układ pancerza i tekstury modelu każdego czołgu z gry World of Tanks. Więcej funkcji, takich jak lokalizacja modułów wewnętrznych, symulacja strzału czy widok przekrojów, jest dostępnych w aplikacji Armor Inspector.
+UI_icon_maps: Mapy
+UI_cant_connect_store_api: Nie można połączyć się z API sklepu. Sprawdź połączenie z internetem i spróbuj ponownie.
+UI_effective_speed: Efektywna prędkość maksymalna
+UI_icon_tier1_2: tier 1-2
+UI_icon_tier11: tier 11
+UI_specs_on_terrain_hard: 'Twardy'
+UI_specs_on_terrain_medium: 'Średni'
+UI_specs_on_terrain_soft: 'Miękki'
+UI_effective_hull_traverse: Efektywny obrót
+UI_effective_values: 'Wartości efektywne'
+UI_compare_on_wotinspector: compare on wotinspector
+UI_camo_paint: 'camo paint'
+UI_siege_mode: 'Tryb oblężniczy'
+UI_tracks_repair_time: Czas naprawy gąsienicy
+UI_icon_heatmaps: Heat
+UI_title_heatmaps: heatmaps
+UI_total_shots: Liczba trafień
+UI_visible_shots: Widoczne strzały
+UI_gold_shots: Strzały z golda
+UI_icon_ammo: ammo
+UI_icon_class: Klasa
+UI_icon_ammorack: ammo
+UI_icon_fire: Pożar
+UI_not_enough_shots: Za mało strzałów do dynamicznej mapy Heatmaps. Widok dynamiczny jest wyłączony.
+UI_damage_per_shot: Śr. obrażenia/strzał
+UI_blocked_per_shot: Śr. zablokowane/strzał
+UI_blocked_shots: Zablokowane strzały
+UI_icon_damage: Uszkodzenia
+UI_icon_focus: focus
+UI_icon_intunion: union
+UI_paid_content_descr_mod: Kamera jest zablokowana dla tego pojazdu, kliknij poniższy link, aby dowiedzieć się dlaczego
+UI_camera_locked_mod: "Kamera jest zablokowana\ndowiedz się dlaczego"
+UI_fire_event: Pożar
+STORE_iap_essential_pack_desc: Odblokowuje wszystkie podstawowe funkcje Armor Inspectora, które nie wymagają połączenia z internetem. Obejmuje to Tryb konfrontacji oraz narzędzia Kolizji i Cutaway, także w przyszłych aktualizacjach. Nie obejmuje funkcji online, takich jak modele HD, skiny 3D, kamuflaże i Heatmaps.
+STORE_iap_essential_pack: Pakiet Essential
+STORE_iap_confrontation: Tryb konfrontacji
+STORE_iap_confronation_desc: Pozwala używać czołgów wysokich poziomów (IX–X) oraz premium w Trybie konfrontacji.
+STORE_iap_collision_desc: Odblokowuje wszystkie pojazdy do użycia w trybie kolizji.
+STORE_iap_collision: Tryb kolizji
+STORE_iap_cutaway_desc: Umożliwia przecinanie dowolnego czołgu w dowolny sposób w trybach X-ray i Konfrontacji.
+STORE_iap_cutaway: Cutaway
+UI_essentialpack_purchase: Pakiet Essential
+UI_iap_essentialpack_desc: "Odblokowuje wszystkie podstawowe funkcje Armor Inspectora, które nie wymagają połączenia z internetem.\n\nObejmuje to Tryb konfrontacji oraz narzędzia Kolizji i Cutaway, także w przyszłych aktualizacjach.\n\nNie obejmuje funkcji online, takich jak modele HD, skiny 3D, kamuflaże i Heatmaps."
+UI_wotinspector_subscription: Subskrypcja wotinspektora
+UI_iap_wisubscription_desc: "Odblokuj wszystkie funkcje Armor Inspectora, aktywując subskrypcję.\n\nUsuwa wszystkie reklamy. Odblokowuje wszystkie pojazdy, wszystkie tryby oraz ekskluzywny dostęp do danych na naszych serwerach: modele HD, heatmaps, skiny 3D (wkrótce), kamuflaże (wkrótce).\n\nSubskrypcja WOTInspectora odblokowuje także dostęp do aplikacji Map Inspector dla WoT PC i WoT Blitz na wszystkich platformach oraz do całej zawartości na wotinspector.com."
+UI_per_month_format: '{} / miesięcznie'
+UI_expire_format: Wygasa {}
+UI_icon_impacts: Uszkodzenia
+UI_title_heatmap_ammo: amunicja/kąt
+UI_title_heatmap_impacts: Gęstość uszkodzeń
+UI_title_heatmap_classes: Klasa strzelającego
+UI_title_heatmap_focus: Skupienie ognia wroga
+UI_title_heatmap_modules: Moduły
+UI_average_distance: Średni dystans
+UI_penetrated_shots: Przebite strzały
+UI_armor_efficiency: Efektywność pancerza
+UI_meters_format: '{}<small>m</small>'
+UI_meters_per_second2_format: '{}<small>m/s²</small>'
+UI_hp_per_pixel_format: '{:.0Lf}<small>hp/px</small>'
+UI_icon_top_camera: Góra
+UI_heatmaps_no_shots_at_point: Brak strzałów
+UI_millimeters_format_deprecated: '{:.0Lf}mm'
+UI_millimeters_format: '{}<small>mm</small>'
+UI_degrees_per_second_format: '{}<small>°/s</small>'
+UI_degrees_format: '{}<small>°</small>'
+UI_xp_format: '{}<small>xp</small>'
+UI_millimeters_range_format: '{:.0Lf} - {:.0Lf}<small>mm</small>'
+UI_hp_format: '{}<small>hp</small>'
+UI_damage_range_format: '{:.0Lf}-{:.0Lf}<small>hp</small>'
+UI_percent_shots_here_format: '{:.0Lf}% strzałów'
+UI_seconds_format: '{}<small>s</small>'
+UI_data: Dane
+UI_damage_blocked: Zablokowane uszkodzenia
+UI_in_development: W rozwoju
+UI_early_access: Wczesny dostęp
+UI_in_development_description: "Dziękujemy za zainteresowanie! Ta funkcja jest obecnie w trakcie rozwoju i nie jest jeszcze dostępna dla wszystkich użytkowników.\n\nSubskrybenci otrzymają ekskluzywny wczesny dostęp po premierze, a niedługo później funkcja będzie dostępna dla wszystkich."
+UI_join_discord_description: "Dołącz do naszego Discorda, aby zobaczyć zapowiedzi i porozmawiać o nadchodzących funkcjach!"
+UI_early_access_description: "Ta zawartość jest dostępna we wczesnym dostępie dla subskrybentów.\n\nW następnej dużej aktualizacji będzie dostępna dla wszystkich. Subskrybenci pomagają pokryć koszty serwerów, dzięki czemu wotinspector pozostaje darmowy.\n\nWesprzyj nas, aby odblokować pełny dostęp i korzystać ze wszystkich funkcji premium!"
+UI_subscribe_now: Subskrybuj teraz
+UI_shots_origin: shots origin
+UI_kmh: 'km/h'
+UI_kmh_format: '{}<small>km/h</small>'
+UI_ms_format: '{}<small>m/s</small>'
+UI_hoursepower_format: 'KM'
+UI_hoursepower_t_format: 'KM/t'
+UI_weight_t_format: '{}<small>t</small>'
+UI_percent_format: '{}<small>%</small>'
+UI_percent_per_second_format: '{}<small>%/s</small>'
+UI_per_minute_format: '{}<small>/min</small>'
+UI_factor_format: '{}<small>x</small>'
+UI_gold_price_format: '{}<small>G</small>'
+UI_title_locked: Zablokowane
+UI_total_penetrations: Łączna liczba przebić
+UI_total_crits: Trafienia krytyczne
+UI_statistics: Statystyki
+UI_crit_chance: Szansa na uszkodzenie
+UI_hit_chance: Szansa na trafienie
+UI_explosion_hit_chance: Szansa na trafienie eksplozją
+UI_beta_badge: Beta
+UI_total_ammoracks_and_fires: Ammoracki i podpalenia
+UI_unknown: Nieznany
+UI_shots_locked: Strzały poniżej są dostępne tylko dla subskrybentów
+UI_shots_not_logged_in: Nie jesteś zalogowany. Zaloguj się i połącz konto gry, aby zobaczyć strzały z Twoich bitew.
+UI_no_account_connected: Połącz konto gry, aby zobaczyć swoje ostatnie strzały.
+UI_shots_empty: Nie znaleziono strzałów dla
+UI_shots_descr_pc: Zainstaluj mod Armor Inspector, aby zapisywać swoje strzały w grze.
+UI_shots_descr_blitz: Prześlij powtórki do wotinspectora, aby zobaczyć swoje strzały.
+UI_upload_replays: Prześlij powtórki
+UI_watch_replay: Obejrzyj powtórkę
+UI_connect_account: Połącz konto
+UI_front: Przód
+UI_side: Bok
+UI_back: Tył
+UI_forward_speed: Prędkość do przodu
+UI_backward_speed: Prędkość do tyłu
+UI_hull_traverse: Przy obrocie kadłuba
+UI_camo_still_upon_firing: Po strzale w miejscu
+UI_camo_moving_upon_firing: Po strzale w ruchu
+UI_burst: Seria
+UI_pen100m: pen 100m
+UI_pen500m: pen 500m
+UI_pen_composite: Penetracja (100|500m)
+UI_damage_armor: dmg. czołgu
+UI_damage_armor_500: dmg. czołgu 500m
+UI_damage_modules: dmg. modułów
+UI_damage_composite: uszkodzenia (czołgu|modułów)
+UI_velocity: Prędkość
+UI_gun_depression: Opuszczanie działa
+UI_gun_elevation: Podnoszenie działa
+UI_gun_angles: Wychył działa
+UI_turret_angles: Wychył wieży
+UI_tracks_health: Wytrzymałość gąsienic
+UI_engine_health: Wytrzymałość silnika
+UI_radio_health: Wytrzymałość radia
+UI_fueltank_health: Wytrzymałość zbiorników
+UI_ammorack_health: Wytrzymałość ammoracka
+UI_radio_range: Zasięg radia
+UI_engine_fire_chance: Szansa na pożar silnika
+UI_battle_count: Liczba bitew
+UI_hitpoints_left: Pozostałe HP
+UI_credits_base: Bazowe kredyty
+UI_experience_base: Bazowe doświadczenie
+UI_damage_made: Zadane uszkodzenia
+UI_damage_received: Otrzymane uszkodzenia
+UI_damage_assisted: Uszkodzenia po asyście
+UI_track_damage_assisted: Uszkodzenia po gąsienicy
+UI_stun_damage_assisted: Uszkodzenia po ogłuszeniu
+UI_sniper_damage: sniper damage
+UI_enemies_spotted: Wykryci Wrogowie
+UI_enemies_damaged: Uszkodzeni wrogowie
+UI_enemies_destroyed: Zniszczeni wrogowie
+UI_enemies_stunned: Ogłuszeni wrogowie
+UI_time_alive: Długość życia
+UI_distance_travelled: Przebyty dystans
+UI_base_capture_points: Bazowe zajęcie bazy
+UI_base_defend_points: Bazowa obrona bazy
+UI_stun_duration: Długość ogłuszenia
+UI_winrate: Współczynnik zwycięstw
+UI_accuracy: Celność
+UI_real_dpm: Rzeczywisty DPM
+UI_frags_per_minute: Zniszczenia na minutę
+UI_assist_ratio: Współczynnik asyst
+UI_assist_ratio_maxhp: assist ratio of max hp
+UI_avg_firing_range: Średni dystans strzałów
+UI_total_damage_bounced: Łączne zablokowane uszkodzenia
+UI_premium_ammo_used: Użyta amunicja premium
+UI_damage_received_per_shot: Otrzymane uszkodzenia na strzał
+UI_damage_dealt_per_shot: Zadane uszkodzenia na strzał
+UI_damage_blocked_per_shot: Zablokowane uszkodzenia na strzał
+UI_damage_received_per_game: Otrzymane uszkodzenia na grę
+UI_damage_dealt_per_game: Zadane uszkodzenia na grę
+UI_damage_blocked_per_game: Zablokowane uszkodzenia na bitwę
+UI_dmg_received_of_max_hp: dmg received of max hp
+UI_dmg_dealt_of_max_hp: dmg dealt of max hp
+UI_dmg_blocked_of_max_hp: dmg blocked of max hp
+UI_ammoracks_per_hit: Ammoracki na trafienie
+UI_putting_fire_per_hit: Podpalenia na trafienie
+UI_ammoracked_per_hit: Wysadzenia na trafienie
+UI_taking_fire_per_hit: Otrzymane podpalenia na trafienie
+UI_concealment: Maskowanie
+UI_ammo: Amunicja
+UI_effective_range: Maksymalny zasięg
+UI_open_heatmaps: Otwórz heatmaps
+UI_status: status
+UI_icon_setup: Konfiguracja
+UI_vehicle_list_limited: Wyświetlono pierwsze {} pojazdów
+UI_selection: Wybór
+UI_tank_list: Lista pojazdów
+UI_reset_filters: Zresetuj filtry
+UI_no_vehicles_found: Nie znaleziono pojazdów
+UI_logged_in_as: Zalogowany jako
+UI_translate_the_app: Przetłumacz stronę
+UI_help_us_translate: Pomóż przetłumaczyć <b>Armor Inspectora</b> i sprawić, by był dostępny dla wszystkich!
+UI_select_language: "Wybierz język z listy poniżej:"
+UI_confirm: Potwierdź
+UI_tank_setup: Konfiguracja
+UI_purchases: Zakupy
+UI_choose_game: Wybierz grę
+UI_choose_version: choose version
+UI_games: Gry
+UI_versions: versions
+UI_versions_locked: Older versions are only available for subscribers of the app
+UI_versions_requires_internet: Versions list requires an internet connection
+UI_icon_hull_down: Wieża
+UI_changelog_description: Użyj przycisku poniżej, aby zobaczyć pełną listę zmian w opancerzeniu i balansie
+UI_view_changes: Zobacz zmiany
+UI_icon_roles: Role
+UI_role_ATSPG_assault: Szturmowy niszczyciel czołgów
+UI_role_ATSPG_sniper: Snajperski niszczyciel czołgów
+UI_role_ATSPG_support: Niszczyciel czołgów wsparcia
+UI_role_ATSPG_universal: Uniwersalny niszczyciel czołgów
+UI_role_HT_assault: Szturmowy czołg ciężki
+UI_role_HT_break: Czołg ciężki przełamania
+UI_role_HT_support: Czołg ciężki wsparcia
+UI_role_HT_universal: Uniwersalny czołg ciężki
+UI_role_LT_universal: Uniwersalny czołg lekki
+UI_role_LT_wheeled: Kołowy czołg lekki
+UI_role_MT_assault: Szturmowy czołg średn
+UI_role_MT_sniper: Snajperski czołg średni
+UI_role_MT_support: Czołg średni wsparcia
+UI_role_MT_universal: Uniwersalny czołg średni
+UI_role_SPG: Działo samobieżne 
+UI_role_SPG_assault: Assault SPG
+UI_role_SPG_flame: Flame SPG
+UI_crew_skills: Umiejętności załogi
+UI_max: Max
+UI_apply_situational: Zastosuj sytuacyjne
+UI_shell_change_time: Zmiana pocisku
+UI_provisions: provisions
+UI_consumables: Materiały eksploatacyjne
+UI_boosters: Dyrektywy
+UI_field_mods: Ulepszenia polowe
+UI_unlock: Odblokuj
+UI_unlock_for_24h: Odblokuj na 24 godziny
+UI_unlock_with_ad: Odblokuj za darmo
+UI_unlock_descr: Ta zawartość wymaga dodatkowego przetwarzania danych na naszych serwerach i generuje dodatkowe koszty transferu.<br /><br />Pokrywamy koszty utrzymania serwerów, dlatego darmowi użytkownicy mogą wczytać pojazd po obejrzeniu reklamy.
+UI_unlock_descr_web: Ta zawartość wymaga dodatkowego przetwarzania danych na naszych serwerach i generuje dodatkowe koszty transferu.<br /><br />Pokrywamy koszty utrzymania serwerów, dlatego darmowi użytkownicy mogą wczytać jeden pojazd dziennie.
+UI_unlocked_tank: "Obecnie odblokowany pojazd: <b>{}</b>"
+UI_unlocked_time: "Pozostały czas: <b>{:02.0f}g{:02.0f}m</b>"
+UI_hull_turret_rotation: Obrót wieży + kadłuba
+UI_max_wheel_angle: Maks. kąt skrętu kół
+UI_overheat: Przegrzanie
+UI_heating_time: Czas nagrzewania
+UI_cooling_time: Czas chłodzenia
+UI_cooling_overheat_time: Czas chłodzenia po przegrzaniu
+UI_cooling_delay: Opóźnienie chłodzenia
+UI_average_damage: Śr. uszkodzenia
+UI_damages_percent: Uszkodzeń
+UI_charge_lock_time: Czas ładowania/blokady
+UI_rolling_friction: Opory toczenia
+UI_aiming_delay: Opóźnienie celowania
+UI_turret_pitch: Kąt podniesienia wieży
+UI_splash_damage: Uszkodzenia od eksplozji
+UI_deploy_time: Czas rozstawienia
+UI_cooldown_time: Czas odnowienia
+UI_mark_duration: Czas oznaczenia
+UI_unspotted: Nie wykryty
+UI_damage_factor: Mnożnik obrażeń
+UI_target_designator: Laserowy wskaźnik celu
+UI_charge_shot: Przeciążenie termo-balistyczne
+UI_time_per_level: Czas na poziom
+UI_block_time: Czas blokady
+UI_aim_bonus_per_level: Bonus do celności na poziom
+UI_speed_limit: Limit prędkości
+UI_time: Czas
+UI_stabilization_bonus: Bonus do stabilizacji
+UI_accuracy_stacks: Analogowe balistyczne urządzenie obliczeniowe
+UI_duration: Czas trwania
+UI_concentration_mode: Pneumatyczny stabilizator żyroskopowy
+UI_stationary_reload: Zewnętrzny moduł zaopatrzenia w amunicję
+UI_activation: Aktywacja
+UI_interruption: Przerwanie
+UI_stance_dance: Taktyczny zestaw energetyczny
+UI_time_to_switch: Czas zmiany
+UI_turbo_mode: Tryb Turbo
+UI_turbo_mode_passive: Pasywny tryb turbo
+UI_passive_charge: Pasywne ładowanie
+UI_charge_rate: Tempo ładowania
+UI_engagement_mode: Tryb starcia
+UI_charge_per_hit: Ładunek na trafienie
+UI_reload_bonus_per_level: Bonus do przeładowania na poziom
+UI_battle_fury: Pół-automatyczny magazyn amunicji
+UI_rechargeable_nitro: Dopalacze na paliwo ciekłe
+UI_overheat_stacks: Działko automatyczne z kontrolą przegrzania
+UI_damage_bonus: Bonus do uszkodzeń
+UI_aim_bonus: Bonus celności
+UI_heating_delay: Opóźnienie nagrzewania
+UI_staged_jet_boosters: Sekwencyjne dopalacze rakietowe
+UI_rocket_acceleration: rocket acceleration
+UI_reuse_count: Liczba użyć
+UI_power_mode: Napęd bezpośredni
+UI_charge_time: Czas ładowania
+UI_delay: Opóźnienie
+UI_pillbox_siege_mode: Tryb bunkra
+UI_drive_to_pillbox_time: Z trybu jazdy do bunkra
+UI_siege_to_pillbox_time: Z trybu oblężniczego do bunkra
+UI_pillbox_to_siege_time: Z trybu bunkra do oblężniczego
+UI_pillbox_to_drive_time: Z trybu bunkra do jazdy
+UI_reload_penalty: Kara
+UI_mode: Tryb
+UI_level: Poziom
+UI_special_mechanics: Specjalne mechaniki
+UI_secondary_gun: Uzbrojenie pomocnicze
+UI_terms_of_use: Warunki użytkowania (EULA)
+UI_privacy_policy: Polityka prywatności
+UI_manage_account: Zarządzanie kontem
+UI_module_transmission: Skrzynia biegów
+UI_shellkind_atgm: ATGM
+UI_width: Szerokość
+UI_length: Długość
+UI_hull_aiming_pitch: hull pitch
+UI_avg: avg.
+UI_low_charge_shot: multi-pack charge system
+UI_reload_finishing_time: reload finishing time
+UI_low_charge_reload_time: low charge reloading
+UI_propellant_afterburner_gun: induction propellant afterburner
+UI_charge_delay: charge delay
+UI_discharge_rate: discharge rate
+UI_min_damage: min damage
+UI_max_damage: max damage
+UI_wheeled_dash: high⁠-pressure turbocharger assist
+UI_sight_pointer: infrared search and track
+UI_bustle_feed: external ammunition feed mode
+UI_autoreloader_surge: forced loading mechanism
+UI_active_stages: active stages
+UI_self_reveal_time: self-reveal time
+UI_angle: angle
+UI_cone_view_range: cone view range
+UI_foliage_demask: foliage demask
+UI_moving_demask: moving demask
+UI_deactivation: deactivation
+UI_reload_factor: reload factor
+UI_shell_0_damage_bonus: shell 1 damage bonus
+UI_shell_1_damage_bonus: shell 2 damage bonus
+UI_max_charges: max charges
+UI_start_charges: start charges
+UI_charge_time_regular: charge time (regular)
+UI_charge_time_full_clip: charge time (full clip)
+UI_all_upgrades: all upgrades
+UI_upgrades: upgrades
+UI_normalization_angle: normalization angle
+UI_ricochet_angle: ricochet angle
+UI_piercing_power_loss_factor_by_distance: pen loss

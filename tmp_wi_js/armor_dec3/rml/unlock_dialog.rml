@@ -1,0 +1,83 @@
+<rml>
+    <head>
+        <title>Unlock Dialog</title>
+        <link type="text/template" href="/rml/templates/window.rml" />
+        <link type="text/template" href="/rml/templates/button.rml" />
+        <style>
+            body
+            {
+                width: 60%;
+                max-height: 80%;
+            }
+        </style>
+        <script>
+UnlockDialog = {}
+
+function UnlockDialog.open()
+	local document = UnlockDialog.document
+	if document then
+        local platform = db_service.platform
+        local vehicle_info = platform and arena_service.target_vehicle_info and platform:getVehicleInfo(arena_service.target_vehicle_info.shared.id)
+        document:GetElementById("title").inner_rml = vehicle_info and platform and platform:getTextUTF8(vehicle_info.localized_name) or "UI_unknown"
+
+        local unlock_time = account_service.unlock_time
+        document:GetElementById("unlock_button"):SetClass("disabled", unlock_time < 24 * 3600)
+        document:GetElementById("unlocked_vehicle"):SetClass("hidden", unlock_time > 24 * 3600)
+        document:GetElementById("unlocked_time"):SetClass("hidden", unlock_time > 24 * 3600)
+
+        if unlock_time < 24 * 3600 then
+            local unlocked_vehicle = account_service.unlocked_vehicle
+            local unlocked_vehicle_info = platform and platform:getVehicleInfo(unlocked_vehicle)
+            document:GetElementById("unlocked_vehicle").inner_rml = fmt("UI_unlocked_tank", unlocked_vehicle_info and platform and platform:getTextUTF8(unlocked_vehicle_info.localized_name) or fmt("UI_unknown"))
+
+            local seconds = math.floor(24.0 * 3600.0 - unlock_time)
+            local hours = seconds // 3600
+            local minutes = (seconds // 60) % 60
+            document:GetElementById("unlocked_time").inner_rml = fmt("UI_unlocked_time", hours, minutes)        
+        end
+    
+        Window.centerVertically(document)
+	end
+	return document
+end
+
+function UnlockDialog.onLoad(document)
+    local self = UnlockDialog
+    self.document = document
+        
+	document:GetElementById("second_title").inner_rml = "UI_unlock"
+    document:GetElementById("second_title"):SetClass("hidden", false)
+    document:GetElementById("title"):SetClass("normal-case", true)
+    
+    document:GetElementById("unlock_descr").inner_rml = PLATFORM_EMSCRIPTEN and "UI_unlock_descr_web" or "UI_unlock_descr"
+    
+    -- connect signals
+end
+
+function UnlockDialog.unlockVehicle()
+    if arena_service.target_vehicle_info then
+        account_service:unlockVehicle(arena_service.target_vehicle_info.shared.id)
+
+        UnlockDialog.document:Hide()
+    end
+end
+
+        </script>
+    </head>
+    <body id="unlock_dialog" class="m-auto" template="window" onload="UnlockDialog.onLoad(document)">
+        <div class="flex flex-col gap-4">
+            <p id="unlock_descr">UI_unlock_descr</p>
+            <div class="flex gap-2 justify-between items-center">
+                <div class="text-xs">
+                    <p id="unlocked_vehicle"></p>
+                    <p id="unlocked_time"></p>
+                </div>
+                <button id="unlock_button" class="bg-secondary text-primary-foreground rounded" onclick="if not element:IsClassSet('disabled') then UnlockDialog.unlockVehicle() end">
+                    <template src="button">
+                        <p>UI_unlock</p>
+                    </template>
+                </button>
+            </div>
+        </div>
+    </body>
+</rml>

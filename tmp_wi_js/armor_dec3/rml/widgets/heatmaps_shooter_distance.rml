@@ -1,0 +1,11 @@
+<rml>
+    <head>
+        <title>Heatmaps Shooter Distance</title>
+        <link type="text/rcss" href="/rml/main.rcss"/>
+        <style>
+        </style>
+    </head>
+    <body id="heatmaps_shooter_distance" class="text-hud pointer-events-none" style="z-index:-10">
+        <p id="distance" class="text-xs">100m</p>
+    </body>
+</rml>

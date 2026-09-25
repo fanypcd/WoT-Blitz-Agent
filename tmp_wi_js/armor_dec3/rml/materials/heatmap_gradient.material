@@ -1,0 +1,26 @@
+material:
+
+  _transform: RML_TRANSFORM
+
+  renderState:
+    blend: true
+    blendSrc: ONE
+    blendDst: ONE_MINUS_SRC_ALPHA
+
+  #u_texture: HEATMAP_DEBUG_GRADIENT
+
+  sampler:
+  - id: _tex
+    path: materials/vehicle/heatmap_gradient.png
+    mipmap: false
+    wrapS: CLAMP
+    wrapT: CLAMP
+    minFilter: LINEAR
+    magFilter: LINEAR
+
+  technique:
+  - id: default
+    pass:
+      vertexShader: rml/shaders/shader_vert_main.vert
+      fragmentShader: rml/shaders/heatmap_gradient.frag
+  

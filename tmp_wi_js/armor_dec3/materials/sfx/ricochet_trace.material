@@ -1,0 +1,37 @@
+material:
+  u_worldViewProjectionMatrix: WORLD_VIEW_PROJECTION_MATRIX
+
+  renderState:
+    cullFace: false
+    depthTest: true
+    depthWrite: true
+    blend: true
+    blendSrc: SRC_ALPHA
+    blendDst: ONE_MINUS_SRC_ALPHA
+
+  technique:
+  - id: default
+    pass:
+    - defines: "MODULATE_COLOR"
+      u_alpha: 1.0
+      u_modulateColor: SCENE_MAIN_COLOR
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: shaders/ricochet_trace.frag
+    - renderState:
+        depthFunc: GREATER
+      u_alpha: 0.4
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: shaders/ricochet_trace.frag
+  - id: noCollision
+    pass:
+    - defines: "MODULATE_COLOR;NO_COLLISION"
+      u_alpha: 1.0
+      u_modulateColor: SCENE_MAIN_COLOR
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: shaders/ricochet_trace.frag
+    - renderState:
+        depthFunc: GREATER
+      u_alpha: 0.4
+      defines: "NO_COLLISION"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: shaders/ricochet_trace.frag

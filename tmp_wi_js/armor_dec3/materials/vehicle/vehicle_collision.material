@@ -1,0 +1,681 @@
+material:
+  u_worldViewProjectionMatrix: WORLD_VIEW_PROJECTION_MATRIX
+
+  renderState:
+    depthFunc: LEQUAL
+    blendSrc: ONE
+    blendDst: ONE
+
+  technique:
+  - id: hiddenPart
+
+  - id: secondaryArmorHE
+    renderState:
+      blend: true
+      depthTest: true
+      depthWrite: false
+      cullFace: false
+    pass:
+      id: piercingView
+      defines: "ARMORHQ"
+      vertexShader: shaders/piercing_view.vert
+      fragmentShader: shaders/piercing_view.frag
+  - id: secondaryArmorHEAccum
+    parentID: secondaryArmorHE
+    pass: {id: piercingView, defines: "ARMORHQ;ACCUM"}
+  - id: primaryArmorHE
+    parentID: secondaryArmorHE
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    renderState:
+      blend: false
+      depthWrite: true
+    pass: {id: piercingView, defines: "DF1;ARMORHQ"}
+  - id: primaryArmorHEAccum
+    parentID: primaryArmorHE
+    pass: {id: piercingView, defines: "DF1;ARMORHQ;ACCUM"}
+  - id: collideOnceHE
+    parentID: secondaryArmorHE
+    renderState:
+      depthWrite: true
+      cullFace: true
+    pass: {id: piercingView, defines: "ARMORHQ"}
+  - id: collideOnceHEAccum
+    parentID: collideOnceHE
+    pass: {id: piercingView, defines: "ARMORHQ;ACCUM"}
+  - id: firstHit
+    parentID: secondaryArmorHE
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    renderState:
+      blend: false
+      depthWrite: true
+    pass: {id: piercingView, defines: "FIRSTHIT_PASS"}
+  - id: resetRicochet
+    parentID: secondaryArmorHE
+    renderState:
+      blend: false
+      depthWrite: false
+    pass: {id: piercingView, defines: "RICOCHET_RESET"}
+
+  - id: primaryArmor
+    parentID: primaryArmorHE
+    u_platform: PLATFORM_DATA
+    pass: {id: piercingView, defines: "DF1"}
+  - id: secondaryArmor
+    parentID: secondaryArmorHE
+    u_platform: PLATFORM_DATA
+    pass: {id: piercingView, defines: ""}
+  - id: collideOnce
+    parentID: collideOnceHE
+    u_platform: PLATFORM_DATA
+    pass: {id: piercingView, defines: ""}
+
+  - id: firstSpacedArmor
+    parentID: secondaryArmor
+    renderState:
+      blend: false
+      depthWrite: true
+    pass: {id: piercingView, defines: "FIRST_SPACED_THICKNESS"}
+
+  - id: primaryArmorHEModernPC
+    parentID: primaryArmorHE
+    u_damage: SHELL_DAMAGE_SPLASH
+    u_platform: PLATFORM_DATA
+    pass:
+      id: piercingView
+      defines: "DF1"
+      vertexShader: shaders/piercing_view_hepc.vert
+      fragmentShader: shaders/piercing_view_hepc.frag
+  - id: secondaryArmorHEModernPC
+    parentID: secondaryArmorHE
+    u_platform: PLATFORM_DATA
+    pass:
+      id: piercingView
+      vertexShader: shaders/piercing_view_hepc.vert
+      fragmentShader: shaders/piercing_view_hepc.frag
+  - id: collideOnceHEModernPC
+    u_platform: PLATFORM_DATA
+    parentID: collideOnceHE
+    pass:
+      id: piercingView
+      vertexShader: shaders/piercing_view_hepc.vert
+      fragmentShader: shaders/piercing_view_hepc.frag
+  - id: firstHitHEModernPC
+    parentID: secondaryArmorHEModernPC
+    renderState:
+      blend: false
+      depthWrite: true
+    pass: {id: piercingView, defines: "FIRSTHIT_PASS"}
+
+  - id: modules
+    sampler:
+    - id: u_piercingTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+
+    renderState:
+      depthTest: true
+      depthWrite: true
+      cullFace: true
+      blend: false
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1"
+      vertexShader: shaders/internal_device.vert
+      fragmentShader: shaders/internal_device.frag
+
+  - id: externalModule
+    renderState:
+      depthTest: true
+      depthWrite: true
+      cullFace: true
+    pass:
+      vertexShader: shaders/external_device.vert
+      fragmentShader: shaders/external_device.frag
+
+  - id: externalModuleDepthNoAlpha
+    parentID: externalModule
+    pass: {defines: "DEPTH_PASS"}
+
+  - id: default
+    sampler:
+      id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_clipPlane: CLIP_PLANE
+    u_worldMatrix: WORLD_MATRIX
+
+    renderState:
+      cullFace: false
+      depthTest: true
+      depthWrite: true
+      blend: false
+      stencilTest: true
+      stencilOpSfail: KEEP
+      stencilOpDpfail: KEEP
+      stencilOpDppass: REPLACE
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;BACK_LIGHT;CLIP_PLANE"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: res/shaders/textured.frag
+
+  - id: defaultNation
+
+    renderState:
+      cullFace: false
+      depthTest: true
+      depthWrite: true
+  
+    sampler:
+      id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_clipPlane: CLIP_PLANE
+    u_worldMatrix: WORLD_MATRIX
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;MODULATE_COLOR;CLIP_PLANE"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: res/shaders/textured.frag
+
+  - id: applyPiercingLegacy
+    sampler:
+    - id: u_piercingTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_ricochetTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    renderState:
+      cullFace: false
+      depthTest: true
+      depthWrite: true
+      blend: false
+
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    #u_worldMatrix: WORLD_MATRIX
+    #u_shadowMap: SHADOW_MAP_SAMPLER
+    #u_shadowMapViewProjection: SHADOW_MAP_VIEW_PROJECTION_MATRIX
+    u_penetrationRamp: PENETRATION_RAMP_SAMPLER
+    u_modulesTexture: MODULES_SAMPLER
+    u_platform: PLATFORM_DATA
+
+    pass:
+      defines: "LEGACY;DIRECTIONAL_LIGHT_COUNT 1"
+
+      vertexShader: shaders/apply_piercing.vert
+      fragmentShader: shaders/apply_piercing.frag
+
+  - id: applyPiercingLegacyHC
+    parentID: applyPiercingLegacy
+    sampler:
+    - id: u_firstSpacedArmorTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    pass: {defines: "LEGACY;HOLLOW_CHARGE;DIRECTIONAL_LIGHT_COUNT 1"}
+
+  - id: applyPiercing
+    parentID: applyPiercingLegacy
+    sampler:
+    - id: u_modulesColorTexture
+      path: materials/vehicle/modules.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    pass: {defines: "DIRECTIONAL_LIGHT_COUNT 1"}
+
+  - id: applyPiercingHC
+    parentID: applyPiercing
+    sampler:
+    - id: u_firstSpacedArmorTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    pass: {defines: "HOLLOW_CHARGE;DIRECTIONAL_LIGHT_COUNT 1"}
+
+  - id: white
+    u_clipPlane: CLIP_PLANE
+    u_worldMatrix: WORLD_MATRIX
+    renderState:
+      depthTest: true
+      depthWrite: false
+    pass:
+      defines: "WHITE;CLIP_PLANE"
+      vertexShader: shaders/xray_view.vert
+      fragmentShader: shaders/xray_view.frag
+
+  - id: transparent
+    sampler:
+      id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_modulateAlpha: 0.2
+    u_clipPlane: CLIP_PLANE
+    u_worldMatrix: WORLD_MATRIX
+
+    renderState:
+      depthTest: true
+      depthWrite: false
+      blend: true
+      blendSrc: SRC_ALPHA
+      blendDst: ONE_MINUS_SRC_ALPHA
+
+    pass:
+    - defines: "DIRECTIONAL_LIGHT_COUNT 1;MODULATE_ALPHA;CLIP_PLANE_INVERSE"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: res/shaders/textured.frag
+
+  - id: defaultModule
+    #u_diffuseTexture: DEBUG_SAMPLER
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/vehicle/modules.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_worldViewMatrix : WORLD_VIEW_MATRIX
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_saturation: 1.0
+
+    renderState:
+      cullFace: true
+      depthTest: true
+      depthWrite: true
+      blend: true
+      blendSrc: SRC_ALPHA
+      blendDst: ONE_MINUS_SRC_ALPHA
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: shaders/module.frag
+
+  - id: defaultModuleCross
+    parentID: defaultModule
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;CROSS_SECTION"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: shaders/module.frag
+  
+  - id: primaryArmorRicochet
+    parentID: primaryArmor
+    renderState:
+      stencilTest: true
+      stencilOpSfail: KEEP
+      stencilOpDpfail: KEEP
+      stencilOpDppass: KEEP
+    pass: {id: piercingView, defines: "DF1;RICOCHET_PASS"}
+
+  - id: secondaryArmorRicochet
+    parentID: secondaryArmor
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    renderState:
+      stencilTest: true
+      stencilOpSfail: KEEP
+      stencilOpDpfail: KEEP
+      stencilOpDppass: KEEP
+    pass: {id: piercingView, defines: "RICOCHET_PASS"}
+
+  - id: shadowCaster
+    pass:
+      vertexShader: shaders/shadow_caster.vert
+      fragmentShader: shaders/shadow_caster.frag
+
+  - id: primaryArmorXray
+    renderState:
+      blend: true
+      depthTest: true
+      depthWrite: false
+      cullFace: false
+      blendSrc: DST_COLOR
+      blendDst: ZERO
+      stencilTest: true
+      stencilOpSfail: KEEP
+      stencilOpDpfail: KEEP
+      stencilOpDppass: ZERO
+      stencilFunc: EQUAL
+      stencilFuncRef: 1
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/vehicle/armor_ramp.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+    u_armorGradientRange: ARMOR_GRADIENT_RANGE
+    u_saturation: 1.0
+    u_clipPlane: CLIP_PLANE
+    u_worldMatrix: WORLD_MATRIX
+    pass:
+      defines: "CLIP_PLANE"
+      vertexShader: shaders/xray_view.vert
+      fragmentShader: shaders/xray_view.frag
+  - id: primaryArmorXrayCull
+    parentID: primaryArmorXray
+    renderState:
+      cullFace: true
+  - id: secondaryArmorXray
+    parentID: primaryArmorXray
+    renderState:
+      stencilFuncRef: 2
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/vehicle/spaced_armor_ramp.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;CLIP_PLANE"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: shaders/xray_view.frag
+  - id: externalModuleXray
+    renderState:
+      blend: true
+      depthTest: true
+      depthWrite: false
+      cullFace: false
+      blendSrc: DST_COLOR
+      blendDst: ZERO
+      stencilTest: true
+      stencilOpSfail: KEEP
+      stencilOpDpfail: KEEP
+      stencilOpDppass: ZERO
+      stencilFunc: EQUAL
+      stencilFuncRef: 3
+    #u_diffuseTexture: DEBUG_SAMPLER
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/vehicle/modules.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_saturation: 1.0
+    u_clipPlane: CLIP_PLANE
+    u_worldMatrix: WORLD_MATRIX
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;MODULE;CLIP_PLANE"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: shaders/xray_view.frag
+
+  - id: interior
+    renderState:
+      blend: false
+      depthTest: true
+      depthWrite: false
+      cullFace: true
+      cullFaceSide: FRONT
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+    u_ambientColor: [0.7, 0.7, 0.7]
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: [0.15, 0.15, 0.15]
+    u_clipPlane: CLIP_PLANE
+    u_worldMatrix: WORLD_MATRIX
+    pass:
+    - defines: "DIRECTIONAL_LIGHT_COUNT 1;BACK_LIGHT;CLIP_PLANE"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: res/shaders/textured.frag
+
+  - id: applyRamming
+    sampler:
+    - id: u_damageRamp
+      path: materials/vehicle/damage_ramp.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    renderState:
+      depthTest: true
+      depthWrite: true
+      blend: false
+
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_damageTexture: HE_DAMAGE_SAMPLER
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;RAMMING"
+      vertexShader: shaders/apply_piercing.vert
+      fragmentShader: shaders/apply_piercing.frag
+
+  - id: applyHEDamage
+    sampler:
+    - id: u_damageRamp
+      path: materials/vehicle/damage_ramp.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_damageTexture: HE_DAMAGE_SAMPLER
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;HEDAMAGE"
+      vertexShader: shaders/apply_piercing.vert
+      fragmentShader: shaders/apply_piercing.frag
+
+  - id: applyHEDamageModernPC
+    sampler:
+    - id: u_piercingTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_damageRamp
+      path: materials/vehicle/damage_ramp.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_platform: PLATFORM_DATA
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;HEDAMAGE_MODERN"
+      vertexShader: shaders/apply_piercing.vert
+      fragmentShader: shaders/apply_piercing.frag
+
+  - id: heatmapGradient
+    renderState:
+      depthTest: true
+      depthWrite: true
+      cullFace: true
+      blend: true
+      blendSrc: ONE
+      blendDst: ONE_MINUS_SRC_ALPHA
+    sampler:
+    - id: u_heatmapGradient
+      path: materials/vehicle/heatmap_gradient.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+    u_worldMatrix: WORLD_MATRIX
+    u_worldToVehicleMatrix: WORLD_TO_VEHICLE_MATRIX
+    u_cameraWorldPosition: CAMERA_WORLD_POSITION
+    u_damagePointPosition: HEATMAP_DAMAGE_POINT_POSITION
+    pass:
+      defines: "HEATMAP;NO_COLOR"
+      vertexShader: shaders/xray_view.vert
+      fragmentShader: shaders/xray_view.frag
+
+  - id: heatmap
+    renderState:
+      depthTest: true
+      depthWrite: true
+      cullFace: true
+      blend: true
+      blendSrc: ONE
+      blendDst: ONE_MINUS_SRC_ALPHA
+    u_heatmapColor: HEATMAP_COLOR
+    u_worldMatrix: WORLD_MATRIX
+    u_cameraWorldPosition: CAMERA_WORLD_POSITION
+    pass:
+      defines: "HEATMAP"
+      vertexShader: shaders/xray_view.vert
+      fragmentShader: shaders/xray_view.frag
+
+  - id: heatmapFixAlpha
+    parentID: heatmap
+    renderState:
+      blendSrc: ONE_MINUS_DST_ALPHA
+      blendDst: ONE
+    pass:
+      defines: "HEATMAP;FIX_ALPHA"
+      vertexShader: shaders/xray_view.vert
+      fragmentShader: shaders/xray_view.frag
+
+  - id: heatmapAdditive
+    parentID: heatmap
+    renderState:
+      blendSrc: ONE
+      blendDst: DST_ALPHA
+    u_heatmapColor: HEATMAP_COLOR_SECONDARY
+    pass:
+      defines: "HEATMAP"
+      vertexShader: shaders/xray_view.vert
+      fragmentShader: shaders/xray_view.frag
+
+  - id: heatmapTankClasses
+    renderState:
+      depthTest: true
+      depthWrite: true
+      cullFace: true
+      blend: true
+      blendSrc: ONE
+      blendDst: ONE_MINUS_SRC_ALPHA
+    u_worldMatrix: WORLD_MATRIX
+    u_cameraWorldPosition: CAMERA_WORLD_POSITION
+    u_heatmapMaxWeightLog: HEATMAP_MAX_WEIGHT_INV_LOG
+    pass:
+      defines: "HEATMAP;TANK_CLASSES"
+      vertexShader: shaders/xray_view.vert
+      fragmentShader: shaders/xray_view.frag
+
+  - id: moduleOverlay
+    #u_diffuseTexture: DEBUG_SAMPLER
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/vehicle/modules.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_saturation: 1.0
+    u_modulateAlpha: 0.12
+
+    renderState:
+      cullFace: true
+      depthTest: true
+      depthFunc: LESS
+      depthWrite: true
+      blend: true
+      blendSrc: SRC_ALPHA
+      blendDst: ONE_MINUS_SRC_ALPHA
+
+    pass:
+      defines: "OVERLAY;MODULATE_ALPHA"
+      vertexShader: shaders/module_overlay.vert
+      fragmentShader: shaders/module.frag
+

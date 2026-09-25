@@ -1,0 +1,224 @@
+<rml>
+    <head>
+        <title>Xray Texture</title>
+        <link type="text/template" href="/rml/templates/info_panel.rml" />
+        <link type="text/template" href="/rml/templates/button.rml" />
+        <link type="text/template" href="/rml/templates/button_icon.rml" />
+        <script>
+XrayTextures = {}
+XrayTextures.__index = XrayTextures
+
+local function onTargetVehicleChanged(old_vehicle, vehicle, vehicle_info)
+    local self = XrayTextures
+    local platform = vehicle_info and vehicle_info.shared and vehicle_info.shared.platform
+    local target_name = platform and platform:getTextUTF8(vehicle_info.shared.localized_name) or "UI_not_set"
+
+    self:setMainTitle("<span class='normal-case'>" .. target_name .. "</span>")
+    self.elements["target_name"].inner_rml = target_name
+
+    local turret_info = vehicle_info and vehicle_info:getTurret(vehicle.turret_id)
+    self.elements["turret_name"].inner_rml = platform and platform:getTextUTF8(turret_info.localized_name) or "UI_not_set"
+
+    local gun_info = vehicle_info and vehicle_info:getGun(turret_info, vehicle.gun_id)
+    self.elements["gun_name"].inner_rml = platform and gun_info and platform:getTextUTF8(gun_info.localized_name) or "UI_not_set"
+
+end
+
+local function onTargetVehicleLoaded(bounding_box, vehicle)
+    local self = XrayTextures
+    local size = bounding_box.max - bounding_box.min
+
+    self.elements["width"].inner_rml = fmt("UI_meters_format", fmt("{:.2Lf}", size.x))
+    self.elements["height"].inner_rml = fmt("UI_meters_format", fmt("{:.2Lf}", size.y))
+    self.elements["length"].inner_rml = fmt("UI_meters_format", fmt("{:.2Lf}", size.z))
+end
+
+local function onUpdateDataThrottle()
+    local self = XrayTextures
+    if self.throttle:shouldExecute() then
+        self:updateData()
+    end
+end
+
+function XrayTextures:new(o)
+    setmetatable(self, {__index = InfoPanel})
+
+    local obj = InfoPanel:new(o)
+    setmetatable(obj, self)
+
+    obj:setSecondTitle("UI_title_hd_settings")
+
+    obj.elements = {}
+    obj.throttle = Throttle.new(0.1)
+    
+    local element_ids = {
+        "target_name", "height", "distance", "width", "length",
+        "turret_name", "turret_traverse", "gun_name", "gun_elevation",
+        "hd_textures", "download_button", "download_progress"
+    }
+    
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+    
+    XrayTextures = obj
+    
+    -- connect signals
+    runOnChange(onUpdateDataThrottle, "arena.target.gunAngles")
+    arena_service:connect_targetVehicleChangedSignal(onTargetVehicleChanged)
+    scene_service:connect_targetVehicleLoadedSignal(onTargetVehicleLoaded)
+    scene_service.camera_controller:connect_cameraViewportUpdatedSignal(onUpdateDataThrottle)
+    
+    data_packages_service:connect_hdPackageDownloadFailed(function(error, is_sd)
+        XrayTextures.elements["download_progress"]:SetClass("hidden", true)
+    end)
+    
+    data_packages_service:connect_hdPackageDownloading(function(dl_now, dl_total)
+        XrayTextures.elements["download_progress"]:SetClass("hidden", false)
+        XrayTextures.elements["download_progress"]:SetAttribute("value", 100 * dl_now / (dl_total + 1.0))
+    end)
+    
+    data_packages_service:connect_hdPackageDownloaded(function(vehicle_id)
+        XrayTextures.elements["download_progress"]:SetClass("hidden", true)
+    end)
+
+    data_packages_service:connect_hdPackageUptodate(function(vehicle_id, uptodate)
+        XrayTextures:updateData()
+    end)
+
+    -- sync ui
+    onTargetVehicleChanged(nil, arena_service.target_vehicle, arena_service.target_vehicle_info)
+    onTargetVehicleLoaded(scene_service.vehicle_bbox, nil)
+    return obj
+end
+
+function XrayTextures:checkVisibility()
+    local view_mode = settings:getInt("scene.viewMode")
+    return view_mode == ViewMode.WHITE or view_mode == ViewMode.TEXTURED
+end
+
+function XrayTextures:updateData()
+    if not self:checkVisibility() then
+        return
+    end
+
+    local vehicle_info = arena_service.target_vehicle_info
+
+    -- hd textures
+
+    local view_mode = settings:getInt("scene.viewMode")
+    local has_textures = vehicle_info and data_packages_service:hasHDPackage(db_service.platform, arena_service.target_vehicle.vehicle_id, vehicle_info.default_skin)
+    local is_uptodate = data_packages_service.is_current_hdpackage_uptodate
+    local hd_help_visible = view_mode == ViewMode.TEXTURED and (not has_textures or not is_uptodate)
+    
+    self.elements["hd_textures"]:SetClass("hidden", not hd_help_visible)
+
+    local time_now = os.time()
+    local last_download_time = settings:getDouble("pkg.downloadTime")
+    local time_since_last_download = os.difftime(time_now, last_download_time)
+    self.elements["download_button"]:SetClass("disabled", not (time_since_last_download > 3600.0 * 24.0 or iap_service.has_premium_features))
+
+    -- scene info
+
+    local gun_angles = settings:getVector2("arena.target.gunAngles")
+    self.elements["turret_traverse"].inner_rml = fmt("{:.0Lf}°", gun_angles.x)
+    self.elements["gun_elevation"].inner_rml = fmt("{:.0Lf}°", -gun_angles.y)
+    
+    local target_height = 0.0
+
+    if vehicle_info then
+        -- calculate target's gun height
+        local hull_info = vehicle_info:getHull(arena_service.target_vehicle.hull_id)
+        target_height = hull_info and hull_info.turret_position.y or 0.0
+
+        local chassis_info = vehicle_info:getChassis(arena_service.target_vehicle.chassis_id)
+        if chassis_info then
+            target_height = target_height + chassis_info.hull_position.y
+        end
+
+        local turret_info = vehicle_info:getTurret(arena_service.target_vehicle.turret_id)
+        if turret_info then
+            target_height = target_height + turret_info.gun_position.y
+        end
+    end
+
+    local camera_controller = scene_service.camera_controller
+    local distance = camera_controller.distance
+
+    -- Update UI elements
+    self.elements["distance"].inner_rml = fmt("UI_meters_format", fmt("{:.0Lf}", distance))
+end
+        </script>
+    </head>
+    <body id="xray_textures_panel" template="info_panel" onload="XrayTextures:new{document = document}">
+        <div id="hd_textures" class="text-xs space-y-2 mb-4">
+            <p>UI_paid_content_descr_premium</p>
+            <div class="flex items-center gap-2">
+                <button id="download_button" class="flex-1 inline-flex bg-secondary text-primary-foreground rounded" onclick="if not element:IsClassSet('disabled') then data_packages_service:requestHDPackage() end">
+                    <template src="button">
+                        <p>UI_download</p>
+                    </template>
+                </button>
+                <button class="text-secondary" onclick="HDModelDialog.open()">
+                    <template src="button_icon">
+                        <svg src="/rml/icons/help.svg" class="w-8 flex-none" />
+                    </template>
+                </button>
+            </div>
+            <progress id="download_progress" class="w-full hidden" value="50" max="100" />
+        </div>
+        <div class="text-xs space-y-4">
+            <div class="space-y-1">
+                <div class="flex gap-2 items-end">
+                    <svg src="/rml/icons/Tank-ViewRight-1.svg" class="w-8 flex-none" />
+                    <p id="target_name">T29</p>
+                </div>
+                <hr />
+                <div class="flex gap-2 items-end pl-4">
+                    <svg src="/rml/icons/Specs-Dimensions-.svg" class="w-4 flex-none" />
+                    <p class="flex-1">UI_width</p>
+                    <p id="width" class="flex-none">T29</p>
+                </div>
+                <div class="flex gap-2 items-end pl-4">
+                    <svg src="/rml/icons/Specs-Dimensions-.svg" class="w-4 flex-none" />
+                    <p class="flex-1">UI_icon_height</p>
+                    <p id="height" class="flex-none">T29</p>
+                </div>
+                <div class="flex gap-2 items-end pl-4">
+                    <svg src="/rml/icons/Specs-Dimensions-.svg" class="w-4 flex-none" />
+                    <p class="flex-1">UI_length</p>
+                    <p id="length" class="flex-none">T29</p>
+                </div>
+                <div class="flex gap-2 items-end pl-4">
+                    <svg src="/rml/icons/AI-SpottingMode-distance-1.svg" class="w-4 flex-none" />
+                    <p class="flex-1">UI_icon_distance</p>
+                    <p id="distance" class="flex-none">T29</p>
+                </div>
+            </div>
+            <div class="space-y-1">
+                <div class="flex gap-2 items-end">
+                    <svg src="/rml/icons/modules-turret-3.svg" class="w-8 flex-none" />
+                    <p id="turret_name">T29</p>
+                </div>
+                <hr />
+                <div class="flex gap-2 items-end pl-4">
+                    <svg src="/rml/icons/Specs-Armor-ImpactAngle-.svg" class="w-4 flex-none" />
+                    <p class="flex-1">UI_icon_traverse</p>
+                    <p id="turret_traverse" class="flex-none">T29</p>
+                </div>
+            </div>
+            <div class="space-y-1">
+                <div class="flex gap-2 items-end">
+                    <svg src="/rml/icons/Modules-Gun-.svg" class="w-8 flex-none" />
+                    <p id="gun_name">T29</p>
+                </div>
+                <hr />
+                <div class="flex gap-2 items-end pl-4">
+                    <svg src="/rml/icons/Specs-Armor-ImpactAngle-.svg" class="w-4 flex-none" />
+                    <p class="flex-1">UI_icon_traverse</p>
+                    <p id="gun_elevation" class="flex-none">T29</p>
+                </div>
+            </div>
+        </div>
+    </body>
+</rml>

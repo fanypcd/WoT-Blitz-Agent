@@ -1,0 +1,473 @@
+material:
+  u_worldViewProjectionMatrix: WORLD_VIEW_PROJECTION_MATRIX
+
+  renderState:
+    depthFunc: LEQUAL
+    cullFace: true
+    depthTest: true
+    depthWrite: true
+    blend: false
+
+  technique:
+  - id: default
+  
+    renderState:
+      cullFace: false
+  
+    sampler:
+      id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_worldMatrix: WORLD_MATRIX
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_clipPlane: CLIP_PLANE
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;MODULATE_COLOR;CLIP_PLANE"
+
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: res/shaders/textured.frag
+
+  - id: defaultTexturedLow
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_normalmapTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_detailTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_ambientColor: [0.17, 0.18, 0.19]
+    u_directionalLightDirection[0]: LIGHT_DIRECTION_0
+    u_directionalLightColor[0]: SUN_COLOR
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_detailTiling: [0.0, 0.0]
+
+    pass:
+      id: texturedPass
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;BUMPED;DETAIL_MAP"
+      vertexShader: shaders/textured.vert
+      fragmentShader: shaders/textured.frag
+
+  - id: defaultTextured
+    parentID: defaultTexturedLow
+    sampler:
+    - id: u_skySpecularTexture
+      path: materials/sfx/skyspecular.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+    - id: u_metallicGlossTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+    u_viewMatrix: VIEW_MATRIX
+    u_worldMatrix: WORLD_MATRIX
+    u_shadowMap: SHADOW_MAP_SAMPLER
+    u_shadowMapViewProjection[0]: SHADOW_MAP_VIEW_PROJECTION_MATRIX_0
+    u_shadowMapInvSize: SHADOW_MAP_INVSIZE
+    u_directionalLightDirection[1]: LIGHT_DIRECTION_1
+    u_directionalLightColor[1]: [0.22, 0.24, 0.30]
+    u_cameraPosition: CAMERA_VIEW_POSITION
+    pass:
+      id: texturedPass
+      defines: "DIRECTIONAL_LIGHT_COUNT 2;USE_SHADOWS;BUMPED;SPECULAR;AMBIENT_OCCLUSION;DETAIL_MAP"
+
+  - id: depthOnly
+    sampler:
+    - id: u_normalmapTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    pass:
+      defines: "DEPTH_PASS"
+      vertexShader: shaders/textured.vert
+      fragmentShader: shaders/textured.frag
+
+  - id: applyPiercingLegacy
+    sampler:
+    - id: u_piercingTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_ricochetTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_penetrationRamp: PENETRATION_RAMP_SAMPLER
+    u_platform: PLATFORM_DATA
+
+    pass:
+      defines: "LEGACY;DIRECTIONAL_LIGHT_COUNT 1"
+      vertexShader: shaders/apply_piercing.vert
+      fragmentShader: shaders/apply_piercing.frag
+
+  - id: applyPiercingLegacyHC
+    parentID: applyPiercingLegacy
+    sampler:
+    - id: u_firstSpacedArmorTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    pass: {defines: "LEGACY;HOLLOW_CHARGE;DIRECTIONAL_LIGHT_COUNT 1"}
+
+  - id: applyPiercing
+    sampler:
+    - id: u_piercingTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_ricochetTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_modulesColorTexture
+      path: materials/vehicle/modules.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_modulesTexture: MODULES_SAMPLER
+    u_platform: PLATFORM_DATA
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1"
+      vertexShader: shaders/apply_piercing.vert
+      fragmentShader: shaders/apply_piercing.frag
+
+  - id: applyPiercingHC
+    parentID: applyPiercing
+    sampler:
+    - id: u_firstSpacedArmorTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    pass: {defines: "HOLLOW_CHARGE;DIRECTIONAL_LIGHT_COUNT 1"}
+
+  - id: shadowCaster
+    sampler:
+    - id: u_normalmapTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    pass:
+      defines: "ALPHA_TEST"
+      vertexShader: shaders/shadow_caster.vert
+      fragmentShader: shaders/shadow_caster.frag
+
+  - id: applyRamming
+    sampler:
+    - id: u_damageRamp
+      path: materials/vehicle/damage_ramp.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_damageTexture: HE_DAMAGE_SAMPLER
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;RAMMING"
+      vertexShader: shaders/apply_piercing.vert
+      fragmentShader: shaders/apply_piercing.frag
+
+  - id: applyHEDamage
+    sampler:
+    - id: u_damageRamp
+      path: materials/vehicle/damage_ramp.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_damageTexture: HE_DAMAGE_SAMPLER
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;HEDAMAGE"
+      vertexShader: shaders/apply_piercing.vert
+      fragmentShader: shaders/apply_piercing.frag
+
+  - id: applyHEDamageModernPC
+    sampler:
+    - id: u_piercingTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_damageRamp
+      path: materials/vehicle/damage_ramp.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_platform: PLATFORM_DATA
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;HEDAMAGE_MODERN"
+      vertexShader: shaders/apply_piercing.vert
+      fragmentShader: shaders/apply_piercing.frag
+
+  - id: applyPiercingHitskin
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_normalmapTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_piercingTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_ricochetTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_skySpecularTexture
+      path: materials/sfx/skyspecular.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+    - id: u_metallicGlossTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: LIGHT_DIRECTION_0
+    u_directionalLightColor[0]: [0.9, 0.85, 0.72]
+    u_platform: PLATFORM_DATA
+    u_cameraPosition: CAMERA_VIEW_POSITION
+
+    pass:
+      id: texturedPass
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;HITSKIN;BUMPED;SPECULAR;AMBIENT_OCCLUSION"
+      vertexShader: shaders/textured.vert
+      fragmentShader: shaders/textured.frag
+
+  - id: applyPiercingHitskinHC
+    parentID: applyPiercingHitskin
+    sampler:
+    - id: u_firstSpacedArmorTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    pass:
+      id: texturedPass
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;HITSKIN;BUMPED;HOLLOW_CHARGE;SPECULAR;AMBIENT_OCCLUSION"
+
+  - id: applyPiercingHitskinNation
+    parentID: default
+    sampler:
+    - id: u_piercingTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_normalmapTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_ricochetTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_platform: PLATFORM_DATA
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;MODULATE_COLOR;HITSKIN;SIMPLE_LIGHTING"
+      vertexShader: shaders/textured.vert
+      fragmentShader: shaders/textured.frag
+
+  - id: applyPiercingHitskinNationHC
+    parentID: applyPiercingHitskinNation
+    sampler:
+    - id: u_firstSpacedArmorTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;MODULATE_COLOR;HITSKIN;HOLLOW_CHARGE;SIMPLE_LIGHTING"
+
+  - id: applyPiercingHitskinModulesLow
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_normalmapTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_piercingTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_ricochetTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_modulesColorTexture
+      path: materials/vehicle/modules.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_modulesTexture: MODULES_SAMPLER
+    u_platform: PLATFORM_DATA
+
+    pass:
+      id: texturedPass
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;HITSKIN;SIMPLE_LIGHTING;MODULES"
+      vertexShader: shaders/textured.vert
+      fragmentShader: shaders/textured.frag
+
+  - id: applyPiercingHitskinModulesHCLow
+    parentID: applyPiercingHitskinModulesLow
+    sampler:
+    - id: u_firstSpacedArmorTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    pass:
+      id: texturedPass
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;HITSKIN;HOLLOW_CHARGE;SIMPLE_LIGHTING;MODULES"

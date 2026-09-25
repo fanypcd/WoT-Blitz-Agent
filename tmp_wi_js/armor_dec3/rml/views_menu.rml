@@ -1,0 +1,133 @@
+<rml>
+	<head>
+		<title>Views</title>
+		<link type="text/template" href="/rml/templates/button_icon.rml" />
+		<link type="text/template" href="/rml/templates/menu.rml" />
+		<script>
+local Params = require("rml.scripts.vehicle_params")
+
+ViewsMenu = {}
+ViewsMenu.__index = ViewsMenu
+setmetatable(ViewsMenu, {__index = Menu})
+
+function ViewsMenu:new(obj)
+    local obj = Menu:new(obj)
+	setmetatable(obj, self)
+
+    obj.document:GetElementById("content"):SetClass("rounded-bl", true)
+    obj.elements = {}
+
+    local element_ids = {
+    }
+    
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+
+    ViewsMenu = obj
+
+    -- connect signals
+
+    -- sync ui
+    return obj
+end
+
+function ViewsMenu:onTopDownCamera()
+    local camera_controller = scene_service.camera_controller
+    if camera_controller.is_top_down then
+        camera_controller:setupCamera(math.pi/2 * 0.1, camera_controller.yaw)
+    else
+        camera_controller:setupCamera(math.pi/2 * 0.99, camera_controller.yaw)
+        camera_controller:setTopDownScale(8.0)
+    end
+end
+
+function ViewsMenu:onHullDownCamera()
+    scene_service:setCamera(0.0, 0.0)
+    
+    local vehicle_info = arena_service.target_vehicle_info
+    local turret_info = vehicle_info and vehicle_info:getTurret(arena_service.target_vehicle.turret_id)
+    local gun_info = turret_info and vehicle_info:getGun(turret_info, arena_service.target_vehicle.gun_id)
+    
+    if gun_info then
+        local depression_increase = 0
+        local elevation_increase = 0
+        if arena_service.target_specs then
+            depression_increase = Params.getItemValue(Params.GunDepressionIncrease, arena_service.target_specs, true)[1] or 0
+            elevation_increase = Params.getItemValue(Params.GunElevationIncrease, arena_service.target_specs, true)[1] or 0
+        end
+        local min_pitch = gun_info:calcPitchLimits(0.0, depression_increase, elevation_increase).y
+        scene_service:resetIdealTargetGunAngles(Vector2.new(0.0, min_pitch))
+        
+        min_pitch = -math.rad(min_pitch)
+
+        local hull_info = vehicle_info:getHull(arena_service.target_vehicle.hull_id)
+        local gun_mounting_point_local = vehicle_info:getChassis(arena_service.target_vehicle.chassis_id).hull_position + (hull_info and hull_info.turret_position or Vector3.new()) + turret_info.gun_position
+        local ray = Ray.new(gun_mounting_point_local, Vector3.new(0.0, -math.sin(min_pitch), -math.cos(min_pitch)))
+        ray:transform(scene_service.vehicle_root_node.world_matrix)
+
+        scene_service:resetCameraToRayAndDistance(ray, 0.0)
+    end
+end
+
+        </script>
+	</head>
+	<body id="views_menu" template="menu" class="right-0" onload="ViewsMenu:new{document = document, is_right = true}">
+        <button class="text-secondary" onclick="scene_service:setCamera(0, -math.pi * 0.5)">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate">
+                    <p class="text-xs">UI_icon_left_view</p>
+                    <svg src="/rml/icons/Tank-ViewRight-1.svg" class="w-8 flex-none" style="transform:scaleX(-1.0)" />
+                </div>
+            </template>
+        </button>
+        <button class="text-secondary" onclick="scene_service:setCamera(0, -math.pi * 1.5)">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate">
+                    <p class="text-xs">UI_icon_right_view</p>
+                    <svg src="/rml/icons/Tank-ViewRight-1.svg" class="w-8 flex-none" />
+                </div>
+            </template>
+        </button>
+        <button class="text-secondary" onclick="scene_service:setCamera(0, -math.pi)">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate">
+                    <p class="text-xs">UI_icon_back_view</p>
+                    <svg src="/rml/icons/Tank-ViewBack-.svg" class="w-8 flex-none" />
+                </div>
+            </template>
+        </button>
+        <button class="text-secondary" onclick="scene_service:setCamera(0, 0)">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate">
+                    <p class="text-xs">UI_icon_front_view</p>
+                    <svg src="/rml/icons/Tank-ViewFront-.svg" class="w-8 flex-none" />
+                </div>
+            </template>
+        </button>
+        <button class="text-secondary" onclick="ViewsMenu:onHullDownCamera()">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate">
+                    <p class="text-xs">UI_icon_hull_down</p>
+                    <svg src="/rml/icons/Tank-ViewHullDown-.svg" class="w-8 flex-none" />
+                </div>
+            </template>
+        </button>
+        <button class="text-secondary" onclick="ViewsMenu:onTopDownCamera()">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate">
+                    <p class="text-xs">UI_icon_top_camera</p>
+                    <svg src="/rml/icons/Tank-ViewTop-1.svg" class="w-8 flex-none" />
+                </div>
+            </template>
+        </button>
+        <button class="text-secondary" onclick="Toolbar:open(false)">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate h-8 justify-between">
+                    <p class="text-xs">UI_icon_back</p>
+                    <svg src="/rml/icons/UI-Arrow-Right.svg" class="w-3 mb-1 flex-none self-center" crop-to-content="1" style="transform: scaleX(-1)" />
+                </div>
+            </template>
+        </button>
+    </body>
+</rml>

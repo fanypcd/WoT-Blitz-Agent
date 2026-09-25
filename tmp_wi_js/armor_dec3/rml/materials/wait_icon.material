@@ -1,0 +1,23 @@
+material:
+  sampler:
+    id: _tex
+    path: rml/materials/wait_icon.png
+    mipmap: false
+    wrapS: CLAMP
+    wrapT: CLAMP
+    minFilter: LINEAR
+    magFilter: LINEAR
+
+  renderState:
+    blend: true
+    blendSrc: SRC_ALPHA
+    blendDst: ONE_MINUS_SRC_ALPHA
+
+  technique:
+    _time: GAME_TIME
+    _frameSize: [0.3333334, 1.0]
+    _fps: 6.0
+    pass:
+      defines: "ANIMATED"
+      vertexShader: rml/shaders/shader_vert_main.vert
+      fragmentShader: rml/shaders/shader_frag_texture.frag

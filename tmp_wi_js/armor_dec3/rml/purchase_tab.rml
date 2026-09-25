@@ -1,0 +1,133 @@
+<rml>
+    <head>
+        <title>Purchase Tab</title>
+        <link type="text/template" href="/rml/templates/info_panel.rml" />
+        <link type="text/template" href="/rml/templates/button.rml" />
+        <script>
+PurchaseTab = {}
+setmetatable(PurchaseTab, {__index = InfoPanel})
+PurchaseTab.__index = PurchaseTab
+
+local function onProductPersisted(product, activate, expire)
+    local self = PurchaseTab
+    local item = ShopTab:getItemForProduct(product)
+    if item == self.current_purchase then
+        self.elements["purchase_button"]:SetClass("disabled", activate)
+        if activate then
+            self.elements["purchase_text"].inner_rml = "UI_iap_owned"
+        end
+    end
+end
+
+function PurchaseTab:new(o)
+    local obj = InfoPanel:new(o)
+    setmetatable(obj, self)
+
+    obj:setSecondTitle("UI_shop")
+    obj.document:GetElementById("content"):SetClass("p-2", true)
+
+    obj.elements = {}
+    
+    local element_ids = {
+        "purchase_icon", "purchase_title", "purchase_description", "purchase_text",
+        "purchase_button", "expire", "eula_links"
+    }
+    
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+
+    PurchaseTab = obj
+    
+    -- connect signals
+    iap_service:connect_productPersistedSignal(onProductPersisted)
+    return obj
+end
+
+function PurchaseTab:open(purchase, title, icon, left)
+    if title then
+        self:setMainTitle(title)
+        self.document.style.left = left .. "px"
+    
+        self.current_purchase = purchase
+        self.elements["purchase_icon"]:SetAttribute("src", icon)
+        self.elements["purchase_title"].inner_rml = title
+        self.elements["purchase_description"].inner_rml = "UI_iap_" .. purchase .. "_desc"
+        
+        self.elements["expire"]:SetClass("hidden", true)
+        
+        local product = ShopTab:getProductForItem(purchase)
+        local has_product, expire = iap_service:hasProduct(product)
+        local product_info = iap_service:getProduct(product)
+        
+        self.elements["purchase_button"]:SetClass("disabled", has_product)
+        
+        self.elements["eula_links"]:SetClass("hidden", not (PLATFORM_IOS and product_info and product_info.type == IAPService.StoreProductType.AUTO_RENEWABLE_SUBSCRIPTION))
+        
+        if has_product then
+            self.elements["purchase_text"].inner_rml = "UI_iap_owned"            
+            
+            if product_info and product_info.type == IAPService.StoreProductType.AUTO_RENEWABLE_SUBSCRIPTION then
+                self.elements["expire"]:SetClass("hidden", false)
+                self.elements["expire"].inner_rml = fmt("UI_expire_format", expire)
+            end
+        else
+            iap_service:productViewSignal(product)
+            
+            local price_string = product_info and product_info.localized_price or "---"
+
+            if product_info and product_info.type == IAPService.StoreProductType.AUTO_RENEWABLE_SUBSCRIPTION then
+                price_string = fmt("UI_per_month_format", price_string)
+            end
+
+            self.elements["purchase_text"].inner_rml = fmt("UI_iap_unlock", "<b>" .. price_string .. "</b>")
+        end
+    end
+    
+    InfoPanel.open(self)
+end
+
+function PurchaseTab:makePurchase()
+    local product = ShopTab:getProductForItem(self.current_purchase)
+    local product_info = iap_service:getProduct(product)
+    
+    if product_info then
+        local user = account_service.user
+        if product_info.type == IAPService.StoreProductType.AUTO_RENEWABLE_SUBSCRIPTION then
+            if not user then
+                Popup.open("UI_please_login", "UI_please_login_desc", false, "UI_login", function() ui_service:navigateToAccounts() account_service:startAuthFlow() end)
+                return
+            end
+        end
+        
+        local platform = db_service.platform
+        local vehicle_info = platform and platform:getVehicleInfo(arena_service.target_vehicle.vehicle_id)
+        iap_service:makePayment(product, vehicle_info and vehicle_info.tech_name or "(no vehicle)", user and user.wgid or 0, user and user.display_name or "")
+    else
+        Popup.open("UI_error_title", "UI_cant_connect_store_api", true)
+    end
+end
+
+        </script>
+    </head>
+    <body id="purchase_tab" template="info_panel" style="max-width:330dp;width:100%" onload="PurchaseTab:new{document = document, group = 'purchase'}">
+        <div class="flex gap-4 items-end">
+            <svg id="purchase_icon" src="/rml/icons/Shop-CloudDataAI-.svg" class="w-16 flex-none" />
+            <p id="purchase_title" class="text-2xl font-light leading-none">subscription</p>
+        </div>
+        <p id="purchase_description" class="text-sm my-4"></p>
+        <div class="my-4 text-sm text-secondary" id="eula_links">
+            <p onclick="game:launchURL('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')">UI_terms_of_use</p>
+            <p onclick="game:launchURL('https://wotinspector.com/privacy')">UI_privacy_policy</p>
+        </div>
+        <div class="flex justify-center">
+            <button id="purchase_button" class="block bg-premium text-primary-foreground rounded" onclick='if not element:IsClassSet("disabled") then PurchaseTab:makePurchase() end'>
+                <template src="button">
+                    <svg src="/rml/icons/Shop-.svg" class="w-8 flex-none" />
+                    <p id="purchase_text" class="text-center normal-case"></p>
+                </template>
+            </button>
+        </div>
+        <p id="expire" class="text-sm text-center mt-1"></p>
+    </body>
+</rml>

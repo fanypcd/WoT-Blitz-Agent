@@ -1,0 +1,157 @@
+<rml>
+	<head>
+		<title>Heatmaps Menu</title>
+		<link type="text/template" href="/rml/templates/button_icon.rml" />
+		<link type="text/template" href="/rml/templates/menu.rml" />
+		<script>
+HeatmapsMenu = {}
+HeatmapsMenu.__index = HeatmapsMenu
+setmetatable(HeatmapsMenu, {__index = Menu})
+
+local function updateButtonColors()
+    local self = HeatmapsMenu
+    self:updateButtonColors()
+end
+
+function HeatmapsMenu:updateButtonColors()
+    local type = settings:getInt("scene.heatmapType")
+    local damage_view = settings:getInt("scene.heatmapDamageView")
+
+    self.elements["damages_button"]:SetClass("bg-header", type == HeatmapType.HEATMAP_DAMAGES and damage_view == HeatmapDamageView.HEATMAP_DAMAGE_RECEIVED)
+    self.elements["ammo_button"]:SetClass("bg-header", type == HeatmapType.HEATMAP_DAMAGES and damage_view == HeatmapDamageView.HEATMAP_DAMAGE_PROBABILITY)
+    self.elements["classes_button"]:SetClass("bg-header", type == HeatmapType.HEATMAP_DAMAGE_RECEIVED_TANK_CLASSES)
+    self.elements["focus_button"]:SetClass("bg-header", type == HeatmapType.HEATMAP_FOCUS)
+    self.elements["modules_button"]:SetClass("bg-header", type == HeatmapType.HEATMAP_MODULES or type == HeatmapType.HEATMAP_FIRE)
+end
+
+function HeatmapsMenu:new(obj)
+    local obj = Menu:new(obj)
+    setmetatable(obj, self)
+
+    obj.elements = {}
+
+    local element_ids = {
+        "damages_button", "ammo_button", "classes_button", "focus_button", "modules_button"
+    }
+    
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+
+    HeatmapsMenu = obj
+    
+    local content = obj.document:GetElementById("content")
+    content:SetClass("bg-content", false)
+    content:SetClass("p-0_5", false)
+    content:SetClass("gap-1", false)
+
+    -- connect signals
+    runOnChange(updateButtonColors, "scene.heatmapType", "scene.heatmapDamageView")
+
+    -- sync ui
+    return obj
+end
+
+function HeatmapsMenu:open(slide_in_left)
+    Menu.open(self, slide_in_left)
+    settings:setInt("scene.viewMode", ViewMode.HEATMAP)
+end
+
+function HeatmapsMenu:onDamagesButton()
+    if HeatmapsDamagesPanel:checkVisibility() then
+        HeatmapsDamagesPanel:toggle()
+    else
+        settings:setInt("scene.heatmapType", HeatmapType.HEATMAP_DAMAGES)
+        settings:setInt("scene.heatmapDamageView", HeatmapDamageView.HEATMAP_DAMAGE_RECEIVED)
+        settings:setInt("scene.heatmapMode", HeatmapMode.HEATMAP_MODE_STATIC)
+    end
+    HeatmapsPanelLocked:updateVisibility()
+end
+
+function HeatmapsMenu:onAmmoButton()
+    InDevelopmentTab:open("UI_title_heatmaps")
+
+    -- settings:setInt("scene.heatmapType", HeatmapType.HEATMAP_DAMAGES)
+    -- settings:setInt("scene.heatmapDamageView", HeatmapDamageView.HEATMAP_DAMAGE_PROBABILITY)
+    -- settings:setInt("scene.heatmapMode", HeatmapMode.HEATMAP_MODE_DYNAMIC)
+end
+
+function HeatmapsMenu:onClassesButton()
+    InDevelopmentTab:open("UI_title_heatmaps")
+
+    -- settings:setInt("scene.heatmapType", HeatmapType.HEATMAP_DAMAGE_RECEIVED_TANK_CLASSES)
+    -- settings:setInt("scene.heatmapMode", HeatmapMode.HEATMAP_MODE_STATIC)
+end
+
+function HeatmapsMenu:onFocusButton()
+    InDevelopmentTab:open("UI_title_heatmaps")
+
+    -- settings:setInt("scene.heatmapType", HeatmapType.HEATMAP_FOCUS)
+    -- settings:setInt("scene.heatmapMode", HeatmapMode.HEATMAP_MODE_DYNAMIC)
+end
+
+function HeatmapsMenu:onModulesButton()
+    if HeatmapsModulesPanel:checkVisibility() then
+        HeatmapsModulesPanel:toggle()
+    else
+        settings:setInt("scene.heatmapType", HeatmapType.HEATMAP_MODULES)
+        settings:setInt("scene.heatmapModule", PlatformDB.DeviceType.FUEL_TANK)
+        settings:setInt("scene.heatmapMode", HeatmapMode.HEATMAP_MODE_DYNAMIC)
+    end
+    HeatmapsPanelLocked:updateVisibility()
+end
+
+
+        </script>
+	</head>
+	<body id="heatmaps_menu" template="menu" style="top:42dp" onload="HeatmapsMenu:new{document = document}">
+        <button id="damages_button" class="bg-content text-secondary p-0_5 rounded-tr" onclick="HeatmapsMenu:onDamagesButton()">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate">
+                    <p class="text-xs">UI_icon_impacts</p>
+                    <svg src="/rml/icons/AI-Confrontation-Target.svg" class="w-8 flex-none" />
+                </div>
+            </template>
+        </button>
+        <button id="ammo_button" class="bg-content text-secondary p-0_5" onclick="HeatmapsMenu:onAmmoButton()">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate">
+                    <p class="text-xs">UI_icon_ammo</p>
+                    <svg src="/rml/icons/Specs-Ammo-choice-.svg" class="w-8 flex-none" />
+                </div>
+            </template>
+        </button>
+        <button id="classes_button" class="bg-content text-secondary p-0_5" onclick="HeatmapsMenu:onClassesButton()">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate">
+                    <p class="text-xs">UI_icon_class</p>
+                    <svg src="/rml/icons/TankSelector-Class-1.svg" class="w-8 flex-none" />
+                </div>
+            </template>
+        </button>
+        <button id="focus_button" class="bg-content text-secondary p-0_5" onclick="HeatmapsMenu:onFocusButton()">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate">
+                    <p class="text-xs">UI_icon_focus</p>
+                    <svg src="/rml/icons/heatmap-view-focus.svg" class="w-8 flex-none" />
+                </div>
+            </template>
+        </button>
+        <button id="modules_button" class="bg-content text-secondary p-0_5" onclick="HeatmapsMenu:onModulesButton()">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate">
+                    <p class="text-xs">UI_icon_modules</p>
+                    <svg src="/rml/icons/Modules-.svg" class="w-8 flex-none" />
+                </div>
+            </template>
+        </button>
+        <button class="bg-content text-secondary p-0_5 rounded-br" onclick="RootMenu:open(true)">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate h-8 justify-between">
+                    <p class="text-xs">UI_icon_back</p>
+                    <svg src="/rml/icons/UI-Arrow-Right.svg" class="w-3 mb-1 flex-none self-center" crop-to-content="1" />
+                </div>
+            </template>
+        </button>
+    </body>
+</rml>

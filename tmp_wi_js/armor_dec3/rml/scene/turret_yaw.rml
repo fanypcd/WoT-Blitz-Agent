@@ -1,0 +1,19 @@
+<rml>
+    <head>
+        <title>Turret Yaw</title>
+        <link type="text/rcss" href="/rml/main.rcss"/>
+        <style>
+            body {
+            max-width:200dp;
+            transform-origin: 0 0;
+            }
+        </style>
+    </head>
+    <body id="turret_yaw">
+        <div class="px-1" style="transform: scale(-0.005, -0.005) translateX(-100%);transform-origin: 0 0;">
+            <div class="text-hud text-xl">
+                <p id="turret_yaw_label">1000</p>
+            </div>
+        </div>
+    </body>
+</rml>

@@ -1,0 +1,11 @@
+<rml>
+    <head>
+        <title>Camera Angle</title>
+        <link type="text/rcss" href="/rml/main.rcss"/>
+        <style>
+        </style>
+    </head>
+    <body id="camera_angle" class="text-hud pointer-events-none w-40" style="z-index:-10">
+        <p id="angle" class="text-center text-xs mt-4">100m</p>
+    </body>
+</rml>

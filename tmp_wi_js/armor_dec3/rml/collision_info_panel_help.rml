@@ -1,0 +1,52 @@
+<rml>
+    <head>
+        <title>Collision Info Panel</title>
+        <link type="text/template" href="/rml/templates/info_panel.rml" />
+        <script>
+CollisionInfoPanelHelp = {}
+
+local function onViewModeChanged()
+    local self = CollisionInfoPanelHelp
+    self:updateVisibility()
+end
+
+local function onTooltipVisible(visible)
+    local self = CollisionInfoPanelHelp
+    self.tooltip_visible = visible
+end
+    
+function CollisionInfoPanelHelp:new(o)
+    self.__index = self
+    setmetatable(self, {__index = InfoPanel})
+
+    local obj = InfoPanel:new(o)
+    setmetatable(obj, self)
+
+    obj:setMainTitle("UI_title_collision")
+    obj:setSecondTitle("UI_information")
+
+    obj.tooltip_visible = false
+    obj.elements = {}
+    
+    CollisionInfoPanelHelp = obj
+    
+    -- connect signals
+    runOnChange(onViewModeChanged, "scene.viewMode")
+    environment:connect_tooltipVisibleSignal(onTooltipVisible)
+    return obj
+end
+
+function CollisionInfoPanelHelp:checkVisibility()
+    local view_mode = settings:getInt("scene.viewMode")
+    local target_locked = arena_service.target_vehicle_info and account_service:isVehicleLocked(arena_service.target_vehicle_info.shared, false)
+    local player_locked = arena_service.player_vehicle_info and account_service:isVehicleLocked(arena_service.player_vehicle_info.shared, true)
+    return view_mode == ViewMode.RAMMING and not self.tooltip_visible and not (player_locked or target_locked)
+end
+        </script>
+    </head>
+    <body id="collision_info_panel_help" template="info_panel" onload="CollisionInfoPanelHelp:new{document = document}">
+        <div class="text-xs">
+            <p>UI_help_collision</p>
+        </div>
+    </body>
+</rml>

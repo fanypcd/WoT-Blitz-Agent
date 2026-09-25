@@ -1,0 +1,261 @@
+<rml>
+    <head>
+        <title>Collision Info Panel</title>
+        <link type="text/template" href="/rml/templates/info_panel.rml" />
+        <script>
+CollisionInfoPanel = {}
+
+local VA = VehicleAttributeId
+
+local function onViewModeChanged()
+    local self = CollisionInfoPanel
+    self:updateVisibility()
+end
+
+local function onTargetVehicleChanged(old_vehicle, vehicle, vehicle_info)
+    local self = CollisionInfoPanel
+    local target_name = vehicle_info and vehicle_info.shared and vehicle_info.shared.platform:getTextUTF8(vehicle_info.shared.localized_name) or "UI_not_set"
+    self:setMainTitle("<span class='normal-case'>" .. target_name .. "</span>")
+    self.elements["target"].inner_rml = target_name
+    
+    self:updateVisibility()
+    
+    if vehicle_info then
+        local weight = vehicle_info:calcWeight(vehicle) * 0.001
+        self.elements["target_weight"].inner_rml = fmt("UI_weight_t_format", fmt("{:.1Lf}", weight))
+        
+        local health = vehicle_info:calcHealth(vehicle)
+        self.elements["target_hitpoints"].inner_rml = fmt("UI_hp_format", fmt("{:.0Lf}", health))
+        self.elements["target_max_speed"].inner_rml = fmt("UI_kmh_format", fmt("{:.0Lf}", vehicle_info:getEffectiveAttribute(VA.VEHICLE_ATTR_FORWARD_MAX_SPEED, vehicle)))
+    else
+        self.elements["target_weight"].inner_rml = ""
+        self.elements["target_hitpoints"].inner_rml = ""
+        self.elements["target_max_speed"].inner_rml = ""
+    end
+end
+
+local function onPlayerVehicleChanged(old_vehicle, vehicle, vehicle_info)
+    local self = CollisionInfoPanel
+    self.elements["rammer"].inner_rml = vehicle_info and vehicle_info.shared and vehicle_info.shared.platform:getTextUTF8(vehicle_info.shared.localized_name) or "UI_not_set"
+
+    self:updateVisibility()
+
+    if vehicle_info then
+        local weight = vehicle_info:calcWeight(vehicle) * 0.001
+        self.elements["rammer_weight"].inner_rml = fmt("UI_weight_t_format", fmt("{:.1Lf}", weight))
+        
+        local health = vehicle_info:calcHealth(vehicle)
+        self.elements["rammer_hitpoints"].inner_rml = fmt("UI_hp_format", fmt("{:.0Lf}", health))
+        self.elements["rammer_max_speed"].inner_rml = fmt("UI_kmh_format", fmt("{:.0Lf}", vehicle_info:getEffectiveAttribute(VA.VEHICLE_ATTR_FORWARD_MAX_SPEED, vehicle)))
+    else
+        self.elements["rammer_weight"].inner_rml = ""
+        self.elements["rammer_hitpoints"].inner_rml = ""
+        self.elements["rammer_max_speed"].inner_rml = ""
+    end
+end
+
+local function onRammingEnergyChanged(target_damage, player_damage)
+    local self = CollisionInfoPanel
+    self:updateData()
+end
+
+local function onPlayerSpeedChanged()
+    local self = CollisionInfoPanel
+    local speed = settings:getFloat("arena.player.speed")
+    self.elements["rammer_speed"].inner_rml = fmt("UI_kmh_format", fmt("{:.0Lf}", speed))
+end
+
+local function onTargetSpeedChanged()
+    local self = CollisionInfoPanel
+    local speed = settings:getFloat("arena.target.speed")
+    self.elements["target_speed"].inner_rml = fmt("UI_kmh_format", fmt("{:.0Lf}", speed))
+end
+
+local function onRammingArmorCalculated(point, armor, normal_xz)
+    local self = CollisionInfoPanel
+    self.target_damage_correction = armor
+    self.normal_xz = normal_xz
+    self:updateData()
+end
+
+local function onTooltipVisible(visible)
+    local self = CollisionInfoPanel
+    self.tooltip_visible = visible
+    self:updateVisibility()
+end
+
+function CollisionInfoPanel:new(o)
+    self.__index = self
+    setmetatable(self, {__index = InfoPanel})
+
+    local obj = InfoPanel:new(o)
+    setmetatable(obj, self)
+
+    obj:setSecondTitle("UI_title_collision")
+
+    obj.target_damage_correction = -1.0
+    obj.normal_xz = Vector2.new(0, 0)
+    obj.tooltip_visible = false
+    obj.elements = {}
+    
+    local element_ids = {
+        "rammer", "target", "target_damage_large", "impact_speed", 
+        "rammer_speed", "rammer_max_speed", "rammer_weight", "rammer_hitpoints", "rammer_damage_title", "rammer_damage",
+        "target_speed", "target_max_speed", "target_weight", "target_hitpoints", "target_damage_title", "target_damage"
+    }
+    
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+    
+    CollisionInfoPanel = obj
+    
+    -- connect signals
+    runOnChange(onViewModeChanged, "scene.viewMode")
+    runOnChange(onPlayerSpeedChanged, "arena.player.speed")
+    runOnChange(onTargetSpeedChanged, "arena.target.speed")
+    arena_service:connect_targetVehicleChangedSignal(onTargetVehicleChanged)
+    arena_service:connect_playerVehicleChangedSignal(onPlayerVehicleChanged)
+    scene_service:connect_rammingArmorCalculatedSignal(onRammingArmorCalculated)
+    scene_service.ramming_controller:connect_energyChangedSignal(onRammingEnergyChanged)
+    environment:connect_tooltipVisibleSignal(onTooltipVisible)
+    
+    -- sync ui
+    onTargetVehicleChanged(nil, arena_service.target_vehicle, arena_service.target_vehicle_info)
+    onPlayerVehicleChanged(nil, arena_service.player_vehicle, arena_service.player_vehicle_info)
+    return obj
+end
+
+function CollisionInfoPanel:checkVisibility()
+    local view_mode = settings:getInt("scene.viewMode")
+    local target_locked = arena_service.target_vehicle_info and account_service:isVehicleLocked(arena_service.target_vehicle_info.shared, false)
+    local player_locked = arena_service.player_vehicle_info and account_service:isVehicleLocked(arena_service.player_vehicle_info.shared, true)
+    return view_mode == ViewMode.RAMMING and self.tooltip_visible and not (player_locked or target_locked)
+end
+
+function CollisionInfoPanel:updateData()
+    if not self:checkVisibility() then
+        return
+    end
+
+    local player_hull = arena_service.player_vehicle_info and arena_service.player_vehicle_info:getHull(arena_service.player_vehicle.hull_id) or nil
+    local player_damage_correction = player_hull and player_hull.primary_armor[1] or 0.0
+    local target_damage_correction = self.target_damage_correction
+    
+    local target_vehicle_info = arena_service.target_vehicle_info
+    if target_vehicle_info and target_damage_correction < 0.0 then
+        local target_hull = target_vehicle_info:getHull(arena_service.target_vehicle.hull_id)
+        local camera_yaw = scene_service.camera_controller.yaw
+        local pi = math.pi
+    
+        if target_hull then
+            if math.abs(camera_yaw - pi) < pi * 0.25 then
+                target_damage_correction = target_hull.primary_armor[3]
+            elseif math.abs(camera_yaw - pi) < pi * 0.75 then
+                target_damage_correction = target_hull.primary_armor[2]
+            else
+                target_damage_correction = target_hull.primary_armor[1]
+            end
+        end
+    end
+    
+    local camera_position_world = scene_service.camera_controller.camera.node.translation_world
+    local world_to_vehicle_matrix = scene_service.vehicle_root_node.inverse_world_matrix
+    local camera_position_local = Vector3.new()
+    world_to_vehicle_matrix:transformPoint(camera_position_world, camera_position_local)
+    
+    local speed_xz = Vector2.new(camera_position_local.x, camera_position_local.z)
+    speed_xz:normalize()
+    local direction_factor = speed_xz.length_squared > 0.001 and Vector2.dot(speed_xz, self.normal_xz) / self.normal_xz.length or 1.0
+    
+    local damage_to_target = math.max(0.0, (scene_service.ramming_controller.target_potential_damage - target_damage_correction) * direction_factor)
+    local target_escapes = scene_service.ramming_controller.is_target_escapes
+    
+    self.elements["impact_speed"].inner_rml = fmt("UI_kmh_format", fmt("{:.0Lf}", not target_escapes and math.max(0.0, scene_service.ramming_controller.impact_speed) or 0.0))
+    self.elements["target_damage_large"].inner_rml = fmt("UI_hp_format", fmt("{:.0Lf}", damage_to_target))
+    
+    if target_escapes then
+        self.elements["target_damage"].inner_rml = ""
+        self.elements["target_damage_title"].inner_rml = "UI_escapes"
+        self.elements["target_damage_title"].style.color = self.elements["rammer_damage"].style.color
+        self.elements["rammer_damage"].inner_rml = ""
+        self.elements["rammer_damage_title"].inner_rml = "UI_too_slow"
+        self.elements["rammer_damage_title"].style.color = self.elements["target_damage"].style.color
+    else
+        self.elements["target_damage"].inner_rml = fmt("UI_hp_format", fmt("{:.0Lf}", damage_to_target))
+        self.elements["target_damage_title"].inner_rml = "UI_damage"
+        self.elements["target_damage_title"].style.color = self.elements["target_damage"].style.color
+        self.elements["rammer_damage"].inner_rml = fmt("UI_hp_format", fmt("{:.0Lf}", math.max(0.0, (scene_service.ramming_controller.player_potential_damage - player_damage_correction) * direction_factor)))
+        self.elements["rammer_damage_title"].inner_rml = "UI_damage"
+        self.elements["rammer_damage_title"].style.color = self.elements["rammer_damage"].style.color
+    end
+end
+        </script>
+    </head>
+    <body id="collision_info_panel" template="info_panel" onload="CollisionInfoPanel:new{document = document}">
+        <div class="text-xs">
+            <div class="flex gap-2 items-end mb-1">
+                <svg src="/rml/icons/AI-Collision-mode.svg" class="w-6 flex-none" />
+                <p class="font-bold">UI_ram_info</p>
+            </div>
+            <div class="relative" style="color:#FF8000FF">
+                <p>UI_damage</p>
+                <p id="target_damage_large" class="absolute text-xl font-light leading-none right-0 bottom-0">100</p>
+            </div>
+            <div class="flex gap-2 justify-between">
+                <p>UI_ramming_impact_speed_label</p>
+                <p id="impact_speed">100</p>
+            </div>
+
+            <div class="flex gap-2 items-end mt-3 mb-1">
+                <svg src="/rml/icons/AI-Collision-Rammer-.svg" class="w-6 flex-none" />
+                <p id="rammer" class="font-bold">T29</p>
+            </div>
+            <div class="flex gap-2 justify-between">
+                <p>UI_speed</p>
+                <p id="rammer_speed">100</p>
+            </div>
+            <div class="flex gap-2 justify-between">
+                <p>UI_max_speed</p>
+                <p id="rammer_max_speed">100</p>
+            </div>
+            <div class="flex gap-2 justify-between">
+                <p>UI_weight</p>
+                <p id="rammer_weight">100</p>
+            </div>
+            <div class="flex gap-2 justify-between">
+                <p>UI_hitpoints</p>
+                <p id="rammer_hitpoints">100</p>
+            </div>
+            <div class="flex gap-2 justify-between">
+                <p id="rammer_damage_title" style="color:#0f0">UI_damage</p>
+                <p id="rammer_damage" style="color:#0f0">100</p>
+            </div>
+
+            <div class="flex gap-2 items-end mt-3 mb-1">
+                <svg src="/rml/icons/AI-Collision-Target-.svg" class="w-6 flex-none" />
+                <p id="target" class="font-bold">T29</p>
+            </div>
+            <div class="flex gap-2 justify-between">
+                <p>UI_speed</p>
+                <p id="target_speed">100</p>
+            </div>
+            <div class="flex gap-2 justify-between">
+                <p>UI_max_speed</p>
+                <p id="target_max_speed">100</p>
+            </div>
+            <div class="flex gap-2 justify-between">
+                <p>UI_weight</p>
+                <p id="target_weight">100</p>
+            </div>
+            <div class="flex gap-2 justify-between">
+                <p>UI_hitpoints</p>
+                <p id="target_hitpoints">100</p>
+            </div>
+            <div class="flex gap-2 justify-between">
+                <p id="target_damage_title" style="color:#ff3d00">UI_damage</p>
+                <p id="target_damage" style="color:#ff3d00">100</p>
+            </div>
+        </div>
+    </body>
+</rml>

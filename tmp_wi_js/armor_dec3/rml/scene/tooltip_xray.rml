@@ -1,0 +1,115 @@
+<rml>
+    <head>
+        <title>Xray Tooltip</title>
+        <link type="text/template" href="/rml/templates/tooltip.rml" />
+        <script>
+XrayTooltip = {}
+
+local Params = require ("rml.scripts.vehicle_params")
+local utils = require('rml.scripts.utils')
+
+local function onViewModeChanged()
+    XrayTooltip:updateVisibility()
+end
+
+local function onShowModulesChanged()
+    XrayTooltip:updateTooltip()
+end
+
+local function onTooltipUpdated(nominal_thickness, effective_thickness, device_type)
+    local self = XrayTooltip
+    self.nominal_thickness = nominal_thickness
+    self.effective_thickness = effective_thickness
+    self.device_type = device_type
+    self:updateTooltip()
+end
+
+function XrayTooltip:new(o)
+    self.__index = self
+    setmetatable(self, {__index = Tooltip})
+
+    local obj = Tooltip:new(o)
+    setmetatable(obj, self)
+
+    obj.nominal_thickness = -1
+    obj.effective_thickness = 0
+    obj.device_type = PlatformDB.DeviceType.ARMOR
+    obj:setHeader([[
+    <div class="flex gap-2 items-center">
+        <svg src="/rml/icons/Specs-Armor-ThicknessNominal-.svg" class="w-8 flex-none" />
+        <p id="header_nominal_thickness">100mm</p>
+    </div>
+    <div class="flex gap-2 items-center">
+        <svg id="header_device_icon" src="/rml/icons/Specs-Armor-ThicknessNominal-.svg" class="w-8 flex-none" />
+        <p id="header_device_name">100mm</p>
+    </div>
+    ]])
+
+    XrayTooltip = obj
+    
+    -- connect signals
+    runOnChange(onViewModeChanged, "scene.viewMode")
+    runOnChange(onShowModulesChanged, "scene.showModules")
+    xray_scene_objects:connect_tooltipUpdatedSignal(onTooltipUpdated)
+end
+
+function XrayTooltip:checkVisibility()
+    if not Tooltip.checkVisibility(self) then
+        return false
+    end
+
+    local view_mode = settings:getInt("scene.viewMode")
+    return view_mode == ViewMode.ARMOR or view_mode == ViewMode.TEXTURED or view_mode == ViewMode.WHITE or view_mode == ViewMode.CROSS_SECTION_XRAY
+end
+
+function XrayTooltip:updateTooltip()
+    local show_modules = settings:getBool("scene.showModules")
+    
+    if show_modules and self.device_type ~= PlatformDB.DeviceType.ARMOR then
+        local module_name = PlatformDB.getModuleName(self.device_type)
+        local effective_values = settings:getInt("ui.specsEffectiveValues")
+        local health, health_regen = Params.getModuleHealth(self.device_type, arena_service.target_specs, effective_values)
+        local module_icon = utils.getModuleIcon(self.device_type)
+        
+        self.document:GetElementById("header_nominal_thickness").parent_node:SetClass("hidden", true)
+        self.document:GetElementById("header_device_name").parent_node:SetClass("hidden", false)
+        self.document:GetElementById("effective_thickness").parent_node:SetClass("hidden", true)
+        self.document:GetElementById("device_hitpoints").parent_node:SetClass("hidden", false)
+        self.document:GetElementById("device_hitpoints_regen").parent_node:SetClass("hidden", PlatformDB.isCrew(self.device_type))
+        
+        self.document:GetElementById("header_device_name").inner_rml = module_name
+        self.document:GetElementById("header_device_icon"):SetAttribute("src", "/rml/icons/" .. module_icon)
+        self.document:GetElementById("device_hitpoints").inner_rml = fmt("UI_hp_format", fmt("{:.0Lf}", health))
+        self.document:GetElementById("device_hitpoints_regen").inner_rml = fmt("UI_hp_format", fmt("{:.0Lf}", health_regen))
+        
+        local module_color = ui_service.palette:getModuleColor(self.device_type)
+        self.document:GetElementById("header_device_icon").style["image-color"] = module_color
+        self.document:GetElementById("header_device_name").style["color"] = module_color
+    else
+        self.document:GetElementById("header_nominal_thickness").parent_node:SetClass("hidden", false)
+        self.document:GetElementById("header_device_name").parent_node:SetClass("hidden", true)
+        self.document:GetElementById("effective_thickness").parent_node:SetClass("hidden", false)
+        self.document:GetElementById("device_hitpoints").parent_node:SetClass("hidden", true)
+        self.document:GetElementById("device_hitpoints_regen").parent_node:SetClass("hidden", true)
+
+        self.document:GetElementById("header_nominal_thickness").inner_rml = fmt("UI_millimeters_format", fmt("{:Lg}", self.nominal_thickness))
+        self.document:GetElementById("effective_thickness").inner_rml = fmt("UI_millimeters_format", fmt("{:.0Lf}", self.effective_thickness))
+    end
+end
+        </script>
+    </head>
+    <body id="tooltip_xray" template="tooltip" onload="XrayTooltip:new{document = document}">
+        <div class="flex gap-2 items-center">
+            <svg src="/rml/icons/Specs-Armor-ThicknessEffective-.svg" class="w-8 flex-none" />
+            <p id="effective_thickness">1000</p>
+        </div>
+        <div class="flex gap-2 items-center">
+            <svg src="/rml/icons/Specs-HealthPoints.svg" class="w-8 flex-none" />
+            <p id="device_hitpoints">1000</p>
+        </div>
+        <div class="flex gap-2 items-center text-module-crit">
+            <svg src="/rml/icons/Specs-HealthPoints.svg" class="w-8 flex-none" />
+            <p id="device_hitpoints_regen">1000</p>
+        </div>
+    </body>
+</rml>

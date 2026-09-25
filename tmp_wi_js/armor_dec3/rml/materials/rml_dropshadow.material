@@ -1,0 +1,17 @@
+material:
+  sampler:
+  - id: _tex
+    path: materials/system/white.png
+    mipmap: false
+    wrapS: CLAMP
+    wrapT: CLAMP
+    minFilter: LINEAR
+    magFilter: LINEAR
+
+  technique:
+  - id: default
+    pass:
+      vertexShader: rml/shaders/shader_vert_passthrough.vert
+      fragmentShader: rml/shaders/shader_frag_dropshadow.frag
+      defines: "UV_TRANSFORM"
+  

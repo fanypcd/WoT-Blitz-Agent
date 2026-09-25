@@ -1,0 +1,160 @@
+material:
+  u_worldViewProjectionMatrix: WORLD_VIEW_PROJECTION_MATRIX
+
+  renderState:
+    depthFunc: LEQUAL
+    blendSrc: ONE
+    blendDst: ONE
+
+  technique:
+  - id: hiddenPart
+
+  - id: transparent
+    sampler:
+      id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_modulateAlpha: 0.2
+    u_clipPlane: CLIP_PLANE
+    u_worldMatrix: WORLD_MATRIX
+
+    renderState:
+      depthTest: true
+      depthWrite: false
+      blend: true
+      blendSrc: SRC_ALPHA
+      blendDst: ONE_MINUS_SRC_ALPHA
+
+    pass:
+    - defines: "DIRECTIONAL_LIGHT_COUNT 1;MODULATE_ALPHA;CLIP_PLANE_INVERSE"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: res/shaders/textured.frag
+
+  - id: defaultModuleHDPrimitive
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    renderState:
+      cullFace: true
+      depthTest: true
+      depthWrite: true
+      stencilTest: true
+      stencilOpSfail: KEEP
+      stencilOpDpfail: KEEP
+      stencilOpDppass: REPLACE
+      stencilFunc: ALWAYS
+      stencilFuncRef: 1
+
+    u_ambientColor: SCENE_AMBIENT_COLOR
+    u_directionalLightDirection[0]: LIGHT_DIRECTION_0
+    u_directionalLightColor[0]: SUN_COLOR
+    u_directionalLightDirection[1]: LIGHT_DIRECTION_1
+    u_directionalLightColor[1]: LIGHT_COLOR_1
+
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_worldMatrix: WORLD_MATRIX
+
+    u_viewMatrix: VIEW_MATRIX
+    u_shadowMap: SHADOW_MAP_SAMPLER
+    u_shadowMapViewProjection[0]: SHADOW_MAP_VIEW_PROJECTION_MATRIX_0
+    u_shadowMapInvSize: SHADOW_MAP_INVSIZE
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 2;USE_SHADOWS"
+      vertexShader: shaders/textured.vert
+      fragmentShader: shaders/textured.frag
+
+  - id: defaultModuleHDColor
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/vehicle/modules.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_saturation: 1.0
+
+    renderState:
+      cullFace: true
+      depthTest: true
+      depthWrite: false
+      blend: true
+      blendSrc: DST_COLOR
+      blendDst: ZERO
+      stencilTest: true
+      stencilOpSfail: KEEP
+      stencilOpDpfail: KEEP
+      stencilOpDppass: DECR
+      stencilFunc: EQUAL
+      stencilFuncRef: 1
+
+    pass:
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: shaders/module.frag
+  
+  - id: defaultModuleCutaway # hd
+    renderState:
+      cullFace: true
+      depthTest: true
+      depthWrite: true
+      blend: true
+      blendSrc: SRC_ALPHA
+      blendDst: ONE_MINUS_SRC_ALPHA
+
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/vehicle/modules.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_worldViewMatrix : WORLD_VIEW_MATRIX
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_saturation: 1.0
+
+    u_clipPlane: CLIP_PLANE
+    u_worldMatrix: WORLD_MATRIX
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;CLIP_PLANE_INVERSE"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: shaders/module.frag
+  
+  - id: gunInternal  # hd
+    parentID: defaultModule
+    renderState:
+      cullFace: false
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;GUN_INTERNAL"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: shaders/module.frag
+
+  - id: turretRingStrip # hd
+    parentID: defaultModule
+    renderState:
+      cullFace: false
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;TURRET_RING_STRIP"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: shaders/module.frag

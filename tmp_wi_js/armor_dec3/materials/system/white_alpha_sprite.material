@@ -1,0 +1,20 @@
+material:
+  sampler:
+    id: u_texture
+    path: materials/system/white.png
+    mipmap: false
+    wrapS: CLAMP
+    wrapT: CLAMP
+    minFilter: NEAREST
+    magFilter: NEAREST
+
+  technique:
+    pass:
+      id: 0
+      vertexShader: shaders/textured_quad.vsh
+      fragmentShader: shaders/textured_quad.psh
+
+      renderState:
+        blend: true
+        blendSrc: SRC_ALPHA
+        blendDst: ONE_MINUS_SRC_ALPHA

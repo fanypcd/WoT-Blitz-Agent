@@ -1,0 +1,770 @@
+<rml>
+    <head>
+        <title>Xray Stats</title>
+        <link type="text/template" href="/rml/templates/info_panel.rml" />
+        <link type="text/template" href="/rml/templates/button.rml" />
+        <link type="text/template" href="/rml/templates/button_icon.rml" />
+        <style>
+            select.stat-filter {
+                height: 32dp;
+            }
+            select.stat-filter selectvalue {
+                height: 32dp;
+            }
+            select.stat-filter selectarrow {
+                display: block;
+            }
+        </style>
+        <script>
+local Params = require("rml.scripts.vehicle_params")
+local utils = require("rml.scripts.utils")
+
+XrayStats = {}
+XrayStats.__index = XrayStats
+
+function XrayStats:new(o)
+    setmetatable(self, {__index = InfoPanel})
+
+    local obj = InfoPanel:new(o)
+    setmetatable(obj, self)
+
+    obj:setSecondTitle("UI_title_stats")
+
+    obj.elements = {}
+    local element_ids = {
+        "column1", "column2", "column3", "content",
+        "period_row", "period_section", "game_mode_select", "battle_type_select",
+        "realm_row", "realm_section", "map_select", "team_A", "team_B",
+        "info_pc", "info_blitz", "more_button",
+        "status_message", "stats_columns", "low_battles_warning",
+        "period_7", "period_30", "period_90", "period_365",
+        "realm_all", "realm_EU", "realm_NA", "realm_ASIA", "realm_CN",
+        "battle_type_section",
+    }
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+
+    obj.elements["content"]:SetClass("flex", true)
+
+    obj.filters = nil
+    obj.meta = nil
+    obj.fetch_generation = 0
+    obj.error_message = nil
+    obj.loading = false
+    -- Rebuilds clear/reselect options and re-fire onchange; ignore those.
+    obj._updating_filters = false
+
+    if PLATFORM_EMSCRIPTEN and not VERSION_MOD then
+        obj.elements["more_button"]:SetClass("hidden", true)
+    end
+
+    XrayStats = obj
+    return obj
+end
+
+function XrayStats:hasSubscription()
+    return iap_service:hasProduct(IAPService.WOTINSPECTOR_SUB)
+end
+
+function XrayStats:requireSubscription()
+    if self:hasSubscription() then
+        return true
+    end
+    ui_service:navigateToPurchase(IAPService.WOTINSPECTOR_SUB)
+    return false
+end
+
+function XrayStats:resetFilters()
+    local platform = db_service.platform
+    local code = platform and platform.game_code or nil
+    self.filters = account_service:defaultBattleStatsFilters(code)
+end
+
+function XrayStats:open(descr)
+    local platform = db_service.platform
+    if not platform then
+        return
+    end
+
+    self.vehicle_descr = WOTVehicleDescriptor.new(descr or arena_service.target_vehicle)
+    self.specs, self.vehicle_info = db_service:getSpecs(platform, self.vehicle_descr, "", false)
+    self.specs["/economics/type"] = "all"
+    self.original_specs = utils.copyTable(self.specs)
+
+    local target_name = platform:getTextUTF8(self.vehicle_info.shared.localized_name) or "UI_unknown"
+    self:setMainTitle("<span class='normal-case'>" .. target_name .. "</span>")
+
+    self.meta = nil
+    self:resetFilters()
+    self:updateInfoSection()
+    self:updateFilterUi()
+
+    InfoPanel.open(self)
+
+    account_service:fetchGameConstants(utils.toWebGameCode(platform.game_code), {
+        on_ok = function()
+            if XrayStats == self then
+                local prev_mode = self.filters.game_mode
+                self:updateFilterUi()
+                if self.filters.game_mode ~= prev_mode then
+                    self:fetchStats()
+                end
+            end
+        end,
+    })
+    self:fetchStats()
+end
+
+function XrayStats:updateInfoSection()
+    local platform = db_service.platform
+    local code = platform and platform.game_code or ""
+    local is_blitz = code == "blitz" or code == "tanksblitz"
+    self.elements["info_pc"]:SetClass("hidden", is_blitz)
+    self.elements["info_blitz"]:SetClass("hidden", not is_blitz)
+end
+
+function XrayStats:supportsRealmFilter()
+    local code = db_service.platform and db_service.platform.game_code or ""
+    return code == "pc" or code == "blitz"
+end
+
+function XrayStats:supportsPeriodFilter()
+    local code = db_service.platform and db_service.platform.game_code or ""
+    return code == "pc" or code == "mirtankov"
+end
+
+function XrayStats:updateFilterUi()
+    local locked = not self:hasSubscription()
+
+    local show_period = self:supportsPeriodFilter()
+    if self.elements["period_section"] then
+        self.elements["period_section"]:SetClass("hidden", not show_period)
+    end
+    if show_period then
+        local period = self.filters.period
+        for _, days in ipairs({"7", "30", "90", "365"}) do
+            local el = self.elements["period_" .. days]
+            if el then
+                el:SetClass("bg-secondary-outline", period == days)
+                el:SetClass("text-premium", locked and period ~= days)
+            end
+        end
+    end
+
+    local show_realm = self:supportsRealmFilter()
+    if self.elements["realm_section"] then
+        self.elements["realm_section"]:SetClass("hidden", not show_realm)
+    end
+    if show_realm then
+        local realm = self.filters.realm or "all"
+        if realm == "" then
+            realm = "all"
+        end
+        for _, id in ipairs({"all", "EU", "NA", "ASIA", "CN"}) do
+            local el = self.elements["realm_" .. id]
+            if el then
+                el:SetClass("bg-secondary-outline", realm == id)
+            end
+        end
+    end
+
+    self._updating_filters = true
+    self:rebuildGameModeSelect()
+    self:rebuildBattleTypeSelect()
+    self:rebuildMapSelect()
+    self._updating_filters = false
+
+    local team = self.filters.team
+    if self.elements["team_A"] then
+        self.elements["team_A"]:SetClass("bg-secondary-outline", team == 1)
+        self.elements["team_A"]:SetClass("text-premium", locked and team ~= 1)
+    end
+    if self.elements["team_B"] then
+        self.elements["team_B"]:SetClass("bg-secondary-outline", team == 2)
+        self.elements["team_B"]:SetClass("text-premium", locked and team ~= 2)
+    end
+end
+
+function XrayStats:collectMapIds()
+    local maps = {}
+    local seen = {}
+    local current_mode = self.filters.game_mode
+    local modes = self.meta and self.meta.game_modes or {}
+    for _, row in ipairs(modes) do
+        if row.game_mode == current_mode or current_mode == 0 then
+            for _, map_id in ipairs(row.map_ids or {}) do
+                if not seen[map_id] then
+                    seen[map_id] = true
+                    table.insert(maps, map_id)
+                end
+            end
+            if current_mode ~= 0 then
+                break
+            end
+        end
+    end
+    return maps
+end
+
+function XrayStats:rebuildGameModeSelect()
+    local select = self.elements["game_mode_select"]
+    if not select then
+        return
+    end
+    local unlock = not self._updating_filters
+    self._updating_filters = true
+
+    Element.As["ElementFormControlSelect"](select):RemoveAll()
+
+    local locked = not self:hasSubscription()
+    local modes = self.meta and self.meta.game_modes or {}
+    local free_ids = {[0] = true}
+    local web_code = utils.toWebGameCode(db_service.platform.game_code)
+    local free_list = account_service:getFreeGameModes(web_code) or {}
+    for _, id in ipairs(free_list) do
+        free_ids[id] = true
+    end
+
+    if locked and free_list[1] and not free_ids[self.filters.game_mode] then
+        self.filters.game_mode = free_list[1]
+    end
+
+    local function modeLabel(id)
+        if id == 0 then
+            return "UI_any"
+        end
+        local name = account_service:getGameModeName(web_code, id)
+        if name and name ~= "" then
+            return name
+        end
+        return "#" .. tostring(id)
+    end
+
+    local function addOption(value, label, enabled)
+        local opt = select:AppendChild(self.document:CreateElement("option"))
+        opt:SetAttribute("value", tostring(value))
+        opt.inner_rml = '<div class="h-8 leading-none text-sm flex items-center px-1"><p>' .. label .. '</p></div>'
+        if not enabled then
+            opt:SetClass("text-premium", true)
+        end
+    end
+
+    addOption(0, modeLabel(0), not locked or free_ids[0])
+    local current_selection = 1
+    for idx, row in ipairs(modes) do
+        local id = row.game_mode
+        if id ~= 0 then
+            addOption(id, modeLabel(id), not locked or free_ids[id])
+        end
+
+        if id == self.filters.game_mode then
+            current_selection = idx + 1
+        end
+    end
+
+    Element.As["ElementFormControlSelect"](select).selection = current_selection
+
+    if unlock then
+        self._updating_filters = false
+    end
+end
+
+function XrayStats:rebuildBattleTypeSelect()
+    local select = self.elements["battle_type_select"]
+    if not select then
+        return
+    end
+    local unlock = not self._updating_filters
+    self._updating_filters = true
+
+    Element.As["ElementFormControlSelect"](select):RemoveAll()
+
+    local locked = not self:hasSubscription()
+
+    local function typeLabel(id)
+        if id == -1 then
+            return "UI_any"
+        end
+        local name = account_service:getBattleTypeName(utils.toWebGameCode(db_service.platform.game_code), id)
+        if name and name ~= "" then
+            return name
+        end
+        return "#" .. tostring(id)
+    end
+
+    local function addOption(value, label, enabled)
+        local opt = select:AppendChild(self.document:CreateElement("option"))
+        opt:SetAttribute("value", tostring(value))
+        opt.inner_rml = '<div class="h-8 leading-none text-sm flex items-center px-1"><p>' .. label .. '</p></div>'
+        if not enabled then
+            opt:SetClass("text-premium", true)
+        end
+    end
+
+    addOption(-1, typeLabel(-1), true)
+    local current_selection = 1
+
+    local current_mode = self.filters.game_mode
+    local option_index = 1
+    local seen = {}
+    local modes = self.meta and self.meta.game_modes or {}
+    for _, row in ipairs(modes) do
+        if row.game_mode == current_mode or current_mode == 0 then
+            for _, bt in ipairs(row.battle_types or {}) do
+                if not seen[bt] then
+                    seen[bt] = true
+                    addOption(bt, typeLabel(bt), not locked)
+                    option_index = option_index + 1
+                    if bt == self.filters.battle_type then
+                        current_selection = option_index
+                    end
+                end
+            end
+            if current_mode ~= 0 then
+                break
+            end
+        end
+    end
+
+    self.elements["battle_type_section"]:SetClass("hidden", option_index <= 2)
+
+    Element.As["ElementFormControlSelect"](select).selection = current_selection
+
+    if unlock then
+        self._updating_filters = false
+    end
+end
+
+function XrayStats:rebuildMapSelect()
+    local select = self.elements["map_select"]
+    if not select then
+        return
+    end
+    local unlock = not self._updating_filters
+    self._updating_filters = true
+
+    Element.As["ElementFormControlSelect"](select):RemoveAll()
+
+    local locked = not self:hasSubscription()
+    local web_code = utils.toWebGameCode(db_service.platform.game_code)
+
+    local function mapLabel(id)
+        if id == 0 then
+            return "UI_any"
+        end
+        local name = account_service:getMapName(web_code, id)
+        if name and name ~= "" then
+            return name
+        end
+        return "#" .. tostring(id)
+    end
+
+    local function addOption(value, label, enabled)
+        local opt = select:AppendChild(self.document:CreateElement("option"))
+        opt:SetAttribute("value", tostring(value))
+        opt.inner_rml = '<div class="h-8 leading-none text-sm flex items-center px-1"><p>' .. label .. '</p></div>'
+        if not enabled then
+            opt:SetClass("text-premium", true)
+        end
+    end
+
+    addOption(0, mapLabel(0), true)
+    local current_selection = 1
+    local option_index = 1
+    local map_ids = self:collectMapIds()
+    local map_id = tonumber(self.filters.map_id) or 0
+    local map_valid = map_id == 0
+
+    for _, id in ipairs(map_ids) do
+        addOption(id, mapLabel(id), not locked)
+        option_index = option_index + 1
+        if id == map_id then
+            current_selection = option_index
+            map_valid = true
+        end
+    end
+
+    if not map_valid then
+        self.filters.map_id = 0
+        current_selection = 1
+    end
+
+    Element.As["ElementFormControlSelect"](select).selection = current_selection
+
+    if unlock then
+        self._updating_filters = false
+    end
+end
+
+function XrayStats:setPeriod(days)
+    if not self:supportsPeriodFilter() then
+        return
+    end
+    local current = self.filters.period
+    if tostring(days) ~= current and not self:requireSubscription() then
+        return
+    end
+    if tostring(days) == current then
+        return
+    end
+    self.filters.period = tostring(days)
+    self.filters.version = ""
+    self:updateFilterUi()
+    self:fetchStats()
+end
+
+function XrayStats:setRealm(realm)
+    if not self:supportsRealmFilter() then
+        return
+    end
+    local current = self.filters.realm or "all"
+    if current == "" then
+        current = "all"
+    end
+    if realm == current then
+        return
+    end
+    self.filters.realm = realm
+    self:updateFilterUi()
+    self:fetchStats()
+end
+
+function XrayStats:onGameModeChange(value)
+    if self._updating_filters then
+        return
+    end
+    value = tonumber(value)
+    if value == self.filters.game_mode then
+        return
+    end
+    local locked = not self:hasSubscription()
+    if locked and not account_service:isFreeGameMode(utils.toWebGameCode(db_service.platform.game_code), value) then
+        if not self:requireSubscription() then
+            self:rebuildGameModeSelect()
+            return
+        end
+    end
+    self.filters.game_mode = value
+    self.filters.battle_type = -1
+    -- Only refresh dependent selects; rebuilding game mode here re-fires onchange.
+    self:rebuildBattleTypeSelect()
+    self:rebuildMapSelect()
+    self:fetchStats()
+end
+
+function XrayStats:onBattleTypeChange(value)
+    if self._updating_filters then
+        return
+    end
+    local select = self.elements["battle_type_select"]
+    local value = tonumber(value)
+    if value == self.filters.battle_type then
+        return
+    end
+    if value ~= -1 and not self:requireSubscription() then
+        self:rebuildBattleTypeSelect()
+        return
+    end
+    self.filters.battle_type = value
+    self:fetchStats()
+end
+
+function XrayStats:onMapChange(value)
+    if self._updating_filters then
+        return
+    end
+    value = tonumber(value) or 0
+    if value == (tonumber(self.filters.map_id) or 0) then
+        return
+    end
+    if value ~= 0 and not self:requireSubscription() then
+        self:rebuildMapSelect()
+        return
+    end
+    self.filters.map_id = value
+    self:fetchStats()
+end
+
+function XrayStats:setTeam(team)
+    team = tonumber(team) or 0
+    local current = tonumber(self.filters.team) or 0
+    if team == current then
+        team = 0
+    end
+    if team ~= 0 and not self:requireSubscription() then
+        return
+    end
+    self.filters.team = team
+    self:updateFilterUi()
+    self:fetchStats()
+end
+
+function XrayStats:openMore()
+    if not self.vehicle_descr then
+        return
+    end
+
+    local platform = db_service.platform
+    if not platform then
+        return
+    end
+
+    local game_code = utils.toWebGameCode(platform.game_code)
+    local url = string.format(
+        "https://armor.wotinspector.com/%s/%d-/#stats",
+        game_code, self.vehicle_descr.vehicle_id
+    )
+    game:launchURL(utils.addAppUtm(url, "stats", "more_button"))
+end
+
+function XrayStats:fetchStats()
+    local platform = db_service.platform
+    if not platform or not self.vehicle_descr then
+        return
+    end
+
+    self.fetch_generation = self.fetch_generation + 1
+    local generation = self.fetch_generation
+    self.loading = true
+    self.error_message = nil
+    self:updateStatus()
+
+    -- Refresh base tech specs then merge battle stats into the same table.
+    local econ_type = (self.specs and self.specs["/economics/type"]) or "all"
+    self.specs, self.vehicle_info = db_service:getSpecs(platform, self.vehicle_descr, "", false)
+    self.specs["/economics/type"] = econ_type
+    self.original_specs = utils.copyTable(self.specs)
+
+    local vehicle_id = self.vehicle_descr.vehicle_id
+    account_service:fetchVehicleBattleStats(vehicle_id, self.filters, self.specs, {
+        on_loading = function()
+            if generation ~= self.fetch_generation then return end
+            self.loading = true
+            self:updateStatus()
+        end,
+        on_ok = function(meta)
+            if generation ~= self.fetch_generation then return end
+            self.loading = false
+            self.error_message = nil
+            if meta then
+                self.meta = meta
+                self:updateFilterUi()
+            end
+            self:updateData()
+            self:updateStatus()
+        end,
+        on_error = function(message, status)
+            if generation ~= self.fetch_generation then return end
+            self.loading = false
+            self.error_message = message or "UI_stats_fetch_error"
+            self:updateData()
+            self:updateStatus()
+        end,
+    })
+end
+
+function XrayStats:updateStatus()
+    local el = self.elements["status_message"]
+    local columns = self.elements["stats_columns"]
+    if self.loading then
+        el.inner_rml = "UI_stats_loading"
+        el:SetClass("hidden", false)
+        columns:SetClass("hidden", true)
+    elseif self.error_message then
+        el.inner_rml = self.error_message
+        el:SetClass("hidden", false)
+        columns:SetClass("hidden", true)
+    else
+        el:SetClass("hidden", true)
+        columns:SetClass("hidden", false)
+    end
+end
+
+local function pushItem(container, item, specs)
+    if item.filter ~= nil and not item.filter() then
+        return
+    end
+
+    local item_template = [[
+        <p class="item-name flex-1"></p>
+        <p class="item-value"></p>
+    ]]
+
+    local value, units, fmt = table.unpack(Params.getItemValue(item, specs, true))
+    if value == nil and not item.allowUndefined then
+        return
+    end
+
+    local item_element = container:AppendChild(container.owner_document:CreateElement("div"))
+    item_element.inner_rml = item_template
+    item_element:SetClass("flex", true)
+    item_element:SetClass("gap-0_5", true)
+    item_element:SetClass("items-center", true)
+    item_element:QuerySelector(".item-name").inner_rml = item.name or ""
+    item_element:QuerySelector(".item-value").inner_rml = value and Params.format(value, units, fmt) or "--"
+    if item.className then
+        item_element:SetClass(item.className, true)
+    end
+end
+
+function XrayStats:updateEconomicsButtons()
+    if self.elements["economics"] == nil or not self.specs then
+        return
+    end
+
+    local econ_template = [[
+        <div class="flex gap-2 items-start">
+            <div class="w-6 text-xs flex-none leading-none">
+                <small><p class="econ-label text-center"></p></small>
+                <svg src="/rml/icons/Preferences-Account-.svg" class="w-6 flex-none econ-icon" />
+            </div>
+        </div>
+    ]]
+
+    local options = {
+        { value = "all", label = "UI_all", icon = "Preferences-AccountClan-" },
+        { value = "premium", label = "UI_prem", icon = "Preferences-AccountPremium-" },
+        { value = "standard", label = "UI_noprem", icon = "Preferences-Account-" },
+    }
+    local current = self.specs["/economics/type"] or "all"
+
+    self.elements["economics"].inner_rml = ""
+    for _, option in ipairs(options) do
+        local value = option.value
+        local btn = self.elements["economics"]:AppendChild(self.document:CreateElement("button"))
+        btn.inner_rml = econ_template
+        btn:SetClass(value ~= current and "text-primary" or "text-secondary", true)
+        btn:AddEventListener("click", function()
+            self.specs["/economics/type"] = value
+            self:updateData()
+        end, true)
+        btn:QuerySelector(".econ-label").inner_rml = option.label
+        btn:QuerySelector(".econ-icon"):SetAttribute("src", "/rml/icons/" .. option.icon .. ".svg")
+    end
+end
+
+function XrayStats:updateData()
+    self.elements["column2"].inner_rml = ""
+    self.elements["column3"].inner_rml = ""
+    self.elements["economics"] = nil
+
+    if self.loading or self.error_message or not self.specs then
+        self.elements["low_battles_warning"]:SetClass("hidden", true)
+        return
+    end
+
+    local battle_count = tonumber(self.specs["/stats/battleCount"] or 0) or 0
+    self.elements["low_battles_warning"]:SetClass("hidden", battle_count >= 1000)
+
+    local section_template = [[
+        <svg class="w-6 flex-none" src="/rml/icons/Specs-Stats-.svg" />
+        <p class="text-sm leading-none"></p>
+    ]]
+
+    for _, section in ipairs(Params.BattleStatsConfiguration or {}) do
+        local is_visible = not section.filter or section.filter(self.specs)
+        if is_visible then
+            local column = section.column or 2
+            local container = self.elements["column" .. column]:AppendChild(self.document:CreateElement("div"))
+            container:SetClass("flex-1", true)
+
+            local title = container:AppendChild(self.document:CreateElement("div"))
+            title.inner_rml = section_template
+            title:SetClass("flex", true)
+            title:SetClass("gap-2", true)
+            title:SetClass("items-center", true)
+            if section.icon then
+                title:QuerySelector("svg"):SetAttribute("src", "/rml/icons/" .. section.icon .. ".svg")
+            end
+            title:QuerySelector("p").inner_rml = section.title or ""
+
+            local hr = container:AppendChild(self.document:CreateElement("hr"))
+            hr:SetClass("my-1", true)
+
+            if section.tag == "economics" then
+                local econ_container = container:AppendChild(self.document:CreateElement("div"))
+                econ_container:SetClass("flex", true)
+                econ_container:SetClass("gap-1", true)
+                self.elements["economics"] = econ_container
+                self:updateEconomicsButtons()
+            end
+
+            for _, item in ipairs(section.items or {}) do
+                pushItem(container, item, self.specs)
+            end
+        end
+    end
+end
+        </script>
+    </head>
+    <body id="xray_stats" template="info_panel" onload="XrayStats:new{document = document}" style="width:100%;max-width:80%;">
+        <div class="flex flex-1 gap-2 text-xs">
+            <div id="column1" class="flex-none flex flex-col gap-4 overflow-y-auto" style="max-width:176dp">
+                <div id="realm_section">
+                    <p class="mb-1">UI_region</p>
+                    <div id="realm_row" class="flex gap-1 flex-wrap">
+                        <button id="realm_all" class="period-btn px-2 py-2 bg-content rounded" onclick="XrayStats:setRealm('all')">UI_all</button>
+                        <button id="realm_EU" class="period-btn px-2 py-2 bg-content rounded" onclick="XrayStats:setRealm('EU')">eu</button>
+                        <button id="realm_NA" class="period-btn px-2 py-2 bg-content rounded" onclick="XrayStats:setRealm('NA')">na</button>
+                        <button id="realm_ASIA" class="period-btn px-2 py-2 bg-content rounded" onclick="XrayStats:setRealm('ASIA')">asia</button>
+                        <button id="realm_CN" class="period-btn px-2 py-2 bg-content rounded" onclick="XrayStats:setRealm('CN')">cn</button>
+                    </div>
+                </div>
+
+                <div id="period_section">
+                    <p class="mb-1">UI_period</p>
+                    <div id="period_row" class="flex gap-1 flex-wrap">
+                        <button id="period_7" class="period-btn px-2 py-2 bg-content rounded" onclick="XrayStats:setPeriod(7)">UI_period_7d</button>
+                        <button id="period_30" class="period-btn px-2 py-2 bg-content rounded" onclick="XrayStats:setPeriod(30)">UI_period_30d</button>
+                        <button id="period_90" class="period-btn px-2 py-2 bg-content rounded" onclick="XrayStats:setPeriod(90)">UI_period_90d</button>
+                        <button id="period_365" class="period-btn px-2 py-2 bg-content rounded" onclick="XrayStats:setPeriod(365)">UI_period_1y</button>
+                    </div>
+                </div>
+
+                <div>
+                    <p>UI_game_mode</p>
+                    <select id="game_mode_select" class="stat-filter w-full" onchange='XrayStats:onGameModeChange(event.parameters["value"])'></select>
+                </div>
+
+                <div id="battle_type_section">
+                    <p>UI_battle_type</p>
+                    <select id="battle_type_select" class="stat-filter w-full" onchange='XrayStats:onBattleTypeChange(event.parameters["value"])'></select>
+                </div>
+
+                <div class="flex flex-row gap-2">
+                    <div class="flex-1">
+                        <p>UI_map</p>
+                        <select id="map_select" class="stat-filter w-full" onchange='XrayStats:onMapChange(event.parameters["value"])'></select>
+                    </div>
+
+                    <div>
+                        <p class="mb-1">UI_team</p>
+                        <div class="flex flex-nowrap">
+                            <button id="team_A" class="period-btn px-2 py-2 bg-content rounded-l" onclick="XrayStats:setTeam(1)">A</button>
+                            <button id="team_B" class="period-btn px-2 py-2 bg-content rounded-r" onclick="XrayStats:setTeam(2)">B</button>
+                        </div>
+                    </div>
+                </div>
+
+                <p id="info_pc">UI_stats_info_pc</p>
+                <p id="info_blitz">UI_stats_info_blitz</p>
+                <button id="more_button" class="flex mt-1 bg-secondary text-primary-foreground rounded" onclick="XrayStats:openMore()">
+                    <template src="button">
+                        <svg src="/rml/icons/Specs-TankStats-.svg" class="w-8 flex-none" />
+                        <p>UI_more_on_wotinspector</p>
+                    </template>
+                </button>
+            </div>
+
+            <div class="flex-1 flex-col overflow-y-auto">
+                <p id="status_message" class="text-sm hidden mb-2">UI_stats_loading</p>
+                <p id="low_battles_warning" class="text-sm text-center hidden mb-2">UI_stats_low_battles</p>
+                <div id="stats_columns" class="flex flex-1 gap-2">
+                    <div id="column2" class="flex-1 space-y-3"></div>
+                    <div id="column3" class="flex-1 space-y-3"></div>
+                </div>
+            </div>
+        </div>
+    </body>
+</rml>

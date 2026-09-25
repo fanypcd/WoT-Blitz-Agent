@@ -1,0 +1,85 @@
+<rml>
+	<head>
+		<title>Root Platform</title>
+		<link type="text/template" href="/rml/templates/button_icon.rml" />
+        <style>
+            select {
+                height: 34dp;
+            }
+            select selectvalue{
+                height: 34dp;
+            }
+            select selectvalue p {
+                overflow: hidden;
+            }
+            select selectvalue .platform-name {
+                display: none;
+            }
+            select selectbox {
+                margin-left: 40dp;
+                margin-top: -34dp;
+            }
+        </style>
+		<script>
+RootPlatform = {}
+RootPlatform.__index = RootPlatform
+
+local utils = require ("rml.scripts.utils")
+
+local function onPlatformChanged(platform)
+    local self = RootPlatform
+    
+    if platform then
+        self.elements["platform_code"].inner_rml = platform.game_code == "pc" and "wot" or platform.game_code
+        self.elements["platform_icon"]:SetAttribute("src", "/rml/icons/" .. utils.getPlatformIcon(platform.game_code))
+    end
+    self:updateVersionsNotification()
+end
+
+local function updateVersionsNotification()
+    local self = RootPlatform
+    self:updateVersionsNotification()
+end
+
+function RootPlatform:new(obj)
+	setmetatable(obj, self)
+    
+    obj.elements = {}
+
+    local element_ids = {
+        "platform_code", "platform_icon", "versions_notification"
+    }
+    
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+
+    RootPlatform = obj
+    
+    -- connect signals
+    db_service:connect_platformChangedSignal(onPlatformChanged)
+    db_service:connect_versionsLoadedSignal(updateVersionsNotification)
+    runOnChange(updateVersionsNotification, "ui.platformSelectorOpened", "ui.versionsOpened", "db.platformCode")
+
+    -- sync ui
+    onPlatformChanged(db_service.platform)
+    updateVersionsNotification()
+    return obj
+end
+
+function RootPlatform:updateVersionsNotification()
+    local opened = settings:getInt("ui.platformSelectorOpened")
+    local show = opened == 0 or utils.hasUnseenNewerVersion(db_service.platform)
+    self.elements["versions_notification"]:SetClass("hidden", not show)
+end
+
+        </script>
+	</head>
+	<body id="root_platform" class="bg-content p-0_5 rounded-br" onload="RootPlatform:new{document = document} document:Show()">
+        <button class="w-8 flex flex-col text-secondary relative" onclick="PlatformSelector:toggle()">
+            <p id="platform_code" class="text-xs truncate">pc</p>
+            <svg id="platform_icon" src="/rml/icons/AI-platform-WOT-PC.svg" class="w-8 flex-none" />
+            <div id="versions_notification" class="absolute top-1 w-1 h-1 rounded-xl hidden right-0 top-0" style="background-color:red"></div>
+        </button>
+    </body>
+</rml>

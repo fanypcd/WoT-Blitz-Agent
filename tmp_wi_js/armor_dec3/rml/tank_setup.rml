@@ -1,0 +1,172 @@
+<rml>
+	<head>
+		<title>Tank Setup</title>
+		<link type="text/template" href="/rml/templates/window.rml" />
+		<link type="text/template" href="/rml/templates/button.rml" />
+		<link type="text/template" href="/rml/templates/modules.rml" />
+		<link type="text/template" href="/rml/templates/optional_devices_blitz.rml" />
+        <link type="text/template" href="/rml/templates/optional_devices_pc.rml" />
+        <link type="text/template" href="/rml/templates/perks_blitz.rml" />
+        <link type="text/template" href="/rml/templates/perks_mt.rml" />
+        <link type="text/template" href="/rml/templates/perks_pc.rml" />
+        <link type="text/template" href="/rml/templates/provisions_blitz.rml" />
+        <link type="text/template" href="/rml/templates/consumables_blitz.rml" />
+        <link type="text/template" href="/rml/templates/consumables_pc.rml" />
+        <link type="text/template" href="/rml/templates/boosters_pc.rml" />
+        <link type="text/template" href="/rml/templates/post_progression_pc.rml" />
+        <style>
+			body#tank_setup {
+				display: flex;
+				flex-direction: column;
+			}
+			body#tank_setup > handle {
+				flex: none;
+			}
+			#tank_setup > #content {
+				flex: 1 1 auto;
+				overflow-y: auto;
+			}
+        </style>
+		<script>
+TankSetup = {}
+TankSetup.__index = TankSetup
+
+local utils = require ("rml.scripts.utils")
+
+function TankSetup:new(obj)
+    setmetatable(obj, self)
+    TankSetup = obj
+    
+    obj.elements = {}
+    obj.module_selector = ModuleSelector:new({document = obj.document, on_change_module = function()
+        local self = obj
+        self.specs, self.vehicle_info = db_service:getSpecs(self.vehicle_info.shared.platform, self.vehicle_descr, "", false)
+        self.consumables_blitz:updateEquipment()
+        self.consumables_blitz:updateSpecs(self.specs)
+    end })
+    obj.equipment_blitz = EquipmentSelectorBlitz:new({document = obj.document, on_toggle_equipment = function() 
+        local self = obj
+        self.specs, self.vehicle_info = db_service:getSpecs(self.vehicle_info.shared.platform, self.vehicle_descr, "", false)
+        self.consumables_blitz:updateSpecs(self.specs)
+    end })
+    obj.equipment_pc = EquipmentSelectorPc:new({document = obj.document, on_toggle_equipment = function()
+        obj.boosters_pc:updateStates()
+    end})
+    obj.perks_blitz = PerksSelectorBlitz:new({document = obj.document})
+    obj.perks_mt = PerksSelectorMt:new({document = obj.document})
+    obj.perks_pc = PerksSelectorPc:new({document = obj.document})
+    obj.provisions_blitz = ProvisionsBlitz:new({document = obj.document})
+    obj.consumables_blitz = ConsumablesBlitz:new({document = obj.document})
+    obj.consumables_pc = ConsumablesPc:new({document = obj.document})
+    obj.boosters_pc = BoostersSelectorPc:new({document = obj.document})
+    obj.post_progression_pc = PostProgressionPc:new({document = obj.document})
+
+    local element_ids = {
+        "title", "second_title",
+    }
+
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+
+    -- connect signals
+
+    -- sync ui
+    return o
+end
+
+function TankSetup:open(vehicle_descr, on_confirm, on_hide)
+    local platform = db_service.platform
+    self.vehicle_descr = WOTVehicleDescriptor.new(vehicle_descr)
+    self.on_confirm = on_confirm
+    self.on_hide = on_hide
+    self.specs, self.vehicle_info = db_service:getSpecs(platform, self.vehicle_descr, "", false)
+
+    local vehicle_name = self.vehicle_info and self.vehicle_info.shared.platform:getTextUTF8(self.vehicle_info.shared.localized_name) or "UI_not_set"
+    self.elements["title"].inner_rml = "<span class='normal-case whitespace-nowrap'>" .. vehicle_name .. "</span>"
+    self.elements["second_title"].inner_rml = "UI_tank_setup"
+    self.elements["second_title"]:SetClass("hidden", false)
+    
+    local original_descr = WOTVehicleDescriptor.new(vehicle_descr.vehicle_id)
+    
+    self.module_selector:init(self.vehicle_descr, self.specs)
+    self.equipment_blitz:init(self.vehicle_descr, self.vehicle_info, original_descr)
+    self.equipment_pc:init(self.vehicle_descr, self.vehicle_info, original_descr)
+    self.perks_blitz:init(self.vehicle_descr, original_descr)
+    self.perks_mt:init(self.vehicle_descr, original_descr)
+    self.perks_pc:init(self.vehicle_descr, original_descr)
+    self.provisions_blitz:init(self.vehicle_descr, self.vehicle_info, original_descr)
+    self.consumables_blitz:init(self.vehicle_descr, self.vehicle_info, original_descr)
+    self.consumables_pc:init(self.vehicle_descr, self.vehicle_info, original_descr)
+    self.boosters_pc:init(self.vehicle_descr, self.vehicle_info, original_descr)
+    self.post_progression_pc:init(self.vehicle_descr, self.vehicle_info)
+    
+    self.consumables_blitz:updateSpecs(self.specs)
+
+	self.document.style.height = "auto"
+	self.document.style.width = "auto"
+	self.document:Show()
+	local max_h = main_context.dimensions.y - 16 * main_context.dp_ratio
+	local natural_h = self.document.offset_height
+	local doc_h = math.min(natural_h, max_h)
+	self.document.style["max-height"] = max_h .. "px"
+	self.document.style.height = doc_h .. "px"
+	self.document.style.width = self.document.offset_width .. "px"
+end
+
+function TankSetup:onHide()
+    if self.on_hide then
+        self.on_hide()
+    end
+end
+
+function TankSetup:onConfirm()
+    self.on_confirm(self.vehicle_descr)
+    self.document:Hide()
+end
+
+		</script>
+	</head>
+	<body id="tank_setup" class="m-auto" template="window" 
+          onload="TankSetup:new{document = document}"
+          onhide="TankSetup:onHide()"
+          >
+        <div class="flex gap-4">
+            <div class="flex flex-col gap-4 flex-none" style="max-width:176dp">
+                <template src="modules">
+                </template>
+                <template src="optional_devices_pc">
+                </template>
+                <template src="perks_blitz">
+                </template>
+                <template src="consumables_pc">
+                </template>
+            </div>
+            <div class="flex flex-col gap-4 flex-none" style="max-width:176dp">
+                <template src="perks_mt">
+                </template>
+                <template src="perks_pc">
+                </template>
+                <template src="optional_devices_blitz">
+                </template>
+                <template src="provisions_blitz">
+                </template>
+            </div>
+            <div class="flex flex-col gap-4 flex-none" style="max-width:176dp">
+                <template src="boosters_pc">
+                </template>
+                <template src="post_progression_pc">
+                </template>
+                <template src="consumables_blitz">
+                </template>
+            </div>
+        </div>
+        <div class="flex justify-end mt-2">
+            <button class="inline-block bg-secondary text-primary-foreground rounded" onclick="TankSetup:onConfirm()">
+                <template src="button">
+                    <p>UI_confirm</p>
+                </template>
+            </button>
+        </div>
+    </body>
+</rml>

@@ -1,0 +1,40 @@
+material:
+
+  renderState:
+    blend: true
+    blendSrc: ONE
+    blendDst: ONE_MINUS_SRC_ALPHA
+
+  u_maxDamageDistance: HEATMAP_MAX_DAMAGE_DISTANCE
+  u_vehicleAngles: VEHICLE_ANGLES
+
+  u_classHeatmaps: HEATMAP_GROUND_CLASS_HEATMAPS
+  u_maxWeightInvLog: HEATMAP_GROUND_MAX_WEIGHT_INV_LOG
+  
+  u_damagePoint: HEATMAP_DAMAGE_POINT
+  u_trajectoryPosition: TRAJECTORY_LOCAL_POSITION
+  u_dotColor: PALETTE_colorUIActive
+
+  technique:
+  - id: default
+    pass:
+      defines: "UI_RENDER"
+      vertexShader: rml/shaders/shader_vert_main.vert
+      fragmentShader: shaders/ground_heatmap.frag
+  
+  - id: impacts
+    #u_heatmapGradient: HEATMAP_DEBUG_GRADIENT
+
+    sampler:
+    - id: u_heatmapGradient
+      path: materials/vehicle/heatmap_gradient.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+
+    pass:
+      defines: "UI_RENDER;IMPACTS"
+      vertexShader: rml/shaders/shader_vert_main.vert
+      fragmentShader: shaders/ground_heatmap.frag

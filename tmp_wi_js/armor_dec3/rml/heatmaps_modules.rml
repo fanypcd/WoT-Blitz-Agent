@@ -1,0 +1,204 @@
+<rml>
+    <head>
+        <title>Heatmaps Modules</title>
+        <link type="text/template" href="/rml/templates/info_panel.rml" />
+        <link type="text/template" href="/rml/templates/button_icon.rml" />
+        <script>
+HeatmapsModulesPanel = {}
+
+local utils = require ("rml.scripts.utils")
+
+local function onCheckVisibility()
+    local self = HeatmapsModulesPanel
+    self:updateVisibility()
+end
+
+local function onPlatformChanged(platform)
+    local self = HeatmapsModulesPanel
+    
+    -- update modules visibility
+    local has_radio = platform and platform.has_spg_class
+    
+    self.elements["module_list"]:GetElementById("module_4"):SetClass("hidden", not has_radio)
+
+    self:updateVisibility()
+end
+
+local function onHeatmapUpdated()
+    local self = HeatmapsModulesPanel
+    self:updateData()
+end
+
+local function onVehicleUnlocked(vehicle_id)
+    local self = HeatmapsModulesPanel
+    self:updateVisibility()
+end
+    
+local function onHeatmapModuleChanged()
+    local self = HeatmapsModulesPanel
+    local heatmap_module = settings:getInt("scene.heatmapModule")
+    
+    for module_id = 1, PlatformDB.DeviceType.MAX_DEVICES - 1 do
+        local module_row = self.elements["module_list"]:GetElementById("module_" .. module_id)
+        if module_row then
+            module_row:SetClass("border-secondary", module_id == heatmap_module)
+        end
+    end
+end
+
+local function onTargetVehicleChanged(old_vehicle, vehicle, vehicle_info)
+    local self = HeatmapsModulesPanel
+    self:updateVisibility()
+
+    if vehicle_info then
+        for module_id = 1, PlatformDB.DeviceType.MAX_DEVICES - 1 do
+            local module_row = self.elements["module_list"]:GetElementById("module_" .. module_id)
+            if module_row and PlatformDB.isCrew(module_id) then
+                module_row:SetClass("hidden", not vehicle_info:hasCrewMember(module_id))
+            end
+        end
+    end
+end
+
+local function onModuleClick(module_id)
+    settings:setInt("scene.heatmapModule", module_id)
+
+    local shots_heatmap = scene_service.shots_heatmap
+    local module_point = ShotsHeatmap.Point.new()
+
+    shots_heatmap:getAveragePoint(ShotsHeatmap.TextureType.MODULES_START + module_id, module_point)
+    
+    if not module_point.direction.is_empty then
+        local camera_yaw, camera_pitch, turret_yaw, gun_pitch = shots_heatmap:getMaxDamageAngles(1 << (ShotsHeatmap.TextureType.MODULES_START + module_id))
+        scene_service.camera_controller:setupCamera(camera_pitch, camera_yaw)
+        scene_service:resetIdealTargetGunAngles(Vector2.new(math.deg(turret_yaw), math.deg(gun_pitch)))
+    end
+end
+
+function HeatmapsModulesPanel:fillModulesList()
+    local template = [[
+        <div class="flex gap-1 items-center">
+            <svg src="/rml/icons/Modules-Engine-1.svg" class="w-4"/>
+            <p>UI_module_engine</p>
+        </div>
+        <p class="module-name"></p>
+    ]]
+    
+    for module_id = 1, PlatformDB.DeviceType.MAX_DEVICES - 1 do
+        if not PlatformDB.isExternalDevice(module_id) and module_id ~= PlatformDB.DeviceType.TRANSMISSION then
+            local element_div = self.elements["module_list"]:AppendChild(self.document:CreateElement("div"))
+            element_div:SetAttribute("id", "module_" .. module_id)
+            element_div:SetClass("flex", true)
+            element_div:SetClass("justify-between", true)
+            element_div:SetClass("items-end", true)
+            element_div:SetClass("p-0_5", true)
+            element_div:SetClass("border", true)
+            element_div:SetClass("border-transparent", true)
+            element_div.inner_rml = template
+            element_div:AddEventListener("click", function() onModuleClick(module_id) end, true)
+    
+            local module_name = PlatformDB.getModuleName(module_id)
+
+            element_div:QuerySelector("svg"):SetAttribute("src", "/rml/icons/" .. utils.getModuleIcon(module_id))
+            element_div:QuerySelector("svg + p").inner_rml = module_name
+        end
+    end
+end
+    
+function HeatmapsModulesPanel:new(o)
+    self.__index = self
+    setmetatable(self, {__index = InfoPanel})
+
+    local obj = InfoPanel:new(o)
+    setmetatable(obj, self)
+
+    obj:setMainTitle("UI_title_heatmap_modules")
+    obj:setSecondTitle(fmt("UI_title_heatmaps") .. '<span class="text-black bg-beta px-1 ml-1">' .. fmt("UI_beta_badge") .. '</span>')
+
+    obj.elements = {}
+    
+    local label_ids = {
+        "module_list", "chance_to_crit", "total_shots", "total_crits"
+    }
+    
+    for _, id in ipairs(label_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+    
+    HeatmapsModulesPanel = obj
+    obj:fillModulesList()
+    
+    -- connect signals
+    runOnChange(onCheckVisibility, "scene.viewMode", "scene.heatmapType")
+    runOnChange(onHeatmapModuleChanged, "scene.heatmapModule")
+    db_service:connect_platformChangedSignal(onPlatformChanged)
+    scene_service.shots_heatmap:connect_heatmapUpdatedSignal(onHeatmapUpdated)
+    arena_service:connect_targetVehicleChangedSignal(onTargetVehicleChanged)
+    account_service:connect_vehicleUnlockedSignal(onVehicleUnlocked)
+
+    -- sync ui
+    onTargetVehicleChanged(nil, arena_service.target_vehicle, arena_service.target_vehicle_info)
+    return obj
+end
+
+function HeatmapsModulesPanel:checkVisibility()
+    local view_mode = settings:getInt("scene.viewMode")
+    local heatmap_type = settings:getInt("scene.heatmapType")
+    local target_locked = arena_service.target_vehicle_info and account_service:isVehicleLocked(arena_service.target_vehicle_info.shared, false)
+    return view_mode == ViewMode.HEATMAP and not target_locked and heatmap_type == HeatmapType.HEATMAP_MODULES
+end
+
+function HeatmapsModulesPanel:updateData()
+    if not self:checkVisibility() then
+        return
+    end
+    
+    local shots_heatmap = scene_service.shots_heatmap
+    local target_stats = shots_heatmap.target_stats
+
+    local total_damage_shots = target_stats and target_stats.damage_per_type[ShotsHeatmap.TextureType.MODULES_START + 1].shots or 0
+    local total_module_crits = 0
+
+    for module_id = 1, PlatformDB.DeviceType.MAX_DEVICES - 1 do
+        local module_row = self.elements["module_list"]:GetElementById("module_" .. module_id)
+        if module_row then
+            local module_shots = target_stats and target_stats.damage_per_type[ShotsHeatmap.TextureType.MODULES_START + 1 + module_id].weight or 0
+            total_module_crits = total_module_crits + module_shots
+            
+            module_row:QuerySelector("p.module-name").inner_rml = total_damage_shots > 0 and fmt("UI_percent_format", fmt("{:.2Lf}", module_shots / total_damage_shots * 100)) or "--"
+        end
+    end
+    
+    self.elements["total_shots"].inner_rml = fmt("{:.0Lf}", total_damage_shots)
+    self.elements["total_crits"].inner_rml = fmt("{:.0Lf}", total_module_crits)
+    self.elements["chance_to_crit"].inner_rml = total_damage_shots > 0 and fmt("UI_percent_format", fmt("{:.2Lf}", total_module_crits / total_damage_shots * 100)) or "--"
+end
+        </script>
+    </head>
+    <body id="heatmaps_modules_panel" template="info_panel" onload="HeatmapsModulesPanel:new{document = document}">
+        <div class="text-xs">
+            <div class="flex justify-between items-end">
+                <div>
+                    <p class="font-bold">UI_statistics</p>
+                    <p>UI_crit_chance</p>
+                </div>
+                <p id="chance_to_crit" class="text-xl font-light leading-none">100</p>
+            </div>
+            <div class="flex justify-between items-end">
+                <p>UI_total_shots</p>
+                <p id="total_shots">100</p>
+            </div>
+            <div class="flex justify-between items-end">
+                <p>UI_total_crits</p>
+                <p id="total_crits">100</p>
+            </div>
+
+            <div class="flex justify-between font-bold mt-3">
+                <p>UI_internal_modules_legend</p>
+                <p>UI_crit_chance</p>
+            </div>
+            <div id="module_list">                
+            </div>
+        </div>
+    </body>
+</rml>

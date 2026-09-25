@@ -1,0 +1,614 @@
+<rml>
+    <head>
+        <title>Xray Specs</title>
+        <link type="text/template" href="/rml/templates/info_panel.rml" />
+        <link type="text/template" href="/rml/templates/button.rml" />
+        <link type="text/template" href="/rml/templates/button_icon.rml" />
+        <link type="text/template" href="/rml/templates/modules.rml" />
+        <link type="text/template" href="/rml/templates/optional_devices_blitz.rml" />
+        <link type="text/template" href="/rml/templates/optional_devices_pc.rml" />
+        <link type="text/template" href="/rml/templates/perks_blitz.rml" />
+        <link type="text/template" href="/rml/templates/perks_mt.rml" />
+        <link type="text/template" href="/rml/templates/perks_pc.rml" />
+        <link type="text/template" href="/rml/templates/provisions_blitz.rml" />
+        <link type="text/template" href="/rml/templates/consumables_blitz.rml" />
+        <link type="text/template" href="/rml/templates/consumables_pc.rml" />
+        <link type="text/template" href="/rml/templates/boosters_pc.rml" />
+        <link type="text/template" href="/rml/templates/post_progression_pc.rml" />
+        <style>
+            select#mode_select {
+                height: 32dp;
+            }
+
+            select#mode_select selectvalue{
+                height: 24dp;
+            }
+
+            select#mode_select selectarrow {
+                display: block;
+            }
+        </style>
+        <script>
+local Params = require("rml.scripts.vehicle_params")
+local Factors = require("rml.scripts.dynamic_params")
+local utils = require("rml.scripts.utils")
+
+XraySpecs = {}
+XraySpecs.__index = XraySpecs
+
+local function onEffectiveValuesChanged()
+    local effective_values = settings:getInt("ui.specsEffectiveValues")
+    
+    self = XraySpecs
+    self.elements["effective_values"]:SetClass("checked", effective_values ~= 0)
+    self.elements["tank_setup"]:SetClass("grayscale", effective_values == 0)
+    self:updateData()
+end
+
+local function onApplySituationalChanged()
+    local apply_situational = settings:getInt("ui.specsApplySituational")
+    
+    self = XraySpecs
+    self.elements["apply_situational"]:SetClass("checked", apply_situational ~= 0)
+    if self.specs then
+        self:onChangeDescriptor()
+    end
+end
+
+function XraySpecs:new(o)
+    setmetatable(self, {__index = InfoPanel})
+
+    local obj = InfoPanel:new(o)
+    setmetatable(obj, self)
+
+    obj:setSecondTitle("UI_title_specs")
+
+    obj.module_selector = ModuleSelector:new({document = o.document, on_change_module = function() obj:onChangeDescriptor() end })
+    obj.equipment_blitz = EquipmentSelectorBlitz:new({document = o.document, on_toggle_equipment = function() obj:onChangeDescriptor() end })
+    obj.equipment_pc = EquipmentSelectorPc:new({document = o.document, on_toggle_equipment = function() obj:onChangeDescriptor() obj.boosters_pc:updateStates() end })
+    obj.perks_blitz = PerksSelectorBlitz:new({document = o.document, on_update_perks = function() obj:onChangeDescriptor() end })
+    obj.perks_mt = PerksSelectorMt:new({document = o.document, on_update_perks = function() obj:onChangeDescriptor() end })
+    obj.perks_pc = PerksSelectorPc:new({document = o.document, on_update_perks = function() obj:onChangeDescriptor() end })
+    obj.provisions_blitz = ProvisionsBlitz:new({document = o.document, on_toggle_equipment = function() obj:onChangeDescriptor() end })
+    obj.consumables_blitz = ConsumablesBlitz:new({document = o.document, on_toggle_equipment = function() obj:onChangeDescriptor() end })
+    obj.consumables_pc = ConsumablesPc:new({document = o.document, on_toggle_equipment = function() obj:onChangeDescriptor() end })
+    obj.boosters_pc = BoostersSelectorPc:new({document = o.document, on_toggle_equipment = function() obj:onChangeDescriptor() end })
+    obj.post_progression_pc = PostProgressionPc:new({document = o.document, on_toggle_equipment = function() obj:onChangeDescriptor() end })
+    obj.elements = {}
+    
+    local element_ids = {
+        "column1", "column2", "column3",
+        "content", "ammo",
+        "effective_values", "siege_mode",
+        "tank_setup", "apply_situational", "mode_select",
+        "level_slider", "level_slider_text", "special_mechanics", "rocket_acceleration",
+        "compare_wotinspector"
+    }
+    
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+    
+    obj.elements["content"]:SetClass("flex", true)
+
+    if PLATFORM_EMSCRIPTEN and not VERSION_MOD then
+        obj.elements["compare_wotinspector"]:SetClass("hidden", true)
+    end
+    
+    XraySpecs = obj
+    
+    -- connect signals
+    runOnChange(onEffectiveValuesChanged, "ui.specsEffectiveValues")
+    runOnChange(onApplySituationalChanged, "ui.specsApplySituational")
+    
+    -- sync ui
+    return obj
+end
+
+function XraySpecs:open(descr)
+    local platform = db_service.platform
+    if not platform then
+        return
+    end
+    
+    self.vehicle_descr = WOTVehicleDescriptor.new(descr or arena_service.target_vehicle)
+    self.specs, self.vehicle_info = db_service:getSpecs(platform, self.vehicle_descr, self.elements["siege_mode"]:IsClassSet("checked") and "siege" or "", self.elements["apply_situational"]:IsClassSet("checked"))
+    self.original_specs = utils.copyTable(self.specs)
+    
+    self:updateModeControls()
+
+    local target_name = platform:getTextUTF8(self.vehicle_info.shared.localized_name) or "UI_unknown"
+    self:setMainTitle("<span class='normal-case'>" .. target_name .. "</span>")
+    
+    self.module_selector:init(self.vehicle_descr, self.specs)
+    self.equipment_blitz:init(self.vehicle_descr, self.vehicle_info)
+    self.equipment_pc:init(self.vehicle_descr, self.vehicle_info)
+    self.perks_blitz:init(self.vehicle_descr)
+    self.perks_mt:init(self.vehicle_descr)
+    self.perks_pc:init(self.vehicle_descr)
+    self.provisions_blitz:init(self.vehicle_descr, self.vehicle_info)
+    self.consumables_blitz:init(self.vehicle_descr, self.vehicle_info)
+    self.consumables_pc:init(self.vehicle_descr, self.vehicle_info)
+    self.boosters_pc:init(self.vehicle_descr, self.vehicle_info)
+    self.post_progression_pc:init(self.vehicle_descr, self.vehicle_info)
+    self:updateAmmoButtons()
+    
+    self.consumables_blitz:updateSpecs(self.specs)
+
+    InfoPanel.open(self)
+end
+
+function XraySpecs:onChangeMechanicsToggle(element)
+    local toggle = element:QuerySelector("switch")
+    toggle:SetClass("checked", not toggle:IsClassSet("checked"))
+    self:onChangeDescriptor()
+end
+
+local function pushItem(container, item, effective_values, allow_empty)
+    if item.filter ~= nil and not item.filter() then
+        return
+    end
+
+    local item_template = [[
+        <p class="item-name flex-1"></p>
+        <p class="item-diff text-xs"></p>
+        <svg class="item-diff-icon flex-none w-2" src="/rml/icons/chevron-down.svg"></svg>
+        <p class="item-value"></p>
+    ]]
+    
+    local value, units, fmt = table.unpack(Params.getItemValue(item, self.specs, effective_values))
+    if value or allow_empty then
+        local value_diff, weight_diff = Params.getItemDifference(item, self.original_specs, self.specs, effective_values)
+    
+        local item_element = container:AppendChild(container.owner_document:CreateElement("div"))
+        item_element.inner_rml = item_template
+        item_element:SetClass("flex", true)
+        item_element:SetClass("gap-0_5", true)
+        item_element:SetClass("items-center", true)
+        item_element:QuerySelector(".item-name").inner_rml = item.name
+        
+        local item_value = item_element:QuerySelector(".item-value")
+        if value ~= nil then
+            item_value.inner_rml = Params.format(value, units, fmt)
+        end
+        
+        local is_positive = weight_diff and weight_diff > 0
+        
+        local item_diff = item_element:QuerySelector(".item-diff")
+        item_diff:SetClass("hidden", not value_diff or weight_diff == 0)
+        item_diff:SetClass("text-team-ally", is_positive)
+        item_diff:SetClass("text-team-enemy", not is_positive)
+        if value_diff then
+            item_diff.inner_rml = Params.format(math.abs(value_diff), nil, fmt)
+        end
+                
+        local item_diff_icon = item_element:QuerySelector(".item-diff-icon")
+        item_diff_icon:SetClass("text-team-ally", is_positive)
+        item_diff_icon:SetClass("text-team-enemy", not is_positive)
+        item_diff_icon:SetClass("hidden", not value_diff or weight_diff == 0)
+        
+        if value_diff and value_diff > 0 then
+            item_diff_icon.style.transform = "scaleY(-1.0)"
+        end
+        
+        if weight_diff and weight_diff ~= 0 and not value_diff then
+            item_value:SetClass("text-team-ally", is_positive)
+            item_value:SetClass("text-team-enemy", not is_positive)
+        end
+                
+        if item.className then
+            item_element:SetClass(item.className, true)
+        end
+    end
+end
+
+function XraySpecs:updateAmmoButtons()
+    if self.elements["ammo"] == nil then
+        return
+    end
+
+    local ammo_template = [[
+        <div class="flex gap-2 items-start">
+            <div class="w-6 text-xs flex-none leading-none">
+                <small><p class="module-tier text-center"></p></small>
+                <svg src="/rml/icons/Modules-Tracks-.svg" class="w-6 flex-none module-icon" />
+            </div>
+        </div>
+    ]]    
+
+    local current_shell = self.specs["/shellIdx"] or 0
+    local current_gun_id = self.specs["/gun/id"]
+    local current_turret_id = self.specs["/turret/id"]
+    self.elements["ammo"].inner_rml = ""
+    for shell_idx = 0, 2 do
+        local shell_prefix = "/turret/" .. current_turret_id .. "/gun/" .. current_gun_id .. "/shell" .. shell_idx
+        local kind = self.specs[shell_prefix .. "/kind"]
+        if kind ~= nil then
+            kind = tonumber(kind)
+            local ammo = self.elements["ammo"]:AppendChild(self.document:CreateElement("button"))
+            ammo.inner_rml = ammo_template
+            ammo:SetClass(shell_idx ~= current_shell and "text-primary" or "text-secondary", true)
+            ammo:AddEventListener("click", function()
+                self.specs["/shellIdx"] = shell_idx
+                self:updateData()
+            end, true)
+                
+            ammo:QuerySelector(".module-tier").inner_rml = PlatformDB.getShellTypeName(kind)
+            ammo:QuerySelector(".module-icon"):SetAttribute("src", "/rml/icons/" .. utils.getAmmoIcon(kind))
+        end
+    end
+end
+
+function XraySpecs:getCurrentMode()
+    local mode_select = Element.As["ElementFormControlSelect"](self.elements["mode_select"])
+    local level_slider = Element.As["ElementFormControlInput"](self.elements["level_slider"])
+
+    return tonumber(level_slider.value) > 0 and "state"..level_slider.value
+        or self.elements["siege_mode"]:IsClassSet("checked") and "siege"
+        or self.elements["special_mechanics"]:IsClassSet("checked") and "special"
+        or self.elements["rocket_acceleration"]:IsClassSet("checked") and "rocketAcceleration"
+        or mode_select.options[mode_select.selection].value
+end
+
+function XraySpecs:onChangeDescriptor()
+    if not self.specs then
+        return
+    end
+
+    local current_shell = self.specs["/shellIdx"] or 0
+    local mode = self:getCurrentMode()
+    
+    self.specs, self.vehicle_info = db_service:getSpecs(self.vehicle_info.shared.platform, self.vehicle_descr, 
+        mode, self.elements["apply_situational"]:IsClassSet("checked"))
+    self.specs["/shellIdx"] = current_shell
+    self:updateData()
+    
+    self.consumables_blitz:updateEquipment()
+    self.consumables_blitz:updateSpecs(self.specs)
+end
+
+function XraySpecs:onCompareWotinspector()
+    if not self.vehicle_descr or not self.specs then
+        return
+    end
+
+    local left_descr = self.vehicle_descr
+    local left_shell = tonumber(self.specs["/shellIdx"] or 0) or 0
+    local left_mode = self:getCurrentMode() or "default"
+    local effective_values = settings:getInt("ui.specsEffectiveValues") ~= 0
+
+    TankSelector:open(
+        left_descr,
+        function(right_descr)
+            if not right_descr or right_descr.vehicle_id <= 0 then
+                return
+            end
+
+            local encoded = db_service:encodeWebappCompareConfig(
+                left_descr, left_shell, left_mode,
+                right_descr, 0, "default",
+                effective_values
+            )
+            if not encoded or #encoded == 0 then
+                return
+            end
+
+            local platform = db_service.platform
+            if not platform then
+                return
+            end
+
+            local game_code = utils.toWebGameCode(platform.game_code)
+            local url = string.format(
+                "https://armor.wotinspector.com/%s/%d-/?c=%s#compare",
+                game_code, left_descr.vehicle_id, encoded
+            )
+            game:launchURL(utils.addAppUtm(url, "compare"))
+        end
+    )
+end
+
+function XraySpecs:updateCrewSection(container, effective_values)
+    local crew_number = self.specs["/crewMembers"]
+    if not crew_number then
+        return
+    end
+    
+    crew_members = tonumber(crew_members)
+    
+    local item_template = [[
+        <p class="item-name flex-1"></p>
+        <p class="item-diff text-xs"></p>
+        <svg class="item-diff-icon flex-none w-2" src="/rml/icons/chevron-down.svg"></svg>
+        <p class="item-value"></p>
+    ]]
+    
+    for crew_idx = 0, crew_number - 1 do
+        local crew_roles = self.specs["/crew" .. crew_idx]
+        local main_role, rest = crew_roles:match("^(%S+)%s*(.*)$")
+        local item = Factors["CrewSkill_" .. main_role]
+        local crew_skill = tonumber(Params.getItemValue(item, self.specs, effective_values)[1])
+
+        local value_diff, weight_diff = Params.getItemDifference(item, self.original_specs, self.specs, effective_values)
+
+        local item_element = container:AppendChild(container.owner_document:CreateElement("div"))
+        item_element.inner_rml = item_template
+        item_element:SetClass("flex", true)
+        item_element:SetClass("gap-2", true)
+        item_element:SetClass("items-center", true)
+        item_element:QuerySelector(".item-name").inner_rml = "UI_crew_" .. main_role
+        item_element:QuerySelector(".item-value").inner_rml = fmt("UI_percent_format", fmt("{:.0Lf}", crew_skill))
+        
+        local is_positive = weight_diff and weight_diff > 0
+        
+        local item_diff = item_element:QuerySelector(".item-diff")
+        item_diff:SetClass("hidden", not value_diff or weight_diff == 0)
+        item_diff:SetClass("text-team-ally", is_positive)
+        item_diff:SetClass("text-team-enemy", not is_positive)
+        if value_diff then
+            item_diff.inner_rml = Params.format(math.abs(value_diff))
+        end
+                
+        local item_diff_icon = item_element:QuerySelector(".item-diff-icon")
+        item_diff_icon:SetClass("text-team-ally", is_positive)
+        item_diff_icon:SetClass("text-team-enemy", not is_positive)
+        item_diff_icon:SetClass("hidden", not value_diff or weight_diff == 0)
+        
+        if value_diff and value_diff > 0 then
+            item_diff_icon.style.transform = "scaleY(-1.0)"
+        end
+        
+        if weight_diff and weight_diff ~= 0 and not value_diff then
+            item_value:SetClass("text-team-ally", is_positive)
+            item_value:SetClass("text-team-enemy", not is_positive)
+        end
+        
+        for role in rest:gmatch("%S+") do
+            local item_element = container:AppendChild(container.owner_document:CreateElement("p"))
+            item_element:SetClass("pl-2", true)
+            item_element.inner_rml = "UI_crew_" .. role
+        end
+    end
+end
+
+function XraySpecs:updateData()
+    self.elements["column2"].inner_rml = ""
+    self.elements["column3"].inner_rml = ""
+    
+    if not self.specs then
+        return
+    end
+
+    local effective_values = settings:getInt("ui.specsEffectiveValues") ~= 0
+
+    local section_template = [[
+        <svg class="w-6 flex-none" src="/rml/icons/Tank-ViewRight-1.svg" />
+        <p class="text-sm leading-none"></p>
+    ]]
+    
+    for _, section in ipairs(Params.SpecsConfiguration) do
+        local is_visible = not section.filter or section.filter(self.specs)
+        if is_visible then
+            local container = self.elements["column" .. section.column]:AppendChild(self.document:CreateElement("div"))
+            container:SetClass("flex-1", true)
+
+            local title = container:AppendChild(self.document:CreateElement("div"))
+            title.inner_rml = section_template
+            title:SetClass("flex", true)
+            title:SetClass("gap-2", true)
+            title:SetClass("items-center", true)
+            title:QuerySelector("svg"):SetAttribute("src", "/rml/icons/" .. section.icon .. ".svg")
+            title:QuerySelector("p").inner_rml = section.title
+
+            local hr = container:AppendChild(self.document:CreateElement("hr"))
+            hr:SetClass("my-1", true)
+        
+            if section.tag == "ammo" then
+                local ammo_container = container:AppendChild(self.document:CreateElement("div"))
+                ammo_container:SetClass("flex", true)
+                ammo_container:SetClass("gap-1", true)
+                self.elements["ammo"] = ammo_container
+                title:QuerySelector("p").inner_rml = Params.getItemValue(Params.ShellName, self.specs)[1] or ""
+                self:updateAmmoButtons()
+            elseif section.tag == "crew" then
+                self:updateCrewSection(container, effective_values)
+            end
+        
+            for _, item in ipairs(section.items) do
+                if item.type == "group" then
+                    pushItem(container, item.value, effective_values, item.allowEmpty == nil and true or item.allowEmpty)
+
+                    local children_container = container:AppendChild(self.document:CreateElement("div"))
+                    children_container:SetClass("pl-2", true)
+                    for _, child in ipairs(item.items) do
+                        pushItem(children_container, child, effective_values)
+                    end
+                else
+                    pushItem(container, item, effective_values)
+                end
+            end
+        end
+    end
+end
+
+function XraySpecs:updateModeControls()
+    local has_siege_mode = self.vehicle_info and self.vehicle_info.shared.has_siege_mode
+    local has_pillbox_mode = self.specs["/pillboxSiegeMode/switchDriveToPillboxTime"]
+    local has_stance_dance = self.specs["/stanceDance/timeSwitchStance"]
+    local has_power_mode = self.specs["/powerMode/speedThreshold"]
+    local has_staged_jet_boosters = self.specs["/stagedJetBoosters/deployTime"]
+    local has_rocket_acceleration = self.specs["/rocketAcceleration/deployTime"]
+    local has_rechargeable_nitro = self.specs["/rechargeableNitro/deployTime"]
+    local has_concentration_mode = self.specs["/concentrationMode/deployTime"]
+    local has_overheat_stacks = self.specs["/overheatStacks/heatingTime"]
+    local has_secondary_gun = self.specs["/secondaryGun/id"]
+    local has_chargeable_burst = Params.getItemValue(Params.ChargeableBurstDispersionFactor, self.specs, false)[1] or 0
+    local has_low_charge_shot = Params.getItemValue(Params.LowChargeShotAlmostFinishedTime, self.specs, false)[1] or false
+    local has_propellant_afterburner_gun = Params.getItemValue(Params.PropellantAfterburnerGunChargingPerSec, self.specs, false)[1] or false
+    local has_wheeled_dash = self.specs["/wheeledDash/deployTime"]
+    local has_bustle_feed = self.specs["/bustleFeed/activationTime"]
+    
+    local has_mechanics_dropdown = has_pillbox_mode or has_stance_dance
+    local has_mechanics_toggle = has_power_mode or has_staged_jet_boosters or has_rechargeable_nitro or has_chargeable_burst > 0
+        or has_concentration_mode or has_secondary_gun or has_low_charge_shot or has_propellant_afterburner_gun or has_wheeled_dash or has_bustle_feed
+    local has_special_controller = has_mechanics_dropdown or has_mechanics_toggle
+    
+    local has_overheat = Params.getItemValue(Params.TemperatureMechanicsCoolingTimeOverheat, self.specs, false)[1]
+    local temperature_state_count = not has_overheat and Params.getItemValue(Params.TemperatureMechanicsStates, self.specs, false)[1] or 0
+    
+    local battle_fury_levels = Params.getItemValue(Params.BattleFuryMaxLevel, self.specs, false)[1] or 0
+    local charge_shot_levels = Params.getItemValue(Params.ChargeShotMaxLevels, self.specs, false)[1] or 0
+    local accuracy_stacks_levels = Params.getItemValue(Params.AccuracyStacksLevelMax, self.specs, false)[1] or 0
+    local sight_pointer_levels = Params.getItemValue(Params.SightPointerLevelMax, self.specs, false)[1] or 0
+    
+    local max_levels = math.max(temperature_state_count, battle_fury_levels, has_overheat_stacks and 100 or 0, charge_shot_levels, accuracy_stacks_levels, sight_pointer_levels)
+    local level_slider = Element.As["ElementFormControlInput"](self.elements["level_slider"])
+    level_slider.max = max_levels
+    level_slider.value = 0
+
+    local has_level_slider = max_levels > 0
+        
+    self.elements["siege_mode"]:SetClass("checked", false)
+    self.elements["siege_mode"].parent_node.parent_node:SetClass("hidden", not has_siege_mode or has_special_controller or has_level_slider)
+    self.elements["mode_select"].parent_node:SetClass("hidden", not has_mechanics_dropdown)
+    self.elements["level_slider"].parent_node.parent_node:SetClass("hidden", not has_level_slider)
+    self.elements["special_mechanics"].parent_node.parent_node:SetClass("hidden", not has_mechanics_toggle)
+    self.elements["special_mechanics"]:SetClass("checked", false)
+    self.elements["rocket_acceleration"].parent_node.parent_node:SetClass("hidden", not has_rocket_acceleration)
+    self.elements["rocket_acceleration"]:SetClass("checked", false)
+    
+    if has_low_charge_shot then
+        self.elements["special_mechanics"].parent_node:QuerySelector("p").inner_rml = "UI_low_charge_shot"
+    else
+        self.elements["special_mechanics"].parent_node:QuerySelector("p").inner_rml = "UI_special_mechanics"
+    end
+    
+    local container = self.elements["mode_select"]
+    
+    local num_options = #container.child_nodes
+    for idx = 2, num_options do
+        Element.As["ElementFormControlSelect"](container):Remove(idx)
+    end
+    
+    local createOption = function (text, value)
+        local option = container:AppendChild(self.document:CreateElement("option"))
+        option.inner_rml = "<p>" .. text .. "</p>"
+        option:SetClass("h-8", true)
+        option:SetClass("p-1", true)
+        option:SetClass("box-border", true)
+        option:SetClass("flex", true)
+        option:SetClass("items-center", true)
+        option:SetAttribute("value", value)
+    end
+    
+    if has_pillbox_mode then
+        createOption("UI_siege_mode", "siege")
+        createOption("UI_pillbox_siege_mode", "pillbox")
+    elseif has_stance_dance then
+        createOption("UI_turbo_mode_passive", "turboPassive")
+        createOption("UI_turbo_mode", "turbo")
+        createOption("UI_engagement_mode", "engagement")
+    end
+end
+
+function XraySpecs:onLevelSliderChange()
+    local level_slider = Element.As["ElementFormControlInput"](self.elements["level_slider"])
+    self.elements["level_slider_text"].inner_rml = fmt("{:.0Lf}", tonumber(level_slider.value))
+    
+    XraySpecs:onChangeDescriptor()
+end
+
+        </script>
+    </head>
+    <body id="xray_specs" template="info_panel" onload="XraySpecs:new{document = document}" style="width:100%;max-width:80%;">
+        <div class="flex flex-1 gap-2 text-xs">
+            <div id="column1" class="flex-none flex flex-col gap-4 overflow-y-auto" style="max-width:176dp">
+                <template src="modules">
+                </template>
+                <div class="flex gap-2">
+                    <div class="text-sm flex gap-1 items-center text-secondary" onclick="XraySpecs:onChangeMechanicsToggle(element)">
+                        <switch id="siege_mode">
+                            <div class="thumb"></div>
+                        </switch>
+                        <p>UI_siege_mode</p>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <div class="text-sm flex gap-1 items-center text-secondary" onclick="XraySpecs:onChangeMechanicsToggle(element)">
+                        <switch id="special_mechanics">
+                            <div class="thumb"></div>
+                        </switch>
+                        <p>UI_special_mechanics</p>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <div class="text-sm flex gap-1 items-center text-secondary" onclick="XraySpecs:onChangeMechanicsToggle(element)">
+                        <switch id="rocket_acceleration">
+                            <div class="thumb"></div>
+                        </switch>
+                        <p>UI_rocket_acceleration</p>
+                    </div>
+                </div>
+                <div>
+                    <p>UI_mode</p>
+                    <select id="mode_select" class="mt-1 h-8 w-full p-1 box-border text-base" onchange='XraySpecs:onChangeDescriptor()'>
+                        <option value="default" class="h-8 p-1 box-border flex items-center">
+                            <p>UI_default</p>
+                        </option>
+                    </select>
+                </div>
+                <div>
+                    <p>UI_level</p>
+                    <div class="flex gap-1 items-center h-4 mb-1">
+                        <input id="level_slider" class="flex-1" type="range" min="0" onchange="XraySpecs:onLevelSliderChange()" />
+                        <p id="level_slider_text" class="w-4 text-xs text-center flex-none">0</p>
+                    </div>
+                </div>
+                <div id="tank_setup" class="flex flex-col gap-4">
+                    <template src="optional_devices_blitz">
+                    </template>
+                    <template src="optional_devices_pc">
+                    </template>
+                    <template src="perks_blitz">
+                    </template>
+                    <template src="perks_mt">
+                    </template>
+                    <template src="perks_pc">
+                    </template>
+                    <div class="text-sm flex gap-1 items-center text-secondary" onclick='settings:setInt("ui.specsApplySituational", 1 - settings:getInt("ui.specsApplySituational"))'>
+                        <switch id="apply_situational">
+                            <div class="thumb"></div>
+                        </switch>
+                        <p>UI_apply_situational</p>
+                    </div>
+                    <template src="provisions_blitz">
+                    </template>
+                    <template src="consumables_blitz">
+                    </template>
+                    <template src="boosters_pc">
+                    </template>
+                    <template src="consumables_pc">
+                    </template>
+                    <template src="post_progression_pc">
+                    </template>
+                </div>
+                <div class="text-sm flex gap-1 items-center text-secondary" onclick='settings:setInt("ui.specsEffectiveValues", 1 - settings:getInt("ui.specsEffectiveValues"))'>
+                    <switch id="effective_values">
+                        <div class="thumb"></div>
+                    </switch>
+                    <p>UI_effective_values</p>
+                </div>
+                <button id="compare_wotinspector" class="flex bg-secondary text-primary-foreground rounded" onclick="XraySpecs:onCompareWotinspector()">
+                    <template src="button">
+                        <svg src="/rml/icons/TankSelector-AddChangeATank-.svg" class="w-8 flex-none" />
+                        <p>UI_compare_on_wotinspector</p>
+                    </template>
+                </button>
+            </div>
+            <div class="flex flex-1 gap-2 overflow-y-auto">
+                <div id="column2" class="flex-1 space-y-3"></div>
+                <div id="column3" class="flex-1 space-y-3"></div>
+            </div>
+        </div>
+    </body>
+</rml>

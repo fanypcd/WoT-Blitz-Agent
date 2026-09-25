@@ -1,0 +1,152 @@
+<rml>
+    <head>
+        <title>Heatmaps Tooltip Damages</title>
+        <link type="text/template" href="/rml/templates/tooltip.rml" />
+        <script>
+HeatmapsTooltipDamages = {}
+
+local function onViewModeChanged()
+    HeatmapsTooltipDamages:updateVisibility()
+end
+
+local function onShotDataUpdated(damage_point, blocked_point, ground_hit_distance, deviation_angle)
+    local self = HeatmapsTooltipDamages
+    self.damage_point = damage_point
+    self.blocked_point = blocked_point
+    self.ground_hit_distance = ground_hit_distance
+    self.deviation_angle = deviation_angle
+    
+    self:updateTooltip()
+end
+
+local function onHeatmapTypeChanged()
+    local self = HeatmapsTooltipDamages
+    self:updateVisibility()
+end
+
+local function onHeatmapUpdated()
+    local self = HeatmapsTooltipDamages
+    local damage_regular = ShotsHeatmap.Point.new()
+    local damage_premium = ShotsHeatmap.Point.new()
+    local blocked_regular = ShotsHeatmap.Point.new()
+    local blocked_premium = ShotsHeatmap.Point.new()
+    
+    local shots_heatmap = scene_service.shots_heatmap
+
+    shots_heatmap:getAveragePoint(ShotsHeatmap.TextureType.DAMAGE_RECEIVED_REGULAR, damage_regular)
+    shots_heatmap:getAveragePoint(ShotsHeatmap.TextureType.DAMAGE_RECEIVED_PREMIUM, damage_premium)
+    shots_heatmap:getAveragePoint(ShotsHeatmap.TextureType.DAMAGE_BLOCKED_REGULAR, blocked_regular)
+    shots_heatmap:getAveragePoint(ShotsHeatmap.TextureType.DAMAGE_BLOCKED_PREMIUM, blocked_premium)
+
+    local total_shots = damage_regular.count + damage_premium.count + blocked_regular.count + blocked_premium.count
+    self.average_damage_per_shot = total_shots > 0.0 and (damage_regular.weight + damage_premium.weight) / total_shots or 0.0
+    self:updateTooltip()
+end
+
+function HeatmapsTooltipDamages:new(o)
+    self.__index = self
+    setmetatable(self, {__index = Tooltip})
+
+    local obj = Tooltip:new(o)
+    setmetatable(obj, self)
+
+    obj.average_damage_per_shot = 0
+    obj:setHeader([[
+    <div class="flex gap-2 items-center">
+        <svg src="/rml/icons/Event-Damage-target.svg" class="w-8 flex-none" />
+        <p id="header_avg_damage">100hp</p>
+    </div>
+    <div class="flex gap-2 items-center">
+        <svg src="/rml/icons/event-impact.svg" class="w-8 flex-none" />
+        <p id="header_total_shots">100</p>
+    </div>
+    ]])
+
+    HeatmapsTooltipDamages = obj
+    
+    -- connect signals
+    runOnChange(onViewModeChanged, "scene.viewMode")
+    runOnChange(onHeatmapTypeChanged, "scene.heatmapType", "scene.heatmapDamageView")
+    heatmaps_scene_objects:connect_shotDataUpdatedSignal(onShotDataUpdated)
+    scene_service.shots_heatmap:connect_heatmapUpdatedSignal(onHeatmapUpdated)
+end
+
+function HeatmapsTooltipDamages:checkVisibility()
+    if not Tooltip.checkVisibility(self) then
+        return false
+    end
+
+    local view_mode = settings:getInt("scene.viewMode")
+    local heatmap_type = settings:getInt("scene.heatmapType")
+    local damage_view = settings:getInt("scene.heatmapDamageView")
+    return view_mode == ViewMode.HEATMAP and self.damage_point and heatmap_type == HeatmapType.HEATMAP_DAMAGES and damage_view == HeatmapDamageView.HEATMAP_DAMAGE_RECEIVED
+end
+
+function HeatmapsTooltipDamages:updateTooltip()
+    if not self:checkVisibility() then
+        return
+    end
+
+    local count_received = self.damage_point.count
+    local count_blocked = self.blocked_point.count
+    local total_shots = count_received + count_blocked
+
+    if total_shots == 0 then
+        self.document:GetElementById("header_total_shots").parent_node:SetClass("hidden", false)
+        self.document:GetElementById("header_avg_damage").parent_node:SetClass("hidden", true)
+
+        self.document:GetElementById("total_shots").parent_node:SetClass("hidden", true)
+        self.document:GetElementById("variance_angle").parent_node:SetClass("hidden", true)
+
+        if self.ground_hit_distance > 0 then
+            local total_weight = 0.0
+            for idx = 0, 4 do
+                total_weight = total_weight + heatmaps_scene_objects:getDamagePerVehicleType(idx)
+            end
+            
+            if total_weight > 0.0 then
+                local shots = self.average_damage_per_shot > 0.0 and math.floor(total_weight / self.average_damage_per_shot) or 0
+
+                self.document:GetElementById("header_total_shots").inner_rml = fmt("{:.0Lf}", shots)
+
+                self.document:GetElementById("distance").parent_node:SetClass("hidden", false)
+                self.document:GetElementById("distance").inner_rml = fmt("UI_meters_format", fmt("{:.0Lf}", self.ground_hit_distance))
+            end
+        else
+            self.document:GetElementById("header_total_shots").inner_rml = "UI_heatmaps_no_shots_at_point"        
+            self.document:GetElementById("distance").parent_node:SetClass("hidden", true)
+        end
+    else
+        self.document:GetElementById("header_total_shots").parent_node:SetClass("hidden", true)
+        self.document:GetElementById("header_avg_damage").parent_node:SetClass("hidden", false)
+
+        self.document:GetElementById("total_shots").parent_node:SetClass("hidden", false)
+        self.document:GetElementById("variance_angle").parent_node:SetClass("hidden", false)
+        self.document:GetElementById("distance").parent_node:SetClass("hidden", true)
+
+        local damage_received = total_shots > 0 and self.damage_point.weight / total_shots or 0.0
+        local damage_blocked = total_shots > 0 and self.blocked_point.weight / total_shots or 0.0
+    
+        self.document:GetElementById("header_avg_damage").inner_rml = fmt("UI_hp_format", fmt("{:.0Lf}", damage_received))
+
+        self.document:GetElementById("total_shots").inner_rml = fmt("{:.0Lf}", math.max(1, self.damage_point.count))
+        self.document:GetElementById("variance_angle").inner_rml = fmt("{:.0Lf}°", self.deviation_angle)
+    end
+end
+        </script>
+    </head>
+    <body id="tooltip_heatmaps_damages" template="tooltip" onload="HeatmapsTooltipDamages:new{document = document}">
+        <div class="flex gap-2 items-center">
+            <svg src="/rml/icons/event-impact.svg" class="w-8 flex-none" />
+            <p id="total_shots">1000</p>
+        </div>
+        <div class="flex gap-2 items-center">
+            <svg src="/rml/icons/Heatmaps-VarianceAngle-.svg" class="w-8 flex-none" />
+            <p id="variance_angle">1000</p>
+        </div>
+        <div class="flex gap-2 items-center">
+            <svg src="/rml/icons/AI-SpottingMode-distance-1.svg" class="w-8 flex-none" />
+            <p id="distance">1000</p>
+        </div>
+    </body>
+</rml>

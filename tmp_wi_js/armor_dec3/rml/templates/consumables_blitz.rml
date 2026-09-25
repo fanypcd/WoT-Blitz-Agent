@@ -1,0 +1,216 @@
+<template name="consumables_blitz" content="">
+<head>
+	<link type="text/rcss" href="/rml/main.rcss"/>
+    <script>
+local utils = require ("rml.scripts.utils")
+local Factors = require ("rml.scripts.dynamic_params")
+local Params = require ("rml.scripts.vehicle_params")
+
+ConsumablesBlitz = {}
+ConsumablesBlitz.__index = ConsumablesBlitz
+
+function ConsumablesBlitz:new(obj)
+    setmetatable(obj, self)
+
+    obj.elements = {}
+    
+    local element_ids = {
+        "consumables_blitz_container", "reset_button_consumables_blitz"
+    }
+    
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+    
+    obj.elements["reset_button_consumables_blitz"]:AddEventListener("click", function() obj:reset() end)
+    obj.consumables = {}
+    
+    return obj
+end
+
+function ConsumablesBlitz:init(vehicle_descr, vehicle_info, original_descr)
+    self.vehicle_descr = vehicle_descr
+    self.vehicle_info = vehicle_info
+    self.original_equipment = EquipmentDescriptor.new((original_descr or self.vehicle_descr).equipment_descriptor)
+    
+    self:updateEquipment()
+end
+
+function ConsumablesBlitz:updateSpecs(specs)
+    self.specs = specs
+
+    local effective_values = settings:getInt("ui.specsEffectiveValues")
+
+    for _, group in ipairs(self.consumables) do
+        local item_name = group[1]
+        local item = group[2]
+        
+        if item.duration > 0.0 then
+            local value = Params.getItemValue(Factors.EquipmentDurationFactor, self.specs, effective_values)[1]
+            local effective_value = fmt("{:.0Lf}", item.duration * value)
+            
+            local element = self.elements["consumables_blitz_container"]:QuerySelector(".icon[data-artefact-name=" .. item_name .. "] .duration")
+            element.inner_rml = fmt("UI_seconds_format", effective_value)
+            element:SetClass("text-team-ally", value > 1.0)
+        end
+        
+        if item.cooldown > 0.0 then
+            local value = Params.getItemValue(Factors.EquipmentReloadBoost, self.specs, effective_values)[1]
+            local effective_value = fmt("{:.0Lf}", item.cooldown * (1.0 - value))
+            
+            local element = self.elements["consumables_blitz_container"]:QuerySelector(".icon[data-artefact-name=" .. item_name .. "] .cooldown")
+            element.inner_rml = fmt("UI_seconds_format", effective_value)
+            element:SetClass("text-team-ally", value > 0.0)
+        end
+    end
+end
+
+function ConsumablesBlitz:getArtefactList(vehicle_info, vehicle_descr)
+    local platform = vehicle_info and vehicle_info.shared.platform
+
+    local result = {}
+    local supported_devices = platform and platform:getSupportedConsumables(vehicle_info, vehicle_descr) or {}
+    for device_name, device in pairs(supported_devices) do
+        table.insert(result, {device_name, { id = device.id, duration = device.duration, cooldown = device.cooldown, icon = device.icon } })
+    end
+    
+    table.sort(result, function(a, b)
+        return a[2].id < b[2].id
+    end)
+    
+    return result
+end
+
+function ConsumablesBlitz:updateEquipment()
+    local platform = db_service.platform
+    
+    local is_blitz = platform.game_code == "blitz" or platform.game_code == "tanksblitz"
+    
+    self.elements["consumables_blitz_container"].parent_node:SetClass("hidden", not is_blitz)
+
+    local container = self.elements["consumables_blitz_container"]
+    container.inner_rml = ""
+    self.consumables = is_blitz and self:getArtefactList(self.vehicle_info, self.vehicle_descr) or {}
+
+    if is_blitz and self.vehicle_descr then
+        local supported = {}
+        for _, group in ipairs(self.consumables) do
+            supported[group[1]] = true
+        end
+
+        local to_remove = {}
+        for eq, _ in pairs(self.vehicle_descr.equipment_descriptor.as_table) do
+            if not supported[eq] then
+                -- only remove consumables that were previously selectable; leave other equipment types alone
+                local artefact = platform:getConsumable(eq)
+                if artefact then
+                    table.insert(to_remove, eq)
+                end
+            end
+        end
+        local removed = false
+        for _, eq in ipairs(to_remove) do
+            self.vehicle_descr.equipment_descriptor:remove(eq)
+            removed = true
+        end
+        if removed and self.on_toggle_equipment then
+            self.on_toggle_equipment()
+        end
+    end
+    
+    if not is_blitz then
+        return
+    end
+    
+    local template = [[
+        <img class="w-8 h-8" />
+        <div>
+            <div class="flex items-center gap-0_5">
+                <svg src="/rml/icons/UI-timer-.svg" class="w-3 flex-none" />
+                <p class="duration">10s</p>
+            </div>
+            <div class="flex items-center gap-0_5">
+                <svg src="/rml/icons/UI-return-reload-reset-.svg" class="w-3 flex-none" />
+                <p class="cooldown">20s</p>
+            </div>
+        </div>
+    ]]
+    
+    for _, group in ipairs(self.consumables) do
+        local device_name = group[1]
+        
+        local artefact_container = container:AppendChild(container.owner_document:CreateElement("div"))
+        artefact_container.inner_rml = template
+        artefact_container:SetClass("flex", true)
+        artefact_container:SetClass("gap-1", true)
+        artefact_container:SetClass("items-center", true)
+        artefact_container:SetClass("h-8", true)
+        artefact_container:SetClass("p-1", true)
+        artefact_container:SetClass("box-border", true)
+        artefact_container:SetClass("min-w-20", true)
+        artefact_container:SetClass("icon", true)
+        artefact_container:SetClass("rounded", true)
+        artefact_container:SetClass("bg-content-dark", true)
+        artefact_container:SetClass("selected", self.vehicle_descr.equipment_descriptor:has(device_name))
+        artefact_container:SetAttribute("data-artefact-name", device_name)
+        artefact_container:AddEventListener("click", function() 
+            if not artefact_container:IsClassSet("disabled") then 
+                self.vehicle_descr.equipment_descriptor:toggle(device_name)
+                artefact_container:SetClass("selected", self.vehicle_descr.equipment_descriptor:has(device_name))
+                self:updateStates()
+                if self.on_toggle_equipment then
+                    self.on_toggle_equipment()
+                end
+            end 
+        end)
+        
+        local device_icon = artefact_container:QuerySelector("img")
+        device_icon:SetAttribute("src", utils.getConsumableIcon(platform, device_name))
+        
+        local duration_element = artefact_container:QuerySelector(".duration")
+        duration_element.parent_node:SetClass("hidden", group[2].duration == 0.0)
+        duration_element.inner_rml = fmt("UI_seconds_format", group[2].duration)
+        
+        local cooldown_element = artefact_container:QuerySelector(".cooldown")
+        cooldown_element.inner_rml = fmt("UI_seconds_format", group[2].cooldown)
+    end
+    self:updateStates()
+end
+
+function ConsumablesBlitz:updateStates()
+    local platform = self.vehicle_info.shared.platform
+    
+    local selected_items = self.elements["consumables_blitz_container"]:QuerySelectorAll(".icon.selected")
+    
+    for _, icon in ipairs(self.elements["consumables_blitz_container"]:QuerySelectorAll(".icon")) do
+        if not icon:IsClassSet("selected") then
+            icon:SetClass("disabled", #selected_items >= 3)
+        end
+    end
+end
+
+function ConsumablesBlitz:reset()
+    self.vehicle_descr.equipment_descriptor = EquipmentDescriptor.new(self.original_equipment)
+    self:updateEquipment()
+
+    if self.on_toggle_equipment then
+        self.on_toggle_equipment()
+    end
+end
+
+    </script>
+</head>
+<body>
+    <div style="min-width:164dp;">
+        <div class="flex gap-2 text-xs mb-1 justify-between">
+            <p>UI_consumables</p>
+            <div id="reset_button_consumables_blitz" class="flex flex-nowrap items-center text-secondary">
+                <svg src="/rml/icons/UI-return-reload-reset-.svg" class="w-3 flex-none" />
+                <p>UI_reset</p>
+            </div>
+        </div>
+        <div id="consumables_blitz_container" class="flex gap-1 flex-wrap text-xs">
+        </div>
+    </div>
+</body>
+</template>

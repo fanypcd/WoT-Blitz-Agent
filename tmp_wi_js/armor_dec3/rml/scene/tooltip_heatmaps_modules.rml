@@ -1,0 +1,88 @@
+<rml>
+    <head>
+        <title>Heatmaps Tooltip Modules</title>
+        <link type="text/template" href="/rml/templates/tooltip.rml" />
+        <script>
+HeatmapsTooltipModules = {}
+
+local function onUpdateVisibility()
+    HeatmapsTooltipModules:updateVisibility()
+end
+
+local function onShotDataUpdated(damage_point, blocked_point, ground_hit_distance, deviation_angle)
+    local self = HeatmapsTooltipModules
+    self.damage_point = damage_point
+    self.deviation_angle = deviation_angle
+    
+    self:updateTooltip()
+end
+
+local function onHeatmapUpdated()
+    local self = HeatmapsTooltipModules
+    self:updateTooltip()
+end
+
+local function onHeatmapModuleChange()
+    local self = HeatmapsTooltipModules
+    self:updateTooltip()
+end
+
+function HeatmapsTooltipModules:new(o)
+    self.__index = self
+    setmetatable(self, {__index = Tooltip})
+
+    local obj = Tooltip:new(o)
+    setmetatable(obj, self)
+
+    obj.average_damage_per_shot = 0
+    obj:setHeader([[
+    <div class="flex gap-2 items-center">
+        <svg src="/rml/icons/event-impact.svg" class="w-8 flex-none" />
+        <p id="header_total_shots">100</p>
+    </div>
+    ]])
+
+    HeatmapsTooltipModules = obj
+    
+    -- connect signals
+    runOnChange(onUpdateVisibility, "scene.viewMode", "scene.heatmapType")
+    runOnChange(onHeatmapModuleChange, "scene.heatmapModule")
+    heatmaps_scene_objects:connect_shotDataUpdatedSignal(onShotDataUpdated)
+    scene_service.shots_heatmap:connect_heatmapUpdatedSignal(onHeatmapUpdated)
+end
+
+function HeatmapsTooltipModules:checkVisibility()
+    if not Tooltip.checkVisibility(self) then
+        return false
+    end
+
+    local view_mode = settings:getInt("scene.viewMode")
+    local heatmap_type = settings:getInt("scene.heatmapType")
+    return view_mode == ViewMode.HEATMAP and self.damage_point and (heatmap_type == HeatmapType.HEATMAP_MODULES or heatmap_type == HeatmapType.HEATMAP_FIRE)
+end
+
+function HeatmapsTooltipModules:updateTooltip()
+    if not self:checkVisibility() then
+        return
+    end
+
+    local total_shots = self.damage_point.count
+
+    if total_shots == 0 then
+        self.document:GetElementById("variance_angle").parent_node:SetClass("hidden", true)
+        self.document:GetElementById("header_total_shots").inner_rml = "UI_heatmaps_no_shots_at_point"        
+    else
+        self.document:GetElementById("variance_angle").parent_node:SetClass("hidden", false)
+        self.document:GetElementById("header_total_shots").inner_rml = fmt("{:.0Lf}", math.max(1, total_shots))
+        self.document:GetElementById("variance_angle").inner_rml = fmt("{:.0Lf}°", self.deviation_angle)
+    end
+end
+        </script>
+    </head>
+    <body id="tooltip_heatmaps_modules" template="tooltip" onload="HeatmapsTooltipModules:new{document = document}">
+        <div class="flex gap-2 items-center">
+            <svg src="/rml/icons/Heatmaps-VarianceAngle-.svg" class="w-8 flex-none" />
+            <p id="variance_angle">1000</p>
+        </div>
+    </body>
+</rml>

@@ -1,0 +1,15 @@
+material:
+  #u_texture: DEBUG_SAMPLER
+  sampler:
+  - id: u_texture
+    path: materials/vehicle/modules.png
+    mipmap: false
+    wrapS: CLAMP
+    wrapT: CLAMP
+    minFilter: NEAREST
+    magFilter: NEAREST
+
+  technique:
+  - pass:
+      vertexShader: res/shaders/sprite.vert
+      fragmentShader: res/shaders/sprite.frag

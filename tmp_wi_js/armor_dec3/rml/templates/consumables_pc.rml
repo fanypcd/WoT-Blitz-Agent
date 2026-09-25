@@ -1,0 +1,135 @@
+<template name="consumables_pc" content="">
+<head>
+	<link type="text/rcss" href="/rml/main.rcss"/>
+    <script>
+local utils = require ("rml.scripts.utils")
+
+ConsumablesPc = {}
+ConsumablesPc.__index = ConsumablesPc
+
+function ConsumablesPc:new(obj)
+    setmetatable(obj, self)
+
+    obj.elements = {}
+    
+    local element_ids = {
+        "consumables_pc_container", "reset_button_consumables_pc"
+    }
+    
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+    
+    obj.elements["reset_button_consumables_pc"]:AddEventListener("click", function() obj:reset() end)
+    obj.consumables = {}
+    
+    return obj
+end
+
+function ConsumablesPc:init(vehicle_descr, vehicle_info, original_descr)
+    self.vehicle_descr = vehicle_descr
+    self.vehicle_info = vehicle_info
+    self.original_equipment = EquipmentDescriptor.new((original_descr or self.vehicle_descr).equipment_descriptor)
+    
+    self:updateEquipment()
+end
+
+function ConsumablesPc:getArtefactList(vehicle_info)
+    local platform = vehicle_info and vehicle_info.shared.platform
+
+    local result = {}
+    local supported_devices = platform and platform:getSupportedConsumables(vehicle_info) or {}
+    for device_name, device in pairs(supported_devices) do
+        table.insert(result, {device_name, { id = device.id, icon = device.icon }})
+    end
+    
+    table.sort(result, function(a, b)
+        return a[2].id < b[2].id
+    end)
+    
+    return result
+end
+
+function ConsumablesPc:updateEquipment()
+    local platform = db_service.platform
+    
+    local is_pc = platform and (platform.game_code == "pc" or platform.game_code == "pcmod" or platform.game_code == "mirtankov" or platform.game_code == "mtmod")
+    
+    self.elements["consumables_pc_container"].parent_node:SetClass("hidden", not is_pc)
+
+    local container = self.elements["consumables_pc_container"]
+    container.inner_rml = ""
+    self.consumables = is_pc and self:getArtefactList(self.vehicle_info) or {}
+    
+    if not is_pc then
+        return
+    end
+               
+    for _, group in ipairs(self.consumables) do
+        local device_name = group[1]
+        
+        local artefact_container = container:AppendChild(container.owner_document:CreateElement("img"))
+        artefact_container:SetClass("w-6", true)
+        artefact_container:SetClass("h-6", true)
+        artefact_container:SetClass("box-border", true)
+        artefact_container:SetClass("icon", true)
+        artefact_container:SetClass("rounded", true)
+        artefact_container:SetClass("bg-content-dark", true)
+        artefact_container:SetClass("selected", self.vehicle_descr.equipment_descriptor:has(device_name))
+        artefact_container:SetAttribute("data-artefact-name", device_name)
+        artefact_container:AddEventListener("click", function() 
+            if not artefact_container:IsClassSet("disabled") then 
+                self.vehicle_descr.equipment_descriptor:toggle(device_name)
+                artefact_container:SetClass("selected", self.vehicle_descr.equipment_descriptor:has(device_name))
+                self:updateStates()
+                if self.on_toggle_equipment then
+                    self.on_toggle_equipment()
+                end
+            end 
+        end)
+        
+        artefact_container:SetAttribute("src", utils.getConsumableIcon(platform, device_name))
+    end
+    self:updateStates()
+end
+
+function ConsumablesPc:updateStates()
+    local platform = self.vehicle_info.shared.platform
+    
+    local selected_items = self.elements["consumables_pc_container"]:QuerySelectorAll(".icon.selected")
+    
+    for _, icon in ipairs(self.elements["consumables_pc_container"]:QuerySelectorAll(".icon")) do
+        local artefact_name = icon:GetAttribute("data-artefact-name")
+        local artefact = platform:getConsumable(artefact_name)
+        local can_install = self.vehicle_info:canMountArtefact(self.vehicle_descr.equipment_descriptor, artefact)
+        if not icon:IsClassSet("selected") then
+            icon:SetClass("disabled", #selected_items >= 3 or not can_install)
+        end
+    end
+end
+
+function ConsumablesPc:reset()
+    self.vehicle_descr.equipment_descriptor = EquipmentDescriptor.new(self.original_equipment)
+    self:updateEquipment()
+
+    if self.on_toggle_equipment then
+        self.on_toggle_equipment()
+    end
+end
+
+    </script>
+</head>
+<body>
+    <div style="min-width:164dp;">
+        <div class="flex gap-2 text-xs mb-1 justify-between">
+            <p>UI_consumables</p>
+            <div id="reset_button_consumables_pc" class="flex flex-nowrap items-center text-secondary">
+                <svg src="/rml/icons/UI-return-reload-reset-.svg" class="w-3 flex-none" />
+                <p>UI_reset</p>
+            </div>
+        </div>
+        <div id="consumables_pc_container" class="flex gap-1 flex-wrap text-xs">
+        </div>
+    </div>
+</body>
+</template>

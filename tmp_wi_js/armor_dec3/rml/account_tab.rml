@@ -1,0 +1,93 @@
+<rml>
+    <head>
+        <title>Account Tab</title>
+        <link type="text/template" href="/rml/templates/info_panel.rml" />
+        <link type="text/template" href="/rml/templates/button.rml" />
+        <script>
+AccountTab = {}
+AccountTab.__index = AccountTab
+
+local function onUserLoggedIn()
+    local self = AccountTab
+    self:updateData()
+end
+
+local function onUserLoggedOut()
+    local self = AccountTab
+    self:updateData()
+end
+
+local function onUserLoginFailed(code, error)
+    Popup.open("UI_error_title", fmt("UI_error_code", code, error), true, nil, nil)
+end
+
+function AccountTab:new(o)
+    setmetatable(self, {__index = InfoPanel})
+
+    local obj = InfoPanel:new(o)
+    setmetatable(obj, self)
+
+    obj:setMainTitle("UI_wg_account")
+    obj:setSecondTitle("UI_title_options")
+
+    obj.elements = {}
+    
+    local element_ids = {
+        "login_button", "manage_button", "logout_button", "username"
+    }
+
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+
+    AccountTab = obj
+    
+    -- connect signals
+    account_service:connect_userLoggedInSignal(onUserLoggedIn)
+    account_service:connect_userLoggedOutSignal(onUserLoggedOut)
+    account_service:connect_userLoginFailedSignal(onUserLoginFailed)
+    
+    -- sync ui
+    AccountTab:updateData()
+    return obj
+end
+
+function AccountTab:updateData()
+    local user = account_service.user
+    
+    self.elements["login_button"]:SetClass("hidden", user)
+    self.elements["logout_button"]:SetClass("hidden", not user)
+    self.elements["manage_button"]:SetClass("hidden", not user)
+    self.elements["username"].parent_node:SetClass("hidden", not user)
+    
+    self.elements["username"].inner_rml = user and user.display_name or ""
+end
+        </script>
+    </head>
+    <body id="account_tab" template="info_panel" onload="AccountTab:new{document = document}">
+        <div class="text-xs">
+            <p class="mb-4">UI_accounts_description</p>
+            <div class="mb-4">
+                <p>UI_logged_in_as</p>
+                <p id="username" class="leading-none text-base">reven86.ru</p>
+            </div>
+            <button id="login_button" class="w-full flex bg-secondary text-primary-foreground rounded" onclick="account_service:startAuthFlow()">
+                <template src="button">
+                    <svg src="/rml/icons/account-2.svg" class="w-8 flex-none" />
+                    <p>UI_add_account</p>
+                </template>
+            </button>
+            <button id="manage_button" class="w-full flex bg-secondary-outline text-secondary rounded" onclick="game:launchURL(account_service:addTokenToUri('https://wotinspector.com/accounts/profile/'))">
+                <template src="button">
+                    <p>UI_manage_account</p>
+                </template>
+            </button>
+            <button id="logout_button" class="w-full flex bg-secondary text-primary-foreground rounded mt-2" onclick="account_service:logout()">
+                <template src="button">
+                    <svg src="/rml/icons/log-out.svg" class="w-6 flex-none" />
+                    <p>UI_logout</p>
+                </template>
+            </button>
+        </div>
+    </body>
+</rml>

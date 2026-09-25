@@ -1,0 +1,221 @@
+material:
+  u_worldViewProjectionMatrix: WORLD_VIEW_PROJECTION_MATRIX
+
+  renderState:
+    depthFunc: LEQUAL
+    blendSrc: ONE
+    blendDst: ONE
+    stencilTest: false
+
+  technique:
+  - id: hiddenPart
+  - id: default
+    sampler:
+      id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+
+    renderState:
+      cullFace: false
+      depthTest: true
+      depthWrite: true
+      blend: false
+      stencilTest: true
+      stencilOpSfail: KEEP
+      stencilOpDpfail: KEEP
+      stencilOpDppass: REPLACE
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;BACK_LIGHT"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: res/shaders/textured.frag
+
+  - id: defaultMultiply
+    parentID: default
+    renderState:
+      blend: true
+      blendSrc: DST_COLOR
+      blendDst: ZERO
+
+  - id: white
+    renderState:
+      depthTest: true
+      depthWrite: false
+    pass:
+      defines: "WHITE"
+      vertexShader: shaders/xray_view.vert
+      fragmentShader: shaders/xray_view.frag
+
+  - id: transparent
+    sampler:
+      id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_modulateAlpha: 0.2
+
+    renderState:
+      depthTest: true
+      depthWrite: false
+      blend: true
+      blendSrc: SRC_ALPHA
+      blendDst: ONE_MINUS_SRC_ALPHA
+
+    pass:
+    - defines: "DIRECTIONAL_LIGHT_COUNT 1;MODULATE_ALPHA"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: res/shaders/textured.frag
+
+  - id: defaultModule
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/vehicle/modules.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_worldViewMatrix : WORLD_VIEW_MATRIX
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_saturation: 1.0
+
+    renderState:
+      cullFace: true
+      depthTest: true
+      depthWrite: true
+      blend: false
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1"
+
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: shaders/module.frag
+
+  - id: primaryArmorXray
+    renderState:
+      blend: true
+      depthTest: true
+      depthWrite: false
+      cullFace: false
+      blendSrc: DST_COLOR
+      blendDst: ZERO
+      stencilTest: true
+      stencilOpSfail: KEEP
+      stencilOpDpfail: KEEP
+      stencilOpDppass: ZERO
+      stencilFunc: EQUAL
+      stencilFuncRef: 1
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/vehicle/armor_ramp.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+    u_armorGradientRange: ARMOR_GRADIENT_RANGE
+    u_saturation: 1.0
+    pass:
+      defines: ""
+      vertexShader: shaders/xray_view.vert
+      fragmentShader: shaders/xray_view.frag
+  - id: secondaryArmorXray
+    parentID: primaryArmorXray
+    renderState:
+      stencilFuncRef: 2
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/vehicle/spaced_armor_ramp.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: shaders/xray_view.frag
+  - id: externalModuleXray
+    renderState:
+      blend: true
+      depthTest: true
+      depthWrite: false
+      cullFace: false
+      blendSrc: DST_COLOR
+      blendDst: ZERO
+      stencilTest: true
+      stencilOpSfail: KEEP
+      stencilOpDpfail: KEEP
+      stencilOpDppass: ZERO
+      stencilFunc: EQUAL
+      stencilFuncRef: 3
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/vehicle/modules.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_saturation: 1.0
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;MODULE"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: shaders/xray_view.frag
+
+  - id: defaultNation
+
+    renderState:
+      cullFace: false
+      depthTest: true
+      depthWrite: true
+  
+    sampler:
+      id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_clipPlane: CLIP_PLANE
+    u_worldMatrix: WORLD_MATRIX
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;MODULATE_COLOR;CLIP_PLANE"
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: res/shaders/textured.frag
+

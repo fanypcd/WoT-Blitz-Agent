@@ -1,0 +1,30 @@
+<template name="window" content="content">
+<head>
+	<link type="text/rcss" href="/rml/main.rcss"/>
+    <script>
+        Window = {}
+        function Window.centerVertically(doc)
+			doc.style.height = "auto";
+			doc:Show()
+			doc.style.height = doc.offset_height .. "px";
+        end
+    </script>
+</head>
+<body>
+	<handle move_target="#document">
+		<div class="flex items-center gap-2 justify-between bg-header lowercase py-1 px-2 text-primary rounded-t">
+            <div>
+                <p id="second_title" class="text-xs hidden">
+                    second title
+                </p>
+                <p id="title" class="text-xl font-light leading-none">
+                    Title
+                </p>
+            </div>
+            <svg src="/rml/icons/close.svg" class="w-6 flex-none text-secondary" onclick="document:Hide()" />
+		</div>
+	</handle>
+	<div id="content" class="bg-content shadow-md p-2 text-sm text-primary rounded-b">
+	</div>
+</body>
+</template>

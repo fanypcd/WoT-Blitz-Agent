@@ -1,0 +1,54 @@
+<rml>
+    <head>
+        <title>Collision Tooltip</title>
+        <link type="text/rcss" href="/rml/main.rcss"/>
+        <style>
+            body {
+            max-width:200dp;
+            transform-origin: 0 0;
+            }
+        </style>
+        <script>
+CollisionTooltip = {}
+
+local function onViewModeChanged()
+    CollisionTooltip:updateVisibility()
+end
+
+function CollisionTooltip:new(o)
+    self.__index = self
+    setmetatable(self, {__index = Tooltip})
+    
+    local obj = Tooltip:new(o)
+    setmetatable(obj, self)
+
+    obj.target_damage = 0
+    CollisionTooltip = obj
+    
+    -- connect signals
+    runOnChange(onViewModeChanged, "scene.viewMode")
+    scene_service.ramming_controller:connect_energyChangedSignal(function(target_damage, player_damage)
+        CollisionTooltip.document:GetElementById("damage").inner_rml = fmt("UI_hp_format", fmt("{:.0Lf}", target_damage))
+    end)
+end
+
+function CollisionTooltip:checkVisibility()
+    if not Tooltip.checkVisibility(self) then
+        return false
+    end
+
+    local view_mode = settings:getInt("scene.viewMode")
+    return view_mode == ViewMode.RAMMING
+end
+
+
+        </script>
+    </head>
+    <body id="tooltip_collision" onload="CollisionTooltip:new{document = document}" onunload="Tooltip.onDocumentUnload(document)">
+        <div class="p-4" style="transform: scale(0.005, -0.005) translateY(-100%);transform-origin: 0 0;">
+            <div class="text-hud text-xl">
+                <p id="damage">1000</p>
+            </div>
+        </div>
+    </body>
+</rml>

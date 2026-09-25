@@ -1,0 +1,33 @@
+<rml>
+    <head>
+        <title>Cutaway Scissors1 Handle</title>
+        <link type="text/rcss" href="/rml/main.rcss"/>
+        <style>
+        </style>
+        <script>
+XrayCutawayScissors1Handle = {}
+
+function XrayCutawayScissors1Handle:onDragStart(element, x, y)
+    self.offset_x = x - element.offset_left + tonumber(element:GetAttribute("data-offset-x"))
+    self.offset_y = y - element.offset_top + tonumber(element:GetAttribute("data-offset-y"))
+end
+
+function XrayCutawayScissors1Handle:onDrag(x, y)
+    xray_scene_objects:cutawayHandleMove(x - self.offset_x, y - self.offset_y, 1)
+end
+
+function XrayCutawayScissors1Handle:onDragEnd()
+    if settings:getInt("scene.viewMode") == ViewMode.CROSS_SECTION_XRAY then
+        xray_scene_objects:updateCutawayHandlesAndCutline()
+    end
+end
+        </script>
+    </head>
+    <body id="xray_cutaway_scissors1_handle" class="w-8 text-hud flex" style="z-index:-10;drag:drag" 
+          ondragstart="XrayCutawayScissors1Handle:onDragStart(element, event.parameters['mouse_x'], event.parameters['mouse_y'])"
+          ondrag="XrayCutawayScissors1Handle:onDrag(event.parameters['mouse_x'], event.parameters['mouse_y'])"
+          ondragend="XrayCutawayScissors1Handle:onDragEnd()"
+          >
+        <svg src="/rml/icons/AI-cutaway-Scissors-.svg" class="w-8" />
+    </body>
+</rml>

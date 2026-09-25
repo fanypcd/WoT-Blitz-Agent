@@ -1,0 +1,166 @@
+<rml>
+    <head>
+        <title>Platform Selector</title>
+        <link type="text/template" href="/rml/templates/info_panel.rml" />
+        <link type="text/template" href="/rml/templates/button.rml" />
+        <script>
+PlatformSelector = {}
+PlatformSelector.__index = PlatformSelector
+setmetatable(PlatformSelector, {__index = InfoPanel})
+
+local utils = require ("rml.scripts.utils")
+
+local function updateVersionNotifications()
+    local self = PlatformSelector
+    local current = db_service.platform
+    local show = utils.hasUnseenNewerVersion(current)
+    local current_code = current and current.game_code
+    for _, element in ipairs(self.elements["platform_list"].child_nodes) do
+        local dot = element:QuerySelector(".versions_notification")
+        if dot then
+            local is_current = current_code ~= nil and current_code == element:GetAttribute("data-gamecode")
+            dot:SetClass("hidden", not (show and is_current))
+        end
+    end
+end
+
+local function onPlatformChanged(platform)
+    local self = PlatformSelector
+
+    self.elements["changelog_info"]:SetClass("hidden", platform == nil)
+    if platform then
+        self:setMainTitle(platform.version)
+        for _, element in ipairs(self.elements["platform_list"].child_nodes) do
+            element:SetClass("checked", platform.game_code == element:GetAttribute("data-gamecode"))
+        end
+    end
+    updateVersionNotifications()
+end
+
+local function onPlatformListChanged()
+    local self = PlatformSelector
+
+    local platform_template = [[
+        <div class="flex flex-1 gap-2 items-center min-w-0">
+            <svg src="/rml/icons/AI-Confrontation-Mode.svg" class="w-8 flex-none" />
+            <p></p>
+        </div>
+        <div class="versions_notification absolute w-1 h-1 rounded-xl hidden right-0 top-0" style="background-color:red"></div>
+        <svg src="/rml/icons/chevron-right.svg" class="h-4" />
+    ]]
+    
+    local container = self.elements["platform_list"]
+    container.inner_rml = ""
+    
+    local current_platform = db_service.platform
+    local current_game_code = current_platform and current_platform.game_code
+    
+    for _, game_code in ipairs(utils.getPlatformCodes()) do
+        local platform = db_service:findPlatform(game_code)
+
+        if platform then
+            local option = container:AppendChild(self.document:CreateElement("div"))
+            option.inner_rml = platform_template
+            option:SetAttribute("data-gamecode", game_code)
+            option:SetClass("option", true)
+            option:SetClass("flex", true)
+            option:SetClass("gap-2", true)
+            option:SetClass("items-center", true)
+            option:SetClass("p-1", true)
+            option:SetClass("relative", true)
+            option:SetClass("checked", current_game_code == game_code)
+            option:AddEventListener("click", function()
+                local selected = db_service:findPlatform(game_code)
+                if selected then
+                    db_service:selectPlatform(selected)
+                end
+                PlatformSelector:openVersions(utils.toWebGameCode(game_code))
+            end)
+            
+            option:QuerySelector("svg"):SetAttribute("src", "/rml/icons/" .. utils.getPlatformIcon(game_code))
+            option:QuerySelector("p").inner_rml = platform and platform.version or game_code
+        end
+    end
+
+    updateVersionNotifications()
+end
+
+function PlatformSelector:new(o)
+    local obj = InfoPanel:new(o)
+    setmetatable(obj, self)
+
+    obj:setSecondTitle("UI_choose_game")
+
+    obj.elements = {}
+    
+    local element_ids = {
+        "platform_list", "changelog_info"
+    }
+    
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+
+    PlatformSelector = obj
+    
+    -- connect signals
+    db_service:connect_platformChangedSignal(onPlatformChanged)
+    db_service:connect_platformListChangedSignal(onPlatformListChanged)
+    db_service:connect_versionsLoadedSignal(updateVersionNotifications)
+    runOnChange(updateVersionNotifications, "ui.versionsOpened")
+
+    if not db_service.are_versions_loaded then
+        db_service:requestVersions()
+    end
+
+    -- sync ui
+    onPlatformListChanged()
+    onPlatformChanged(db_service.platform)
+    return obj
+end
+
+function PlatformSelector:open()
+    InfoPanel.open(self)
+    settings:setInt("ui.platformSelectorOpened", 1)
+end
+
+function PlatformSelector:openVersions(game_code)
+    if not game_code then
+        return
+    end
+
+    local left = self.document.offset_left + self.document.offset_width + 4 * main_context.dp_ratio
+    if VersionListTab.current_game_code == game_code and VersionListTab:isVisible() then
+        VersionListTab:close()
+    else
+        VersionListTab:open(game_code, left)
+    end
+end
+
+function PlatformSelector:close()
+    InfoPanel.close(self)
+    VersionListTab:close()
+end
+
+function PlatformSelector:onChangelogButton()
+    local game_code = utils.toWebGameCode(db_service.platform.game_code)
+    game:launchURL("https://armor.wotinspector.com/" .. game_code .. "/changelog/")
+end
+
+        </script>
+    </head>
+    <body id="platform_selector" template="info_panel" onload="PlatformSelector:new{document = document}">
+        <p class="text-xs">UI_games</p>
+        <div id="platform_list" class="list leading-none text-sm">
+        </div>
+        <div id="changelog_info">
+            <p class="text-xs mt-4 mb-1">UI_changelog_description</p>
+            <button class="flex bg-secondary text-primary-foreground rounded" onclick="PlatformSelector:onChangelogButton()">
+                <template src="button">
+                    <svg src="/rml/icons/UI-timer-.svg" class="w-8 flex-none" />
+                    <p>UI_view_changes</p>
+                </template>
+            </button>
+        </div>
+    </body>
+</rml>

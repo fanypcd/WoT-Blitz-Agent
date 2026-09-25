@@ -1,0 +1,10 @@
+material:
+  technique:
+    pass:
+      vertexShader: shaders/textured_quad.vsh
+      fragmentShader: shaders/crosshair_circle.frag
+
+      renderState:
+        blend: false
+        #blendSrc: ONE
+        #blendDst: ONE_MINUS_SRC_ALPHA

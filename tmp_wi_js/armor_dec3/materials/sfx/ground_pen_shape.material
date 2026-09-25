@@ -1,0 +1,13 @@
+material:
+
+  u_worldViewProjectionMatrix: WORLD_VIEW_PROJECTION_MATRIX
+
+  renderState:
+    blend: true
+    blendSrc: ONE
+    blendDst: ONE_MINUS_SRC_ALPHA
+
+  technique:
+    pass:
+      vertexShader: shaders/ground_pen_shape.vert
+      fragmentShader: shaders/ground_pen_shape.frag

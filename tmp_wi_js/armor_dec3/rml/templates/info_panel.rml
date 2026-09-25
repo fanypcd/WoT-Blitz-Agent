@@ -1,0 +1,204 @@
+<template name="info_panel" content="content">
+	<head>
+		<link type="text/rcss" href="/rml/main.rcss"/>
+		<style>
+            body {
+                min-width:180dp;
+                max-width:200dp;
+            }
+
+            @keyframes slide-in-keyframes {
+                to { left: 0dp; }
+            }
+
+            @keyframes slide-out-keyframes {
+                to { left: -100%; }
+            }
+
+            @keyframes slide-in-right-keyframes {
+                to { right: 0dp; }
+            }
+
+            @keyframes slide-out-right-keyframes {
+                to { right: -100%; }
+            }
+
+            .slide-in {
+                animation: 0.6s quartic-in-out slide-in-keyframes;
+            }
+
+            .slide-out {
+                animation: 0.6s quartic-in-out slide-out-keyframes;
+            }
+
+            .slide-in-right {
+                animation: 0.6s quartic-in-out slide-in-right-keyframes;
+            }
+
+            .slide-out-right {
+                animation: 0.6s quartic-in-out slide-out-right-keyframes;
+            }
+        </style>
+		<script>
+InfoPanel = InfoPanel or {_registry = {}}
+
+function InfoPanel:new(o)
+	o = o or {}
+    setmetatable(o, self)
+    
+    if o.group == nil then
+        o.group = o.is_right and "right" or "default"
+    end
+    
+	local panel = o.document:GetElementById("sliding_panel")
+    if o.is_right then
+        o.document:SetClass("right-10", true)
+		panel.style.right = "-100%"
+    else
+        o.document:SetClass("left", true)
+        o.document:SetClass("left-10", true)
+		panel.style.left = "-100%"
+    end
+    o.document:SetClass("hidden", true)
+        
+	InfoPanel._registry[o.document.id] = o
+
+	InfoPanel._onResize(o.document)	-- update dimensions
+    
+    return o
+end
+
+function InfoPanel:setMainTitle(main_title)
+	self.document:GetElementById("main_title").inner_rml = main_title
+end
+
+function InfoPanel:setSecondTitle(second_title)
+	self.document:GetElementById("second_title").inner_rml = second_title
+end
+
+function InfoPanel._show(document)
+	local element = document:GetElementById("sliding_panel")
+    if document:IsClassSet("left") then
+    	element:SetClass('slide-in', true)
+	    element:SetClass('slide-out', false)
+    else
+    	element:SetClass('slide-in-right', true)
+	    element:SetClass('slide-out-right', false)
+    end
+    document:SetClass("hidden", false)
+end
+
+function InfoPanel:open()
+	-- close all other panels
+	for _, panel in pairs(InfoPanel._registry) do
+		if panel ~= self and panel.group == self.group then
+			panel:close()
+        end
+	end
+	self.document:Show()
+
+    self:updateData()
+end
+
+function InfoPanel:close()
+	InfoPanel._close(self.document)
+end
+
+function InfoPanel._close(document)
+	local element = document:GetElementById("sliding_panel")
+    
+    if document:IsClassSet("left") then
+	    if element.style.left == "auto" or element.style.left == "0" then
+		    element.style.left = "-1px"
+	    end
+	    element:SetClass('slide-in', false) 
+	    element:SetClass('slide-out', true)
+    else
+	    if element.style.right == "auto" or element.style.right == "0" then
+		    element.style.right = "-1px"
+	    end
+	    element:SetClass('slide-in-right', false) 
+	    element:SetClass('slide-out-right', true)
+    end
+end
+
+function InfoPanel.closeAll(group)
+	for _, panel in pairs(InfoPanel._registry) do
+		if group == nil or panel.group == group then
+    		panel:close()
+        end
+	end
+end
+
+function InfoPanel._onAnimationEnd(document)
+	local element = document:GetElementById("sliding_panel")
+	if element:IsClassSet("slide-out") then
+		element.style.left = "-100%"
+		document:Hide()
+        document:SetClass("hidden", true)
+	elseif element:IsClassSet("slide-out-right") then
+		element.style.right = "-100%"
+		document:Hide()
+        document:SetClass("hidden", true)
+	end
+end
+
+function InfoPanel._onResize(document)
+	document:GetElementById("flex_container").style["max-height"] = main_context.dimensions.y - 8 * main_context.dp_ratio .. "px";
+end
+
+function InfoPanel:updateVisibility()
+    if self:checkVisibility() then
+        self:open()
+    else
+        self:close()
+    end
+end
+
+function InfoPanel:isVisible()
+	local element = self.document:GetElementById("sliding_panel")
+    return not (element:IsClassSet("slide-out") or element:IsClassSet("slide-out-right") or self.document:IsClassSet("hidden"))
+end
+
+function InfoPanel:toggle()
+	if self:checkVisibility() then
+		if self:isVisible() then
+            self:close()
+        else
+			-- was manually hidden - open
+            self:open()
+        end
+    end
+end
+
+function InfoPanel:checkVisibility()
+    return true
+end
+
+function InfoPanel:updateData()
+end
+
+		</script>
+	</head>
+	<body class="top-1 overflow-x-hidden pb-2 max-h-full" onshow="InfoPanel._show(document)" onresize="InfoPanel._onResize(document)">
+        <div id="sliding_panel" class="relative" onanimationend="InfoPanel._onAnimationEnd(document)">
+            <div id="flex_container" class="flex flex-col text-primary" style="max-height:600dp">
+                <handle move_target="#document">
+                    <div id="header" class="flex flex-none items-center justify-between bg-header lowercase p-1 rounded-t gap-2">
+                        <div>
+                            <p id="second_title" class="text-xs">
+                                second title
+                            </p>
+                            <p id="main_title" class="text-xl font-light leading-none">
+                                main title
+                            </p>
+                        </div>
+                        <svg src="/rml/icons/close.svg" class="w-6 flex-none text-secondary" onclick="InfoPanel._registry[document.id]:close()" />
+                    </div>
+                </handle>
+                <div id="content" class="bg-content shadow-md p-1 rounded-b overflow-y-auto">
+                </div>
+            </div>
+        </div>
+    </body>
+</template>

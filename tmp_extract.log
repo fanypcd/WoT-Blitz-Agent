@@ -1,0 +1,10 @@
+  [50/735] extracted=32 cached=0 missing=18 failed=0  [100/735] extracted=64 cached=0 missing=36 failed=0  [150/735] extracted=96 cached=0 missing=54 failed=0  [200/735] extracted=128 cached=0 missing=72 failed=0  [250/735] extracted=157 cached=0 missing=93 failed=0  [300/735] extracted=192 cached=0 missing=108 failed=0  [400/735] extracted=257 cached=0 missing=143 failed=0
+
+=== Game Data Extraction ===
+  Output dir:   data/game_data
+  Extracted:    455
+  Cached:       0 (already present, use --force to re-extract)
+  Missing src:  280 (file absent in game dir)
+  Parse failed: 0
+  No dev_name:  0
+  Write failed: 0

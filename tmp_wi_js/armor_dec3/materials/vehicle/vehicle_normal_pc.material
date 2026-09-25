@@ -1,0 +1,122 @@
+material:
+  u_worldViewProjectionMatrix: WORLD_VIEW_PROJECTION_MATRIX
+
+  renderState:
+    depthFunc: LEQUAL
+    cullFace: true
+    depthTest: true
+    depthWrite: true
+    blend: false
+
+  technique:
+  - id: default
+  
+    sampler:
+      id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_ambientColor: [0.5, 0.5, 0.5]
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;MODULATE_COLOR"
+
+      vertexShader: res/shaders/textured.vert
+      fragmentShader: res/shaders/textured.frag
+
+  - id: defaultTextured
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_normalmapTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_skySpecularTexture
+      path: materials/sfx/skyspecular.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+    - id: u_metallicGlossTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+    - id: u_detailTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_worldMatrix: WORLD_MATRIX
+    u_ambientColor: [0.14, 0.15, 0.17]
+    u_directionalLightDirection[0]: LIGHT_DIRECTION_0
+    u_directionalLightColor[0]: SUN_COLOR
+    u_directionalLightDirection[1]: LIGHT_DIRECTION_1
+    u_directionalLightColor[1]: [0.22, 0.24, 0.30]
+    u_shadowMap: SHADOW_MAP_SAMPLER
+    u_shadowMapViewProjection[0]: SHADOW_MAP_VIEW_PROJECTION_MATRIX_0
+    u_shadowMapInvSize: SHADOW_MAP_INVSIZE
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_viewMatrix: VIEW_MATRIX
+    u_detailTiling: [0.0, 0.0]
+    u_cameraPosition: CAMERA_VIEW_POSITION
+
+    pass:
+      id: texturedPass
+      defines: "DIRECTIONAL_LIGHT_COUNT 2;USE_SHADOWS;BUMPED;SPECULAR;AMBIENT_OCCLUSION;DETAIL_MAP"
+      vertexShader: shaders/textured.vert
+      fragmentShader: shaders/textured.frag
+
+  - id: defaultTexturedLow
+    parentID: defaultTextured
+
+  - id: depthOnly
+    sampler:
+    - id: u_normalmapTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    pass:
+      defines: "DEPTH_PASS"
+      vertexShader: shaders/textured.vert
+      fragmentShader: shaders/textured.frag
+
+  - id: shadowCaster
+    sampler:
+    - id: u_normalmapTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    pass:
+      defines: "ALPHA_TEST"
+      vertexShader: shaders/shadow_caster.vert
+      fragmentShader: shaders/shadow_caster.frag

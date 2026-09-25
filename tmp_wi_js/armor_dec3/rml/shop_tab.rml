@@ -1,0 +1,191 @@
+<rml>
+    <head>
+        <title>Shop Tab</title>
+        <link type="text/template" href="/rml/templates/info_panel.rml" />
+        <link type="text/template" href="/rml/templates/button.rml" />
+        <script>
+ShopTab = {}
+setmetatable(ShopTab, {__index = InfoPanel})
+ShopTab.__index = ShopTab
+ShopTab.active_products = { IAPService.CONFRONTATION_MODE, IAPService.COLLISION_MODE, IAPService.CUTAWAY_MODE, IAPService.ESSENTIAL_PACK, IAPService.WOTINSPECTOR_SUB }
+
+local function onReceiptValidationStarted(product, first_purchase)
+    Popup.open("UI_purchasing", "", false, nil, nil)
+end
+
+local function onReceiptValidationCompleted(product, result, first_purchase)
+    local result_string = "";
+    
+    if result == IAPService.RECEIPT_INVALID then
+        result_string = "UI_authorization_error"
+    elseif result == IAPService.RECEIPT_VALID then
+        result_string = "UI_done"
+    elseif result == IAPService.SERVER_FAILURE then
+        result_string = "UI_connection_failed"
+    end
+
+    Popup.open("UI_purchasing", result_string, true, nil, nil)
+end
+
+local function onGetProductsSucceeded()
+    local self = ShopTab
+    
+    for _, product in ipairs(self.active_products) do
+        if not iap_service:hasProduct(product) then
+            local item = self:getItemForProduct(product)
+            if item then
+                local product_element = self:getProductElement(item)
+                if product_element then
+                    product_element:SetClass("hidden", not iap_service:isProductValid(product) or product ~= IAPService.WOTINSPECTOR_SUB)
+                end
+            end
+        end
+    end
+    
+    local is_webstore = iap_service.store_name == "WebStoreFront"
+    self.elements["restore_info"]:SetClass("hidden", is_webstore)
+end
+
+local function onTransactionFailed(product_id, quantity, error_code, error)
+    Popup.open("UI_transaction_failed", error or "UI_unknown", true, nil, nil)
+end
+
+function ShopTab:new(o)
+    local obj = InfoPanel:new(o)
+    setmetatable(obj, self)
+
+    obj:setMainTitle("UI_shop")
+    obj:setSecondTitle("UI_title_options")
+
+    obj.elements = {}
+    
+    local element_ids = {
+        "purchase_list", "restore_info"
+    }
+    
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+
+    ShopTab = obj
+    
+    -- connect signals
+    iap_service:connect_receiptValidationStartedSignal(onReceiptValidationStarted)
+    iap_service:connect_receiptValidationCompletedSignal(onReceiptValidationCompleted)
+    iap_service:connect_storefrontGetProductsSucceededEvent(onGetProductsSucceeded)
+    iap_service:connect_storefrontTransactionFailedEvent(onTransactionFailed)
+    
+    -- sync UI
+    onGetProductsSucceeded()
+    return obj
+end
+
+function ShopTab:selectPurchase(purchase)
+    for _, purchase_element in ipairs(self.elements["purchase_list"].child_nodes) do
+        local is_selected = purchase_element:GetAttribute("data-purchase") == purchase
+        purchase_element:SetClass("checked", is_selected)
+        
+        if is_selected then
+            if PurchaseTab.current_purchase == purchase then
+                PurchaseTab:toggle()
+            else
+                PurchaseTab:open(purchase, 
+                    purchase_element:QuerySelector("p").inner_rml,
+                    purchase_element:QuerySelector("svg"):GetAttribute("src"),
+                    self.document.offset_left + self.document.offset_width + 4 * main_context.dp_ratio)
+            end
+        end
+    end
+end
+
+function ShopTab:close()
+    self:selectPurchase(nil)
+    InfoPanel.close(self)
+    PurchaseTab:close()
+end
+
+function ShopTab:getItemForProduct(product)
+    if product == IAPService.CONFRONTATION_MODE then
+        return "confrontation"
+    end
+    if product == IAPService.COLLISION_MODE then
+        return "collision"
+    end
+    if product == IAPService.CUTAWAY_MODE then
+        return "cutaway"
+    end
+    if product == IAPService.ESSENTIAL_PACK then
+        return "essentialpack"
+    end
+    if product == IAPService.WOTINSPECTOR_SUB then
+        return "wisubscription"
+    end
+    return ""
+end
+
+function ShopTab:getProductForItem(item)
+    for _, product in ipairs(self.active_products) do
+        if self:getItemForProduct(product) == item then
+            return product
+        end
+    end
+    return nil
+end
+
+function ShopTab:getProductElement(item)
+    for _, purchase_element in ipairs(self.elements["purchase_list"].child_nodes) do
+        if purchase_element:GetAttribute("data-purchase") == item then
+            return purchase_element
+        end
+    end
+    
+    return nil
+end
+
+function ShopTab:navigateToPurchase(product)
+    self:open()
+    
+    if not iap_service:isProductValid(product) then
+        product = IAPService.WOTINSPECTOR_SUB
+    end
+    
+    self:selectPurchase(self:getItemForProduct(product))
+end
+
+        </script>
+    </head>
+    <body id="shop_tab" template="info_panel" onload="ShopTab:new{document = document}">
+        <p class="text-xs">UI_purchases</p>
+        <div id="purchase_list" class="list leading-none text-sm">
+            <div class="option flex gap-2 items-center p-1" data-purchase="confrontation" onclick='ShopTab:selectPurchase(element:GetAttribute("data-purchase"))'>
+                <svg src="/rml/icons/AI-Confrontation-Mode.svg" class="w-8 flex-none" />
+                <p>UI_confrontation_purchase</p>
+            </div>
+            <div class="option flex gap-2 items-center p-1" data-purchase="collision" onclick='ShopTab:selectPurchase(element:GetAttribute("data-purchase"))'>
+                <svg src="/rml/icons/AI-Collision-mode.svg" class="w-8 flex-none" />
+                <p>UI_collision_purchase</p>
+            </div>
+            <div class="option flex gap-2 items-center p-1" data-purchase="cutaway" onclick='ShopTab:selectPurchase(element:GetAttribute("data-purchase"))'>
+                <svg src="/rml/icons/Tank-View-Cutaway-Vertical.svg" class="w-8 flex-none" />
+                <p>UI_cutaway_purchase</p>
+            </div>
+            <div class="option flex gap-2 items-center p-1" data-purchase="essentialpack" onclick='ShopTab:selectPurchase(element:GetAttribute("data-purchase"))'>
+                <svg src="/rml/icons/Shop-Essentials.svg" class="w-8 flex-none" />
+                <p>UI_essentialpack_purchase</p>
+            </div>
+            <div class="option flex gap-2 items-center p-1" data-purchase="wisubscription" onclick='ShopTab:selectPurchase(element:GetAttribute("data-purchase"))'>
+                <svg src="/rml/icons/Shop-CloudDataAI-.svg" class="w-8 flex-none" />
+                <p>UI_wotinspector_subscription</p>
+            </div>
+        </div>
+        <div id="restore_info">
+            <p class="text-xs mt-4 mb-1">UI_purchases_tab_help</p>
+            <button class="flex bg-secondary text-primary-foreground rounded" onclick="iap_service:restorePurchases()">
+                <template src="button">
+                    <svg src="/rml/icons/Shop-Restore-.svg" class="w-8 flex-none" />
+                    <p>UI_restore_purchases</p>
+                </template>
+            </button>
+        </div>
+    </body>
+</rml>

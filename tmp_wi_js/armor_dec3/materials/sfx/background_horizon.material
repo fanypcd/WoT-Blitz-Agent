@@ -1,0 +1,5 @@
+material:
+  technique:
+    pass:
+      vertexShader: shaders/textured_quad.vsh
+      fragmentShader: shaders/background_horizon.frag

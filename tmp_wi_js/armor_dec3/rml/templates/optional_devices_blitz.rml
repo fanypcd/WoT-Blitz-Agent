@@ -1,0 +1,176 @@
+<template name="optional_devices_blitz" content="">
+<head>
+	<link type="text/rcss" href="/rml/main.rcss"/>
+    <script>
+local utils = require ("rml.scripts.utils")
+
+EquipmentSelectorBlitz = {}
+EquipmentSelectorBlitz.__index = EquipmentSelectorBlitz
+
+function EquipmentSelectorBlitz:new(obj)
+    setmetatable(obj, self)
+
+    obj.elements = {}
+    
+    local element_ids = {
+        "optional_devices_blitz_container", "reset_button_blitz", "camo_paint_row_blitz", "camo_paint_switch_blitz"
+    }
+    
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+    
+    obj.elements["reset_button_blitz"]:AddEventListener("click", function() obj:reset() end)
+
+    obj.elements["camo_paint_row_blitz"]:AddEventListener("click", function()
+        if not obj.vehicle_descr then
+            return
+        end
+        obj.vehicle_descr.camo_paint = not obj.vehicle_descr.camo_paint
+        obj:syncCamoPaintUi()
+        if obj.on_toggle_equipment then
+            obj.on_toggle_equipment()
+        end
+    end)
+
+    return obj
+end
+
+function EquipmentSelectorBlitz:init(vehicle_descr, vehicle_info, original_descr)
+    self.vehicle_descr = vehicle_descr
+    self.vehicle_info = vehicle_info
+    self.original_equipment = EquipmentDescriptor.new((original_descr or self.vehicle_descr).equipment_descriptor)
+    self.original_camo_paint = (original_descr or vehicle_descr).camo_paint
+
+    self:updateEquipment()
+end
+
+function EquipmentSelectorBlitz:syncCamoPaintUi()
+    if not self.vehicle_descr then
+        return
+    end
+    self.elements["camo_paint_switch_blitz"]:SetClass("checked", self.vehicle_descr.camo_paint)
+end
+
+function EquipmentSelectorBlitz:getArtefactList(vehicle_info)
+    local platform = vehicle_info and vehicle_info.shared.platform
+    local preset = platform and platform:getOptionalDevicePreset(vehicle_info.opt_device_preset)
+
+    local result = {}
+    
+    if preset then
+        local column_names = { "attack", "defense", "specialization" }
+        for column_idx = 1, 3 do
+            local column = {}
+            for level = 1, 3 do
+                local device_name0 = preset.levels[level][column_names[column_idx].."0"]
+                local device_name1 = preset.levels[level][column_names[column_idx].."1"]
+                table.insert(column, { 
+                    { id = device_name0, icon = platform:getOptionalDevice(device_name0).icon },
+                    { id = device_name1, icon = platform:getOptionalDevice(device_name1).icon },
+                })
+            end
+            table.insert(result, column)
+        end
+    end
+    
+    return result
+end
+
+function EquipmentSelectorBlitz:updateEquipment()
+    local artefact_list = self:getArtefactList(self.vehicle_info)
+
+    local platform = db_service.platform
+    
+    self.elements["optional_devices_blitz_container"].parent_node:SetClass("hidden", #artefact_list == 0)
+    
+    local container = self.elements["optional_devices_blitz_container"]
+    container.inner_rml = ""
+    
+    for column_idx, column_data in ipairs(artefact_list) do
+        local column = container:AppendChild(container.owner_document:CreateElement("div"))
+        column:SetClass("flex", true)
+        column:SetClass("flex-col", true)
+        column:SetClass("gap-1", true)
+        
+        for level, level_data in ipairs(column_data) do
+            local group = column:AppendChild(container.owner_document:CreateElement("div"))
+            group:SetClass("flex", true)
+            group:SetClass("bg-content-dark", true)
+            group:SetClass("rounded", true)
+                
+            local device_name0 = level_data[1].id
+            local device_name1 = level_data[2].id
+                
+            local device0 = group:AppendChild(container.owner_document:CreateElement("img"))
+            device0:SetClass("w-6", true)
+            device0:SetClass("h-6", true)
+            device0:SetClass("flex-none", true)
+            device0:SetClass("icon", true)
+            device0:SetClass("rounded-l", true)
+            device0:SetClass("selected", self.vehicle_descr.equipment_descriptor:has(device_name0))
+            device0:SetAttribute("data-device", device_name0)
+            device0:SetAttribute("src", utils.getOptionalDeviceIcon(platform, device_name0))
+            device0:AddEventListener("click", function() self:toggleOptionalDevice(device_name0, device_name1) end)
+
+            local device1 = group:AppendChild(container.owner_document:CreateElement("img"))
+            device1:SetClass("w-6", true)
+            device1:SetClass("h-6", true)
+            device1:SetClass("flex-none", true)
+            device1:SetClass("icon", true)
+            device1:SetClass("rounded-r", true)
+            device1:SetClass("selected", self.vehicle_descr.equipment_descriptor:has(device_name1))
+            device1:SetAttribute("data-device", device_name1)
+            device1:SetAttribute("src", utils.getOptionalDeviceIcon(platform, device_name1))
+            device1:AddEventListener("click", function() self:toggleOptionalDevice(device_name1, device_name0) end)
+        end
+    end
+    self:syncCamoPaintUi()
+end
+
+function EquipmentSelectorBlitz:toggleOptionalDevice(device_to_set, device_to_clear)
+    if self.vehicle_descr.equipment_descriptor:has(device_to_set) then
+        self.vehicle_descr.equipment_descriptor:remove(device_to_set)
+        self.elements["optional_devices_blitz_container"]:QuerySelector('img[data-device="' .. device_to_set .. '"]'):SetClass("selected", false)
+    else
+        self.vehicle_descr.equipment_descriptor:add(device_to_set, false)
+        self.vehicle_descr.equipment_descriptor:remove(device_to_clear)
+        self.elements["optional_devices_blitz_container"]:QuerySelector('img[data-device="' .. device_to_set .. '"]'):SetClass("selected", true)
+        self.elements["optional_devices_blitz_container"]:QuerySelector('img[data-device="' .. device_to_clear .. '"]'):SetClass("selected", false)
+    end
+    if self.on_toggle_equipment then
+        self.on_toggle_equipment()
+    end
+end
+
+function EquipmentSelectorBlitz:reset()
+    self.vehicle_descr.equipment_descriptor = EquipmentDescriptor.new(self.original_equipment)
+    self:updateEquipment()
+
+    if self.on_toggle_equipment then
+        self.on_toggle_equipment()
+    end
+end
+
+    </script>
+</head>
+<body>
+    <div>
+        <div class="flex gap-2 text-xs mb-1 justify-between">
+            <p>UI_equipment</p>
+            <div id="reset_button_blitz" class="flex flex-nowrap items-center text-secondary">
+                <svg src="/rml/icons/UI-return-reload-reset-.svg" class="w-3 flex-none" />
+                <p>UI_reset</p>
+            </div>
+        </div>
+        <div id="optional_devices_blitz_container" class="flex gap-1">
+        </div>
+        <div id="camo_paint_row_blitz" class="text-sm flex gap-1 items-center text-secondary mt-2">
+            <switch id="camo_paint_switch_blitz">
+                <div class="thumb"></div>
+            </switch>
+            <p>UI_camo_paint</p>
+        </div>
+    </div>
+</body>
+</template>

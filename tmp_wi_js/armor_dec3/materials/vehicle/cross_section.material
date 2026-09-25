@@ -1,0 +1,18 @@
+material:
+  u_worldViewProjectionMatrix: WORLD_VIEW_PROJECTION_MATRIX
+  u_clipPlane: CLIP_PLANE
+
+  renderState:
+    depthTest: true
+    depthWrite: true
+
+  technique:
+  - u_ambientColor: [0.5, 0.5, 0.5]
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_directionalLightDirection[0]: CAMERA_DIRECTION
+    u_directionalLightColor[0]: LIGHT_COLOR_0
+    u_color: PALETTE_colorSceneTeamEnemyDark
+    pass:
+      defines: "DIRECTIONAL_LIGHT_COUNT 1"
+      vertexShader: shaders/cross_section.vert
+      fragmentShader: shaders/cross_section.frag

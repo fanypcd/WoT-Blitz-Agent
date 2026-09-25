@@ -1,0 +1,47 @@
+material:
+  renderState:
+    blend: false
+    depthTest: false
+    depthWrite: false
+    #depthFunc: GREATER
+
+  technique:
+  - id: hblur
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    pass:
+      vertexShader: shaders/blit.vert
+      fragmentShader: shaders/hblur.frag
+  - id: hblur2
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    pass:
+      vertexShader: shaders/blit.vert
+      fragmentShader: shaders/hblur.frag
+  - id: vblur
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    pass:
+      vertexShader: shaders/blit.vert
+      fragmentShader: shaders/vblur.frag

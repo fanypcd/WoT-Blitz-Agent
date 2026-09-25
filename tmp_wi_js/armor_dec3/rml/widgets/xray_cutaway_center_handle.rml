@@ -1,0 +1,25 @@
+<rml>
+    <head>
+        <title>Cutaway Center Handle</title>
+        <link type="text/rcss" href="/rml/main.rcss"/>
+        <style>
+        </style>
+        <script>
+XrayCutawayCenterHandle = {}
+
+function XrayCutawayCenterHandle:onDragStart(element, x, y)
+    self.offset_x = x - element.offset_left + tonumber(element:GetAttribute("data-offset-x"))
+    self.offset_y = y - element.offset_top + tonumber(element:GetAttribute("data-offset-y"))
+end
+
+function XrayCutawayCenterHandle:onDrag(x, y)
+    xray_scene_objects:cutawayHandleMove(x - self.offset_x, y - self.offset_y, -1)
+end
+        </script>
+    </head>
+    <body id="xray_cutaway_center_handle" class="w-8 h-8" style="z-index:-10;drag:drag" 
+          ondragstart="XrayCutawayCenterHandle:onDragStart(element, event.parameters['mouse_x'], event.parameters['mouse_y'])"
+          ondrag="XrayCutawayCenterHandle:onDrag(event.parameters['mouse_x'], event.parameters['mouse_y'])"
+          >
+    </body>
+</rml>

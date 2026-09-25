@@ -1,0 +1,191 @@
+<rml>
+	<head>
+		<title>Confrontation Menu</title>
+		<link type="text/template" href="/rml/templates/button_icon.rml" />
+		<link type="text/template" href="/rml/templates/menu.rml" />
+		<script>
+ConfrontationMenu = {}
+ConfrontationMenu.__index = ConfrontationMenu
+setmetatable(ConfrontationMenu, {__index = Menu})
+
+local function updateButtonColors()
+    local self = ConfrontationMenu
+    self:updateButtonColors()
+end
+
+local function onModulesVisibilityChanged()
+    local self = ConfrontationMenu
+    local show_modules = settings:getBool("scene.showModules")
+    
+    if show_modules then
+        settings:setInt("scene.penetrationGradient", PenetrationGradient.GRADIENT_LINEAR)
+    else
+        if settings:getInt("scene.penetrationGradient") == PenetrationGradient.GRADIENT_LINEAR then
+            settings:setInt("scene.penetrationGradient", PenetrationGradient.GRADIENT_LEGACY)
+        end
+    end
+end
+
+function ConfrontationMenu:updateButtonColors()
+    local view_mode = settings:getInt("scene.viewMode")
+    local pen_mode = settings:getInt("scene.penetrationMode")
+    local show_modules = settings:getBool("scene.showModules")
+
+    self.elements["pen_chance_button"]:SetClass("bg-header", view_mode == ViewMode.PENETRATION and not show_modules and pen_mode == PenetrationMode.MODEL_COLOR)
+    self.elements["hitskin_button"]:SetClass("bg-header", view_mode == ViewMode.PENETRATION and not show_modules and pen_mode == PenetrationMode.MODEL_TEXTURE)
+    self.elements["modules_button"]:SetClass("bg-header", view_mode == ViewMode.PENETRATION and show_modules)
+    self.elements["crosssection_button"]:SetClass("bg-header", view_mode == ViewMode.CROSS_SECTION)
+end
+
+function ConfrontationMenu:new(obj)
+    local obj = Menu:new(obj)
+    setmetatable(obj, self)
+
+    obj.elements = {}
+
+    local element_ids = {
+        "pen_chance_button", "hitskin_button", "modules_button", "crosssection_button"
+    }
+    
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+
+    ConfrontationMenu = obj
+    
+    local content = obj.document:GetElementById("content")
+    content:SetClass("bg-content", false)
+    content:SetClass("p-0_5", false)
+    content:SetClass("gap-1", false)
+
+    -- connect signals
+    runOnChange(updateButtonColors, "scene.viewMode", "scene.penetrationMode", "scene.showModules")
+    runOnChange(onModulesVisibilityChanged, "scene.showModules")
+
+    -- sync ui
+    return obj
+end
+
+function ConfrontationMenu:open(slide_in_left)
+    Menu.open(self, slide_in_left)
+    
+    local view_mode = settings:getInt("scene.viewMode")
+    if view_mode ~= ViewMode.PENETRATION and view_mode ~= ViewMode.CROSS_SECTION then
+        settings:setInt("scene.viewMode", ViewMode.PENETRATION)
+    end
+end
+
+function ConfrontationMenu:onPenChanceButton()
+    if settings:getInt("scene.viewMode") == ViewMode.PENETRATION
+        and settings:getInt("scene.penetrationGradient") == PenetrationGradient.GRADIENT_LEGACY
+        and settings:getInt("scene.penetrationMode") == PenetrationMode.MODEL_COLOR
+        and not settings:getBool("scene.showModules")
+        then
+        ConfrontationInfoPanel:toggle()
+        ConfrontationInfoPanelHelp:toggle()
+    else
+        settings:setInt("scene.viewMode", ViewMode.PENETRATION)
+        settings:setInt("scene.penetrationGradient", PenetrationGradient.GRADIENT_LEGACY)
+        settings:setInt("scene.penetrationMode", PenetrationMode.MODEL_COLOR)
+        settings:setBool("scene.showModules", false)
+        ConfrontationInfoPanel:updateVisibility()
+    end
+    ConfrontationInfoPanelLocked:updateVisibility()
+end
+
+function ConfrontationMenu:onHitskinButton()
+    if settings:getInt("scene.viewMode") == ViewMode.PENETRATION
+        and settings:getInt("scene.penetrationGradient") == PenetrationGradient.GRADIENT_BOUNCE 
+        and settings:getInt("scene.penetrationMode") == PenetrationMode.MODEL_TEXTURE
+        and not settings:getBool("scene.showModules")
+        then
+        ConfrontationInfoPanel:toggle()
+        ConfrontationInfoPanelHelp:toggle()
+    else
+        settings:setInt("scene.viewMode", ViewMode.PENETRATION)
+        settings:setInt("scene.penetrationGradient", PenetrationGradient.GRADIENT_BOUNCE)
+        settings:setInt("scene.penetrationMode", PenetrationMode.MODEL_TEXTURE)
+        settings:setBool("scene.showModules", false)
+        ConfrontationInfoPanel:updateVisibility()
+    end
+    ConfrontationInfoPanelLocked:updateVisibility()
+end
+
+function ConfrontationMenu:onModulesButton()
+    if settings:getInt("scene.viewMode") == ViewMode.PENETRATION
+        and settings:getInt("scene.penetrationGradient") == PenetrationGradient.GRADIENT_LINEAR 
+        and settings:getInt("scene.penetrationMode") == PenetrationMode.MODEL_COLOR
+        and settings:getBool("scene.showModules")
+        then
+        ConfrontationInfoPanel:toggle()
+        ConfrontationInfoPanelHelp:toggle()
+    else
+        settings:setInt("scene.viewMode", ViewMode.PENETRATION)
+        settings:setInt("scene.penetrationGradient", PenetrationGradient.GRADIENT_LINEAR)
+        settings:setInt("scene.penetrationMode", PenetrationMode.MODEL_COLOR)
+        settings:setBool("scene.showModules", true)
+        ConfrontationInfoPanel:updateVisibility()
+    end
+    ConfrontationInfoPanelLocked:updateVisibility()
+end
+
+function ConfrontationMenu:onCrossSectionButton()
+    if settings:getInt("scene.viewMode") == ViewMode.CROSS_SECTION
+        and settings:getInt("scene.penetrationGradient") == PenetrationGradient.GRADIENT_LEGACY 
+        then
+        ConfrontationInfoPanel:toggle()
+        ConfrontationInfoPanelHelp:toggle()
+    else
+        settings:setInt("scene.viewMode", ViewMode.CROSS_SECTION)
+        settings:setInt("scene.penetrationGradient", PenetrationGradient.GRADIENT_LEGACY)
+        ConfrontationInfoPanel:updateVisibility()
+    end
+    ConfrontationInfoPanelLocked:updateVisibility()
+end
+
+
+        </script>
+	</head>
+	<body id="confrontation_menu" template="menu" style="top:42dp" onload="ConfrontationMenu:new{document = document}">
+        <button id="pen_chance_button" class="bg-content text-secondary p-0_5 rounded-tr" onclick="ConfrontationMenu:onPenChanceButton()">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate">
+                    <p class="text-xs">UI_icon_pen_chance</p>
+                    <svg src="/rml/icons/Tank-View-Hitskin-RG.svg" class="w-8 flex-none" />
+                </div>
+            </template>
+        </button>
+        <button id="hitskin_button" class="bg-content text-secondary p-0_5" onclick="ConfrontationMenu:onHitskinButton()">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate">
+                    <p class="text-xs">UI_icon_hitskin</p>
+                    <svg src="/rml/icons/Tank-View-Hitskin-Blitz.svg" class="w-8 flex-none" />
+                </div>
+            </template>
+        </button>
+        <button id="modules_button" class="bg-content text-secondary p-0_5" onclick="ConfrontationMenu:onModulesButton()">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate">
+                    <p class="text-xs">UI_icon_modules</p>
+                    <svg src="/rml/icons/Modules-.svg" class="w-8 flex-none" />
+                </div>
+            </template>
+        </button>
+        <button id="crosssection_button" class="bg-content text-secondary p-0_5" onclick="ConfrontationMenu:onCrossSectionButton()">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate">
+                    <p class="text-xs">UI_icon_crosssection</p>
+                    <svg src="/rml/icons/Tank-View-Cutaway-Vertical.svg" class="w-8 flex-none" />
+                </div>
+            </template>
+        </button>
+        <button class="bg-content text-secondary p-0_5 rounded-br" onclick="RootMenu:open(true)">
+            <template src="button_icon">
+                <div class="w-8 flex flex-col truncate h-8 justify-between">
+                    <p class="text-xs">UI_icon_back</p>
+                    <svg src="/rml/icons/UI-Arrow-Right.svg" class="w-3 mb-1 flex-none self-center" crop-to-content="1" />
+                </div>
+            </template>
+        </button>
+    </body>
+</rml>

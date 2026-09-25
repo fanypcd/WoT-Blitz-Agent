@@ -1,0 +1,110 @@
+<rml>
+	<head>
+		<title>Root Menu</title>
+		<link type="text/template" href="/rml/templates/button_icon.rml" />
+		<link type="text/template" href="/rml/templates/menu.rml" />
+		<script>
+RootMenuClass = {}
+RootMenuClass.__index = RootMenuClass
+setmetatable(RootMenuClass, {__index = Menu})
+
+local function onViewModeChanged()
+    local self = RootMenu
+    local view_mode = settings:getInt("scene.viewMode")
+    
+    self.elements["xray_button"]:SetClass("bg-header", view_mode == ViewMode.ARMOR or view_mode == ViewMode.WHITE or view_mode == ViewMode.TEXTURED or view_mode == ViewMode.CROSS_SECTION_XRAY)
+    self.elements["confrontation_button"]:SetClass("bg-header", view_mode == ViewMode.PENETRATION or view_mode == ViewMode.CROSS_SECTION)
+    self.elements["heatmaps_button"]:SetClass("bg-header", view_mode == ViewMode.HEATMAP)
+    self.elements["collision_button"]:SetClass("bg-header", view_mode == ViewMode.COLLISION)
+end
+
+local function onPlatformCodeChanged()
+    local self = RootMenu
+    local code = settings:getString("db.platformCode")
+    self.elements["heatmaps_button"]:SetClass("hidden", code == "console" or code == "reforged")
+end
+
+function RootMenuClass:new(obj)
+    local obj = Menu:new(obj)
+    setmetatable(obj, RootMenuClass)
+
+    obj.elements = {}
+
+    local element_ids = {
+        "xray_button", "confrontation_button", "heatmaps_button", "collision_button"
+    }
+    
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+
+    RootMenu = obj
+    
+    local content = obj.document:GetElementById("content")
+    content:SetClass("bg-content", false)
+    content:SetClass("p-0_5", false)
+
+    -- connect signals
+    runOnChange(onViewModeChanged, "scene.viewMode")
+    runOnChange(onPlatformCodeChanged, "db.platformCode")
+
+    -- sync ui
+    return obj
+end
+
+function RootMenuClass:open(slide_in_left)
+    InfoPanel.closeAll("default")
+    Menu.open(self, slide_in_left)
+end
+
+        </script>
+	</head>
+	<body id="root_menu" template="menu" style="top:42dp" onload="RootMenuClass:new{document = document, opened = true}">
+        <div class="flex flex-col">
+            <button id="xray_button" class="bg-content text-secondary p-0_5 rounded-tr" onclick="XrayMenu:open(false)">
+                <template src="button_icon">
+                    <div class="w-8 flex flex-col truncate">
+                        <p class="text-xs">UI_icon_xray</p>
+                        <svg src="/rml/icons/AI-XRay-mode.svg" class="w-8 flex-none" />
+                    </div>
+                </template>
+            </button>
+            <button id="confrontation_button" class="bg-content text-secondary p-0_5" onclick="ConfrontationMenu:open(false)">
+                <template src="button_icon">
+                    <div class="w-8 flex flex-col truncate">
+                        <p class="text-xs">UI_icon_confrontation</p>
+                        <svg src="/rml/icons/AI-Confrontation-Mode.svg" class="w-8 flex-none" />
+                    </div>
+                </template>
+            </button>
+            <button id="heatmaps_button" class="bg-content text-secondary p-0_5" onclick="HeatmapsMenu:open(false)">
+                <template src="button_icon">
+                    <div class="w-8 flex flex-col truncate">
+                        <p class="text-xs">UI_icon_heatmaps</p>
+                        <svg src="/rml/icons/AI-Heatmap-Mode-.svg" class="w-8 flex-none" />
+                    </div>
+                </template>
+            </button>
+            <button id="collision_button" class="bg-content text-secondary p-0_5 rounded-br" onclick="CollisionMenu:open(false)">
+                <template src="button_icon">
+                    <div class="w-8 flex flex-col truncate">
+                        <p class="text-xs">UI_icon_collision</p>
+                        <svg src="/rml/icons/AI-Collision-mode.svg" class="w-8 flex-none" />
+                    </div>
+                </template>
+            </button>
+        </div>
+        <div style="height:38dp">
+        </div>
+        <div class="flex flex-col gap-1 bg-content rounded-r p-0_5">
+            <button class="text-secondary" onclick="OptionsMenu:open(false)">
+                <template src="button_icon">
+                    <div class="w-8 flex flex-col truncate">
+                        <p class="text-xs">UI_icon_options</p>
+                        <svg src="/rml/icons/Preference-0.svg" class="w-8 flex-none" />
+                    </div>
+                </template>
+            </button>
+        </div>
+    </body>
+</rml>

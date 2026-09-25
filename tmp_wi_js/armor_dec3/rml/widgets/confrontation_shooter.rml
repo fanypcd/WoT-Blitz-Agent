@@ -1,0 +1,11 @@
+<rml>
+    <head>
+        <title>Confrontation Shooter Icon</title>
+        <link type="text/rcss" href="/rml/main.rcss"/>
+        <style>
+        </style>
+    </head>
+    <body id="confrontation_shooter" class="text-hud p-2" style="z-index:-10" onclick="scene_service:resetCameraToLastShot()">
+        <svg src="/rml/icons/AI-Confrontation-Shooter-1.svg" class="w-4" />
+    </body>
+</rml>

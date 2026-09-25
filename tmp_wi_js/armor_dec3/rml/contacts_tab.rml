@@ -1,0 +1,51 @@
+<rml>
+    <head>
+        <title>Contacts Tab</title>
+        <link type="text/template" href="/rml/templates/info_panel.rml" />
+        <link type="text/template" href="/rml/templates/button.rml" />
+        <script>
+ContactsTab = {}
+ContactsTab.__index = ContactsTab 
+
+function ContactsTab:new(o)
+    setmetatable(self, {__index = InfoPanel})
+
+    local obj = InfoPanel:new(o)
+    setmetatable(obj, self)
+
+    obj:setMainTitle("UI_contacts")
+    obj:setSecondTitle("UI_title_options")
+
+    obj.elements = {}
+    
+    local element_ids = {
+    }
+
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+
+    ContactsTab = obj
+    
+    -- connect signals
+    
+    -- sync ui
+    return obj
+end
+
+        </script>
+    </head>
+    <body id="contacts_tab" template="info_panel" onload="ContactsTab:new{document = document}">
+        <div class="text-xs">
+            <p class="mb-4">UI_contacts_text</p>
+            <p class="mb-4 text-base text-secondary" onclick="game:launchURL('https://wotinspector.com')">wotinspector.com</p>
+            <p class="mb-1">UI_join_discord_description</p>
+            <button class="w-full flex bg-secondary text-primary-foreground rounded" onclick="game:launchURL('https://discord.gg/TkPjTRc')">
+                <template src="button">
+                    <svg src="/rml/icons/discord.svg" class="w-8 flex-none" />
+                    <p>UI_discord</p>
+                </template>
+            </button>
+        </div>
+    </body>
+</rml>

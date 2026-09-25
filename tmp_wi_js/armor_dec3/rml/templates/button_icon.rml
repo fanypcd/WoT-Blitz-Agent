@@ -1,0 +1,9 @@
+<template name="button_icon" content="content">
+<head>
+	<link type="text/rcss" href="/rml/main.rcss"/>
+</head>
+<body>
+    <div id="content" class="text-xs truncate">
+    </div>
+</body>
+</template>

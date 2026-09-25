@@ -1,0 +1,54 @@
+<rml>
+    <head>
+        <title>Confrontation Info Panel</title>
+        <link type="text/template" href="/rml/templates/info_panel.rml" />
+        <script>
+ConfrontationInfoPanelHelp = {}
+
+local function onViewModeChanged()
+    local self = ConfrontationInfoPanelHelp
+    self:updateVisibility()
+end
+
+local function onArmorTraced(ray, points, bounding_box)
+    local self = ConfrontationInfoPanelHelp
+    self.tooltip_visible = #points > 0
+end
+
+function ConfrontationInfoPanelHelp:new(o)
+    self.__index = self
+    setmetatable(self, {__index = InfoPanel})
+
+    local obj = InfoPanel:new(o)
+    setmetatable(obj, self)
+
+    obj:setMainTitle("UI_title_confrontation")
+    obj:setSecondTitle("UI_information")
+
+    obj.tooltip_visible = false
+    obj.elements = {}
+    
+    ConfrontationInfoPanelHelp = obj
+    
+    -- connect signals
+    runOnChange(onViewModeChanged, "scene.viewMode")
+    scene_service:connect_armorTracedSignal(onArmorTraced)
+
+    -- Sync if a shot was already placed before this deferred panel loaded.
+    scene_service:retraceLastShot()
+    return obj
+end
+
+function ConfrontationInfoPanelHelp:checkVisibility()
+    local view_mode = settings:getInt("scene.viewMode")
+    local target_locked = arena_service.target_vehicle_info and account_service:isVehicleLocked(arena_service.target_vehicle_info.shared, false)
+    return (view_mode == ViewMode.PENETRATION or view_mode == ViewMode.CROSS_SECTION) and not self.tooltip_visible and not target_locked
+end
+        </script>
+    </head>
+    <body id="confrontation_info_panel_help" template="info_panel" onload="ConfrontationInfoPanelHelp:new{document = document}">
+        <div class="text-xs">
+            <p>UI_help_confrontation</p>
+        </div>
+    </body>
+</rml>

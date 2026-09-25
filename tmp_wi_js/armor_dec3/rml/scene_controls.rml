@@ -1,0 +1,393 @@
+<rml>
+	<head>
+		<title>Scene Controls</title>
+		<link type="text/template" href="/rml/templates/button_icon.rml" />
+		<style>
+            select {
+                height: 32dp;
+            }
+
+            select selectvalue{
+                height: 32dp;
+            }
+
+            select selectbox {
+                margin-left: -80dp;
+            }
+            
+        </style>
+		<script>
+SceneControls = {}
+SceneControls.__index = SceneControls
+
+local utils = require ("rml.scripts.utils")
+local VA = VehicleAttributeId
+
+local function onTargetVehicleChanged(old_vehicle, vehicle, vehicle_info)
+    local self = SceneControls
+    local platform = vehicle_info and vehicle_info.shared and vehicle_info.shared.platform
+    local target_name = platform and platform:getTextUTF8(vehicle_info.shared.localized_name) or "UI_not_set"
+
+    self.elements["target_name"].inner_rml = target_name
+
+    if vehicle_info and platform then
+        local turret = vehicle_info:getTurret(vehicle.turret_id)
+        self.elements["target_turret"].inner_rml = utils.tier_labels[turret.level] .. " " .. platform:getTextUTF8(turret.localized_name)
+        
+        local max_speed = vehicle_info:getEffectiveAttribute(VA.VEHICLE_ATTR_FORWARD_MAX_SPEED, vehicle)
+        local min_speed = -vehicle_info:getEffectiveAttribute(VA.VEHICLE_ATTR_BACKWARD_MAX_SPEED, vehicle)
+
+        self.elements["target_min_speed"].inner_rml = fmt("UI_kmh_format", fmt("{:.0Lf}", min_speed))
+        self.elements["target_max_speed"].inner_rml = fmt("UI_kmh_format", fmt("{:.0Lf}", max_speed))
+        
+        local target_speed_slider = Element.As["ElementFormControlInput"](self.elements["target_speed_slider"])
+        target_speed_slider.min = math.floor(min_speed)
+        target_speed_slider.max = math.floor(max_speed)
+        
+        self.elements["enhanced_armor"]:SetClass("selected", vehicle.equipment_descriptor:has("multiLayerArmor"))
+    else
+        self.elements["target_turret"].inner_rml = "UI_not_set"
+    end
+
+    self:updateWidth()
+end
+
+local function onPlayerVehicleChanged(old_vehicle, vehicle, vehicle_info)
+    local self = SceneControls
+
+    if not self.change_player_guard then
+        local platform = vehicle_info and vehicle_info.shared and vehicle_info.shared.platform    
+        self.elements["shooter_name"].inner_rml = platform and platform:getTextUTF8(vehicle_info.shared.localized_name) or "UI_not_set"
+
+        local gun_info = vehicle_info and vehicle_info:getGun(vehicle_info:getTurret(vehicle.turret_id), vehicle.gun_id)
+    
+        Element.As["ElementFormControlSelect"](self.elements["ammo_button"]):RemoveAll()
+    
+        local ammo_template = [[
+            <div class="h-8 flex gap-2 items-center pt-0_5">
+                <div class="w-8 flex-none">
+                    <p class="leading-none text-center text-xs">
+                        <small>APCR</small></p>
+                    <svg src="/rml/icons/Specs-Ammo-AP-.svg" class="w-6 flex-none mx-auto" />
+                </div>
+                <div class="h-8 text-xs leading-none">
+                    <p class="name font-bold"></p>
+                    <p class="pen"></p>
+                    <p class="damage"></p>
+                </div>
+            </div>
+        ]]
+
+        if gun_info then
+            self.elements["shooter_gun"].inner_rml = utils.tier_labels[gun_info.level] .. " " .. platform:getTextUTF8(gun_info.localized_name)
+        
+            for i = 1, gun_info.shells_count do
+                local shell = gun_info.shells[i].shared
+                if shell then
+                    local option = self.elements["ammo_button"]:AppendChild(self.document:CreateElement("option"))
+                    option.inner_rml = ammo_template
+                    option:SetAttribute("value", shell.id)
+            
+                    option:QuerySelector("small").inner_rml = PlatformDB.getShellTypeName(shell.kind)
+                    option:QuerySelector("svg"):SetAttribute("src", "/rml/icons/" .. utils.getAmmoIcon(shell.kind))
+                    option:QuerySelector(".name").inner_rml = platform:getTextUTF8(shell.localized_name)
+                    option:QuerySelector(".pen").inner_rml = fmt("UI_pen") .. ": " .. fmt("UI_millimeters_format", fmt("{:Lg}", gun_info.shells[i].piercing_power_100))
+                    option:QuerySelector(".damage").inner_rml = fmt("UI_damage") .. ": " .. fmt("UI_hp_format", fmt("{:Lg}", shell.damage_armor))
+                    
+                    if shell.id == vehicle.shell_id then
+                        Element.As["ElementFormControlSelect"](self.elements["ammo_button"]).selection = i
+                    end
+                end
+            end
+        else
+            self.elements["shooter_gun"].inner_rml = "UI_not_set"
+        end
+        
+        local forward_speed = vehicle_info and math.floor(vehicle_info:getEffectiveAttribute(VA.VEHICLE_ATTR_FORWARD_MAX_SPEED, vehicle)) or 10.0
+        self.elements["player_min_speed"].inner_rml = fmt("UI_kmh_format", 0)
+        self.elements["player_max_speed"].inner_rml = fmt("UI_kmh_format", fmt("{:.0Lf}", forward_speed))
+        
+        local player_speed_slider = Element.As["ElementFormControlInput"](self.elements["player_speed_slider"])
+        player_speed_slider.min = 0
+        player_speed_slider.max = forward_speed
+        
+        self.elements["calibrated_shells"]:SetClass("selected", vehicle.equipment_descriptor:has("calibratedShells"))
+        self:updateShellParamsSwitcher()
+    end
+end
+
+local function onViewModeChanged()
+    local self = SceneControls
+    local view_mode = settings:getInt("scene.viewMode")
+    local is_pen_mode = view_mode == ViewMode.PENETRATION or view_mode == ViewMode.CROSS_SECTION
+    local has_shooter = is_pen_mode or view_mode == ViewMode.RAMMING
+    
+    local target_icon
+    if view_mode == ViewMode.RAMMING then
+        target_icon = "AI-Collision-Target-.svg"
+    else
+        target_icon = (is_pen_mode or view_mode == ViewMode.HEATMAP) and "AI-Confrontation-Target.svg" or "AI-XRay-Target-.svg"
+    end
+    
+    self.elements["target_icon"].parent_node:SetClass("w-40", has_shooter)
+    
+    self.elements["ammo_button"]:SetClass("hidden", not is_pen_mode)
+    self.elements["shooter"]:SetClass("hidden", not has_shooter)
+    self.elements["swap"]:SetClass("hidden", not has_shooter)
+    self.elements["swap_dummy"]:SetClass("hidden", not has_shooter)
+    self.elements["shooter_icon"]:SetAttribute("src", "/rml/icons/" .. (view_mode == ViewMode.RAMMING and "AI-Collision-Rammer-.svg" or "AI-Confrontation-Shooter-1.svg"))
+    self.elements["target_icon"]:SetAttribute("src", "/rml/icons/" .. target_icon)
+
+    self.elements["player_speed"].parent_node:SetClass("hidden", view_mode ~= ViewMode.RAMMING)
+    self.elements["target_speed"].parent_node:SetClass("hidden", view_mode ~= ViewMode.RAMMING)
+
+    self.elements["player_speed_slider"].parent_node:SetClass("hidden", true)
+    self.elements["target_speed_slider"].parent_node:SetClass("hidden", true)
+
+    local platform = db_service.platform
+    local is_blitz = platform and (platform.game_code == "blitz" or platform.game_code == "tanksblitz" or platform.game_code == "reforged")
+    self.elements["calibrated_shells"]:SetClass("hidden", not is_pen_mode or not is_blitz)
+    self.elements["enhanced_armor"]:SetClass("hidden", not is_pen_mode or not is_blitz)
+    self:updateShellParamsSwitcher()
+          
+    self:updateWidth()
+end
+
+local function onPlayerSpeedChanged()
+    local self = SceneControls
+    local value = settings:getFloat("arena.player.speed")
+    self.elements["player_speed"].inner_rml = fmt("{:.0Lf}", value)
+
+    if not self.change_player_speed_guard then
+        Element.As["ElementFormControlSelect"](self.elements["player_speed_slider"]).value = value
+    end
+end
+
+local function onTargetSpeedChanged()
+    local self = SceneControls
+    local value = settings:getFloat("arena.target.speed")
+    self.elements["target_speed"].inner_rml = fmt("{:.0Lf}", value)
+    
+    if not self.change_target_speed_guard then
+        Element.As["ElementFormControlSelect"](self.elements["target_speed_slider"]).value = value
+    end
+end
+
+function SceneControls:new(obj)
+    setmetatable(obj, self)
+    SceneControls = obj
+    
+    obj.elements = {}
+
+    local element_ids = {
+        "target_name", "shooter_name", "target_turret", "shooter_gun", "ammo_button",
+        "shooter", "shooter_icon", "target_icon", "player_speed", "target_speed",
+        "player_speed_slider", "player_min_speed", "player_max_speed",
+        "target_speed_slider", "target_min_speed", "target_max_speed",
+        "calibrated_shells", "enhanced_armor", "swap", "swap_dummy", "shell_params_switcher"
+    }
+    
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+
+    obj.elements["calibrated_shells"]:SetAttribute("src", utils.resolveUiIcon("/ui/icons/blitz/equipment/calibratedShells.png"))
+    obj.elements["enhanced_armor"]:SetAttribute("src", utils.resolveUiIcon("/ui/icons/blitz/equipment/multiLayerArmor.png"))
+    obj.elements["shell_params_switcher"]:SetAttribute("src", utils.resolveUiIcon("/ui/icons/pc/shell_setup_icon.png"))
+    
+    -- connect signals
+    runOnChange(onViewModeChanged, "scene.viewMode")
+    runOnChange(onPlayerSpeedChanged, "arena.player.speed")
+    runOnChange(onTargetSpeedChanged, "arena.target.speed")
+    arena_service:connect_targetVehicleChangedSignal(onTargetVehicleChanged)
+    arena_service:connect_playerVehicleChangedSignal(onPlayerVehicleChanged)
+
+    -- sync ui
+    onTargetVehicleChanged(nil, arena_service.target_vehicle, arena_service.target_vehicle_info)
+    onPlayerVehicleChanged(nil, arena_service.player_vehicle, arena_service.player_vehicle_info)
+	return o
+end
+
+function SceneControls:updateWidth()
+    local doc = self.document
+
+	doc:SetAttribute("style", "width:auto;")
+    doc:Show()
+	doc:SetAttribute("style", "width:" .. doc.offset_width .. "px;")
+end
+
+function SceneControls:onShooterClick()
+    TankSelector:open(
+        arena_service.player_vehicle,
+        function(vehicle)
+            arena_service:setPlayer(vehicle)
+        end
+    )
+end
+
+function SceneControls:onTargetClick()
+    TankSelector:open(
+        arena_service.target_vehicle,
+        function(vehicle)
+            arena_service:setTarget(vehicle)
+        end
+    )
+end
+
+function SceneControls:onSelectAmmo(value)
+    local shell_id = value and tonumber(value)
+    
+    local vehicle = arena_service.player_vehicle
+    if shell_id and shell_id ~= vehicle.shell_id then
+        vehicle.shell_id = shell_id
+        self.change_player_guard = true
+        arena_service:setPlayer(vehicle)
+        self.change_player_guard = false
+    end
+end
+
+function SceneControls:onOpenPlayerSpeed()
+    self.elements["player_speed_slider"].parent_node:SetClass("hidden", not self.elements["player_speed_slider"].parent_node:IsClassSet("hidden"))
+    self.elements["target_speed_slider"].parent_node:SetClass("hidden", true)
+end
+
+function SceneControls:onOpenTargetSpeed()
+    self.elements["target_speed_slider"].parent_node:SetClass("hidden", not self.elements["target_speed_slider"].parent_node:IsClassSet("hidden"))
+    self.elements["player_speed_slider"].parent_node:SetClass("hidden", true)
+end
+
+function SceneControls:onPlayerSpeedSliderChange(value)
+    self.change_player_speed_guard = true
+    settings:setFloat("arena.player.speed", value)
+    self.change_player_speed_guard = false
+end
+
+function SceneControls:onTargetSpeedSliderChange(value)
+    self.change_target_speed_guard = true
+    settings:setFloat("arena.target.speed", value)
+    self.change_target_speed_guard = false
+end
+
+function SceneControls:toggleCalibratedShells()
+    local vehicle = arena_service.player_vehicle
+    vehicle.equipment_descriptor:toggle("calibratedShells")
+    arena_service:setPlayer(vehicle)
+end
+
+function SceneControls:updateShellParamsSwitcher()
+    local view_mode = settings:getInt("scene.viewMode")
+    local is_pen_mode = view_mode == ViewMode.PENETRATION or view_mode == ViewMode.CROSS_SECTION
+    local vehicle = arena_service.player_vehicle
+    local vehicle_info = arena_service.player_vehicle_info
+    local supported = false
+
+    if is_pen_mode and vehicle and vehicle_info and vehicle_info.shared and vehicle_info.shared.has_siege_mode then
+        local gun_info = vehicle_info:getGun(vehicle_info:getTurret(vehicle.turret_id), vehicle.gun_id)
+        if gun_info then
+            local modified_shells = gun_info.modified_shells
+            if modified_shells then
+                for i = 1, #modified_shells do
+                    if modified_shells[i] == vehicle.shell_id then
+                        supported = true
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    self.elements["shell_params_switcher"]:SetClass("hidden", not supported)
+    self.elements["shell_params_switcher"]:SetClass("selected", arena_service.player_siege_mode)
+end
+
+function SceneControls:toggleShellParamsSwitcher()
+    arena_service.player_siege_mode = not arena_service.player_siege_mode
+end
+
+function SceneControls:toggleEnhancedArmor()
+    local vehicle = arena_service.target_vehicle
+    vehicle.equipment_descriptor:toggle("multiLayerArmor")
+    arena_service:setTarget(vehicle)
+end
+
+function SceneControls:onSwapButton()
+    local player = arena_service.player_vehicle
+    local target = arena_service.target_vehicle
+    
+    local player_speed = settings:getFloat("arena.player.speed")
+    local target_speed = settings:getFloat("arena.target.speed")
+    
+    arena_service:setPlayer(target)
+    arena_service:setTarget(player)
+    
+    settings:setFloat("arena.player.speed", target_speed)
+    settings:setFloat("arena.target.speed", player_speed)
+end
+
+		</script>
+	</head>
+	<body class="bottom-0 mx-auto" style="z-index:0" onload="SceneControls:new{document = document}">
+        <div class="bg-content rounded p-1 py-1 mb-1 flex flex-col text-xs gap-1 hidden" style="width:50%;transform:translateX(50%)">
+            <input id="player_speed_slider" type="range" class="player" onchange='SceneControls:onPlayerSpeedSliderChange(event.parameters["value"])' />
+            <div class="flex justify-between text-team-ally">
+                <p id="player_min_speed">55</p>
+                <p id="player_max_speed">55</p>
+            </div>
+        </div>
+        <div class="bg-content rounded p-1 py-1 mb-1 flex flex-col text-xs gap-1 hidden" style="width:50%;transform:translateX(50%)">
+            <input id="target_speed_slider" type="range" class="target" onchange='SceneControls:onTargetSpeedSliderChange(event.parameters["value"])' />
+            <div class="flex justify-between text-team-enemy">
+                <p id="target_min_speed">55</p>
+                <p id="target_max_speed">55</p>
+            </div>
+        </div>
+        <div class="flex">
+            <div id="swap_dummy" class="w-8"></div>
+            <div class="bg-header rounded-t px-1 flex gap-1 items-center text-primary">
+		        <div id="shooter" class="h-8 flex gap-1">
+                    <img id="shell_params_switcher" class="w-8 h-8 flex-none rounded box-border icon hidden" onclick="SceneControls:toggleShellParamsSwitcher()" />
+                    <img id="calibrated_shells" class="w-8 h-8 flex-none rounded box-border icon" onclick="SceneControls:toggleCalibratedShells()" />
+                    <div class="w-40 flex gap-1 items-center text-team-ally justify-end" onclick="SceneControls:onShooterClick()">
+                        <div class="truncate">
+                            <p id="shooter_name" class="text-sm leading-none text-right">M36 Jackson</p>
+                            <div class="flex gap-1 items-center">
+                                <svg class="w-4 flex-none" src="/rml/icons/Modules-Gun-.svg" />
+	                            <p id="shooter_gun" class="text-xs text-right">VII M36T78</p>
+                            </div>
+                        </div>
+                        <svg id="shooter_icon" class="w-8 flex-none" src="/rml/icons/AI-Confrontation-Shooter-1.svg" />
+                    </div>
+		        </div>
+                <div class="h-8 w-8 flex flex-col text-team-ally items-center" onclick="SceneControls:onOpenPlayerSpeed()">
+                    <p class="text-xs leading-none">UI_kmh</p>
+                    <p id="player_speed" class="text-2xl leading-none">55</p>
+                </div>
+                <select id="ammo_button" class="w-8" onchange='SceneControls:onSelectAmmo(event.parameters["value"])'>
+                </select>
+                <div class="h-8 w-8 flex flex-col text-team-enemy items-center" onclick="SceneControls:onOpenTargetSpeed()">
+                    <p class="text-xs leading-none">UI_kmh</p>
+                    <p id="target_speed" class="text-2xl leading-none">55</p>
+                </div>
+		        <div class="h-8 flex gap-1">
+                    <div class="flex gap-1 items-center text-team-enemy min-w-40" onclick="SceneControls:onTargetClick()">
+                        <svg id="target_icon" class="w-8 flex-none" src="/rml/icons/AI-Confrontation-Target.svg" />
+                        <div class="truncate">
+                            <p id="target_name" class="text-sm leading-none">M36 Jackson</p>
+                            <div class="flex gap-1 items-center">
+                                <svg class="w-4 flex-none" src="/rml/icons/modules-turret-3.svg" />
+	                            <p id="target_turret" class="text-xs">VII M36T78</p>
+                            </div>
+                        </div>
+                    </div>
+                    <img id="enhanced_armor" class="w-8 h-8 flex-none rounded box-border icon" onclick="SceneControls:toggleEnhancedArmor()" />
+		        </div>
+                <button id="swap" class="text-secondary" onclick="SceneControls:onSwapButton()">
+                    <template src="button_icon">
+                        <p>UI_icon_swap</p>
+                        <svg src="/rml/icons/TankSelector-SWAP.svg" class="w-6 flex-none" />
+                    </template>
+                </button>
+            </div>
+        </div>
+	</body>
+</rml>

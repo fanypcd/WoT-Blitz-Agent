@@ -1,0 +1,176 @@
+material:
+  u_worldViewProjectionMatrix: WORLD_VIEW_PROJECTION_MATRIX
+
+  renderState:
+    depthFunc: LEQUAL
+    depthTest: true
+    depthWrite: true
+
+  technique:
+  - id: defaultTextured
+    renderState:
+      blend: false
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_normalmapTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_detailTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+    - id: u_skySpecularTexture
+      path: materials/sfx/skyspecular.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+    - id: u_metallicGlossTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: LINEAR
+      magFilter: LINEAR
+    - id: u_camoTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_ambientColor: SCENE_AMBIENT_COLOR
+    u_directionalLightDirection[0]: LIGHT_DIRECTION_0
+    u_directionalLightColor[0]: SUN_COLOR
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+    u_detailTiling: [0.0, 0.0]
+
+    u_camoPalette0: [0.0, 0.0, 0.0, 0.0]
+    u_camoPalette1: [0.0, 0.0, 0.0, 0.0]
+    u_camoPalette2: [0.0, 0.0, 0.0, 0.0]
+    u_camoPalette3: [0.0, 0.0, 0.0, 0.0]
+    u_paintColor: [0.0, 0.0, 0.0, 0.0]
+    u_paintFade: PAINT_FADE
+
+    u_clipPlane: CLIP_PLANE
+    u_worldMatrix: WORLD_MATRIX
+
+    u_viewMatrix: VIEW_MATRIX
+    u_shadowMap: SHADOW_MAP_SAMPLER
+    u_shadowMapViewProjection[0]: SHADOW_MAP_VIEW_PROJECTION_MATRIX_0
+    u_shadowMapInvSize: SHADOW_MAP_INVSIZE
+    u_directionalLightDirection[1]: LIGHT_DIRECTION_1
+    u_directionalLightColor[1]: LIGHT_COLOR_1
+
+    u_cloudyFactor: CLOUDY_FACTOR
+    u_cameraPosition: CAMERA_VIEW_POSITION
+
+    pass:
+      id: texturedPass
+      defines: "DIRECTIONAL_LIGHT_COUNT 2;USE_SHADOWS;BUMPED;SPECULAR;AMBIENT_OCCLUSION;DETAIL_MAP;CLIP_PLANE"
+      vertexShader: shaders/textured.vert
+      fragmentShader: shaders/textured.frag
+
+  - id: transitionFx
+    parentID: defaultTextured
+    renderState:
+      blend: true
+      blendSrc: SRC_ALPHA
+      blendDst: ONE_MINUS_SRC_ALPHA
+    u_time: GAME_TIME
+    pass:
+      id: texturedPass
+      defines: "DIRECTIONAL_LIGHT_COUNT 2;USE_SHADOWS;BUMPED;SPECULAR;AMBIENT_OCCLUSION;DETAIL_MAP;CLIP_PLANE;TRANSITION_FX"
+      vertexShader: shaders/textured.vert
+      fragmentShader: shaders/textured.frag
+
+  #- id: transitionFxWire
+  #  u_transitionColor: PALETTE_colorUIMoving
+  #  u_time: GAME_TIME
+  #  renderState:
+  #    blend: true
+  #    blendSrc: SRC_ALPHA
+  #    blendDst: ONE_MINUS_SRC_ALPHA
+  #  pass:
+  #    vertexShader: shaders/transition_wire.vert
+  #    fragmentShader: shaders/transition_wire.frag
+
+  - id: depthOnly
+    renderState:
+      blend: false
+    sampler:
+    - id: u_normalmapTexture
+      path: materials/system/grey.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    u_clipPlane: CLIP_PLANE
+    u_worldMatrix: WORLD_MATRIX
+
+    pass:
+      defines: "DEPTH_PASS;CLIP_PLANE"
+      vertexShader: shaders/textured.vert
+      fragmentShader: shaders/textured.frag
+
+  - id: shadowCaster
+    u_worldMatrix: WORLD_MATRIX
+    u_clipPlane: CLIP_PLANE
+    renderState:
+      cullFace: true
+      blend: false
+    pass:
+      defines: "CLIP_PLANE"
+      vertexShader: shaders/shadow_caster.vert
+      fragmentShader: shaders/shadow_caster.frag
+
+  - id: interior
+    sampler:
+    - id: u_diffuseTexture
+      path: materials/system/white.png
+      mipmap: false
+      wrapS: CLAMP
+      wrapT: CLAMP
+      minFilter: NEAREST
+      magFilter: NEAREST
+
+    renderState:
+      blend: false
+      cullFace: true
+      cullFaceSide: FRONT
+
+    u_ambientColor: SCENE_AMBIENT_COLOR
+    u_directionalLightDirection[0]: LIGHT_DIRECTION_0
+    u_directionalLightColor[0]: SUN_COLOR
+    u_worldViewMatrix: WORLD_VIEW_MATRIX
+
+    u_worldMatrix: WORLD_MATRIX
+    u_clipPlane: CLIP_PLANE
+
+    u_viewMatrix: VIEW_MATRIX
+
+    u_interiorLuminosity: 0.6
+
+    pass:
+      id: texturedPass
+      defines: "DIRECTIONAL_LIGHT_COUNT 1;CLIP_PLANE;INTERIOR"
+      vertexShader: shaders/textured.vert
+      fragmentShader: shaders/textured.frag
+

@@ -1,0 +1,26 @@
+material:
+  u_worldViewMatrix: WORLD_VIEW_MATRIX
+  u_projectionMatrix: PROJECTION_MATRIX
+  u_dispersion: 1.0
+  
+  renderState:
+    cullFace: true
+    depthTest: true
+    depthWrite: false
+    blend: true
+    blendSrc: SRC_ALPHA
+    blendDst: ONE_MINUS_SRC_ALPHA
+
+  technique:
+  - id: default
+    u_alpha: 0.4
+    u_color: SCENE_MAIN_COLOR
+    pass:
+    - renderState:
+        cullFaceSide: BACK
+      vertexShader: shaders/dispersion_cone.vert
+      fragmentShader: shaders/dispersion_cone.frag
+    - renderState:
+        cullFaceSide: FRONT
+      vertexShader: shaders/dispersion_cone.vert
+      fragmentShader: shaders/dispersion_cone.frag

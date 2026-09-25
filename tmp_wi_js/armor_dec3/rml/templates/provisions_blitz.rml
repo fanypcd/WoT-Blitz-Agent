@@ -1,0 +1,131 @@
+<template name="provisions_blitz" content="">
+<head>
+	<link type="text/rcss" href="/rml/main.rcss"/>
+    <script>
+local utils = require ("rml.scripts.utils")
+
+ProvisionsBlitz = {}
+ProvisionsBlitz.__index = ProvisionsBlitz
+
+function ProvisionsBlitz:new(obj)
+    setmetatable(obj, self)
+
+    obj.elements = {}
+    
+    local element_ids = {
+        "provisions_blitz_container", "reset_button_provisions_blitz"
+    }
+    
+    for _, id in ipairs(element_ids) do
+        obj.elements[id] = obj.document:GetElementById(id)
+    end
+    
+    obj.elements["reset_button_provisions_blitz"]:AddEventListener("click", function() obj:reset() end)
+    
+    return obj
+end
+
+function ProvisionsBlitz:init(vehicle_descr, vehicle_info, original_descr)
+    self.vehicle_descr = vehicle_descr
+    self.vehicle_info = vehicle_info
+    self.original_equipment = EquipmentDescriptor.new((original_descr or self.vehicle_descr).equipment_descriptor)
+    
+    self:updateEquipment()
+end
+
+function ProvisionsBlitz:getArtefactList(vehicle_info)
+    local platform = vehicle_info and vehicle_info.shared.platform
+
+    local result = {}
+    local supported_devices = platform and platform:getSupportedProvisions(vehicle_info) or {}
+    for device_name, device in pairs(supported_devices) do
+        table.insert(result, {device_name, { id = device.id, icon = device.icon }})
+    end
+    
+    table.sort(result, function(a, b)
+        return a[2].id < b[2].id
+    end)
+    
+    return result
+end
+
+function ProvisionsBlitz:updateEquipment()
+    local platform = db_service.platform
+    
+    local is_blitz = platform.game_code == "blitz" or platform.game_code == "tanksblitz"
+    
+    self.elements["provisions_blitz_container"].parent_node:SetClass("hidden", not is_blitz)
+
+    local container = self.elements["provisions_blitz_container"]
+    container.inner_rml = ""
+    
+    if not is_blitz then
+        return
+    end
+               
+    self.provisions = self:getArtefactList(self.vehicle_info)
+    
+    for _, group in ipairs(self.provisions) do
+        local device_name = group[1]
+        local device_icon = container:AppendChild(container.owner_document:CreateElement("img"))
+        device_icon:SetClass("w-8", true)
+        device_icon:SetClass("h-8", true)
+        device_icon:SetClass("box-border", true)
+        device_icon:SetClass("icon", true)
+        device_icon:SetClass("rounded", true)
+        device_icon:SetClass("bg-content-dark", true)
+        device_icon:SetClass("selected", self.vehicle_descr.equipment_descriptor:has(device_name))
+        device_icon:SetAttribute("src", utils.getProvisionIcon(platform, device_name))
+        device_icon:SetAttribute("data-artefact-name", device_name)
+        
+        device_icon:AddEventListener("click", function() 
+            if not device_icon:IsClassSet("disabled") then 
+                self.vehicle_descr.equipment_descriptor:toggle(device_name)
+                device_icon:SetClass("selected", self.vehicle_descr.equipment_descriptor:has(device_name))
+                self:updateStates()
+                if self.on_toggle_equipment then
+                    self.on_toggle_equipment()
+                end
+            end 
+        end)
+    end
+    self:updateStates()
+end
+
+function ProvisionsBlitz:updateStates()
+    local platform = self.vehicle_info.shared.platform
+    
+    local selected_items = self.elements["provisions_blitz_container"]:QuerySelectorAll(".icon.selected")
+    
+    for _, icon in ipairs(self.elements["provisions_blitz_container"]:QuerySelectorAll(".icon")) do
+        if not icon:IsClassSet("selected") then
+            icon:SetClass("disabled", #selected_items >= 3)
+        end
+    end
+end
+
+function ProvisionsBlitz:reset()
+    self.vehicle_descr.equipment_descriptor = EquipmentDescriptor.new(self.original_equipment)
+    self:updateEquipment()
+
+    if self.on_toggle_equipment then
+        self.on_toggle_equipment()
+    end
+end
+
+    </script>
+</head>
+<body>
+    <div>
+        <div class="flex gap-2 text-xs mb-1 justify-between">
+            <p>UI_provisions</p>
+            <div id="reset_button_provisions_blitz" class="flex flex-nowrap items-center text-secondary">
+                <svg src="/rml/icons/UI-return-reload-reset-.svg" class="w-3 flex-none" />
+                <p>UI_reset</p>
+            </div>
+        </div>
+        <div id="provisions_blitz_container" class="flex gap-1 flex-wrap">
+        </div>
+    </div>
+</body>
+</template>
