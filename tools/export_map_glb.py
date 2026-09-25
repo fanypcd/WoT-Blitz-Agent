@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""导出回放页 3D 场景模型（建筑/桥/岩石等静态地物）为单文件 GLB。
+"""导出回放页 3D 场景模型（建筑/桥/岩石等静态地物）为单文件 GLB + 高清地面贴图。
 
-数据源：本机 WoTB 客户端 3d/Maps/<space>/<space>.sc2[.dvpl] + 同名 .scg[.dvpl]。
+数据源：本机 WoTB 客户端 3d/Maps/<space>/<space>.sc2[.dvpl] + 同名 .scg[.dvpl]，
+地面贴图取 landscape/ 下 colormap（2048² DXT5，分辨率约为小地图 4 倍）。
 提取契约（可见性位 / LOD / switch 选择）沿用 WotbTools（MIT，见 tools/wotbtools/）的
 export_map_geometry_poc 研究结论：SC2 RenderComponent → Mesh → ro.flags bit0 →
 batch lodIndex/switchIndex（-1 通配）→ rb.datasource → SCG PolygonGroup。
 
-输出：glb_cache/maps/<MapName>.glb，坐标系 = 游戏世界（米，z 上、+y 北）。
+输出：
+    glb_cache/maps/<MapName>.glb          场景模型（游戏世界系，米，z 上、+y 北）
+    glb_cache/maps/<MapName>.ground.webp  高清地面贴图（2048²，与底图同向：上=+z）
 前端加载后用 qFrame（Ry(π)·Rx(-π/2)）旋转到回放场景系（与坦克 GLB 同一约定），
 不做镜像烘焙——旋转是纯旋转，无绕序问题。
 
@@ -25,11 +28,22 @@ import math
 import pathlib
 import struct
 import sys
+from collections import Counter
 
 TOOLS_DIR = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS_DIR / "wotbtools"))
 
-from wotb_sc2 import decode_dvpl, read_sc2  # noqa: E402
+try:
+    import imagecodecs
+except ImportError as exc:  # 地面贴图导出需要
+    imagecodecs = None
+
+try:
+    from PIL import Image, ImageEnhance
+except ImportError as exc:
+    Image = ImageEnhance = None
+
+from wotb_sc2 import Reader, decode_dvpl, read_archive, read_sc2  # noqa: E402
 from wotb_scg import (  # noqa: E402
     decode_polygon_indices,
     decode_polygon_positions,
@@ -38,7 +52,6 @@ from wotb_scg import (  # noqa: E402
 )
 from export_map_geometry_poc import (  # noqa: E402
     collect_instances,
-    component_by_type,
     iter_entities_recursive,
 )
 
@@ -117,6 +130,73 @@ def strip_to_triangles(seq: list[int]) -> list[int]:
             out.extend((a, c, b))
     return out
 
+
+def build_path_index(scene: dict) -> dict[str, dict]:
+    """把 #hierarchy 树展开为 entityPath → 实体字典 的索引。
+
+    entityPath 与 collect_instances 输出同格式：'$.#hierarchy[110].#hierarchy[1]'
+    （实体内 #hierarchy 为子实体列表，递归）。
+    """
+    index: dict[str, dict] = {}
+
+    def walk(node: dict, key: str) -> None:
+        index[key] = node
+        hierarchy = node.get("#hierarchy")
+        if not isinstance(hierarchy, list):
+            return
+        for i, child in enumerate(hierarchy):
+            if isinstance(child, dict):
+                walk(child, f"{key}.#hierarchy[{i}]")
+
+    walk(scene, "$")
+    return index
+
+
+def resolve_building_name(path: str, index: dict[str, dict]) -> str | None:
+    """实例路径向上找最近的具名祖先（SwitchNode 层不具名，建筑实体在父级）。"""
+    parts = path.split(".")
+    while parts:
+        entity = index.get(".".join(parts))
+        if entity is not None:
+            name = entity.get("name")
+            if isinstance(name, str) and name and name != "SwitchNode State 0":
+                return name
+        parts.pop()
+    return None
+
+
+# 建筑类目 → 暖色系基色（sRGB）。按实体名关键词归类，比随机蓝灰更接近真实观感。
+CATEGORY_PALETTES: list[tuple[tuple[str, ...], tuple[float, float, float]]] = [
+    (("izba", "house", "piggery", "kennel", "farm"), (0.64, 0.53, 0.40)),   # 木屋暖木色
+    (("barn", "mill", "wooden", "lumber", "forge", "windmill"), (0.58, 0.42, 0.32)),  # 红棕
+    (("church", "castle", "fort", "tower", "townhall"), (0.70, 0.66, 0.58)),          # 石造暖灰
+    (("hangar", "plant", "factory", "warehouse", "depot"), (0.55, 0.55, 0.54)),       # 工业灰
+    (("bridge", "rail", "platform", "pier"), (0.48, 0.45, 0.42)),                     # 桥梁深灰
+    (("rock", "stone", "cliff"), (0.52, 0.50, 0.47)),                                 # 岩石
+]
+
+
+def category_color(name: str | None, group_id: int) -> tuple[float, float, float, float]:
+    """按建筑类目给基色 + 组 ID 哈希微扰亮度；未识别则退回冷灰哈希。"""
+    digest = hashlib.sha256(str(group_id).encode()).digest()
+    jitter = 0.90 + digest[3] / 255.0 * 0.20  # 亮度 0.90-1.10
+    base = None
+    if name:
+        low = name.lower()
+        for keywords, color in CATEGORY_PALETTES:
+            if any(k in low for k in keywords):
+                base = color
+                break
+    def to_linear(c: float) -> float:
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    if base is None:
+        hue = digest[0] / 255.0 * (230 - 200) + 200      # 200-230° 蓝青
+        sat = 0.05 + digest[1] / 255.0 * 0.10
+        light = (0.38 + digest[2] / 255.0 * 0.30) * jitter
+        r, g, b = colorsys.hls_to_rgb(hue / 360.0, min(light, 0.72), sat)
+    else:
+        r, g, b = (min(1.0, c * jitter) for c in base)
+    return (to_linear(r), to_linear(g), to_linear(b), 1.0)
 
 def fan_to_triangles(seq: list[int]) -> list[int]:
     """三角扇 → 三角形列表。"""
@@ -224,6 +304,15 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
     instances = [it for it in instances if not is_env_asset(it)]
     mesh_ids = sorted({it["datasourceId"] for it in instances if it["datasourceId"] in group_tri})
 
+    # 建筑名解析：SwitchNode 实例沿层级向上找具名祖先（bld_xx.sc2 等），
+    # 每组取多数名 → 类目色（比随机冷灰更接近真实建筑观感）
+    path_index = build_path_index(scene)
+    names_by_group: dict[int, Counter] = {}
+    for it in instances:
+        building = resolve_building_name(it["entityPath"], path_index)
+        if building:
+            names_by_group.setdefault(it["datasourceId"], Counter())[building] += 1
+
     gltf_meshes, gltf_materials = [], []
     mesh_index_by_id: dict[int, int] = {}
     buffer: bytearray = bytearray()
@@ -261,9 +350,11 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
         accessors.append({"bufferView": idx_view, "componentType": 5125, "count": len(indices), "type": "SCALAR"})
         idx_acc = len(accessors) - 1
 
-        r, g, b, a = group_color(group_id)
+        building_names = names_by_group.get(group_id)
+        building = building_names.most_common(1)[0][0] if building_names else None
+        r, g, b, a = category_color(building, group_id)
         gltf_materials.append({
-            "name": f"group_{group_id:x}",
+            "name": (building or f"group_{group_id:x}")[:60],
             "pbrMetallicRoughness": {"baseColorFactor": [r, g, b, a], "metallicFactor": 0.0, "roughnessFactor": 1.0},
             "doubleSided": True,
         })
@@ -315,12 +406,76 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
             "bytes": total, "path": str(output)}
 
 
+# ---------- 高清地面贴图（landscape colormap, 2048² DXT5 → WebP） ----------
+
+# 命中排除词的文件一律不作为地表色图（法线/遮罩/细节/草皮/水体/辅助阴影等）
+GROUND_EXCLUDE_KEYWORDS = (
+    "tilemask", "normal", "roughness", "height", "grass", "water", "lightmap",
+    "fake", "edge_map", "seabottom", "detail_", "thumbnail", "tile", "pbr",
+    "koevaja", "kroevaja", "tread", "decals", "hm_", "minimap",
+)
+# 优先级关键词（高分在前）；都不命中时仍可作为兜底候选（如 BlackGoldville 的 2DSands2）
+GROUND_PRIORITY_KEYWORDS = ("colormap", "colortexture", "colortexture", "wint", "landscape")
+# DDS fourCC → imagecodecs BCn 格式码
+DDS_FOURCC_TO_BCN = {"DXT1": 1, "DXT3": 2, "DXT5": 3}
+
+
+def select_ground_file(landscape: pathlib.Path) -> pathlib.Path | None:
+    best = None  # (score, pixels, path)
+    for p in sorted(landscape.glob("*.dds.dvpl")):
+        low = p.name.lower()
+        if any(k in low for k in GROUND_EXCLUDE_KEYWORDS):
+            continue
+        score = 10
+        for i, kw in enumerate(GROUND_PRIORITY_KEYWORDS):
+            if kw in low:
+                score = 100 - i
+                break
+        rank = (score, p.stat().st_size)
+        if best is None or rank > best[0]:
+            best = (rank, p)
+    return best[1] if best else None
+
+
+def export_ground(game_data: pathlib.Path, map_name: str, space: str, output: pathlib.Path) -> dict:
+    """解码 landscape colormap DDS 为 WebP（上=+z，与底图同向； mild 对比度/饱和度增强）。"""
+    if Image is None or imagecodecs is None:
+        raise RuntimeError("需要 pip install pillow imagecodecs")
+    landscape = game_data / "3d" / "Maps" / space / "landscape"
+    src = select_ground_file(landscape)
+    if src is None:
+        raise FileNotFoundError(f"{space}: landscape/ 下无可用地表色图")
+
+    d = decode_dvpl(src.read_bytes())
+    if d[:4] != b"DDS ":
+        raise ValueError(f"{src.name}: 非 DDS 容器")
+    height = struct.unpack_from("<I", d, 12)[0]
+    width = struct.unpack_from("<I", d, 16)[0]
+    fourcc = d[84:88].decode(errors="replace")
+    bcn = DDS_FOURCC_TO_BCN.get(fourcc)
+    if bcn is None:
+        raise ValueError(f"{src.name}: 暂不支持 fourCC {fourcc}（仅 DXT1/DXT3/DXT5）")
+    block = 8 if bcn == 1 else 16
+    data = d[128:128 + (width // 4) * (height // 4) * block]
+    rgba = imagecodecs.bcn_decode(data, bcn, shape=(height, width, 4))
+    img = Image.frombytes("RGBA", (width, height), rgba)
+    img = img.transpose(Image.FLIP_TOP_BOTTOM).convert("RGB")
+    # 地图原色偏灰白：轻微提升对比/饱和，接近小地图观感
+    img = ImageEnhance.Contrast(img).enhance(1.18)
+    img = ImageEnhance.Color(img).enhance(1.15)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    img.save(output, "WEBP", quality=85)
+    return {"size": (width, height), "bytes": output.stat().st_size, "source": src.name}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--map", action="append", help="只导出指定图（可重复）；缺省全部")
     parser.add_argument("--game-data", type=pathlib.Path,
                         default=pathlib.Path("D:/SteamLibrary/steamapps/common/World of Tanks Blitz/Data"))
     parser.add_argument("--output-dir", type=pathlib.Path, default=pathlib.Path("glb_cache/maps"))
+    parser.add_argument("--ground-only", action="store_true",
+                        help="跳过 GLB，只重新导出地面贴图（复用已生成的 GLB）")
     args = parser.parse_args()
 
     wanted = args.map or list(MAP_SPACES)
@@ -330,15 +485,24 @@ def main() -> int:
         if space is None:
             print(f"[skip] {name}: 不在映射表")
             continue
+        if not args.ground_only:
+            try:
+                info = export_map(args.game_data, name, space, args.output_dir / f"{name}.glb")
+                print(f"[ok] {name:<16} 实例 {info['instances']:>4}  网格 {info['meshes']:>3}  "
+                      f"三角形 {info['triangles']:>7}  {info['bytes'] / 1e6:.2f} MB")
+            except Exception as exc:
+                failures.append(name)
+                print(f"[fail] {name:<16} GLB: {exc}")
+                continue
         try:
-            info = export_map(args.game_data, name, space, args.output_dir / f"{name}.glb")
-            print(f"[ok] {name:<16} 实例 {info['instances']:>4}  网格 {info['meshes']:>3}  "
-                  f"三角形 {info['triangles']:>7}  {info['bytes'] / 1e6:.2f} MB")
+            ground = export_ground(args.game_data, name, space,
+                                   args.output_dir / f"{name}.ground.webp")
+            print(f"[ok] {name:<16} 地面 {ground['size'][0]}x{ground['size'][1]}  "
+                  f"来源 {ground['source']}  {ground['bytes'] / 1e6:.2f} MB")
         except Exception as exc:
-            failures.append(name)
-            print(f"[fail] {name:<16} {exc}")
+            print(f"[warn] {name:<16} 地面贴图跳过: {exc}")
     if failures:
-        print(f"\n失败 {len(failures)} 图：{', '.join(failures)}")
+        print(f"\nGLB 失败 {len(failures)} 图：{', '.join(failures)}")
         return 1
     return 0
 

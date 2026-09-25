@@ -201,7 +201,14 @@ pub fn map_image_response(map_name: &str) -> Response {
         return (axum::http::StatusCode::NOT_FOUND, "map image not available").into_response();
     };
 
-    // 2) 提取缓存
+    // 2) 高清地面贴图（tools/export_map_glb.py 由客户端 colormap 预生成，2048²，
+    //    分辨率约为 MiniMapSmall 的 4 倍；缺失则退回小地图）
+    let ground = Path::new("glb_cache").join("maps").join(format!("{name}.ground.webp"));
+    if let Ok(bytes) = std::fs::read(&ground) {
+        return map_response(bytes, "image/webp", name);
+    }
+
+    // 3) 小地图提取缓存
     let cache = data_path(MAP_DIR).join("_cache").join(format!("{name}.webp"));
     if let Ok(bytes) = std::fs::read(&cache) {
         return map_response(bytes, "image/webp", name);
