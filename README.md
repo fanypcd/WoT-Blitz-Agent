@@ -16,10 +16,33 @@ AI 游戏分析助手 — 针对 World of Tanks Blitz（坦克世界闪击战）
 | 3D 装甲查看器 | GLB 双模型（视觉+碰撞）+ 炮塔/炮管交互 + 多层穿透判定 + 实时穿透热力图 |
 | 坦克配置切换 | 多炮塔/多主炮坦克（如 E-100 双炮）切换配置，同步模型/装甲/弹种 |
 | 击穿判定内核 | Rust 统一实现：跳弹/转正/overmatch/间隙甲/HEAT 间隙衰减/HE 溅射/装备修正 |
-| BlitzKit 数据集成 | tanks.pb 723 辆（弹种/穿深/血量）+ models.pb（spaced 权威）+ GLB 几何 |
+| BlitzKit 数据集成 | tanks.pb 735 辆（弹种/穿深/血量）+ models.pb（spaced 权威）+ GLB 几何 |
 | LLM Agent | 自然语言对话，10 个工具自主获取数据并生成分析（含热力图截图） |
 | 射击复现（实验性） | 从回放提取射击事件链，3D 查看器按射手视角复现弹道与判定；**游戏弹孔解码点**（服务器 segment 按游戏 `DecodeShotSegment` 同构公式解出的部件 AABB 量化点，橙色 ◆ 标记，与本地 raycast 弹着点对照）；目标/射手模型按**实际搭载配置**选炮塔/主炮变体 |
 | 全场实时回放 | 14 车连续播放整场战斗：客户端滤波位姿（AvatarFilter 移植，60Hz→0.1s 网格）+ prop2 炮塔/炮管随动 + 弹道飞行动画 + 实时血量/击杀流/计分板；播放/暂停/0.5~16x 倍速/进度拖拽，自由/俯视/跟随镜头，可选 GLB 真实车模。多配置坦克按 **实际搭载**（ARENA_INFO 组成 blob → 发射弹种 → 初始血量 三级证据）自动选炮塔/主炮变体 |
+
+## 功能依赖一览
+
+各模块运行所需的数据文件与外部服务（数据文件均已内置，标 ★ 的项需要联网或本机游戏客户端）：
+
+| 模块 | 数据文件依赖 | 外部服务 |
+|------|------|------|
+| 回放解析（single/scan/combat/loadout/playback） | 仅 `.wotbreplay` 文件本身 | 无 |
+| 射击复现（3D 查看器） | `tank_cache.json`（昵称→tank_id/俯仰极限）· `tanks.pb`（comp blob 局部 id→配置对号）· `models.pb`（部件盒/原点）· `glb_cache/`（模型）★ | 无（模型缓存后离线可用） |
+| 全场实时回放 | 同射击复现（真实车模开关关闭时仅需 `.wotbreplay`） | 同上（仅 GLB 开关） |
+| 3D 装甲查看器 / 穿透热力图 | `game_data/`（装甲逐板厚度）· `models.pb`（原点/变体映射）· `glb_cache/` ★ | 无（缓存后离线可用） |
+| WG API 集成（Player/Compare/Prematch/Snapshot） | `tank_cache.json`（昵称→tank_id 联表） | WG API（application_id） |
+| LLM Agent | `tank_cache.json` + 各工具自身依赖 | LLM API 端点 |
+
+补充说明：
+
+- **实际搭载配置**（射击复现/实时回放的炮塔/主炮变体选择）三级证据链：
+  ① ARENA_INFO 组成 blob（回放内嵌，确定性）；② 发射弹种 ⊆ 炮弹表；③ 初始血量 = 车体+炮塔
+  health（×1.125 改进耐久）。依次回退，均不命中 → 顶级配置。
+- `glb_cache/` 首次访问自动从 BlitzKit CDN 下载（reqwest 失败自动回退系统 curl）；
+  下载完成后离线可用。
+- 非调试模式下射击复现常显内容：入射延长射线（900m）+ 命中点标记 + 轨迹管；
+  P1/P2 解码标记与移动标注归调试层（`debug=1`）。
 
 ## 快速开始
 
@@ -210,6 +233,8 @@ usage          # Token 用量统计
 - LLM API Key（OpenAI / 清华 AI 平台 / 其他 OpenAI 兼容 API）
 - WG API Application ID（可选，项目自带公开 key；免费注册：https://developers.wargaming.net/applications/）
 - WoTB 游戏安装（可选，用于 DVPL 游戏文件解析和真实回放文件）
+- 网络（按需）：BlitzKit CDN（GLB 模型/数据首次下载，之后走本地缓存）、
+  WG API、LLM API 端点；系统 curl（GLB 下载的自动回退通道）
 
 ## 许可证
 
