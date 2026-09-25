@@ -30,6 +30,8 @@ import struct
 import sys
 from collections import Counter
 
+import numpy as np
+
 TOOLS_DIR = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS_DIR / "wotbtools"))
 
@@ -175,6 +177,40 @@ CATEGORY_PALETTES: list[tuple[tuple[str, ...], tuple[float, float, float]]] = [
     (("rock", "stone", "cliff"), (0.52, 0.50, 0.47)),                                 # 岩石
 ]
 
+# 高度场 zMax（与 src/wargaming/map_assets.rs MAP_ZMAX 一致），悬浮过滤用
+MAP_ZMAX = {
+    "DesertSands": 100.0, "Middleburg": 150.0, "Copperfield": 120.0, "Alpenstadt": 180.0,
+    "Mines": 135.0, "DeadRail": 70.0, "FortDespair": 70.0, "Himmelsdorf": 70.0,
+    "BlackGoldville": 120.0, "OasisPalms": 80.0, "GhostFactory": 80.0, "Molendijk": 80.0,
+    "PortBay": 70.0, "WinterMalinovka": 60.0, "Castilla": 50.0, "Canal": 140.0,
+    "Vineyards": 150.0, "YamatoHarbor": 80.0, "Canyon": 100.0, "MayanRuins": 80.0,
+    "DynastyPearl": 150.0, "NavalFrontier": 100.0, "FallsCreek": 50.0, "NewBay": 100.0,
+    "Normandy": 70.0, "Wasteland": 120.0,
+}
+
+
+def load_heightmap(game_data: pathlib.Path, space: str, zmax: float) -> np.ndarray | None:
+    """解码高度图为米制 ndarray（行 0=南、列 0=西，600m 方框）；与 Rust 侧约定一致。"""
+    files = sorted((game_data / "3d" / "Maps" / space / "landscape").glob("*heightmap*.dvpl"))
+    if not files:
+        return None
+    raw = decode_dvpl(files[0].read_bytes())
+    if len(raw) < 8:
+        return None
+    size, tile = struct.unpack_from("<II", raw)
+    if size != 512 or tile != 16 or len(raw) != 8 + size * size * 2:
+        return None  # 老图变体（如 Himmelsdorf），不做悬浮过滤
+    vals = np.frombuffer(raw[8:], dtype="<u2")
+    blocks = size // tile
+    grid = np.empty((size, size), dtype=np.uint16)
+    i = 0
+    for by in range(blocks):
+        for bx in range(blocks):
+            blk = vals[i:i + tile * tile].reshape(tile, tile)
+            grid[by * tile:(by + 1) * tile, bx * tile:(bx + 1) * tile] = blk
+            i += tile * tile
+    return grid.astype(np.float64)[:, ::-1] * zmax / 65535.0
+
 
 def category_color(name: str | None, group_id: int) -> tuple[float, float, float, float]:
     """按建筑类目给基色；亮度抖动取自建筑名哈希——同一栋建筑的所有部件同色，
@@ -245,7 +281,8 @@ def compute_normals(positions: list[tuple[float, float, float]],
 
 
 def export_map(game_data: pathlib.Path, map_name: str, space: str,
-               output: pathlib.Path, lod: int = 0, switch: int = 0) -> dict:
+               output: pathlib.Path, lod: int = 0, switch: int = 0,
+               heightmap: np.ndarray | None = None) -> dict:
     directory = game_data / "3d" / "Maps" / space
     sc2_path = find_member(directory, space, ".sc2.dvpl")
     if sc2_path is None:
@@ -270,6 +307,7 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
     # 共享网格：按 datasourceId 解码一次；同时算局部包围半径（供环境巨型资产过滤）
     mesh_ids = sorted({inst["datasourceId"] for inst in instances})
     group_radius: dict[int, float] = {}
+    group_min_z: dict[int, float] = {}
     group_tri: dict[int, tuple[list, list]] = {}
     for group_id in mesh_ids:
         group = groups_by_id.get(group_id)
@@ -290,6 +328,7 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
             continue
         group_tri[group_id] = (positions, indices)
         group_radius[group_id] = max(math.sqrt(x * x + y * y + z * z) for x, y, z in positions)
+        group_min_z[group_id] = min(z for _, _, z in positions)
 
     # 过滤巨型环境资产（周边山体背景/冰面/体积雾等，非战术建筑）
     # 判据：世界半径 > 150m，或实体名命中环境资产命名（env_* / fog* / mountain*）
@@ -304,6 +343,43 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
         return name.startswith(("env_", "fog", "mountain"))
 
     instances = [it for it in instances if not is_env_asset(it)]
+
+    # 悬浮/图外过滤：底面高于地形 >15m 的大件（如悬空的风车/天空球）剔除；
+    # 平移在 ±320m 图外的剔除（边界装饰会悬在虚空）。阈值 15m 是因为正确摆放
+    # 建筑的"屋顶组"（与墙体分属不同 group）底部会悬空 ~8m，属正常；小件
+    # （半径≤8m，烟囱类细节）也保留。高度图不可用（老图）时跳过该过滤。
+    if heightmap is not None:
+        hn = heightmap.shape[0]
+
+        def terrain_h(x: float, y: float) -> float:
+            fx = (x / 600.0 + 0.5) * (hn - 1)
+            fy = (y / 600.0 + 0.5) * (hn - 1)
+            x0 = min(max(int(fx), 0), hn - 2)
+            y0 = min(max(int(fy), 0), hn - 2)
+            tx, ty = min(max(fx - x0, 0.0), 1.0), min(max(fy - y0, 0.0), 1.0)
+            top = heightmap[y0, x0] * (1 - tx) + heightmap[y0, x0 + 1] * tx
+            bot = heightmap[y0 + 1, x0] * (1 - tx) + heightmap[y0 + 1, x0 + 1] * tx
+            return top * (1 - ty) + bot * ty
+
+        kept = []
+        for it in instances:
+            t = it["worldTransform"]
+            tr = t["translation"]
+            scale = max(t["scale"]) if t["scale"] else 1.0
+            if abs(tr[0]) > 320 or abs(tr[1]) > 320:
+                continue  # 图外装饰
+            local_min_z = group_min_z.get(it["datasourceId"])
+            if local_min_z is None:
+                kept.append(it)
+                continue
+            gap = (tr[2] + local_min_z * scale) - terrain_h(tr[0], tr[1])
+            radius = group_radius.get(it["datasourceId"], 0.0) * scale
+            if gap > 15.0 and radius > 8.0:
+                print(f"  [filter] {map_name}: 悬空实例 {it.get('entityName')!r} "
+                      f"底面高于地形 {gap:.1f}m（半径 {radius:.0f}m），剔除")
+                continue
+            kept.append(it)
+        instances = kept
     mesh_ids = sorted({it["datasourceId"] for it in instances if it["datasourceId"] in group_tri})
 
     # 建筑名解析：SwitchNode 实例沿层级向上找具名祖先（bld_xx.sc2 等），
@@ -489,7 +565,10 @@ def main() -> int:
             continue
         if not args.ground_only:
             try:
-                info = export_map(args.game_data, name, space, args.output_dir / f"{name}.glb")
+                zmax = MAP_ZMAX.get(name, 100.0)
+                hmap = load_heightmap(args.game_data, space, zmax)
+                info = export_map(args.game_data, name, space, args.output_dir / f"{name}.glb",
+                                  heightmap=hmap)
                 print(f"[ok] {name:<16} 实例 {info['instances']:>4}  网格 {info['meshes']:>3}  "
                       f"三角形 {info['triangles']:>7}  {info['bytes'] / 1e6:.2f} MB")
             except Exception as exc:
