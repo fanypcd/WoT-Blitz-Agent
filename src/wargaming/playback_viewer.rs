@@ -613,15 +613,14 @@ function rebuildGround() {
   const meta = mapMetaInfo || {};
   const size = meta.size_m || heightMeta?.span || 600;
   if (heightField && terrainOn) {
-    // 3D 地形：平面局部 (x,y) 经 rotation(-π/2,0,π) 后世界 x=-局部x、z=局部y，
-    // 高度沿局部 +z（=世界 +y）。高度场是纯游戏坐标系（列 0=西=x −300，行 0=南），
-    // 而平面局部 x = 游戏 x（世界 x 才是镜像后的场景系）——所以必须用**局部 x** 采样。
-    // 若误用世界 x（多取一次负）会整面镜像：车辆（真实轨迹 y）相对地形高度差随
-    // 位置剧烈变化，呈现为坦克持续下沉/弹出的抖动。
+    // 3D 地形：高度场为场景系（列 0 = 场景 x −300，即已含游戏 x 取负），行 0 = z −300。
+    // 平面经 rotation(-π/2,0,π) 放置后：世界 x = −局部x（场景镜像系）、世界 z = 局部y、
+    // 高度沿局部 +z。车辆/建筑全部位于场景系 → 采样必须用**世界 x（= −局部x）**。
+    // 若误用局部 x（少取一次负），地形东西镜像，坦克会陷入地内或悬空。
     const geo = new THREE.PlaneGeometry(size, size, 256, 256);
     const pos = geo.attributes.position;
     for (let k = 0; k < pos.count; k++) {
-      pos.setZ(k, sampleHeight(pos.getX(k), pos.getY(k)));
+      pos.setZ(k, sampleHeight(-pos.getX(k), pos.getY(k)));
     }
     geo.computeVertexNormals();
     const mat = new THREE.MeshLambertMaterial({
