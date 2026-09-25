@@ -4893,7 +4893,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 : (finalOutcome === 'BLOCKED' || finalOutcome === 'ERROR' ? 0xf44336 : 0xff8800));
             const camDir = camera.position.clone().sub(firstPoint).normalize();
 
-            const origin = trajOrigin || firstPoint.clone().add(camDir.clone().multiplyScalar(15));
+            // 轨迹管原点：调用方传入的弹道起点（如炮口）优先；否则沿视线反向
+            // 长距离回退（300m），入射弹向一眼可见（原 15m 太短——用户反馈）
+            const origin = trajOrigin || firstPoint.clone().add(camDir.clone().multiplyScalar(300));
             const trajMat = new THREE.MeshBasicMaterial({ color: color, depthTest: false, transparent: true, opacity: 0.85 });
 
             const ricLayer = layers.find(l => l.ricochet);
