@@ -278,6 +278,7 @@
         .wrbar { display:inline-block; width:52px; height:6px; background:var(--panel3); border-radius:3px; overflow:hidden; vertical-align:middle; margin-left:6px; }
         .wrbar > i { display:block; height:100%; border-radius:3px; }
         /* 射击复现结果徽章配色 */
+        .pill.track { color:#e8b23c; border-color:#e8b23c; }
         .pill.pen   { background:rgba(95,191,122,0.16); color:var(--green); }
         .pill.nopen { background:rgba(255,107,107,0.15); color:var(--red); }
         .pill.ric   { background:rgba(255,207,92,0.16); color:var(--yellow); }
@@ -1110,7 +1111,7 @@ function srResultBadge(s) {
         const r = s.game_hit_result;
         if (r == null || r === 255 || r === 0) { txt='MISS'; cls+=' miss'; }
         else if (r === 3) { txt='击穿'; cls+=' pen'; }
-        else if (r === 4) { txt='履带/跳弹'; cls+=' ric'; }
+        else if (r === 4) { txt='履带'; cls+=' track'; }
         else { txt='未穿'; cls+=' nopen'; }
     }
     else if (!f) { txt='MISS'; cls+=' miss'; }
@@ -1198,7 +1199,7 @@ function renderShotList() {
     const total=rows_all.length;
     const hits=rows_all.filter(isHit).length;
     const pens=rows_all.filter(s=>s.is_author?(s.hit_flags&0x0010):(s.game_hit_result===3)).length;
-    const rics=rows_all.filter(s=>s.is_author?(s.hit_flags&0x0008):(s.game_hit_result===4)).length;
+    const rics=rows_all.filter(s=>s.is_author?(s.hit_flags&0x0008):false).length;
     const heHits=rows_all.filter(s=>s.is_author&&(s.hit_flags&0x1000)).length;
     const kills=rows_all.filter(s=>s.is_kill).length;
     const dmgTotal=rows_all.reduce((a,s)=>a+(s.damage||0),0);
