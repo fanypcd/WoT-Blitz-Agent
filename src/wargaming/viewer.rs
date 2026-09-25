@@ -2284,6 +2284,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                     const shots = d.shots || d;
                     const s = (Array.isArray(shots) ? shots : []).find(x => x.index === shotNo);
                     if (!s) { showShotError('shot #' + shotNo + ' 不存在（接口返回 ' + (Array.isArray(shots) ? shots.length : 0) + ' 发）'); return; }
+                    window.__autoRelView = true;   // 默认相对视角（沿入射方向）
                     // 场景原生米制（1 单位 = 1 米，模型不缩放）：回放数据为真实米，直通使用
                     if (!armorPivotGun) { showShotError('炮管枢轴未安装（模型装配异常）'); return; }
                     const gunLine = armorPivotGun.z;   // 受击坦克炮管离地高（米）
@@ -3154,9 +3155,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                                 const fh = Math.hypot(e[4], e[6]) || 1;
                                                 dirS = new THREE.Vector3(-e[4] / fh, 0, -e[6] / fh);
                                             }
-                                            // 段线仅入射端外延（P1 前 4m，沿入射弹向反向），
+                                            // 段线入射端"无限"延长（工程取 900m，相机远平面内），
                                             // 入射弹向一目了然；P2（穿出端）与标记保持在解码出入点
-                                            const EXT = 4;
+                                            const EXT = 900;
                                             let dirN = (chordL.lengthSq() > 1e-9)
                                                 ? chordL.clone().normalize() : null;
                                             if (!dirN && dirS) dirN = dirS.clone().normalize();
@@ -3389,6 +3390,15 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                         window.__worldTickCtx = {
                             launch: ctxLaunch, lvDir: ctxLvDir, lvSpd: ctxLvSpd, rayFar: ctxRayFar,
                         };
+                        // 进入射击复现默认相对视角（相机沿入射方向回退看向命中点）；
+                        // armorModel 未就绪时留待后续 tick 重试
+                        if (window.__autoRelView) {
+                            if (armorModel) {
+                                window.__autoRelView = false;
+                                const rb = document.getElementById('rel-view-toggle');
+                                if (rb) rb.click();
+                            }
+                        }
 
                         const st = document.getElementById('turret-controls');
                         const cls2 = shotResultClass(s) === 'MISS' ? 'MISS'
@@ -4696,7 +4706,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             const ringGeo = new THREE.RingGeometry(0.12, 0.18, 24);
             const ringMat = new THREE.MeshBasicMaterial({ color: markerColor, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthTest: false });
             const ring = new THREE.Mesh(ringGeo, ringMat);
-            ring.lookAt(camera.position);
+            // 圆环面垂直入射弹向（命中点的"靶环"语义）；无弹向时回退朝向相机
+            const ringDir = (window.__segRay && window.__segRay.dir)
+                ? point.clone().add(window.__segRay.dir.clone()) : camera.position;
+            ring.lookAt(ringDir);
             marker.add(ring);
             window.__hitMarkerRing = ring;
             if (fragOk !== null && window.__shotCtx) {
