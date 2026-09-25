@@ -5,6 +5,7 @@ pub mod api_client;
 pub mod snapshot;
 pub mod viewer;
 pub mod playback_viewer;
+pub mod map_assets;
 pub mod dvpl;
 pub mod penetration;
 pub mod prematch;

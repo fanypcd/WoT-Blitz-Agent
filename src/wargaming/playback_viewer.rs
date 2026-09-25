@@ -187,13 +187,15 @@ pub async fn playback_data_handler(Json(body): Json<serde_json::Value>) -> Respo
     playback_data_response(Path::new(&file)).await
 }
 
-/// GET /api/playback/map?name=WinterMalinovka —— 地图底图（v1 数据源未定，恒 404，
-/// 前端回退程序生成网格；接入在线源/游戏提取后在此返回 PNG）
+/// GET /api/playback/map?name=WinterMalinovka —— 地图底图（提取/覆盖/缓存链路见
+/// [`crate::wargaming::map_assets`]；不可用时仍 404，前端回退程序生成网格）
 pub async fn playback_map_handler(
     axum::extract::Query(q): axum::extract::Query<HashMap<String, String>>,
 ) -> Response {
-    let _name = q.get("name").cloned().unwrap_or_default();
-    (axum::http::StatusCode::NOT_FOUND, "map image not available").into_response()
+    let name = q.get("name").cloned().unwrap_or_default();
+    tokio::task::spawn_blocking(move || crate::wargaming::map_assets::map_image_response(&name))
+        .await
+        .unwrap_or_else(|_| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "map task failed").into_response())
 }
 
 /// 播放器页面（web 模式 asset prefix = /armor_view：GLB/vendor 复用 armor_view 路由）
@@ -353,6 +355,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     <button data-cam="top">俯视</button>
     <button data-cam="follow">跟随</button>
     <span style="flex:1"></span>
+    <label class="toggle"><input type="range" id="mapOpacity" min="0" max="1" step="0.05" value="0.92" style="width:74px"> 底图</label>
     <label class="toggle"><input type="checkbox" id="glbToggle"> 真实车模（GLB）</label>
     <label class="toggle"><input type="checkbox" id="labelToggle" checked> 昵称标签</label>
   </div>
@@ -386,6 +389,7 @@ let shotPtr = 0, killPtr = 0;
 const tracers = [], impacts = [];
 let renderer, scene, camera, controls, clock, raycaster;
 let glbCache = new Map(), glbOn = false;
+let mapPlane = null, mapOpacity = 0.92;
 
 // ---------- 工具 ----------
 const fmtTime = (s) => { s = Math.max(0, s); const m = Math.floor(s / 60);
@@ -492,6 +496,35 @@ function buildWorld() {
   controls.target.set(cx, 0, cz);
 }
 let WORLD_CENTER = { cx: 0, cz: 0, ext: 300 };
+
+// ---------- 底图 ----------
+// 后端返回小地图贴图（标准 webp/png）+ X-Map-Meta 铺设参数（size_m/x/z/rot90/flip_x）。
+// 方向约定：图上边 = 世界 +z，图右边 = 游戏 +x = 场景 −x（与 pos = (−x,y,z) 镜像自洽，
+// 故默认 rotation.z = π：平面放平时图顶落在 +z、图右落在 −x）。底图覆盖世界
+// [-300,+300]²（600m 方框，原点居中）。个别图不对时用 data/maps/<MapName>.json 微调。
+async function loadMapImage() {
+  if (mapPlane) { scene.remove(mapPlane); mapPlane = null; }
+  try {
+    const resp = await fetch('/api/playback/map?name=' + encodeURIComponent(DATA.meta.map_name || ''));
+    if (!resp.ok) return;                       // 无底图：保持程序化地面+网格
+    const meta = JSON.parse(resp.headers.get('X-Map-Meta') || '{}');
+    const url = URL.createObjectURL(await resp.blob());
+    const tex = await new THREE.TextureLoader().loadAsync(url);
+    URL.revokeObjectURL(url);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    if (meta.flip_x) { tex.wrapS = THREE.RepeatWrapping; tex.repeat.x = -1; tex.offset.x = 1; }
+    const size = meta.size_m || 600;
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: mapOpacity, depthWrite: false });
+    mapPlane = new THREE.Mesh(new THREE.PlaneGeometry(size, size), mat);
+    mapPlane.rotation.set(-Math.PI / 2, 0, Math.PI + (meta.rot90 || 0) * Math.PI / 2);
+    mapPlane.position.set(meta.x || 0, 0.04, meta.z || 0);
+    mapPlane.visible = mapOpacity > 0.01;
+    scene.add(mapPlane);
+  } catch (e) {
+    console.warn('底图加载失败（回退网格）:', e);
+  }
+}
 
 function teamColor(v) {
   const f = DATA.meta.friendly_team, t = v.def.team;
@@ -989,6 +1022,10 @@ function initControls() {
   document.querySelectorAll('[data-cam]').forEach((b) =>
     b.addEventListener('click', () => setCam(b.dataset.cam)));
   $('glbToggle').addEventListener('change', (e) => applyGlbToggle(e.target.checked));
+  $('mapOpacity').addEventListener('input', (e) => {
+    mapOpacity = parseFloat(e.target.value);
+    if (mapPlane) { mapPlane.material.opacity = mapOpacity; mapPlane.visible = mapOpacity > 0.01; }
+  });
   $('labelToggle').addEventListener('change', (e) => {
     for (const v of V) v.label.visible = e.target.checked;
   });
@@ -1021,6 +1058,7 @@ async function loadData(file) {
 function startPlayback() {
   $('mapName').textContent = DATA.meta.map_name || ('map_' + DATA.meta.map_id);
   buildWorld();
+  loadMapImage();
   buildVehicles();
   buildRoster();
   T = DATA.meta.t_start;
