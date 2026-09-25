@@ -4,6 +4,7 @@ pub mod tank_resolver;
 pub mod api_client;
 pub mod snapshot;
 pub mod viewer;
+pub mod playback_viewer;
 pub mod dvpl;
 pub mod penetration;
 pub mod prematch;

@@ -835,7 +835,7 @@ impl AgentTools {
 
         let handle = std::thread::spawn(move || -> Result<String> {
             let rt = tokio::runtime::Runtime::new()?;
-            let (port, shell_slot) = rt.block_on(crate::wargaming::viewer::start_viewer_server_for_replay(
+            let (port, shell_slot, target_cfg) = rt.block_on(crate::wargaming::viewer::start_viewer_server_for_replay(
                 std::path::Path::new(&file), resolver, shot_no))?;
             let is_win = chrome.contains("/mnt/");
             let fname_abs = std::env::current_dir()
@@ -846,9 +846,11 @@ impl AgentTools {
             } else {
                 format!("--screenshot={}", fname_abs)
             };
+            // 实际搭载配置（comp blob/弹种/血量证据链）：目标模型按其选炮塔/主炮变体
+            let cfg_arg = target_cfg.map(|c| format!("&config={}", c)).unwrap_or_default();
             let url = format!(
-                "http://127.0.0.1:{}/?headless=1&heatmap=1&clean=1&shot={}&shell={}&dist=9",
-                port, shot_no, shell_slot
+                "http://127.0.0.1:{}/?headless=1&heatmap=1&clean=1&shot={}&shell={}{}&dist=9",
+                port, shot_no, shell_slot, cfg_arg
             );
             let out = std::process::Command::new(&chrome)
                 .args([

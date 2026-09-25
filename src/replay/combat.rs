@@ -1710,7 +1710,7 @@ fn tick_at(tick_timeline: &[(f32, u8)], t: f32) -> f32 {
 /// J39 实战复核，主文档 §2.2）：偏航只取高 10 位（低 6 位是俯仰，混入会引入
 /// ±0.3° 假跳变），frac 保留供俯仰解码。各实体 Vec 保持包序（未排序）；作者路径
 /// 用前需按 clock 排序（锚点选择依赖时序），他人路径沿用包序。
-fn build_entity_indexes(
+pub(crate) fn build_entity_indexes(
     packets: &[(u32, f32, &[u8])],
 ) -> (HashMap<u32, Vec<St10Sample>>, HashMap<u32, Vec<(f32, f32, u16)>>) {
     let mut st10: HashMap<u32, Vec<St10Sample>> = HashMap::new();
@@ -1865,8 +1865,8 @@ fn timeline_prop2_client(
 /// - q 早于首帧：保持首帧；t 前完全无采样（AoI 新进）回退双侧最近初值包。
 /// 被击时刻姿态不被命中后反应包污染的保证：反应首包到达 > t，永远不进任何括号。
 /// 注意：此为**渲染层**（滑块时间线）语义；判定锚点（炮塔朝向/俯仰取样）用
-/// [`prop2_at_arrived`]（最后到达采样，与 WI turret_yaw 同域）。
-fn prop2_at(
+/// [`prop2_at_arrived`](...)（最后到达采样，与 WI turret_yaw 同域）。
+pub(crate) fn prop2_at(
     series: Option<&Vec<(f32, f32, u16)>>,
     t: f32,
 ) -> Option<(f32, f32)> {
@@ -1956,7 +1956,7 @@ pub fn extract_shot_replays_with_limits(
     pitch_limits: &GunPitchLimits,
 ) -> anyhow::Result<Vec<ShotReplayData>> {
     if author_player_eid == 0 {
-        anyhow::bail!("无法解析作者实体：文件名需包含玩家昵称（type=5 昵称匹配失败）");
+        anyhow::bail!("无法解析作者实体：meta.player_name / battle_results 昵称与 type=5 实体昵称匹配失败（作者实体未在录像中出现或昵称无效）");
     }
 
     // ① 收集作者的 method29 发射事件（全局弹丸流，按 shooterEntityId 过滤；shotId 去重）；
@@ -2667,8 +2667,25 @@ pub fn extract_shot_replays_with_limits(
     Ok(out)
 }
 
-/// 按回放文件名中的昵称匹配 type=5 包，解析作者玩家实体 eid。
-pub fn resolve_author_player_eid(packets: &[(u32, f32, &[u8])], file_name: &str) -> u32 {
+/// 作者昵称（battle_results 权威来源）：author.account_id → 花名册昵称。
+/// meta.json 常含非 UTF-8 字节导致 crate read_meta 整体失败（serde_json 严格 UTF-8），
+/// 而 battle_results（pickle+protobuf）字符串恒为合法 UTF-8——作者身份以此为准。
+pub fn author_nick_from_battle_results(
+    br: &wotbreplay_parser::models::battle_results::BattleResults,
+) -> String {
+    br.players.iter()
+        .find(|p| p.account_id == br.author.account_id)
+        .map(|p| p.info.nickname.clone())
+        .unwrap_or_default()
+}
+
+/// 从 type=5 实体创建包按昵称精确匹配作者玩家实体 eid。
+/// 作者昵称来自回放自身：meta.player_name / battle_results author→花名册（2026-09-25 起
+/// 替代文件名包含匹配——文件名不属于回放数据，改名即失效）。昵称按原始 UTF-8 精确比较
+///（有 battle_results 昵称作锚，无垃圾误配风险，不再限制 ascii_graphic——顺带修复
+/// 非 ASCII 昵称作者无法解析的问题）。无匹配返回 0。
+pub fn resolve_author_player_eid_by_nick(packets: &[(u32, f32, &[u8])], author_nick: &str) -> u32 {
+    if author_nick.is_empty() { return 0; }
     packets.iter()
         .filter_map(|(t, _, p)| {
             if *t != 5 || p.len() < 60 { return None; }
@@ -2676,10 +2693,9 @@ pub fn resolve_author_player_eid(packets: &[(u32, f32, &[u8])], file_name: &str)
             let off = 57usize;
             if off >= p.len() { return None; }
             let l = p[off] as usize;
-            if !(3..=30).contains(&l) || off + 1 + l > p.len() { return None; }
+            if !(1..=30).contains(&l) || off + 1 + l > p.len() { return None; }
             std::str::from_utf8(&p[off + 1..off + 1 + l]).ok()
-                .filter(|s| s.chars().all(|c| c.is_ascii_graphic()))
-                .filter(|s| file_name.contains(s))
+                .filter(|s| *s == author_nick)
                 .map(|_| eid)
         })
         .next()
@@ -2688,18 +2704,19 @@ pub fn resolve_author_player_eid(packets: &[(u32, f32, &[u8])], file_name: &str)
 
 pub fn extract_shot_replays_auto(
     packets: &[(u32, f32, &[u8])],
-    file_name: &str,
+    author_nick: &str,
 ) -> anyhow::Result<Vec<ShotReplayData>> {
-    extract_shot_replays_auto_with_limits(packets, file_name, &GunPitchLimits::new())
+    extract_shot_replays_auto_with_limits(packets, author_nick, &GunPitchLimits::new())
 }
 
 /// [`extract_shot_replays_auto`] 的完整形态（`pitch_limits` 语义见 [`extract_shot_replays_with_limits`]）。
+/// `author_nick` = 作者玩家昵称（meta.player_name / battle_results author→花名册），非文件名。
 pub fn extract_shot_replays_auto_with_limits(
     packets: &[(u32, f32, &[u8])],
-    file_name: &str,
+    author_nick: &str,
     pitch_limits: &GunPitchLimits,
 ) -> anyhow::Result<Vec<ShotReplayData>> {
-    let author_player_eid = resolve_author_player_eid(packets, file_name);
+    let author_player_eid = resolve_author_player_eid_by_nick(packets, author_nick);
     extract_shot_replays_with_limits(packets, author_player_eid, pitch_limits)
 }
 

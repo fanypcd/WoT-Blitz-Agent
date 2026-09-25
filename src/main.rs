@@ -268,6 +268,11 @@ enum Commands {
         #[arg(short, long)]
         json: bool,
     },
+    /// 全场实时回放：解析整场战斗并在浏览器中连续播放（14 车位姿/炮塔/弹道/血量）
+    Playback {
+        /// Path to the .wotbreplay file
+        file: PathBuf,
+    },
     /// Dump raw method38 / method8 / type=32 packet bytes (RE tool, wotinspector alignment)
     DumpMethods {
         /// Path to the .wotbreplay file
@@ -317,6 +322,13 @@ fn main() -> Result<()> {
         let config_path = config.clone();
         return tokio::runtime::Runtime::new()?.block_on(async {
             crate::web::serve(config_path).await
+        });
+    }
+
+    if let Commands::Playback { file } = &cli.command {
+        let file = file.clone();
+        return tokio::runtime::Runtime::new()?.block_on(async {
+            crate::wargaming::playback_viewer::serve_standalone(&file).await
         });
     }
 
@@ -433,6 +445,7 @@ fn main() -> Result<()> {
         }
         Commands::View { .. } => unreachable!(),
         Commands::Web { .. } => unreachable!(),
+        Commands::Playback { .. } => unreachable!(),
         Commands::Single { file, json, tank_cache } => {
             let resolver = tank_cache
                 .filter(|p| p.exists())
@@ -933,12 +946,17 @@ fn main() -> Result<()> {
             let shots = timeline.infer_shots(author_eid);
             // 双方炮管俯仰的车型极限锚定表：battle_results × tank_cache.json（best-effort，
             // 缓存缺失时俯仰走回退路径并打质量标记）
-            let pitch_limits = replay.read_battle_results().ok()
+            let br = replay.read_battle_results().ok();
+            let author_nick = br.as_ref()
+                .map(|br| crate::replay::combat::author_nick_from_battle_results(br))
+                .or_else(|| replay.read_meta().ok().map(|m| m.player_name.clone()))
+                .unwrap_or_default();
+            let pitch_limits = br.as_ref()
                 .and_then(|br| TankResolver::load_from_json_file(std::path::Path::new("data/tank_cache.json")).ok()
-                    .map(|r| r.pitch_limits_from_battle_results(&br)))
+                    .map(|r| r.pitch_limits_from_battle_results(br)))
                 .unwrap_or_default();
             let mut shot_replay = crate::replay::combat::extract_shot_replays_auto_with_limits(
-                &raw_packets, &file.file_name().and_then(|n| n.to_str()).unwrap_or(""), &pitch_limits)?;
+                &raw_packets, &author_nick, &pitch_limits)?;
             // 弹种回填：全局 shell_id → tanks.pb 原始弹种串（兜底链各级来源统一识别）
             crate::replay::loadout::ShellKindTable::from_tanks_pb().annotate(&mut shot_replay);
             // UpdateArena 竞技场状态流（子类型名表 + PERIOD 战局阶段时间线，报告 §4.5）

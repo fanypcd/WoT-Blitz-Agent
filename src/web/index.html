@@ -399,6 +399,7 @@
             <div class="row">
                 <input id="sr-file" placeholder="Path to the .wotbreplay file (Windows or WSL path)" style="flex:1;">
                 <button class="btn btn-primary" id="btn-sr-load">Parse</button>
+                <button class="btn" id="btn-sr-playback" title="全场连续实时回放（新窗口）">▶ 实时回放</button>
             </div>
             <div id="sr-out"></div>
         </div>
@@ -1242,13 +1243,21 @@ window.srViewerUrl = function(s) {
     const sh = shooterTank ? ('&shooter='+shooterTank) : '';
     // shell 槽位仅作者射击有意义（type=28 是作者本人的弹药选择状态）
     const ammo = (s.is_author && s.shell_slot != null) ? ('&shell='+s.shell_slot) : '';
-    return API+'/armor_view/view/'+tid+'?heatmap=1&shot='+s.index+sh+ammo+'&world=1';
+    // 实际搭载配置（comp blob/弹种/血量证据链解析）：命中弹用目标配置，脱靶弹用射手配置
+    const cfgId = s.target_tank_id ? s.target_config_idx : (s.shooter_config_idx ?? s.target_config_idx);
+    const cfg = (cfgId != null) ? ('&config='+cfgId) : '';
+    return API+'/armor_view/view/'+tid+'?heatmap=1&shot='+s.index+sh+ammo+cfg+'&world=1';
 };
 window.openShotInViewer = function(no) {
     const shot = srData.find(s=>s.index===no);
     if (shot) window.open(srViewerUrl(shot), '_blank', 'width='+Math.round(window.innerWidth*0.85)+',height='+Math.round(window.innerHeight*0.85));
 };
 $('btn-sr-load').addEventListener('click',srParse);
+$('btn-sr-playback').addEventListener('click',()=>{
+    const f=$('sr-file').value.trim();
+    if(!f){ $('sr-out').innerHTML='<div class="muted">Enter a .wotbreplay path.</div>'; return; }
+    window.open('/playback?file='+encodeURIComponent(f),'_blank');
+});
 
 // ---------- Compare ----------
 let cmpChart=null;

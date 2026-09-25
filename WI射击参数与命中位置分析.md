@@ -185,6 +185,8 @@ P2 = min + (max−min) × (b5, b7, b6)/255
 |---|---|
 | 查看器 = WASM 原生应用、吃原始回放 | 页面 Module + map-inspector.wasm(7.5MB)；`arg.replayUrl` 等 wasm 串 |
 | shots 表字段 / 无坐标 | battle.json 实测 JSON 全字段 |
+| players_data.chassis/turret/gun_id = 按 tank_id 静态取**顶级配置**，非实际搭载 | UHMNO(T92E1) 发射弹只匹配 105mm 初级炮弹表（7df2a/7e12a/7e02a），WI `gun_id=259620` = 152mm 顶级炮 WG item id；回放全流模块 id varint 零命中（2026-09-25，见未解析清单死路表） |
+| WG item id ↔ tanks.pb module_id | 同 24 位局部 id，低字节 = 国家序×16+类别码（chassis=2/turret=3/gun=4；BlitzKit 侧恒 +1）。BZ-75：turret 16433→16435、gun 19249→19252；T92E1：gun 259617→259364(105)/259620(152) 实测对号 |
 | segment = [result][layer][hash6] | 8 发 u64 小端字节解码 |
 | blob 布局 16 字段 | 可控变量探针逐一定位（shooter@2、target@22、segment@46、distance@54） |
 | blob 姿态单位 = 度、来源 = prop2 | 126 × 0.3515625° 精确整步；21/21 流序 prop2 逐位匹配 |

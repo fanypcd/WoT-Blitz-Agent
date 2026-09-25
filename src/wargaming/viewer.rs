@@ -193,7 +193,7 @@ pub async fn start_viewer_server_for_replay(
     replay_path: &std::path::Path,
     tank_resolver: TankResolver,
     shot_no: usize,
-) -> anyhow::Result<(u16, u32)> {
+) -> anyhow::Result<(u16, u32, Option<usize>)> {
     use wotbreplay_parser::replay::Replay;
     let mut replay = Replay::open(std::fs::File::open(replay_path)?)?;
     let meta = replay.read_meta().ok();
@@ -222,10 +222,14 @@ pub async fn start_viewer_server_for_replay(
     if shots.is_empty() {
         return Err(anyhow::anyhow!("No shot events detected in this replay."));
     }
-    let file_name = replay_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let author_player_eid = crate::replay::combat::resolve_author_player_eid(&raw_packets, file_name);
-
+    // 作者昵称 = battle_results 权威来源（meta.json 非 UTF-8 时 read_meta 整体失败，不可依赖；
+    // meta.player_name 仅作兜底）
     let br = replay.read_battle_results().ok();
+    let author_nickname = br.as_ref()
+        .map(|br| crate::replay::combat::author_nick_from_battle_results(br))
+        .or_else(|| meta.as_ref().map(|m| m.player_name.clone()))
+        .unwrap_or_default();
+    let author_player_eid = crate::replay::combat::resolve_author_player_eid_by_nick(&raw_packets, &author_nickname);
     // 双方炮管俯仰的车型极限锚定表（昵称→俯角/仰角）——prop2 frac 比例解码用
     let pitch_limits = br.as_ref()
         .map(|br| tank_resolver.pitch_limits_from_battle_results(br))
@@ -252,8 +256,51 @@ pub async fn start_viewer_server_for_replay(
 
     let viewed_tank = target_tank.or(shooter_tank).unwrap_or(0);
     let shell_slot = shot.shell_slot;
-    let port = start_viewer_server_with_data(tank_resolver, viewed_tank, shooter_tank, Some(serde_json::to_value(&replay_data)?)).await?;
-    Ok((port, shell_slot))
+    // 实际搭载配置下标（目标/射手）：comp blob → 发射弹种 → 初始血量 证据链，注入每发数据
+    let valid_tanks: Vec<u32> = br.as_ref().map(|br| br.player_results.iter()
+        .map(|pr| pr.info.tank_id).collect()).unwrap_or_default();
+    let comps = crate::replay::playback::collect_comp_descriptors(&raw_packets, &valid_tanks);
+    let initial_hp_all = crate::replay::combat::collect_initial_hp(&raw_packets);
+    let mut player_shells: std::collections::HashMap<String, Vec<u32>> = std::collections::HashMap::new();
+    for s in &replay_data {
+        if s.shell_id == 0 { continue; }
+        let v = player_shells.entry(s.shooter_name.clone()).or_default();
+        if !v.contains(&s.shell_id) { v.push(s.shell_id); }
+    }
+    let mut nick_hp: std::collections::HashMap<String, u16> = std::collections::HashMap::new();
+    for (eid, nick) in &timeline.entity_names {
+        if let Some((_, hp)) = initial_hp_all.get(eid) { nick_hp.insert(nick.clone(), *hp); }
+    }
+    let cfg_of = |nick: &str, tank: u32| -> Option<usize> {
+        if tank == 0 { return None; }
+        let comp = comps.get(nick).and_then(|c| {
+            ((c.tank_id & 0xFFFF) == (tank & 0xFFFF)).then_some((c.turret_local, c.gun_local))
+        });
+        let shells = player_shells.get(nick).map(|v| v.as_slice()).unwrap_or(&[]);
+        let hp = nick_hp.get(nick).copied().unwrap_or(0);
+        resolve_config_index(tank, comp, shells, hp).map(|(idx, _, _)| idx)
+    };
+    let viewed_cfg = if let Some(tt) = target_tank {
+        cfg_of(&shot.target_name, tt)
+    } else {
+        shooter_tank.and_then(|st| cfg_of(&author_nickname, st))
+    };
+    let mut replay_json = serde_json::to_value(&replay_data)?;
+    if let Some(arr) = replay_json.as_array_mut() {
+        for s in arr.iter_mut() {
+            let shooter_name = s["shooter_name"].as_str().unwrap_or("").to_string();
+            let target_name = s["target_name"].as_str().unwrap_or("").to_string();
+            if let Some(idx) = tank_of(&shooter_name).and_then(|t| cfg_of(&shooter_name, t)) {
+                s["shooter_config_idx"] = json!(idx);
+            }
+            if let Some(idx) = tank_of(&target_name).and_then(|t| cfg_of(&target_name, t)) {
+                s["target_config_idx"] = json!(idx);
+            }
+        }
+    }
+    eprintln!("[replay_shot] 配置下标注入完成（shot={}，viewed_cfg={:?}）", shot_no, viewed_cfg);
+    let port = start_viewer_server_with_data(tank_resolver, viewed_tank, shooter_tank, Some(replay_json)).await?;
+    Ok((port, shell_slot, viewed_cfg))
 }
 
 pub async fn start_viewer_server_with_data(
@@ -665,6 +712,14 @@ pub(crate) fn build_configs(tank_id: u32) -> Vec<Value> {
                 "shells": shells,
                 "turret_index": turret_index,
                 "gun_index": gun_index,
+                // 模块局部 id（module_id>>8）——与 updateArena ARENA_INFO comp blob 对号，
+                // 实际搭载配置解析（resolve_config_index）用
+                "turret_local": (tur.module_id >> 8) as u16,
+                "gun_local": (gun.module_id >> 8) as u16,
+                "shell_global_ids": gun.shells.iter()
+                    .filter(|s| s.id > 0)
+                    .filter_map(|s| crate::replay::loadout::blitzkit_shell_global_id(&tank.nation, (s.id >> 8) as u64))
+                    .collect::<Vec<u32>>(),
                 "gun_thickness": gun_thickness,
                 "gun_mask": gun_mask,
                 "gun_spaced": gun_spaced,
@@ -706,6 +761,65 @@ pub(crate) fn build_configs(tank_id: u32) -> Vec<Value> {
         }));
     }
     configs
+}
+
+/// 实际搭载配置解析（共享证据链，射击复现与实时回放同步使用）：
+/// 证据 0 = comp blob 局部 id（updateArena ARENA_INFO，确定性：炮塔/主炮 module_id>>8 直接对号）；
+/// 证据 1 = 发射弹种 ⊆ 配置弹表（shell_global_ids）；
+/// 证据 2 = 初始血量 vs 车体+炮塔 health（改进耐久 ×1.125，±2 容差）；
+/// 依次回退，多匹配取最后一档（顶级），全无 → None（调用方默认顶级）。
+/// 返回 = (build_configs 数组下标, turret_index, gun_index)。
+pub fn resolve_config_index(
+    tank_id: u32,
+    comp: Option<(u16, u16)>,
+    shell_ids: &[u32],
+    hp: u16,
+) -> Option<(usize, u32, u32)> {
+    let configs = build_configs(tank_id);
+    if configs.len() <= 1 { return None; }
+    // 证据 0：comp blob 确定性对号
+    if let Some((cl, gl)) = comp {
+        let exact: Vec<usize> = (0..configs.len())
+            .filter(|&i| {
+                configs[i]["turret_local"].as_u64() == Some(cl as u64)
+                    && configs[i]["gun_local"].as_u64() == Some(gl as u64)
+            })
+            .collect();
+        if !exact.is_empty() {
+            let i = *exact.last().unwrap();
+            return Some((i,
+                configs[i]["turret_index"].as_u64().unwrap_or(0) as u32,
+                configs[i]["gun_index"].as_u64().unwrap_or(0) as u32));
+        }
+    }
+    let fired: std::collections::HashSet<u32> = shell_ids.iter().copied().collect();
+    let gun_ok: Vec<bool> = configs.iter().map(|c| {
+        fired.is_empty() || {
+            match c["shell_global_ids"].as_array() {
+                Some(a) if !a.is_empty() => fired.iter().all(|id| {
+                    a.iter().any(|s| s.as_u64() == Some(*id as u64))
+                }),
+                _ => true,   // 弹表缺失（数据不全）→ 不以此排除
+            }
+        }
+    }).collect();
+    let hp_val = hp as u32;
+    let hp_ok: Vec<bool> = configs.iter().map(|c| {
+        if hp_val == 0 { return true; }
+        let base = c["hull_hp"].as_u64().unwrap_or(0) as u32
+            + c["turret_health"].as_u64().unwrap_or(0) as u32;
+        if base == 0 { return true; }
+        let boosted = ((base as f64) * 1.125).round() as u32;
+        hp_val.abs_diff(base) <= 2 || hp_val.abs_diff(boosted) <= 2
+    }).collect();
+    let both: Vec<usize> = (0..configs.len()).filter(|&i| gun_ok[i] && hp_ok[i]).collect();
+    let mut cands = both;
+    if cands.is_empty() { cands = (0..configs.len()).filter(|&i| gun_ok[i]).collect(); }
+    if cands.is_empty() { cands = (0..configs.len()).filter(|&i| hp_ok[i]).collect(); }
+    let i = *cands.last()?;
+    Some((i,
+        configs[i]["turret_index"].as_u64().unwrap_or(0) as u32,
+        configs[i]["gun_index"].as_u64().unwrap_or(0) as u32))
 }
 
 fn parse_gun_caliber(name: &str) -> Option<f64> {
@@ -2177,23 +2291,39 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                      });
                     // 射手炮塔/炮管姿态（回放原始数据）：炮塔 = type7 prop2 绝对朝向 − 模型偏航；
                     // 炮管俯仰 = launch_velocity 垂直分量反解（prop9 实测与真实弹道无关，弃用）。
-                    function poseShooterTurretGun(sModel, sd, turretAbsYaw, lv, hullYawS, hullPitchS, hullRollS, gunPitchRad, turretRelOverride) {
+                    // cfgIdx = 射手实际搭载配置下标（build_configs 数组序，回放数据注入）；
+                    // 多配置坦克按其选炮塔/主炮变体（applyConfigVisible 同式），null = 默认顶级
+                    function poseShooterTurretGun(sModel, sd, turretAbsYaw, lv, hullYawS, hullPitchS, hullRollS, gunPitchRad, turretRelOverride, cfgIdx) {
                         if (!sModel || !sd) return;
-                        let turretNode = null; const gunNodes = [];
+                        const turrets = [];
+                        const gunGroups = new Map();
                         sModel.traverse(function(n) {
                             const nm = n.name || '';
-                            // 炮管本体 + 炮盾(gun_XX_mask)同链：都随炮塔旋转 × 俯仰（用户实证：
-                            // 炮盾焊在炮管摇篮上）；hide_elements 状态拆件加载时已隐藏
-                            if (/^gun_\d+(_mask)?$/.test(nm)) gunNodes.push(n);
-                            else if (/^turret_\d+$/.test(nm)) turretNode = n;
+                            const gm = nm.match(/^gun_(\d+)/);
+                            const tm = nm.match(/^turret_(\d+)$/);
+                            if (gm) { const g = parseInt(gm[1], 10); if (!gunGroups.has(g)) gunGroups.set(g, []); gunGroups.get(g).push(n); }
+                            else if (tm) turrets.push(n);
                         });
+                        turrets.sort(function(a, b) { return ((a.name.match(/\d+/)[0] | 0) - (b.name.match(/\d+/)[0] | 0)); });
+                        const gKeys = Array.from(gunGroups.keys()).sort(function(a, b) { return a - b; });
+                        // cfgIdx = configs 数组下标；越界/缺失 → 顶级（末位）
+                        const nCfg = (sd.configs && sd.configs.length) || 1;
+                        const cfgSel = (Number.isInteger(cfgIdx) && cfgIdx >= 0 && cfgIdx < nCfg) ? cfgIdx : nCfg - 1;
+                        const selCfg = sd.configs ? sd.configs[cfgSel] : null;
+                        const selTi = selCfg ? selCfg.turret_index : 0;
+                        const selGi = selCfg ? selCfg.gun_index : 0;
+                        // 未选变体隐藏（含子树）；选中的炮塔/主炮参与摆位
+                        turrets.forEach(function(n, i) { n.visible = (i === (selTi % turrets.length)); });
+                        gKeys.forEach(function(k, i) { gunGroups.get(k).forEach(function(n) { n.visible = (i === (selGi % gKeys.length)); }); });
+                        let turretNode = turrets.length ? turrets[selTi % turrets.length] : null;
+                        let gunNodes = gKeys.length ? gunGroups.get(gKeys[selGi % gKeys.length]) : [];
                         const mo = sd.model_origins;
                         if (!turretNode || !(mo && mo.track && mo.turret)) {
                             console.warn('[world] shooter turret/gun pose skipped:',
                                 !turretNode ? 'no turret node' : 'no model_origins');
                             return;
                         }
-                        const cfg = (sd.configs && sd.configs.length) ? sd.configs[sd.configs.length - 1] : null;
+                        const cfg = selCfg;
                         const tP = [mo.track[0]+mo.turret[0], mo.track[1]+mo.turret[1], mo.track[2]+mo.turret[2]];
                         let gP = tP.slice();
                         if (cfg && cfg.gun_origin) gP = [tP[0]+cfg.gun_origin[0], tP[1]+cfg.gun_origin[1], tP[2]+cfg.gun_origin[2]];
@@ -2390,7 +2520,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                         ? null : (s.shooter_gun_pitch != null ? s.shooter_gun_pitch : null);
                                     const sRel2 = (s.shooter_turret_yaw || 0) - (s.shooter_ang ? s.shooter_ang[0] : 0);
                                     poseShooterTurretGun(sModel, sd, s.shooter_turret_yaw, s.launch_velocity, sYaw2,
-                                        sHit2 ? sHit2.pitch : 0, sHit2 ? sHit2.roll : 0, sgp2, sRel2);
+                                        sHit2 ? sHit2.pitch : 0, sHit2 ? sHit2.roll : 0, sgp2, sRel2, s.shooter_config_idx);
                                     // 基准点标记（调试模式）：type10 记录位置锚点，坐标写入调试信息窗口。
                                     // 脱靶分支无 tick 切换，模型静态——标记挂 __worldAnno 随调试开关显隐。
                                     if (window.__worldAnno) {
@@ -2625,7 +2755,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                 const sRel = (s.shooter_turret_yaw || 0) - (s.shooter_ang ? s.shooter_ang[0] : 0);
                                 poseShooterTurretGun(sModel, sd, s.shooter_turret_yaw, s.launch_velocity, sYaw,
                                     sR2 ? sR2.ang[1] : (sHit ? sHit.pitch : 0),
-                                    sR2 ? sR2.ang[2] : (sHit ? sHit.roll : 0), sgp, sRel);
+                                    sR2 ? sR2.ang[2] : (sHit ? sHit.roll : 0), sgp, sRel, s.shooter_config_idx);
                                 // 炮闩标注：bake 前捕获的 gun 局部坐标 × bake 后 gun.matrixWorld——
                                 // 精确跟随炮塔偏航/炮管俯仰（来源 = 炮管枢轴 gP，不做后伸量修正）。
                                 try {
@@ -3499,7 +3629,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                         ? null : lerpTl(s.shooter_gun_timeline, dt);
                                     poseShooterTurretGun(window.__shooterModel, window.__shooterData,
                                         sInt.yaw - (relS || 0), s.launch_velocity, sInt.yaw, sInt.pitch, sInt.roll,
-                                        gpS != null ? gpS : null, -(relS || 0));
+                                        gpS != null ? gpS : null, -(relS || 0), s.shooter_config_idx);
                                 }
                                 if (window.__updateMuzzleMarker) window.__updateMuzzleMarker();
                                 if (window.__updateAnchorMarkers) window.__updateAnchorMarkers();

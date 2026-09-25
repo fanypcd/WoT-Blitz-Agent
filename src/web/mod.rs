@@ -136,6 +136,9 @@ pub async fn serve(config_path: std::path::PathBuf) -> anyhow::Result<()> {
         .route("/api/player/{nickname}", get(player_handler))
         .route("/api/scan", post(scan_handler))
         .route("/api/replay/shots", post(replay_shots_handler))
+        .route("/playback", get(crate::wargaming::playback_viewer::playback_page_handler))
+        .route("/api/playback/data", post(playback_data_handler))
+        .route("/api/playback/map", get(crate::wargaming::playback_viewer::playback_map_handler))
         .route("/api/snapshot", post(snapshot_handler))
         .route("/api/prematch", post(prematch_handler))
         .route("/api/tanks", get(tanks_handler))
@@ -627,14 +630,21 @@ async fn replay_shots_handler(
         .unwrap_or(&0);
     let shots = timeline.infer_shots(author_eid);
     eprintln!("[replay_shots] author_eid={:08x} shots={}", author_eid, shots.len());
-    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    // 作者昵称来自回放自身（battle_results author→花名册；meta.player_name 兜底），不依赖文件名
+    let br = replay.read_battle_results().ok();
+    let author_nick = br.as_ref()
+        .and_then(|br| br.players.iter()
+            .find(|p| p.account_id == br.author.account_id)
+            .map(|p| p.info.nickname.clone()))
+        .or_else(|| meta.as_ref().map(|m| m.player_name.clone()))
+        .unwrap_or_default();
     // 双方炮管俯仰的车型极限锚定表（battle_results 昵称→tank_id × TankResolver 极限）
-    let pitch_limits = replay.read_battle_results().ok()
+    let pitch_limits = br.as_ref()
         .and_then(|br| state.tank_cache.resolver()
-            .map(|r| r.pitch_limits_from_battle_results(&br)))
+            .map(|r| r.pitch_limits_from_battle_results(br)))
         .unwrap_or_default();
     // fail-fast：提取失败直接返回 500 + 错误信息（前端可见），不做静默降级
-    let shot_replay = match crate::replay::combat::extract_shot_replays_auto_with_limits(&raw_packets, file_name, &pitch_limits) {
+    let shot_replay = match crate::replay::combat::extract_shot_replays_auto_with_limits(&raw_packets, &author_nick, &pitch_limits) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("[replay_shots] 提取失败: {}", e);
@@ -644,7 +654,7 @@ async fn replay_shots_handler(
     };
     eprintln!("[replay_shots] shot_replay={}", shot_replay.len());
     // 其他玩家射击：宽松提取后合并、按时间全局重编号（index 是 viewer `shot=N` 与列表共用的选择键）
-    let author_eid_file = crate::replay::combat::resolve_author_player_eid(&raw_packets, file_name);
+    let author_eid_file = crate::replay::combat::resolve_author_player_eid_by_nick(&raw_packets, &author_nick);
     let mut all_shots = shot_replay;
     let others = crate::replay::combat::extract_other_shot_replays_with_limits(&raw_packets, author_eid_file, &pitch_limits);
     // 数据边界提示（前端射击列表头部展示）：他人路径收录覆盖 + 跳过/兜底统计
@@ -669,7 +679,6 @@ async fn replay_shots_handler(
     eprintln!("[replay_shots] total_shots={} (含其他玩家)", all_shots.len());
 
     // 目标坦克 ID：battle_results 按目标昵称关联（供 3D 查看器打开正确目标车辆）
-    let br = replay.read_battle_results().ok();
     // 预构建查找表（循环外一次，替代每发子弹的双重线性 find）：
     // 昵称 → (account_id, 队伍)：同名玩家取首个匹配（与原 iter().find 语义一致）
     let mut nick_info: HashMap<&str, (u32, i32)> = HashMap::new();
@@ -696,6 +705,39 @@ async fn replay_shots_handler(
         let (aid, team) = *nick_info.get(nick)?;
         Some((team, tank_by_account.get(&aid).copied().unwrap_or(0)))
     };
+
+    // —— 实际搭载配置（comp blob 确定性 → 发射弹种 → 初始血量 证据链，与实时回放共享）——
+    let initial_hp = crate::replay::combat::collect_initial_hp(&raw_packets);
+    let valid_tanks: Vec<u32> = br.as_ref().map(|br| br.player_results.iter()
+        .map(|pr| pr.info.tank_id).collect()).unwrap_or_default();
+    let comps = crate::replay::playback::collect_comp_descriptors(&raw_packets, &valid_tanks);
+    let mut player_shells: HashMap<String, Vec<u32>> = HashMap::new();
+    for s in &all_shots {
+        if s.shell_id == 0 { continue; }
+        let v = player_shells.entry(s.shooter_name.clone()).or_default();
+        if !v.contains(&s.shell_id) { v.push(s.shell_id); }
+    }
+    let mut nick_hp: HashMap<String, u16> = HashMap::new();
+    for (eid, nick) in &timeline.entity_names {
+        if let Some((_, hp)) = initial_hp.get(eid) { nick_hp.insert(nick.clone(), *hp); }
+    }
+    let mut nick_cfg: HashMap<String, u64> = HashMap::new();
+    if let Some(br) = br.as_ref() {
+        for p in &br.players {
+            let nick = &p.info.nickname;
+            let Some(tank) = tank_by_account.get(&p.account_id).copied() else { continue };
+            if tank == 0 { continue; }
+            let comp = comps.get(nick).and_then(|c| {
+                ((c.tank_id & 0xFFFF) == (tank & 0xFFFF)).then_some((c.turret_local, c.gun_local))
+            });
+            let shells = player_shells.get(nick).map(|v| v.as_slice()).unwrap_or(&[]);
+            let hp = nick_hp.get(nick).copied().unwrap_or(0);
+            if let Some((idx, _, _)) = crate::wargaming::viewer::resolve_config_index(tank, comp, shells, hp) {
+                nick_cfg.insert(nick.clone(), idx as u64);
+            }
+        }
+    }
+    let nick_cfg = nick_cfg;
     let enriched: Vec<Value> = all_shots.iter().map(|s| {
         let mut v = serde_json::to_value(s).unwrap_or(json!(null));
         if let Some(tid) = tank_of(&s.target_name) {
@@ -706,6 +748,13 @@ async fn replay_shots_handler(
             if let Some(at) = author_team {
                 v["shooter_team"] = json!(if team == at { "ally" } else { "enemy" });
             }
+        }
+        // 实际搭载配置（build_configs 数组下标）——3D 查看器按此选炮塔/主炮变体
+        if let Some(idx) = nick_cfg.get(&s.target_name) {
+            v["target_config_idx"] = json!(idx);
+        }
+        if let Some(idx) = nick_cfg.get(&s.shooter_name) {
+            v["shooter_config_idx"] = json!(idx);
         }
         v
     }).collect();
@@ -755,6 +804,30 @@ async fn replay_shots_handler(
     *LAST_REPLAY_SHOTS.get_or_init(|| std::sync::Mutex::new(json!([]))).lock().unwrap() = v.clone();
 
     Json(v).into_response()
+}
+
+/// 全场实时回放数据端点：与 `/api/replay/shots` 同款路径参数 + path_translate 转换，
+/// 构建结果按路径缓存（playback_viewer 内部），gzip 响应。
+async fn playback_data_handler(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    axum::Json(body): axum::Json<Value>,
+) -> Response {
+    let file = body["file"].as_str().unwrap_or("").trim().to_string();
+    if file.is_empty() {
+        return (axum::http::StatusCode::BAD_REQUEST, "missing file").into_response();
+    }
+    let file = match state.config.load() {
+        Ok(c) => c.replay.translate(&file),
+        Err(e) => {
+            eprintln!("[playback] config load failed, pathTranslate=auto fallback: {e}");
+            crate::models::config::ReplayConfig::translate_with_mode(&file, "auto")
+        }
+    };
+    let path = std::path::PathBuf::from(&file);
+    if !path.exists() {
+        return (axum::http::StatusCode::NOT_FOUND, format!("replay not found: {}", file)).into_response();
+    }
+    crate::wargaming::playback_viewer::playback_data_response(&path).await
 }
 
 /// 内嵌 3D 查看器的复现数据端点：返回最近一次解析的射击复现数据。
