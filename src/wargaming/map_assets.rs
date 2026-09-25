@@ -262,35 +262,13 @@ fn extract_minimap(internal: &str) -> Option<Vec<u8>> {
 //   （块行主序），块内行主序；存储行 0=南、列 0=东；高度 z = u16 * zMax / 65535；
 //   覆盖世界 [-300,+300]²。输出统一列翻转（列 0=西=x −300），行序不变（行 0=南=z −300）。
 
-/// 一张图解码后的高度场（行 0=南、列 0=西，行主序 u16 LE）。
+/// 一张图解码后的高度场：行 0=南、列 0=西（行主序 u16，米制换算系数见响应头 zmax）。
 pub struct TerrainGrid {
-    pub size: u32,
-    pub zmax: f32,
     pub heights: Vec<u16>,
 }
 
-impl TerrainGrid {
-    /// 世界坐标 (x,z) → 高度（米），双线性采样，越界返回 None。
-    /// 网格节点 (0,0) 位于世界 (-300,-300)，(n-1,n-1) 位于 (+300,+300)。
-    pub fn sample_meters(&self, x: f32, z: f32) -> Option<f32> {
-        let n = self.size as usize;
-        let fx = (x / DEFAULT_SIZE_M + 0.5) * (n - 1) as f32;
-        let fy = (z / DEFAULT_SIZE_M + 0.5) * (n - 1) as f32;
-        if fx < 0.0 || fy < 0.0 || fx > (n - 1) as f32 || fy > (n - 1) as f32 {
-            return None;
-        }
-        let (x0, y0) = (fx.floor() as usize, fy.floor() as usize);
-        let (tx, ty) = (fx - x0 as f32, fy - y0 as f32);
-        let at = |r: usize, c: usize| self.heights[r * n + c] as f32 * self.zmax / 65535.0;
-        let top = at(y0, x0) * (1.0 - tx) + at(y0, (x0 + 1).min(n - 1)) * tx;
-        let bot = at((y0 + 1).min(n - 1), x0) * (1.0 - tx)
-            + at((y0 + 1).min(n - 1), (x0 + 1).min(n - 1)) * tx;
-        Some(top * (1.0 - ty) + bot * ty)
-    }
-}
-
-/// 解析标准契约高度图；size/tile 非预期值（老图）一律拒绝。
-fn parse_heightmap(raw: &[u8], zmax: f32) -> Option<TerrainGrid> {
+/// 解析标准契约高度图，返回行 0=南、列 0=西 的 u16 网格；size/tile 非预期值（老图）一律拒绝。
+fn parse_heightmap(raw: &[u8]) -> Option<TerrainGrid> {
     if raw.len() < 8 {
         return None;
     }
@@ -324,11 +302,11 @@ fn parse_heightmap(raw: &[u8], zmax: f32) -> Option<TerrainGrid> {
             out[r * size + c] = grid[r * size + (size - 1 - c)];
         }
     }
-    Some(TerrainGrid { size: size as u32, zmax, heights: out })
+    Some(TerrainGrid { heights: out })
 }
 
 /// 从游戏目录解出高度图（landscape/ 下唯一 *heightmap*.dvpl，文件名各图不同）。
-fn extract_heightmap(space_id: &str, zmax: f32) -> Option<TerrainGrid> {
+fn extract_heightmap(space_id: &str) -> Option<TerrainGrid> {
     let game = resolve_game_dir(None).ok()?;
     let dir = game.join("3d/Maps").join(space_id).join("landscape");
     let mut found = None;
@@ -340,7 +318,7 @@ fn extract_heightmap(space_id: &str, zmax: f32) -> Option<TerrainGrid> {
     }
     let path = found?;
     let dv = DvplFile::read(&path).ok()?;
-    parse_heightmap(&dv.data, zmax)
+    parse_heightmap(&dv.data)
 }
 
 /// 序列化高度场：u16 LE 行主序（行 0=南），前端按 X-Terrain-Meta 解释。
@@ -385,7 +363,7 @@ pub fn terrain_response(map_name: &str) -> Response {
     }
 
     // 3) 游戏客户端提取
-    let Some(t) = extract_heightmap(space, zmax) else {
+    let Some(t) = extract_heightmap(space) else {
         return (axum::http::StatusCode::NOT_FOUND, "terrain not available").into_response();
     };
     let bytes = terrain_bytes(&t);
@@ -472,20 +450,16 @@ mod tests {
         for (i, v) in src.iter().enumerate() {
             raw[8 + i * 2..8 + i * 2 + 2].copy_from_slice(&v.to_le_bytes());
         }
-        let t = parse_heightmap(&raw, 60.0).expect("standard contract must parse");
+        let t = parse_heightmap(&raw).expect("standard contract must parse");
         // 列翻转后：输出 [r,c] = 未翻转网格 [r, size-1-c]，即线性下标 r*size+(size-1-c)
         for (r, c) in [(0usize, 0usize), (100, 200), (511, 511), (256, 128)] {
-            let expect = ((r * size + (size - 1 - c)) as u16 % 65535) as f32 * 60.0 / 65535.0;
-            // 采样点取网格节点本身：节点 (0,0) 在世界 (-300,-300)，(n-1,n-1) 在 (+300,+300)
-            let got = t.sample_meters(
-                -300.0 + c as f32 / (size - 1) as f32 * 600.0,
-                -300.0 + r as f32 / (size - 1) as f32 * 600.0,
-            ).expect("in-bounds sample");
-            assert!((got - expect).abs() < 0.01, "({r},{c}): {got} vs {expect}");
+            let expect = (r * size + (size - 1 - c)) as u16 % 65535;
+            let got = t.heights[r * size + c];
+            assert_eq!(got, expect, "({r},{c}): {got} vs {expect}");
         }
         // 非标准契约（老图变体）拒绝
         raw[4..8].copy_from_slice(&8u32.to_le_bytes());
-        assert!(parse_heightmap(&raw, 60.0).is_none());
+        assert!(parse_heightmap(&raw).is_none());
     }
 
     /// zMax 表覆盖全部 26 图，且 incompatible 名单内的图 zmax 无所谓（先行拒绝）。

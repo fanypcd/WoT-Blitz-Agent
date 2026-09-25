@@ -52,10 +52,7 @@ from wotb_scg import (  # noqa: E402
     polygon_groups_by_id,
     read_scg,
 )
-from export_map_geometry_poc import (  # noqa: E402
-    collect_instances,
-    iter_entities_recursive,
-)
+from export_map_geometry_poc import collect_instances  # noqa: E402
 
 # 枚举名 → 3d/Maps 空间目录（与 src/wargaming/map_assets.rs MAP_SPACES 一致）
 MAP_SPACES = {
@@ -89,13 +86,10 @@ MAP_SPACES = {
 
 
 def find_member(directory: pathlib.Path, space: str, suffix: str) -> pathlib.Path | None:
-    """定位 <space>.sc2.dvpl / 兜底 glob；suffix 形如 '.sc2.dvpl'。"""
+    """定位 <space>.sc2.dvpl / 兜底同后缀 glob（老图文件名不同）。"""
     exact = directory / f"{space}{suffix}"
     if exact.exists():
         return exact
-    plain = exact.with_suffix("") if suffix == ".sc2" else None
-    if plain is not None and plain.exists():
-        return plain
     for p in sorted(directory.glob(f"*{suffix}")):
         return p
     return None
@@ -104,19 +98,6 @@ def find_member(directory: pathlib.Path, space: str, suffix: str) -> pathlib.Pat
 def load_payload(path: pathlib.Path) -> bytes:
     raw = path.read_bytes()
     return decode_dvpl(raw) if path.name.lower().endswith(".dvpl") else raw
-
-
-def group_color(group_id: int) -> tuple[float, float, float, float]:
-    """按组 ID 哈希出低饱和蓝灰色（线性 RGB），战术沙盘风格。"""
-    digest = hashlib.sha256(str(group_id).encode()).digest()
-    hue = digest[0] / 255.0 * (230 - 200) + 200      # 200-230° 蓝青
-    sat = 0.05 + digest[1] / 255.0 * 0.10            # 5-15%
-    light = 0.35 + digest[2] / 255.0 * 0.35          # 35-70%
-    r, g, b = colorsys.hls_to_rgb(hue / 360.0, light, sat)
-    # sRGB 近似转线性（glTF baseColorFactor 为线性空间）
-    def to_linear(c: float) -> float:
-        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
-    return (to_linear(r), to_linear(g), to_linear(b), 1.0)
 
 
 def strip_to_triangles(seq: list[int]) -> list[int]:
