@@ -581,6 +581,8 @@ async function loadMapImage() {
         (g) => res(g), undefined, () => res(null));
     });
     if (gltf && gltf.scene) {
+      // 平直着色：建筑面片边界清晰，观感整洁（避免平滑法线导致的碎裂渐变）
+      gltf.scene.traverse((o) => { if (o.isMesh && o.material) o.material.flatShading = true; });
       mapScenery = new THREE.Group();
       mapScenery.rotation.order = 'YXZ';
       mapScenery.rotation.set(-Math.PI / 2, Math.PI, 0);

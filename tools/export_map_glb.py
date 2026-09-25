@@ -177,9 +177,11 @@ CATEGORY_PALETTES: list[tuple[tuple[str, ...], tuple[float, float, float]]] = [
 
 
 def category_color(name: str | None, group_id: int) -> tuple[float, float, float, float]:
-    """按建筑类目给基色 + 组 ID 哈希微扰亮度；未识别则退回冷灰哈希。"""
-    digest = hashlib.sha256(str(group_id).encode()).digest()
-    jitter = 0.90 + digest[3] / 255.0 * 0.20  # 亮度 0.90-1.10
+    """按建筑类目给基色；亮度抖动取自建筑名哈希——同一栋建筑的所有部件同色，
+    避免墙/顶/门各自深浅不一的碎裂感。未识别名则退回冷灰哈希。"""
+    jitter_seed = name if name else str(group_id)
+    digest = hashlib.sha256(jitter_seed.encode()).digest()
+    jitter = 0.95 + digest[3] / 255.0 * 0.10  # 亮度 0.95-1.05（收紧，减少碎裂感）
     base = None
     if name:
         low = name.lower()
