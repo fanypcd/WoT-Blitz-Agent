@@ -3127,8 +3127,6 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                             // 出入点标记 + 段线（P1→P2 = 游戏编码命中线段）
                                             mkP1.position.copy(placePt([hb[0], hb[2], hb[1]]));
                                             mkP2.position.copy(placePt([hb[3], hb[5], hb[4]]));
-                                            segLine.geometry.setFromPoints([mkP1.position.clone(), mkP2.position.clone()]);
-                                            segLine.computeLineDistances();
                                             // 判定方向 = P1→P2 解码弦（世界系），经 placePt 同款部件矩阵
                                             const chordL = new THREE.Vector3(
                                                 qc(hb[3], 0) - qc(hb[0], 0),
@@ -3156,6 +3154,16 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                                 const fh = Math.hypot(e[4], e[6]) || 1;
                                                 dirS = new THREE.Vector3(-e[4] / fh, 0, -e[6] / fh);
                                             }
+                                            // 段线仅入射端外延（P1 前 4m，沿入射弹向反向），
+                                            // 入射弹向一目了然；P2（穿出端）与标记保持在解码出入点
+                                            const EXT = 4;
+                                            let dirN = (chordL.lengthSq() > 1e-9)
+                                                ? chordL.clone().normalize() : null;
+                                            if (!dirN && dirS) dirN = dirS.clone().normalize();
+                                            const aPt = mkP1.position.clone().addScaledVector(dirN, -EXT);
+                                            const bPt = mkP2.position.clone();
+                                            segLine.geometry.setFromPoints([aPt, bPt]);
+                                            segLine.computeLineDistances();
                                             // 判定射线：P1 表面外 0.5m 沿弹向进入（raycast 与入射角同源）
                                             window.__segRay = {
                                                 origin: mkP1.position.clone().addScaledVector(dirS, -0.5),
