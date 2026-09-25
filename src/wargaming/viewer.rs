@@ -3392,9 +3392,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                         if (tksW.length > 1) {
                             // 弹种自动匹配：按回放数据推断本发实际弹种并切换选择器（修正
                             // BLOCKED vs SPLASH 类差异）。优先级：① hit_flags 0x1000(HE 爆炸)
-                            // → explosion_radius>0 的弹；② shell_id 全局 id ↔ /api/shells
-                            // global_id 同域精确匹配（兜底链来源同样命中）；③ shell_slot 兜底
-                            //（槽位序与 blitzkit shells 数组序不完全一致）。切换后经 shell-select change 重跑弦判定。
+                            // → explosion_radius>0 的弹；② shell_id ↔ 射手配置弹表
+                            // shell_global_ids 精确匹配（确定性别名，FV215b shot6 竞态实测）；
+                            // ③ 仅当 shell_id 未知时才槽位兜底（有 shell_id 而匹配失败 = 数据
+                            // 不全，保持当前选择，不回退槽位以免盖掉正确弹种）。
                             window.__worldShellSlot = (typeof s.shell_slot === 'number') ? s.shell_slot : null;
                             window.__worldIsHE = !!(s.hit_flags & 0x1000);
                             window.__worldShellId = (typeof s.shell_id === 'number' && s.shell_id) ? s.shell_id : null;
@@ -3406,11 +3407,25 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                     want = (shooterShells || []).findIndex(sh =>
                                         shellTypeOf(sh) === 'he' || (sh && sh.explosion_radius > 0));
                                 }
-                                if (want == null || want < 0) {
-                                    want = (shooterShells || []).findIndex(sh => sh && sh.global_id === window.__worldShellId && window.__worldShellId);
-                                    if (want != null && want < 0) want = null;
+                                if (want == null || want < 0 && window.__worldShellId) {
+                                    // 射手弹表全局 id：configs[射手配置].shell_global_ids（与顶层
+                                    // shells 同源同序）；全配置扫一遍取首个包含该弹的
+                                    const cfgArr = (shooterData && shooterData.configs) || null;
+                                    let gids = null;
+                                    if (cfgArr) {
+                                        for (let ci = cfgArr.length - 1; ci >= 0 && !gids; ci--) {
+                                            gids = cfgArr[ci].shell_global_ids || null;
+                                        }
+                                    }
+                                    if (gids) {
+                                        want = gids.indexOf(window.__worldShellId);
+                                        if (want != null && want < 0) want = null;
+                                    }
                                 }
-                                if (want == null || want < 0) want = window.__worldShellSlot;
+                                // 槽位兜底仅在完全无 shell_id 时使用
+                                if ((want == null || want < 0) && window.__worldShellId == null) {
+                                    want = window.__worldShellSlot;
+                                }
                                 if (want != null && want >= 0 && want < sel.options.length) {
                                     if (sel.value !== String(want)) {
                                         sel.value = String(want);
