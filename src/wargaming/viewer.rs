@@ -224,8 +224,9 @@ pub async fn start_viewer_server(tank_resolver: TankResolver, tank_id: u32, shoo
 }
 
 /// 为回放射击复现启动无头查看器：解析回放 → 挂载 /api/replay_shot → 返回
-/// (端口, 所选射击的弹药槽位)。shell_slot 供调用方拼接 `&shell=N` URL 参数
-/// （缺省会回落到查看器默认槽 0，非 0 槽弹种渲染错误）。
+/// (端口, shell 弹表下标, 目标实际配置下标)。shell 参数按发射弹种 shell_id 在
+/// 射手弹表中的确定性下标传递（type=28 槽位快照存在切弹竞态，仅作兜底）；
+/// 配置下标供 `&config=N` 选择目标/射手模型的炮塔/主炮变体。
 pub async fn start_viewer_server_for_replay(
     replay_path: &std::path::Path,
     tank_resolver: TankResolver,

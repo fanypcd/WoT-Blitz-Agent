@@ -654,9 +654,9 @@ async fn replay_shots_handler(
     };
     eprintln!("[replay_shots] shot_replay={}", shot_replay.len());
     // 其他玩家射击：宽松提取后合并、按时间全局重编号（index 是 viewer `shot=N` 与列表共用的选择键）
-    let author_eid_file = crate::replay::combat::resolve_author_player_eid_by_nick(&raw_packets, &author_nick);
+    let author_eid = crate::replay::combat::resolve_author_player_eid_by_nick(&raw_packets, &author_nick);
     let mut all_shots = shot_replay;
-    let others = crate::replay::combat::extract_other_shot_replays_with_limits(&raw_packets, author_eid_file, &pitch_limits);
+    let others = crate::replay::combat::extract_other_shot_replays_with_limits(&raw_packets, author_eid, &pitch_limits);
     // 数据边界提示（前端射击列表头部展示）：他人路径收录覆盖 + 跳过/兜底统计
     let mut extraction_notes: Vec<String> = Vec::new();
     if others.total_launches > 0 {
