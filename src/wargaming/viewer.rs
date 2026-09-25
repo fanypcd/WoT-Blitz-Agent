@@ -3018,6 +3018,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                 // P1→P2 解码弦}：raycast 与入射角同源此射线（服务器编码的位置
                                 // 与弹向），世界系，随位姿联动。
                                 window.__worldSegMk = null;
+                                // 判定段线组：独立于调试标注层（非调试模式也常显）
+                                if (window.__worldSegGroup) { scene.remove(window.__worldSegGroup); window.__worldSegGroup = null; }
                                 if (s.hit_token && /^[0-9a-f]{12}$/i.test(s.hit_token)) {
                                     const hb = [];
                                     for (let hi = 0; hi < 6; hi++) hb.push(parseInt(s.hit_token.substr(hi * 2, 2), 16));
@@ -3084,7 +3086,11 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                                         const segLine = new THREE.Line(new THREE.BufferGeometry(),
                                             new THREE.LineDashedMaterial({ color: 0xffa500, transparent: true, opacity: 0.85, dashSize: 0.25, gapSize: 0.15, depthTest: false }));
                                         mkP1.renderOrder = 998; mkP2.renderOrder = 998; segLine.renderOrder = 997;
-                                        window.__worldAnno.add(mkP1); window.__worldAnno.add(mkP2); window.__worldAnno.add(segLine);
+                                        window.__worldSegGroup = new THREE.Group();
+                                        window.__worldSegGroup.add(mkP1);
+                                        window.__worldSegGroup.add(mkP2);
+                                        window.__worldSegGroup.add(segLine);
+                                        scene.add(window.__worldSegGroup);
                                         const findPartMesh = function(re) {
                                             let found = null;
                                             armorModel.traverse(function(n) {
