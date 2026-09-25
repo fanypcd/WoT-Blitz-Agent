@@ -344,10 +344,25 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
 
     instances = [it for it in instances if not is_env_asset(it)]
 
-    # 悬浮/图外过滤：底面高于地形 >15m 的大件（如悬空的风车/天空球）剔除；
-    # 平移在 ±320m 图外的剔除（边界装饰会悬在虚空）。阈值 15m 是因为正确摆放
-    # 建筑的"屋顶组"（与墙体分属不同 group）底部会悬空 ~8m，属正常；小件
-    # （半径≤8m，烟囱类细节）也保留。高度图不可用（老图）时跳过该过滤。
+    # 悬浮/图外过滤：
+    # 1) 天空渲染件（SkyFlattenSphere 天空球等）按名排除——它们是游戏天空着色器
+    #    的投影面，故意悬在 60m 海拔上限的高空，导出成实体材质就是一颗暗球；
+    # 2) 底面高于地形 >40m 的大件剔除（真正的天空/月亮类遗留）；
+    # 3) 平移在 ±320m 图外的剔除（边界装饰会悬在虚空）。
+    # 阈值 40m 是因为正确摆放的"屋顶组"会悬空 ~8m、部分地标（如马拉诺夫卡
+    # 风车 mill+screw，悬 17-24m，用户要求保留）也在此列。高度图不可用（老图）
+    # 时跳过 2) 3)。
+    # 天空渲染件与图外装饰无条件排除（不依赖高度图）
+    instances = [it for it in instances
+                 if "sky" not in (it.get("entityName") or "").lower()
+                 and abs(it["worldTransform"]["translation"][0]) <= 320
+                 and abs(it["worldTransform"]["translation"][1]) <= 320]
+
+    # 悬浮过滤：
+    # 底面高于地形 >40m 的大件剔除（真正的天空/月亮类遗留）。
+    # 阈值 40m 是因为正确摆放的"屋顶组"会悬空 ~8m、部分地标（如马拉诺夫卡
+    # 风车 mill+screw，悬 17-24m，用户要求保留）也在此列。高度图不可用（老图）
+    # 时跳过。
     if heightmap is not None:
         hn = heightmap.shape[0]
 
@@ -366,15 +381,13 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
             t = it["worldTransform"]
             tr = t["translation"]
             scale = max(t["scale"]) if t["scale"] else 1.0
-            if abs(tr[0]) > 320 or abs(tr[1]) > 320:
-                continue  # 图外装饰
             local_min_z = group_min_z.get(it["datasourceId"])
             if local_min_z is None:
                 kept.append(it)
                 continue
             gap = (tr[2] + local_min_z * scale) - terrain_h(tr[0], tr[1])
             radius = group_radius.get(it["datasourceId"], 0.0) * scale
-            if gap > 15.0 and radius > 8.0:
+            if gap > 40.0 and radius > 8.0:
                 print(f"  [filter] {map_name}: 悬空实例 {it.get('entityName')!r} "
                       f"底面高于地形 {gap:.1f}m（半径 {radius:.0f}m），剔除")
                 continue
