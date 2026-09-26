@@ -311,17 +311,16 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
         group_radius[group_id] = max(math.sqrt(x * x + y * y + z * z) for x, y, z in positions)
         group_min_z[group_id] = min(z for _, _, z in positions)
 
-    # 过滤巨型环境资产（周边山体背景/冰面/体积雾等，非战术建筑）
-    # 判据：世界半径 > 150m，或实体名命中环境资产命名（env_* / fog* / mountain*）
+    # 过滤巨型环境资产（周边山体背景/大片冰面/体积雾等，非战术建筑）。
+    # 判据只用世界半径 > 150m——不要按 env_ 前缀排除：不同地图作者对 env_* 的
+    # 用法不同（马拉诺夫卡的 env_ma_* 是巨型冰面，其他图的 env_* 只是普通
+    # 管道/石块等小道具，按前缀排除会误杀大量正常内容）。
     MAX_RADIUS_M = 150.0
 
     def is_env_asset(inst: dict) -> bool:
         t = inst["worldTransform"]
         scale = max(t["scale"]) if t["scale"] else 1.0
-        if group_radius.get(inst["datasourceId"], 0.0) * scale > MAX_RADIUS_M:
-            return True
-        name = (inst.get("entityName") or "").lower()
-        return name.startswith(("env_", "fog", "mountain"))
+        return group_radius.get(inst["datasourceId"], 0.0) * scale > MAX_RADIUS_M
 
     instances = [it for it in instances if not is_env_asset(it)]
 
@@ -334,8 +333,9 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
     # 风车 mill+screw，悬 17-24m，用户要求保留）也在此列。高度图不可用（老图）
     # 时跳过 2) 3)。
     # 天空渲染件与图外装饰无条件排除（不依赖高度图）
+    # 天空渲染件（sky 投影球）/ 烟雾体积盒（smoke，渲染成实心暗盒）/ 图外装饰无条件排除
     instances = [it for it in instances
-                 if "sky" not in (it.get("entityName") or "").lower()
+                 if not any(k in (it.get("entityName") or "").lower() for k in ("sky", "smoke"))
                  and abs(it["worldTransform"]["translation"][0]) <= 320
                  and abs(it["worldTransform"]["translation"][1]) <= 320]
 
