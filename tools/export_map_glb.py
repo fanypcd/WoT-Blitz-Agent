@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import colorsys
 import hashlib
+import io
 import json
 import math
 import pathlib
@@ -47,6 +48,7 @@ except ImportError as exc:
 
 from wotb_sc2 import Reader, decode_dvpl, read_archive, read_sc2  # noqa: E402
 from wotb_scg import (  # noqa: E402
+    decode_bytes,
     decode_polygon_indices,
     decode_polygon_positions,
     polygon_groups_by_id,
@@ -98,6 +100,112 @@ def find_member(directory: pathlib.Path, space: str, suffix: str) -> pathlib.Pat
 def load_payload(path: pathlib.Path) -> bytes:
     raw = path.read_bytes()
     return decode_dvpl(raw) if path.name.lower().endswith(".dvpl") else raw
+
+
+# ---------- 顶点布局（SCG 交错顶点） ----------
+# 由 7 种实测 vertexFormat 反推并数值验证（bit 求和 == stride，UV 落在 [0,1]）：
+#   bit0=位置12B、bit1=法线12B、bit2=颜色4B、bit3=UV0 8B、bit4=UV1 8B、
+#   bit7=切线12B、bit8=副切线12B、bit9/12/13=其他扩展；按位序顺序排列。
+VERTEX_LAYOUT_BITS = {0: 12, 1: 12, 2: 4, 3: 8, 4: 8, 7: 12, 8: 12, 9: 16, 10: 8, 12: 12, 13: 16}
+
+
+def decode_group_uvs(group: dict) -> list[tuple[float, float]] | None:
+    """解出 diffuse UV0（float2/顶点）；布局未知或该格式无 UV0 时返回 None。"""
+    vf = group.get("vertexFormat")
+    vc = group.get("vertexCount")
+    payload = decode_bytes(group.get("vertices"))
+    if not isinstance(vf, int) or not isinstance(vc, int) or vc <= 0 or payload is None:
+        return None
+    stride, ok = divmod(len(payload), vc)
+    if ok or stride < 12:
+        return None
+    offsets = {}
+    o = 0
+    for b in range(16):
+        if vf >> b & 1:
+            sz = VERTEX_LAYOUT_BITS.get(b)
+            if sz is None:
+                return None  # 未知扩展位：布局不可靠
+            if b == 3:
+                offsets["uv"] = o
+            o += sz
+    if o != stride or "uv" not in offsets:
+        return None
+    uv_off = offsets["uv"]
+    arr = np.frombuffer(payload, dtype=np.uint8).reshape(vc, stride)
+    out = []
+    for i in range(vc):
+        u, v = struct.unpack_from("<ff", arr[i].tobytes(), uv_off)
+        if not (math.isfinite(u) and math.isfinite(v)):
+            return None
+        out.append((u, v))
+    # 合理性：UV 应集中在有限范围（平铺贴图一般 <8）
+    u_arr = np.array([p[0] for p in out]); v_arr = np.array([p[1] for p in out])
+    if abs(u_arr).max() > 16 or abs(v_arr).max() > 16:
+        return None
+    return out
+
+
+def extract_string_table(raw: bytes) -> dict[int, str]:
+    """从 SC2 KeyedArchive 头部提取 fastname 字符串表（id → 字符串）。"""
+    reader = Reader(raw)
+    reader.take(4)
+    reader.u32(); reader.u32()
+    read_archive(reader)
+    desc = reader.u32()
+    reader.take(desc)
+    reader.take(2)
+    ver = reader.u16()
+    if ver != 2:
+        return {}
+    n = reader.u32()
+    strings = [reader.text(reader.u16()) for _ in range(n)]
+    ids = [reader.u32() for _ in range(n)]
+    return dict(zip(ids, strings, strict=True))
+
+
+def read_dds_image(path: pathlib.Path, max_dim: int = 1024) -> Image.Image | None:
+    """解码 .dx11.dds.dvpl（DXT1/3/5）为 PIL RGB，长边超限则等比缩小。"""
+    d = decode_dvpl(path.read_bytes())
+    if d[:4] != b"DDS ":
+        return None
+    height = struct.unpack_from("<I", d, 12)[0]
+    width = struct.unpack_from("<I", d, 16)[0]
+    bcn = {"DXT1": 1, "DXT3": 2, "DXT5": 3}.get(d[84:88].decode(errors="replace"))
+    if bcn is None:
+        return None
+    block = 8 if bcn == 1 else 16
+    data = d[128:128 + (width // 4) * (height // 4) * block]
+    rgba = imagecodecs.bcn_decode(data, bcn, shape=(height, width, 4))
+    img = Image.frombytes("RGBA", (width, height), rgba)
+    img = img.transpose(Image.FLIP_TOP_BOTTOM)
+    if max(img.size) > max_dim:
+        img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+    return img.convert("RGB")
+
+
+def find_texture_file(strings, building: str, maps_root: pathlib.Path) -> pathlib.Path | None:
+    """按建筑名（bld_12_barn.sc2 → bld_12_barn）在字符串表的 .tex 路径里找贴图，
+    并映射到实际文件：<路径>.tex → <基础名>.dx11.dds.dvpl 等变体。"""
+    stem = building.removesuffix(".sc2").lower()
+    want = f"/{stem}.tex"
+    rel = None
+    values = strings if isinstance(strings, list) else strings.values()
+    for v in values:
+        if isinstance(v, str) and v.lower().endswith(want):
+            rel = v
+            break
+    if rel is None:
+        return None
+    sub = rel.replace("../", "")
+    base_dir = maps_root / pathlib.Path(sub).parent
+    base_name = pathlib.Path(sub).stem  # bld_12_barn
+    for variant in (f"{base_name}.dx11.dds.dvpl", f"{base_name}.dds.dvpl",
+                    f"{base_name}.dx11.pvr.dvpl", f"{base_name}.tex.dvpl"):
+        cand = base_dir / variant
+        if cand.exists():
+            return cand
+    return None
 
 
 def strip_to_triangles(seq: list[int]) -> list[int]:
@@ -195,24 +303,30 @@ def load_heightmap(game_data: pathlib.Path, space: str, zmax: float) -> np.ndarr
 
 def category_color(name: str | None, group_id: int) -> tuple[float, float, float, float]:
     """按建筑类目给基色；亮度抖动取自建筑名哈希——同一栋建筑的所有部件同色，
-    避免墙/顶/门各自深浅不一的碎裂感。未识别名则退回冷灰哈希。"""
+    避免墙/顶/门各自深浅不一的碎裂感。未识别名则用亮中性灰（不再用暗蓝灰，
+    否则建筑在深色地面上糊成一片黑色矩形）。"""
     jitter_seed = name if name else str(group_id)
     digest = hashlib.sha256(jitter_seed.encode()).digest()
     jitter = 0.95 + digest[3] / 255.0 * 0.10  # 亮度 0.95-1.05（收紧，减少碎裂感）
     base = None
     if name:
         low = name.lower()
-        for keywords, color in CATEGORY_PALETTES:
-            if any(k in low for k in keywords):
-                base = color
-                break
+        if low.startswith("bld") or "house" in low or "shed" in low:
+            base = (0.70, 0.60, 0.46)      # 建筑 → 暖木色（bld_ 前缀是各图通用命名）
+        elif low.startswith("stn") or "rock" in low:
+            base = (0.60, 0.58, 0.55)      # 岩石 → 亮灰
+        else:
+            for keywords, color in CATEGORY_PALETTES:
+                if any(k in low for k in keywords):
+                    base = color
+                    break
     def to_linear(c: float) -> float:
         return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
     if base is None:
-        hue = digest[0] / 255.0 * (230 - 200) + 200      # 200-230° 蓝青
-        sat = 0.05 + digest[1] / 255.0 * 0.10
-        light = (0.38 + digest[2] / 255.0 * 0.30) * jitter
-        r, g, b = colorsys.hls_to_rgb(hue / 360.0, min(light, 0.72), sat)
+        # 亮中性灰（少量冷/暖偏移），sRGB 亮度 0.52-0.68
+        warm = (digest[0] / 255.0 - 0.5) * 0.06
+        light = 0.52 + digest[2] / 255.0 * 0.16
+        r, g, b = light + warm, light, light - warm * 0.6
     else:
         r, g, b = (min(1.0, c * jitter) for c in base)
     return (to_linear(r), to_linear(g), to_linear(b), 1.0)
@@ -277,9 +391,12 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
     if not scg_path.exists():
         raise FileNotFoundError(f"{space}: 未找到伴随 SCG（{scg_path}）")
 
-    scene = read_sc2(load_payload(sc2_path))
+    sc2_raw = load_payload(sc2_path)
+    scene = read_sc2(sc2_raw)
+    string_table = extract_string_table(sc2_raw)
     scg = read_scg(load_payload(scg_path))
     groups_by_id = polygon_groups_by_id([g for g in scg.get("polygonGroups", []) if isinstance(g, dict)])
+    maps_root = directory.parent  # '../00_global_content/...' 相对空间目录的上一级
 
     instances, _skipped = collect_instances(scene, lod, switch)
     if not instances:
@@ -324,26 +441,12 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
 
     instances = [it for it in instances if not is_env_asset(it)]
 
-    # 悬浮/图外过滤：
-    # 1) 天空渲染件（SkyFlattenSphere 天空球等）按名排除——它们是游戏天空着色器
-    #    的投影面，故意悬在 60m 海拔上限的高空，导出成实体材质就是一颗暗球；
-    # 2) 底面高于地形 >40m 的大件剔除（真正的天空/月亮类遗留）；
-    # 3) 平移在 ±320m 图外的剔除（边界装饰会悬在虚空）。
-    # 阈值 40m 是因为正确摆放的"屋顶组"会悬空 ~8m、部分地标（如马拉诺夫卡
-    # 风车 mill+screw，悬 17-24m，用户要求保留）也在此列。高度图不可用（老图）
-    # 时跳过 2) 3)。
-    # 天空渲染件与图外装饰无条件排除（不依赖高度图）
-    # 天空渲染件（sky 投影球）/ 烟雾体积盒（smoke，渲染成实心暗盒）/ 图外装饰无条件排除
+    # 悬浮/天空过滤：天空投影球按名排除；底面高于地形 >40m 且半径 >8m 的大件剔除
+    # （正确摆放建筑的屋顶组会悬空 ~8m、地标风车悬 17-24m，均保留）；±320m 图外剔除。
     instances = [it for it in instances
                  if not any(k in (it.get("entityName") or "").lower() for k in ("sky", "smoke"))
                  and abs(it["worldTransform"]["translation"][0]) <= 320
                  and abs(it["worldTransform"]["translation"][1]) <= 320]
-
-    # 悬浮过滤：
-    # 底面高于地形 >40m 的大件剔除（真正的天空/月亮类遗留）。
-    # 阈值 40m 是因为正确摆放的"屋顶组"会悬空 ~8m、部分地标（如马拉诺夫卡
-    # 风车 mill+screw，悬 17-24m，用户要求保留）也在此列。高度图不可用（老图）
-    # 时跳过。
     if heightmap is not None:
         hn = heightmap.shape[0]
 
@@ -390,7 +493,36 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
     buffer: bytearray = bytearray()
     buffer_views: list[dict] = []
     accessors: list[dict] = []
+    gltf_images: list[dict] = []
+    gltf_textures: list[dict] = []
+    texture_index_by_path: dict[pathlib.Path, int] = {}
     total_tris = 0
+
+    def texture_jpeg(tpath: pathlib.Path) -> bytes | None:
+        try:
+            img = read_dds_image(tpath, max_dim=1024)
+        except Exception as exc:
+            print(f"  [warn] {map_name}: 贴图解码失败 {tpath.name}（{exc}）")
+            return None
+        if img is None:
+            return None
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=85)
+        return buf.getvalue()
+
+    def register_image(tpath: pathlib.Path, jpeg: bytes) -> int:
+        if tpath in texture_index_by_path:
+            return texture_index_by_path[tpath]
+        while len(buffer) % 4:
+            buffer.append(0)
+        offset = len(buffer)
+        buffer.extend(jpeg)
+        buffer_views.append({"buffer": 0, "byteOffset": offset, "byteLength": len(jpeg)})
+        gltf_images.append({"bufferView": len(buffer_views) - 1, "mimeType": "image/jpeg"})
+        idx = len(gltf_images) - 1
+        gltf_textures.append({"source": idx})
+        texture_index_by_path[tpath] = idx
+        return idx
 
     def add_view(payload: bytes) -> int:
         # 4 字节对齐
@@ -424,14 +556,36 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
 
         building_names = names_by_group.get(group_id)
         building = building_names.most_common(1)[0][0] if building_names else None
+
+        # 真贴图：该建筑组在字符串表中有对应 .tex 路径且客户端存在实际文件时，
+        # 解码为 JPEG 内嵌 GLB，材质走 baseColorTexture；否则退回类目色。
+        uvs = decode_group_uvs(groups_by_id[group_id]) if group_id in groups_by_id else None
+        tex_file = find_texture_file(string_table, building, maps_root) if (building and uvs) else None
         r, g, b, a = category_color(building, group_id)
+
         gltf_materials.append({
             "name": (building or f"group_{group_id:x}")[:60],
             "pbrMetallicRoughness": {"baseColorFactor": [r, g, b, a], "metallicFactor": 0.0, "roughnessFactor": 1.0},
             "doubleSided": True,
         })
+        attrs = {"POSITION": pos_acc, "NORMAL": nrm_acc}
+
+        if uvs and tex_file is not None:
+            jpeg = texture_jpeg(tex_file)
+            if jpeg:
+                uv_payload = struct.pack(f"<{len(uvs) * 2}f", *[v for uv in uvs for v in uv])
+                uv_view = add_view(uv_payload)
+                uv_mins = [min(p[0] for p in uvs), min(p[1] for p in uvs)]
+                uv_maxs = [max(p[0] for p in uvs), max(p[1] for p in uvs)]
+                accessors.append({"bufferView": uv_view, "componentType": 5126,
+                                  "count": len(uvs), "type": "VEC2", "min": uv_mins, "max": uv_maxs})
+                attrs["TEXCOORD_0"] = len(accessors) - 1
+                tex_idx = register_image(tex_file, jpeg)
+                gltf_materials[-1]["pbrMetallicRoughness"]["baseColorTexture"] = {"index": tex_idx}
+                gltf_materials[-1]["pbrMetallicRoughness"]["baseColorFactor"] = [1.0, 1.0, 1.0, 1.0]
+
         mesh_index_by_id[group_id] = len(gltf_meshes)
-        gltf_meshes.append({"primitives": [{"attributes": {"POSITION": pos_acc, "NORMAL": nrm_acc},
+        gltf_meshes.append({"primitives": [{"attributes": attrs,
                                             "indices": idx_acc, "material": len(gltf_materials) - 1}]})
         total_tris += len(indices) // 3
 
@@ -457,6 +611,9 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
         "nodes": nodes,
         "meshes": gltf_meshes,
         "materials": gltf_materials,
+        "textures": gltf_textures,
+        "images": gltf_images,
+        "samplers": [{"wrapS": 10497, "wrapT": 10497, "magFilter": 9729, "minFilter": 9987}],
         "accessors": accessors,
         "bufferViews": buffer_views,
         "buffers": [{"byteLength": len(buffer)}],
@@ -530,8 +687,12 @@ def export_ground(game_data: pathlib.Path, map_name: str, space: str, output: pa
     block = 8 if bcn == 1 else 16
     data = d[128:128 + (width // 4) * (height // 4) * block]
     rgba = imagecodecs.bcn_decode(data, bcn, shape=(height, width, 4))
-    img = Image.frombytes("RGBA", (width, height), rgba)
-    img = img.transpose(Image.FLIP_TOP_BOTTOM).convert("RGB")
+    arr = np.frombuffer(rgba, dtype=np.uint8).reshape(height, width, 4)
+
+    # 保留游戏原始贴图像素（含脚印阴影/alpha 涂黑区域——用户要求不做清理，
+    # 那些区域可能对应尚未正确处理的植被等地物）
+    img = Image.frombytes("RGB", (width, height), arr[..., :3].astype(np.uint8))
+    img = img.transpose(Image.FLIP_TOP_BOTTOM)
     # 地图原色偏灰白：轻微提升对比/饱和，接近小地图观感
     img = ImageEnhance.Contrast(img).enhance(1.18)
     img = ImageEnhance.Color(img).enhance(1.15)
