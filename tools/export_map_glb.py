@@ -54,7 +54,7 @@ from wotb_scg import (  # noqa: E402
     polygon_groups_by_id,
     read_scg,
 )
-from export_map_geometry_poc import collect_instances  # noqa: E402
+from export_map_geometry_poc import collect_instances, iter_entities_recursive  # noqa: E402
 
 # 枚举名 → 3d/Maps 空间目录（与 src/wargaming/map_assets.rs MAP_SPACES 一致）
 MAP_SPACES = {
@@ -424,6 +424,91 @@ def compute_normals(positions: list[tuple[float, float, float]],
     return out
 
 
+def make_conifer(height: float = 12.0):
+    """程序化针叶树：棕色树干 + 三层锥形深绿树冠。返回 (positions, indices, colors)。"""
+    positions, indices, colors = [], [], []
+
+    def add_ring(y0, y1, r0, r1, seg, color):
+        base = len(positions)
+        for i in range(seg + 1):
+            a = i / seg * math.tau
+            positions.extend([(math.cos(a) * r0, y0, math.sin(a) * r0),
+                              (math.cos(a) * r1, y1, math.sin(a) * r1)])
+            colors.extend([color, color])
+        for i in range(seg):
+            k = i * 2
+            indices.extend([base + k, base + k + 2, base + k + 1])
+            indices.extend([base + k + 1, base + k + 2, base + k + 3])
+
+    trunk = (0.42, 0.32, 0.22); leaf = (0.16, 0.32, 0.18)
+    add_ring(0, height * 0.12, height * 0.035, height * 0.03, 6, trunk)          # 树干
+    for k, (ya, yb, ra, rb) in enumerate([
+            (0.10, 0.45, 0.30, 0.10), (0.30, 0.68, 0.24, 0.06), (0.55, 0.92, 0.16, 0.0)]):
+        add_ring(height * ya, height * yb, height * ra, height * rb, 7, leaf)
+    return positions, indices, colors
+
+
+def make_bush(height: float = 2.2):
+    """程序化灌木/阔叶：树干短柱 + 两层叠放低模球冠，灰绿色。"""
+    positions, indices, colors = [], [], []
+    seg = 8
+    trunk = (0.42, 0.32, 0.22); leaf = (0.30, 0.40, 0.22)
+    for i in range(seg + 1):
+        a = i / seg * math.tau
+        positions.extend([(math.cos(a) * height * 0.06, 0, math.sin(a) * height * 0.06),
+                          (math.cos(a) * height * 0.05, height * 0.45, math.sin(a) * height * 0.05)])
+        colors.extend([trunk, trunk])
+    for i in range(seg):
+        k = i * 2
+        k2 = (i + 1) % seg * 2
+        indices.extend([k, k2, k + 1, k + 1, k2, k2 + 1])  # 树干侧面
+    base = len(positions)
+    for ring, (ry, rr) in enumerate([(0.42, 0.55), (0.78, 0.36)]):
+        for i in range(seg):
+            a = i / seg * math.tau
+            positions.extend([(math.cos(a) * rr * height * 0.3, height * ry, math.sin(a) * rr * height * 0.3)])
+            colors.extend([leaf])
+    top = len(positions); positions.append([0.0, height * 1.0, 0.0]); colors.append(list(leaf))
+    ring0 = base; ring1 = base + seg
+    for i in range(seg):
+        j = (i + 1) % seg
+        indices.extend([ring0 + i, ring1 + i, ring0 + j])
+        indices.extend([ring0 + j, ring1 + i, ring1 + j])
+        indices.extend([ring1 + i, top - 1, ring1 + j])
+    return positions, indices, colors
+
+
+def collect_vegetation(scene, lod: int, switch: int):
+    """收集 SpeedTreeObject / VegetationRenderObject 实体（树/灌木摆放数据，几何运行时生成）。
+    返回 [(名称, worldTransform)]，与 collect_instances 同源逻辑。"""
+    out = []
+    for path, ent in iter_entities_recursive(scene):
+        r = None
+        for c in (ent.get('components') or {}).values():
+            if isinstance(c, dict) and c.get('comp.typename') == 'RenderComponent':
+                r = c; break
+        if r is None: continue
+        ro = r.get('rc.renderObj')
+        if not isinstance(ro, dict): continue
+        cls = str(ro.get('##name'))
+        if cls not in ('SpeedTreeObject', 'VegetationRenderObject'): continue
+        flags = ro.get('ro.flags')
+        if isinstance(flags, int) and not (flags & 1): continue
+        transform = None
+        for c in (ent.get('components') or {}).values():
+            if isinstance(c, dict) and c.get('comp.typename') == 'TransformComponent':
+                t = c
+                transform = {
+                    "translation": [float(x) for x in t.get('tc.worldTranslation', [0, 0, 0])],
+                    "rotationQuaternionXYZW": [float(x) for x in t.get('tc.worldRotation', [0, 0, 0, 1])],
+                    "scale": [float(x) for x in t.get('tc.worldScale', [1, 1, 1])],
+                }
+                break
+        if transform is None: continue
+        out.append({"entityName": ent.get('name'), "worldTransform": transform, "renderClass": cls})
+    return out
+
+
 def export_map(game_data: pathlib.Path, map_name: str, space: str,
                output: pathlib.Path, lod: int = 0, switch: int = 0,
                heightmap: np.ndarray | None = None) -> dict:
@@ -536,6 +621,15 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
         building = resolve_building_name(it["entityPath"], path_index)
         if building:
             names_by_group.setdefault(it["datasourceId"], Counter())[building] += 1
+
+    # 植被（SpeedTreeObject/VegetationRenderObject）：几何由引擎运行时生成、
+    # 文件里只有摆放数据——无法精确提取树形，改用程序化近似（真实位置/缩放）：
+    # fir=锥形针叶树，bush/其余=球状灌木，顶点色区分树干/树冠。
+    veg = collect_vegetation(scene, lod, switch)
+    veg = [v for v in veg
+           if not any(k in (v.get("entityName") or "").lower() for k in ("sky", "smoke"))
+           and abs(v["worldTransform"]["translation"][0]) <= 320
+           and abs(v["worldTransform"]["translation"][1]) <= 320]
 
     gltf_meshes, gltf_materials = [], []
     mesh_index_by_id: dict[int, int] = {}
@@ -653,6 +747,54 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
             "scale": t["scale"],
             "name": inst.get("entityName") or None,
         })
+
+    # 植被（SpeedTree 几何由引擎运行时生成，无法精确提取）——程序化近似：
+    # 按 SC2 里的真实摆放位置/缩放铺设针叶树（标称 12m）与灌木（3m），
+    # 单位几何共享 + COLOR_0 顶点色区分树干/树冠。
+    if veg:
+        conifer_mesh = len(gltf_meshes)
+        bush_mesh = conifer_mesh + 1
+        for kind, nominal in (("conifer", 12.0), ("bush", 3.0)):
+            vp, vi, vc = (make_conifer(1.0) if kind == "conifer" else make_bush(1.0))
+            colors = [[c[0] * 0.9, c[1] * 0.9, c[2] * 0.9, 1.0] for c in vc]
+            pos_payload = struct.pack(f"<{len(vp) * 3}f", *[v for pt in vp for v in pt])
+            col_payload = struct.pack(f"<{len(colors) * 4}f", *[v for c in colors for v in c])
+            idx_payload = struct.pack(f"<{len(vi)}I", *vi)
+            pos_view = add_view(pos_payload)
+            col_view = add_view(col_payload)
+            idx_view = add_view(idx_payload)
+            mins = [min(pt[i] for pt in vp) for i in range(3)]
+            maxs = [max(pt[i] for pt in vp) for i in range(3)]
+            accessors.append({"bufferView": pos_view, "componentType": 5126, "count": len(vp),
+                              "type": "VEC3", "min": mins, "max": maxs})
+            accessors.append({"bufferView": col_view, "componentType": 5126, "count": len(colors),
+                              "type": "VEC4"})
+            accessors.append({"bufferView": idx_view, "componentType": 5125,
+                              "count": len(vi), "type": "SCALAR"})
+            gltf_materials.append({
+                "name": f"veg_{kind}",
+                "pbrMetallicRoughness": {"baseColorFactor": [1, 1, 1, 1],
+                                         "metallicFactor": 0.0, "roughnessFactor": 1.0},
+                "doubleSided": True,
+            })
+            gltf_meshes.append({"primitives": [{
+                "attributes": {"POSITION": len(accessors) - 3, "COLOR_0": len(accessors) - 2},
+                "indices": len(accessors) - 1, "material": len(gltf_materials) - 1}]})
+
+        for v in veg:
+            nm = (v.get("entityName") or "").lower()
+            is_conifer = any(k in nm for k in ("fir", "pine", "spruce", "tree"))
+            t = v["worldTransform"]
+            s = t["scale"]
+            nominal = 12.0 if is_conifer else 3.0
+            nodes.append({
+                "mesh": conifer_mesh if is_conifer else bush_mesh,
+                "translation": t["translation"],
+                "rotation": t["rotationQuaternionXYZW"],
+                "scale": [s[0] * nominal, s[1] * nominal, s[2] * nominal],
+                "name": v.get("entityName") or None,
+            })
+        veg_count = len(veg)
 
     gltf = {
         "asset": {"version": "2.0", "generator": "wotb-agent export_map_glb (WotbTools contract)"},
