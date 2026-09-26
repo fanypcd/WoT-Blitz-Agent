@@ -184,9 +184,41 @@ def read_dds_image(path: pathlib.Path, max_dim: int = 1024) -> Image.Image | Non
     return img.convert("RGB")
 
 
-def find_texture_file(strings, building: str, maps_root: pathlib.Path) -> pathlib.Path | None:
-    """按建筑名（bld_12_barn.sc2 → bld_12_barn）在字符串表的 .tex 路径里找贴图，
-    并映射到实际文件：<路径>.tex → <基础名>.dx11.dds.dvpl 等变体。"""
+def build_texture_index(roots) -> dict:
+    """扫描客户端 3d/Maps 树，建 贴图基础名 → 文件 索引（小写归一，去 .dvpl/.dds 后缀）。"""
+    idx = {}
+    suffixes = (".dx11.dds.dvpl", ".dx11.pvr.dvpl", ".dds.dvpl", ".pvr.dvpl")
+    for root in roots:
+        root = pathlib.Path(root)
+        if not root.exists():
+            continue
+        for p in root.rglob("*"):
+            if not p.is_file() or p.suffix != ".dvpl":
+                continue
+            low = p.name.lower()
+            if ".dds" not in low and ".pvr" not in low:
+                continue
+            for suf in suffixes:
+                if low.endswith(suf):
+                    idx.setdefault(low[:-len(suf)], p)
+                    break
+    return idx
+
+
+_TEX_INDEX_CACHE: dict = {}
+
+
+def get_texture_index(game_data) -> dict:
+    key = str(game_data)
+    if key not in _TEX_INDEX_CACHE:
+        _TEX_INDEX_CACHE[key] = build_texture_index([pathlib.Path(game_data) / "3d" / "Maps"])
+    return _TEX_INDEX_CACHE[key]
+
+
+def find_texture_file(strings, building: str, maps_root, tex_index=None):
+    """按建筑名（bld_12_barn.sc2 → bld_12_barn）找贴图：
+    1) 字符串表的 .tex 路径 → 实际文件变体；
+    2) 全局贴图索引精确名 / 前缀匹配（覆盖字符串表没登记的道具贴图）。"""
     stem = building.removesuffix(".sc2").lower()
     want = f"/{stem}.tex"
     rel = None
@@ -195,16 +227,21 @@ def find_texture_file(strings, building: str, maps_root: pathlib.Path) -> pathli
         if isinstance(v, str) and v.lower().endswith(want):
             rel = v
             break
-    if rel is None:
-        return None
-    sub = rel.replace("../", "")
-    base_dir = maps_root / pathlib.Path(sub).parent
-    base_name = pathlib.Path(sub).stem  # bld_12_barn
-    for variant in (f"{base_name}.dx11.dds.dvpl", f"{base_name}.dds.dvpl",
-                    f"{base_name}.dx11.pvr.dvpl", f"{base_name}.tex.dvpl"):
-        cand = base_dir / variant
-        if cand.exists():
-            return cand
+    if rel is not None:
+        sub = rel.replace("../", "")
+        base_dir = maps_root / pathlib.Path(sub).parent
+        base_name = pathlib.Path(sub).stem  # bld_12_barn
+        for variant in (f"{base_name}.dx11.dds.dvpl", f"{base_name}.dds.dvpl",
+                        f"{base_name}.dx11.pvr.dvpl", f"{base_name}.tex.dvpl"):
+            cand = base_dir / variant
+            if cand.exists():
+                return cand
+    if tex_index:
+        if stem in tex_index:
+            return tex_index[stem]
+        for key, path in tex_index.items():
+            if key.startswith(stem) or stem.startswith(key):
+                return path
     return None
 
 
@@ -340,16 +377,28 @@ def fan_to_triangles(seq: list[int]) -> list[int]:
 
 
 def group_triangles(group: dict, indices: list[int]) -> list[int] | None:
-    """按 DAVA ePrimitiveType 转为三角形列表；非三角类图元返回 None（跳过）。
-    DAVA 枚举：0=TRIANGLELIST 1=TRIANGLESTRIP 2=LINESTRIP 3=LINELIST 4=TRIANGLEFAN 5=POINTLIST。"""
+    """把图元索引统一转成三角形列表；无法判定时返回 None（跳过）。
+
+    判据用 primitiveCount 算术自洽，而不是盲信 rhi_primitiveType：
+      primitiveCount == indexCount/3  → 三角形列表；
+      primitiveCount == indexCount-2  → 三角条带（标准交替绕序转换）；
+    两者都不满足的组说明该组语义异常，按列表原样兜底（仍然可渲染）。
+    """
+    ic = len(indices)
+    pc = group.get("primitiveCount")
     ptype = group.get("rhi_primitiveType")
+    if isinstance(pc, int):
+        if pc == ic // 3 and ic % 3 == 0:
+            return indices
+        if pc == ic - 2:
+            return strip_to_triangles(indices)
     if ptype in (None, 0):
         return indices
-    if ptype == 1:
+    if ptype == 1 and ic >= 3:
         return strip_to_triangles(indices)
-    if ptype == 4:
+    if ptype == 4 and ic >= 3:
         return fan_to_triangles(indices)
-    return None
+    return indices if ic % 3 == 0 else None
 
 
 def compute_normals(positions: list[tuple[float, float, float]],
@@ -560,7 +609,8 @@ def export_map(game_data: pathlib.Path, map_name: str, space: str,
         # 真贴图：该建筑组在字符串表中有对应 .tex 路径且客户端存在实际文件时，
         # 解码为 JPEG 内嵌 GLB，材质走 baseColorTexture；否则退回类目色。
         uvs = decode_group_uvs(groups_by_id[group_id]) if group_id in groups_by_id else None
-        tex_file = find_texture_file(string_table, building, maps_root) if (building and uvs) else None
+        tex_file = find_texture_file(string_table, building, maps_root,
+                                     get_texture_index(game_data)) if (building and uvs) else None
         r, g, b, a = category_color(building, group_id)
 
         gltf_materials.append({
