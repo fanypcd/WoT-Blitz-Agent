@@ -184,7 +184,14 @@ pub struct TurretData {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TankFullData {
     pub tank_id: u32,
+    /// field2：BlitzKit 现行 slug（如 "m4a3e2"）。**不能用于定位游戏文件**——
+    /// 早期版本此字段就是游戏模型名，现行版本改成了 slug（见 `model_name`）。
     pub dev_name: String,
+    /// field32：游戏模型名（item_defs/Parameters 文件名主干，如 "Sherman_Jumbo"）——
+    /// 与客户端 `vehicles/{nation}/{model_name}.xml.dvpl` 逐字对应，文件定位唯一依据。
+    /// 解析器原本只在 field32 缺失时报错，值本身被本地化名覆盖丢弃，故单列保存。
+    #[serde(default)]
+    pub model_name: String,
     pub name: String,
     pub nation: String,
     pub tier: u32,
@@ -372,7 +379,7 @@ pub fn parse_tanks_pb(buf: &[u8]) -> Result<Vec<TankFullData>> {
 fn parse_tank_main(sub: &[u8], tank_id: u32) -> Result<Option<TankFullData>> {
     let mut sr = Reader { buf: sub, pos: 0 };
     let mut tank = TankFullData {
-        tank_id, dev_name: String::new(), name: String::new(),
+        tank_id, dev_name: String::new(), model_name: String::new(), name: String::new(),
         nation: String::new(), tier: 0, tank_type: String::new(),
         hp: 0, is_premium: false, is_collector: false,
         speed_forward: 0.0, speed_reverse: 0.0, hull_traverse: 0.0,
@@ -424,7 +431,12 @@ fn parse_tank_main(sub: &[u8], tank_id: u32) -> Result<Option<TankFullData>> {
             (26, 5) => { tank.speed_reverse = f32::from_le_bytes(sr.bytes(4)?.try_into().unwrap()) as f64; },
             (27, 5) => { tank.hull_traverse = f32::from_le_bytes(sr.bytes(4)?.try_into().unwrap()) as f64; },
             (31, 0) => tank.weight = sr.varint()? as f64,
-            (32, 2) => { let l = sr.varint()? as usize; tank.name = String::from_utf8_lossy(sr.bytes(l)?).into_owned(); has_name = true; },
+            (32, 2) => {
+                let l = sr.varint()? as usize;
+                tank.model_name = String::from_utf8_lossy(sr.bytes(l)?).into_owned();
+                tank.name = tank.model_name.clone();
+                has_name = true;
+            },
             (20, 2) => {
                 let tlen = sr.varint()? as usize;
                 let turret_bytes = sr.bytes(tlen)?;

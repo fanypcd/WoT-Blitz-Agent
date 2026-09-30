@@ -21,8 +21,13 @@ pub const DEFAULT_GAME_DIRS: &[&str] = &[
 #[derive(Debug, Deserialize)]
 struct PbTankEntry {
     tank_id: u32,
+    /// 游戏模型名（tanks.pb field32，如 "Sherman_Jumbo"）——定位源文件的唯一依据。
+    /// 现行 BlitzKit 的 field2 是 slug（如 "m4a3e2"），与游戏文件名对不上。
     #[serde(default)]
     model_name: Option<String>,
+    /// BlitzKit slug（tanks.pb field2）——只写进产物供人工比对，不参与文件定位。
+    #[serde(default)]
+    dev_name: String,
     #[serde(default)]
     nation: Option<String>,
     /// 顶级炮塔模块 id（tanks.pb turrets 末位；0 = 无数据）。
@@ -145,7 +150,12 @@ pub fn extract_all(
             let top_turret = t.turrets.last();
             PbTankEntry {
                 tank_id: t.tank_id,
-                model_name: if t.dev_name.is_empty() { None } else { Some(t.dev_name.clone()) },
+                model_name: {
+                    // 文件定位取 field32 游戏模型名；旧版 pb 该字段缺失时回退 field2。
+                    let n = if !t.model_name.is_empty() { &t.model_name } else { &t.dev_name };
+                    if n.is_empty() { None } else { Some(n.clone()) }
+                },
+                dev_name: t.dev_name.clone(),
                 nation: if t.nation.is_empty() { None } else { Some(t.nation.clone()) },
                 top_turret_module: top_turret.map(|x| x.module_id).unwrap_or(0),
                 top_gun_module: top_turret.and_then(|x| x.guns.last()).map(|g| g.module_id).unwrap_or(0),
@@ -170,8 +180,8 @@ pub fn extract_all(
             continue;
         }
 
-        // dev_name（如 "super-conqueror"）与游戏实际文件名（如 "GB91_Super_Conqueror"）
-        // 不一致，需按归一化文件名模糊匹配。
+        // model_name 已是游戏模型名（tanks.pb field32），通常与文件名逐字相等；
+        // 模糊匹配仅处理大小写/前缀差异（如 "T-34" ↔ "T-34.xml.dvpl" 的扩展名前缀情形）。
         let xml_path = resolve_vehicle_file(&game_dir, "XML/item_defs/vehicles", nation, model_name, ".xml.dvpl");
         let yaml_path = resolve_vehicle_file(&game_dir, "3d/Tanks/Parameters", nation, model_name, ".yaml.dvpl");
 
@@ -236,7 +246,7 @@ pub fn extract_all(
 
         let entry = TankGameData {
             tank_id: tank.tank_id,
-            dev_name: model_name.to_string(),
+            dev_name: tank.dev_name.clone(),
             nation: nation.to_string(),
             armor_model,
             collision,
