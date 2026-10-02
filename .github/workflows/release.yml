@@ -61,7 +61,7 @@ jobs:
             $versionChanged = ($previousVersion -ne $version)
           }
 
-          $tagMatch = (git tag --list $tag | Select-Object -First 1).Trim()
+          [string]$tagMatch = git tag --list $tag | Select-Object -First 1
           $tagExists = ($tagMatch -eq $tag)
           $tagSha = ''
           if ($tagExists) {
