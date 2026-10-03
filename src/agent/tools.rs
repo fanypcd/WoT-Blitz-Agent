@@ -1051,6 +1051,7 @@ mod tests {
                 tank_type: ttype.to_string(),
                 nation: nation.to_string(),
                 is_premium: false,
+                is_collector: false,
                 armor: None,
                 shells: Vec::new(),
                 hp: None,

@@ -17,6 +17,10 @@ pub struct TankInfo {
     pub tank_type: String,
     pub nation: String,
     pub is_premium: bool,
+    /// 收藏车（tanks.pb field13 == 2）。与 `is_premium`（== 1）互斥——同一字段的枚举，
+    /// 所以两者不会同时为真。百科据此给收藏车上蓝色边框，与金币车的警告色边框区分。
+    #[serde(default)]
+    pub is_collector: bool,
     #[serde(default)]
     pub armor: Option<ArmorData>,
     #[serde(default)]
@@ -247,6 +251,7 @@ impl TankResolver {
             // ——取顶级炮塔（turrets.at(-1)，对齐 BlitzKit 默认配置），百科显示的总血量
             let hp = Some(tank.hp + tank.turrets.last().map(|t| t.health).unwrap_or(0));
             let is_premium = tank.is_premium;
+            let is_collector = tank.is_collector;
             let speed_forward = if tank.speed_forward > 0.0 { Some(tank.speed_forward as u32) } else { None };
             let speed_reverse = if tank.speed_reverse > 0.0 { Some(tank.speed_reverse as u32) } else { None };
             let hull_traverse = Some((tank.hull_traverse * 180.0 / std::f64::consts::PI) as f32);
@@ -287,6 +292,7 @@ impl TankResolver {
                 tank_type,
                 nation,
                 is_premium,
+                is_collector,
                 armor,
                 shells,
                 hp,
