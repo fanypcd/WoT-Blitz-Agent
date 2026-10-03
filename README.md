@@ -209,6 +209,7 @@ B=金属度，原样返回会把金属度当粗糙度）——搬通道后 G 与
 |------|------|
 | `scripts/build-wasm.ps1` | 本机构建 WASM 产物到 `frontend/public/wasm/`（release.yml 走同一套 cargo + wasm-bindgen 步骤） |
 | `scripts/export_asset_pack.py` | 导出静态资产包到 `release/asset_pack/`（对象存储整目录直传，供前端 `?assets=` 取用） |
+| `scripts/serve_asset_pack.mjs` | **本机联调**：把 `release/asset_pack/` 按消费方布局带 CORS 伺服（`node scripts/serve_asset_pack.mjs 8123`），供 WotbTools dev server 作资产源。WotbTools 前端测试的标准姿势见其 `docs/frontend/local-production-dev.md` |
 
 静态资产包的导出流程（消费方为 WoTBTools 前端）：
 
@@ -351,7 +352,7 @@ dump-entity    # 逆向工具：转储指定实体时间窗口内全部包
 | `data/` | 内置数据（tanks.pb / models.pb / tank_cache / game_data / 版本清单） |
 | `data/cache/` | 运行时缓存（gitignore）：`models/` 坦克 GLB、`maps/` 地图资产、`tank_images/` 封面、`terrain/` 地形高度场、`screenshots/` 截图 |
 | `data/replay_samples/` | 示例回放（仓库内置 3 个） |
-| `scripts/` | 构建脚本：`build-wasm.ps1`（WASM 产物到 `frontend/public/wasm/`）、`export_asset_pack.py`（静态资产包到 `release/asset_pack/`） |
+| `scripts/` | 构建脚本：`build-wasm.ps1`（WASM 产物到 `frontend/public/wasm/`）、`export_asset_pack.py`（静态资产包到 `release/asset_pack/`）、`serve_asset_pack.mjs`（本机联调伺服该资产包） |
 
 ## 环境要求
 

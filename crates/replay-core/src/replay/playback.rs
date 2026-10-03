@@ -31,7 +31,7 @@ use serde::Serialize;
 
 use super::combat::{
     RawReloadDuration, RawReloadPhase,
-    AssaultBaseStateTransition, self, AoiPresence, GunPitchLimits, ShotReplayData, AimFrame, SupremacyBaseStateTransition, SupremacyPointsSample,
+    AssaultBaseStateTransition, self, AoiPresence, GunPitchLimits, ShotReplayData, SupremacyBaseStateTransition, SupremacyPointsSample,
     ConsumableTransition,
     ModuleCrewStateEvent,
 };
@@ -121,6 +121,12 @@ pub struct VehicleTrack {
     pub hull_yaw: Vec<f32>,
     /// 车体俯仰（弧度）× N
     pub hull_pitch: Vec<f32>,
+    /// 车体侧倾（弧度）× N。**与 hull_pitch 不同源**：俯仰取自渲染滤波（AvatarFilter）输出，
+    /// 而滤波层不输出侧倾，故本列取**原始 type=10 volatile 采样**的最近邻（与
+    /// `combat::anchors::select_anchor_state` 对 pitch/roll 的规则一致：段内不插值，
+    /// 不跨 AoI 断段编造中间姿态）；无采样时保持最近已知值。消费端可忽略（0 = 水平）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hull_roll: Vec<f32>,
     /// 炮塔绝对朝向（弧度，解卷绕连续域）= prop2 相对角 + 同刻车体 yaw 再解卷绕 × N
     pub turret_yaw: Vec<f32>,
     /// 炮管俯仰（弧度，正=仰角；无俯仰极限锚定时 = 车体 pitch 兜底）× N
@@ -287,9 +293,6 @@ pub struct PlaybackData {
     /// Supremacy 实时点数采样（仅真实广播；非争霸场为空）
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub supremacy_points: Vec<SupremacyPointsSample>,
-    /// 作者瞄准帧（recorder-only；缺帧不外推）
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub aim_frames: Vec<AimFrame>,
     /// 攻防战/遭遇战单基地目标存在性（wrapper8/root8 目标族出现即真，**不要求有进度**）。
     /// 缺省/ false = 无已证实的单基地目标（与 WotbTools `assaultObjectivePresent` 同义）。
     #[serde(default, skip_serializing_if = "is_false")]
@@ -332,6 +335,19 @@ pub struct PlaybackData {
 }
 
 /// 位置保留 2 位小数（0.01m）；角度 3 位（0.057°，prop2 coarse 步进 ~0.35° 之下）
+/// 侧倾取值：**最近邻**（不插值——与 `combat::anchors::select_anchor_state` 对
+/// pitch/roll 的规则一致，避免跨 AoI 断段编造中间姿态）。`samples` 按时钟升序
+/// （`Timeline::poses` 的契约）。无采样返回 None（调用方落 0 = 水平）。
+fn roll_nearest(samples: &[combat::St10Sample], t: f32) -> Option<f32> {
+    if samples.is_empty() { return None; }
+    let i = samples.partition_point(|s| s.clock < t);
+    let pick = if i == 0 { 0 }
+        else if i >= samples.len() { samples.len() - 1 }
+        else if (t - samples[i - 1].clock) <= (samples[i].clock - t) { i - 1 }
+        else { i };
+    Some(samples[pick].roll)
+}
+
 fn r2(x: f32) -> f32 { (x * 100.0).round() / 100.0 }
 fn r3(x: f32) -> f32 { (x * 1000.0).round() / 1000.0 }
 
@@ -542,6 +558,9 @@ pub fn from_model(
         let mut pos = Vec::with_capacity(samples_n * 3);
         let mut hull_yaw = Vec::with_capacity(samples_n);
         let mut hull_pitch = Vec::with_capacity(samples_n);
+        // 侧倾列取自原始 type=10 序列（滤波层不输出侧倾，见 VehicleTrack.hull_roll 注释）
+        let st_series: &[combat::St10Sample] = &st10[eid];
+        let mut hull_roll = Vec::with_capacity(samples_n);
         let mut turret_yaw = Vec::with_capacity(samples_n);
         let mut gun_pitch = Vec::with_capacity(samples_n);
         let mut prev_hull_yaw = None;
@@ -558,6 +577,7 @@ pub fn from_model(
             pos.push(r2(pose.pos[2]));
             hull_yaw.push(r3(yaw));
             hull_pitch.push(r3(pose.ang[1]));
+            hull_roll.push(r3(roll_nearest(st_series, t).unwrap_or(0.0)));
             // 非空 prop2 序列恒可求值（AoI 前回退初值包 / 末帧保持）
             let Some((rel, frac)) = combat::prop2_at(Some(prop2_series), t) else {
                 bail!("车辆 {eid} prop2 网格 t={t} 无采样（非空序列恒可求值，不应发生）");
@@ -603,6 +623,7 @@ pub fn from_model(
             pos,
             hull_yaw,
             hull_pitch,
+            hull_roll,
             turret_yaw,
             gun_pitch,
             hp,
@@ -644,7 +665,7 @@ pub fn from_model(
         .collect();
 
     Ok(PlaybackData {
-        version: 2, // contract v2：+supremacy_bases/supremacy_points/aim_frames（消费端版本门禁）
+        version: 2, // contract v2：+supremacy_bases/supremacy_points（消费端版本门禁）
         meta,
         vehicles: vehicles_out,
         shots,
@@ -655,8 +676,6 @@ pub fn from_model(
             .map(|t| SupremacyBaseStateTransition { clock: r2(t.clock), ..t.clone() }).collect(),
         supremacy_points: model.timeline.supremacy_points.iter()
             .map(|p| SupremacyPointsSample { clock: r2(p.clock), ..p.clone() }).collect(),
-        aim_frames: model.timeline.aim_frames.iter()
-            .map(|f| AimFrame { time_sec: r2(f.time_sec), ..*f }).collect(),
             assault_objective_present: model.timeline.assault_objective_present,
         assault_bases: model.timeline.assault_bases.iter()
             .map(|t| AssaultBaseStateTransition { clock: r2(t.clock), ..t.clone() }).collect(),
@@ -905,4 +924,25 @@ mod tests {
             }
         }
     }
+    /// 侧倾列（`roll_nearest`）：辅助构造按时钟升序的 type=10 采样
+    fn roll_samples(clocks_rolls: &[(f32, f32)]) -> Vec<combat::St10Sample> {
+        clocks_rolls.iter().map(|(c, r)| combat::St10Sample {
+            clock: *c, pos: [0.0; 3], yaw: 0.0, pitch: 0.0, roll: *r, pos_error: [0.0; 3],
+        }).collect()
+    }
+
+    /// 侧倾取值 = 最近邻：段内不插值、边界保持最近已知（与 anchors 对 pitch/roll 同规则）
+    #[test]
+    fn roll_nearest_holds_and_never_interpolates() {
+        let s = roll_samples(&[(10.0, 0.1), (10.5, 0.2), (20.0, -0.3)]);
+        assert_eq!(roll_nearest(&[], 5.0), None, "无采样 → None（调用方落 0）");
+        assert_eq!(roll_nearest(&s, 5.0), Some(0.1), "早于首样本 → 首样本");
+        assert_eq!(roll_nearest(&s, 10.0), Some(0.1), "命中样本");
+        assert_eq!(roll_nearest(&s, 10.24), Some(0.1), "更近前样本");
+        assert_eq!(roll_nearest(&s, 10.26), Some(0.2), "更近后样本");
+        assert_eq!(roll_nearest(&s, 10.25), Some(0.1), "等距取前（确定性）");
+        assert_eq!(roll_nearest(&s, 15.0), Some(0.2), "跨断段只保持最近已知，不插值");
+        assert_eq!(roll_nearest(&s, 99.0), Some(-0.3), "晚于末样本 → 末样本");
+    }
+
 }

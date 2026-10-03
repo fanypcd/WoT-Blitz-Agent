@@ -155,7 +155,9 @@ WotbTools 的 canonical 流水线（Java `wotb-core` + 前端）需要 Agent 侧
   「一方全员阵亡 → 全歼」与占点总量的前置门禁。
 - **争霸/攻防基地与 type39 瞄准帧**（契约 v2，见
   [replay-contract-v2-supremacy-type39.md](replay-contract-v2-supremacy-type39.md)）：wrapper12/root11
-  基地状态（SPARSE UPDATE 逐行重建）+ wrapper13/root12 实时点数 + type39 7×f32 瞄准帧；
+  基地状态（SPARSE UPDATE 逐行重建）+ wrapper13/root12 实时点数 + type39 7×f32 原始瞄准帧
+  （原始帧供射击复现锚定炮线；**contract 投影 `aim_frames` 已于 2026-10-03 删除**——零消费方，
+  占回放载荷 57.6%，详见该文档 §3）；
   `PlaybackData.version` 1→2，消费端必须显式拒错版。**只消费回放真实广播，绝不按游戏规则推算比分。**
 
 - **装填相位与有效时长**（v0.3.9）：`PlaybackData.reloads` 相位语义定稿 + 新增 `reload_effective`
