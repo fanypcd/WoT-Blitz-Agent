@@ -112,8 +112,11 @@ round-trips and still leave the verdict unproven.
 only exists for `cargo run --release -- web` self-hosting — verifying against it proves nothing.
 Standard local test posture:
 
-1. `node scripts/serve_asset_pack.mjs 8123` — serves `release/asset_pack/` with CORS. If the port
-   is already bound, an instance is likely still running: verify it serves the current pack
+1. `node scripts/serve_asset_pack.mjs 8123` — serves `release/asset_pack/` with CORS. **Run it from
+   this repo's root**: the script resolves the pack path relative to cwd
+   (`resolve(process.argv[3] || 'release/asset_pack')`), so starting it anywhere else silently 404s
+   every asset (the frontend just loses models/maps). If the port is already bound, an instance is
+   likely still running: verify it serves the current pack
    (`curl http://127.0.0.1:8123/index.json`) instead of starting a second one — the script reads
    files from disk per request, so a running instance automatically picks up rebuilt packs.
 2. In the WotbTools checkout, `frontend/.env.local` must contain
@@ -128,8 +131,10 @@ Standard local test posture:
    visibility bypass (WotbTools `useAuth.js`): dev builds treat the `wotbtools-admin`/`HoF-admin`
    realm roles as held, which local accounts normally lack; production builds ignore it and the
    backend still enforces real auth.
-5. The WotbTools side of this workflow is documented in its `docs/frontend/local-production-dev.md`
-   and `frontend/AGENTS.md`.
+5. The WotbTools side of this workflow — pinned Agent WASM artifacts (`scripts/fetch-agent-wasm.sh`,
+   must be re-run whenever `deploy/agent/source.json` changes), the local admin-view bypass,
+   self-check probes and troubleshooting — is documented in its `docs/frontend/local-testing.md`
+   (plus `docs/frontend/local-production-dev.md` and `frontend/AGENTS.md`).
 
 ### Testing against the latest local WASM and asset pack
 
