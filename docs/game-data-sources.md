@@ -78,8 +78,22 @@
 
 ### 2.4 GLB 几何 ← 客户端模型文件
 
-- 视觉模型：`Data/3d/Tanks/{nation}/{model_name}.sc2` + `.scg`
-- 碰撞模型：`Data/3d/Tanks/CollisionMeshes/{nation}-{model_name}.sc2` + `.scg`
+**权威路径不在目录约定里，而在逐车的参数 YAML**：`Data/3d/Tanks/Parameters/<小写国名>/<模型名>.yaml.dvpl`
+的 `resourcesPath.blitzModelPath`（碰撞走 `resourcesPath.collisionMesh`）。目录约定只是**回退**：
+
+| 资产 | 权威来源 | 回退（按约定） |
+|---|---|---|
+| 视觉模型 | `resourcesPath.blitzModelPath` 指向的目录 | `Data/3d/Tanks/<大写国名>/<模型名>.sc2.dvpl` + `.scg.dvpl` |
+| 碰撞模型 | `resourcesPath.collisionMesh` | `Data/3d/Tanks/CollisionMeshes/<小写国名>-<模型名>.sc2.dvpl` + `.scg.dvpl` |
+
+**两套国名互不相同，按目录去猜必错**（2026-10-03 实测踩坑）：
+
+- `XML/item_defs/vehicles/` 与 `CollisionMeshes/` 用 **tanks.pb 的小写国名**（`germany`/`uk`/`ussr`…）
+- `3d/Tanks/` 下的车辆目录是**另一套大写名**，且不是简单大写化——映射表在
+  `tools/export_tank_glb.py` 的 `NATION_DIR`：
+  `{germany→German, ussr→USSR, usa→USA, uk→GB, china→China, japan→Japan, france→France, european→European, other→Other}`
+- 即便国名对了，`3d/Tanks/<国>/<模型名>.sc2.dvpl` 也**不普遍成立**（如 PzIV 的模型在
+  `German/G79_Pz_IV_AusfGH/...`），所以必须走上述权威路径，别用约定拼。
 
 **这是唯一需要新写代码的一块。** 都是 DAVA 格式，而 `tools/wotbtools/`
 （`wotb_sc2.py` 解 KeyedArchive 实体树、`wotb_scg.py` 解 PolygonGroup 顶点/索引流）与
@@ -88,11 +102,22 @@
 
 ### 2.5 封面图 ← 客户端本地（本轮新发现）
 
-- `Data/Gfx/UI/BigTankIcons/{nation}-{model_name}.packed.webp.dvpl`（2312 个）
-- `Data/Gfx/UI/BattleScreenHUD/SmallTankIcons/`（1474 个）
+- `Data/Gfx/UI/BigTankIcons/<国家标签>-<名字>.packed.webp.dvpl`（2312 个，含 `@2x` 与 `_skinN` 变体）
+- `Data/Gfx/UI/BattleScreenHUD/SmallTankIcons/`（1474 个，128×32，作兜底）
 
 命名规则与资产面的 `tank_images/{id}.webp` 对应；`.packed.webp.dvpl` 的解包链项目已
 跑通（`fetch-minimaps` 解的就是这一类）。
+
+**命名比"标签-模型名"复杂**，`tools/export_tank_icons.py` 里已沉淀三层：
+
+1. 国家标签有一处客户端错拼须一并接受：`britsh`（另有 `british`）；
+2. 有些图标名**不带任何国家标签**（如 `Frankentank_event`）；
+3. 有些用**内部代号/缩写**，单靠拼名字推不出（`ST_I` → `ussr-R63_ST_IBD`、
+   `Pro_Ag_A` → `germany-Leopard_PT_A`、`M2_med` → `usa-M2_MT`）。
+
+第 3 类走 `ICON_ALIAS` **人工核对别名表**（宁可缺失也不猜——错挂别车的图标比缺图更糟）。
+对照诊断用 `tools/compare_tank_icons.py`。当前覆盖率：**730/735**，余 5 辆客户端确无大图
+（`T1_hvy`/`Indien_Panzer`/`R71_IS_2B`/`F68_AMX_Chasseur_de_char_46`/`PzVI_GuP`）。
 
 ### 2.6 客户端关键路径速查
 
