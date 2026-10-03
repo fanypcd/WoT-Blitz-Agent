@@ -6,8 +6,8 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 55,
-      "turret_sides": 55,
+      "turret_front": 60,
+      "turret_sides": 60,
       "turret_rear": 55,
       "hull_front": 50,
       "hull_sides": 50,
@@ -47,9 +47,9 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 70,
-      "turret_sides": 49,
-      "turret_rear": 43,
+      "turret_front": 81,
+      "turret_sides": 54,
+      "turret_rear": 49,
       "hull_front": 103,
       "hull_sides": 49,
       "hull_rear": 38
@@ -191,9 +191,9 @@
     "nation": "uk",
     "is_premium": false,
     "armor": {
-      "turret_front": 6,
-      "turret_sides": 6,
-      "turret_rear": 6,
+      "turret_front": 8,
+      "turret_sides": 8,
+      "turret_rear": 8,
       "hull_front": 6,
       "hull_sides": 6,
       "hull_rear": 6
@@ -335,9 +335,9 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 42,
-      "turret_sides": 36,
-      "turret_rear": 31,
+      "turret_front": 47,
+      "turret_sides": 42,
+      "turret_rear": 36,
       "hull_front": 42,
       "hull_sides": 21,
       "hull_rear": 26
@@ -369,9 +369,9 @@
     "nation": "france",
     "is_premium": false,
     "armor": {
-      "turret_front": 39,
-      "turret_sides": 39,
-      "turret_rear": 39,
+      "turret_front": 45,
+      "turret_sides": 45,
+      "turret_rear": 45,
       "hull_front": 40,
       "hull_sides": 40,
       "hull_rear": 40
@@ -526,7 +526,7 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 95,
+      "turret_front": 133,
       "turret_sides": 86,
       "turret_rear": 86,
       "hull_front": 155,
@@ -574,12 +574,12 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 105,
-      "turret_sides": 84,
-      "turret_rear": 84,
-      "hull_front": 166,
-      "hull_sides": 104,
-      "hull_rear": 83
+      "turret_front": 110,
+      "turret_sides": 89,
+      "turret_rear": 89,
+      "hull_front": 178,
+      "hull_sides": 89,
+      "hull_rear": 89
     },
     "shells": [
       {
@@ -622,12 +622,12 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 109,
-      "turret_sides": 109,
-      "turret_rear": 109,
-      "hull_front": 53,
-      "hull_sides": 53,
-      "hull_rear": 53
+      "turret_front": 10,
+      "turret_sides": 10,
+      "turret_rear": 10,
+      "hull_front": 10,
+      "hull_sides": 10,
+      "hull_rear": 10
     },
     "shells": [
       {
@@ -670,9 +670,9 @@
     "nation": "france",
     "is_premium": false,
     "armor": {
-      "turret_front": 16,
-      "turret_sides": 16,
-      "turret_rear": 14,
+      "turret_front": 22,
+      "turret_sides": 22,
+      "turret_rear": 16,
       "hull_front": 16,
       "hull_sides": 16,
       "hull_rear": 16
@@ -752,9 +752,9 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 18,
-      "turret_sides": 18,
-      "turret_rear": 16,
+      "turret_front": 20,
+      "turret_sides": 20,
+      "turret_rear": 20,
       "hull_front": 30,
       "hull_sides": 30,
       "hull_rear": 22
@@ -848,9 +848,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 63,
-      "turret_sides": 53,
-      "turret_rear": 53,
+      "turret_front": 60,
+      "turret_sides": 55,
+      "turret_rear": 55,
       "hull_front": 50,
       "hull_sides": 25,
       "hull_rear": 15
@@ -937,9 +937,9 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 38,
-      "turret_sides": 27,
-      "turret_rear": 27,
+      "turret_front": 49,
+      "turret_sides": 32,
+      "turret_rear": 32,
       "hull_front": 38,
       "hull_sides": 27,
       "hull_rear": 27
@@ -971,8 +971,8 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 151,
-      "turret_sides": 81,
+      "turret_front": 162,
+      "turret_sides": 93,
       "turret_rear": 90,
       "hull_front": 110,
       "hull_sides": 93,
@@ -1067,9 +1067,9 @@
     "nation": "uk",
     "is_premium": false,
     "armor": {
-      "turret_front": 90,
-      "turret_sides": 85,
-      "turret_rear": 85,
+      "turret_front": 95,
+      "turret_sides": 95,
+      "turret_rear": 95,
       "hull_front": 75,
       "hull_sides": 65,
       "hull_rear": 55
@@ -1108,9 +1108,9 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 25,
-      "turret_sides": 20,
-      "turret_rear": 18,
+      "turret_front": 35,
+      "turret_sides": 25,
+      "turret_rear": 25,
       "hull_front": 25,
       "hull_sides": 18,
       "hull_rear": 20
@@ -1190,9 +1190,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 100,
-      "turret_sides": 50,
-      "turret_rear": 50,
+      "turret_front": 120,
+      "turret_sides": 60,
+      "turret_rear": 60,
       "hull_front": 100,
       "hull_sides": 50,
       "hull_rear": 50
@@ -1239,8 +1239,8 @@
     "is_premium": false,
     "armor": {
       "turret_front": 35,
-      "turret_sides": 25,
-      "turret_rear": 20,
+      "turret_sides": 30,
+      "turret_rear": 30,
       "hull_front": 30,
       "hull_sides": 20,
       "hull_rear": 15
@@ -1320,9 +1320,9 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 80,
-      "turret_sides": 60,
-      "turret_rear": 55,
+      "turret_front": 85,
+      "turret_sides": 70,
+      "turret_rear": 65,
       "hull_front": 60,
       "hull_sides": 50,
       "hull_rear": 45
@@ -1368,9 +1368,9 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 90,
-      "turret_sides": 75,
-      "turret_rear": 52,
+      "turret_front": 170,
+      "turret_sides": 120,
+      "turret_rear": 60,
       "hull_front": 62,
       "hull_sides": 47,
       "hull_rear": 42
@@ -1416,9 +1416,9 @@
     "nation": "france",
     "is_premium": false,
     "armor": {
-      "turret_front": 40,
-      "turret_sides": 55,
-      "turret_rear": 50,
+      "turret_front": 65,
+      "turret_sides": 75,
+      "turret_rear": 55,
       "hull_front": 70,
       "hull_sides": 65,
       "hull_rear": 60
@@ -1464,7 +1464,7 @@
     "nation": "uk",
     "is_premium": false,
     "armor": {
-      "turret_front": 76,
+      "turret_front": 132,
       "turret_sides": 64,
       "turret_rear": 57,
       "hull_front": 64,
@@ -1512,8 +1512,8 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 75,
-      "turret_sides": 50,
+      "turret_front": 85,
+      "turret_sides": 75,
       "turret_rear": 50,
       "hull_front": 85,
       "hull_sides": 50,
@@ -1608,7 +1608,7 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 80,
+      "turret_front": 100,
       "turret_sides": 50,
       "turret_rear": 50,
       "hull_front": 100,
@@ -1656,12 +1656,12 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 126,
+      "turret_front": 168,
       "turret_sides": 63,
-      "turret_rear": 47,
-      "hull_front": 150,
-      "hull_sides": 72,
-      "hull_rear": 42
+      "turret_rear": 63,
+      "hull_front": 114,
+      "hull_sides": 60,
+      "hull_rear": 38
     },
     "shells": [
       {
@@ -1704,12 +1704,12 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 120,
-      "turret_sides": 70,
-      "turret_rear": 50,
-      "hull_front": 125,
-      "hull_sides": 65,
-      "hull_rear": 40
+      "turret_front": 80,
+      "turret_sides": 63,
+      "turret_rear": 51,
+      "hull_front": 64,
+      "hull_sides": 38,
+      "hull_rear": 38
     },
     "shells": [
       {
@@ -1834,9 +1834,9 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 75,
-      "turret_sides": 55,
-      "turret_rear": 35,
+      "turret_front": 80,
+      "turret_sides": 60,
+      "turret_rear": 40,
       "hull_front": 65,
       "hull_sides": 40,
       "hull_rear": 30
@@ -2026,12 +2026,12 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 70,
-      "turret_sides": 49,
-      "turret_rear": 43,
-      "hull_front": 103,
-      "hull_sides": 49,
-      "hull_rear": 38
+      "turret_front": 86,
+      "turret_sides": 86,
+      "turret_rear": 86,
+      "hull_front": 86,
+      "hull_sides": 43,
+      "hull_rear": 22
     },
     "shells": [
       {
@@ -2074,7 +2074,7 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 85,
+      "turret_front": 110,
       "turret_sides": 60,
       "turret_rear": 60,
       "hull_front": 64,
@@ -2122,7 +2122,7 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 170,
+      "turret_front": 200,
       "turret_sides": 120,
       "turret_rear": 60,
       "hull_front": 73,
@@ -2252,8 +2252,8 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 50,
-      "turret_sides": 50,
+      "turret_front": 55,
+      "turret_sides": 40,
       "turret_rear": 35,
       "hull_front": 55,
       "hull_sides": 30,
@@ -2348,7 +2348,7 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 28,
+      "turret_front": 34,
       "turret_sides": 28,
       "turret_rear": 20,
       "hull_front": 34,
@@ -2445,8 +2445,8 @@
     "is_premium": false,
     "armor": {
       "turret_front": 36,
-      "turret_sides": 31,
-      "turret_rear": 31,
+      "turret_sides": 36,
+      "turret_rear": 36,
       "hull_front": 38,
       "hull_sides": 31,
       "hull_rear": 14
@@ -2478,9 +2478,9 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 194,
-      "turret_sides": 130,
-      "turret_rear": 60,
+      "turret_front": 211,
+      "turret_sides": 160,
+      "turret_rear": 65,
       "hull_front": 108,
       "hull_sides": 83,
       "hull_rear": 47
@@ -2670,8 +2670,8 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 34,
-      "turret_sides": 28,
+      "turret_front": 55,
+      "turret_sides": 30,
       "turret_rear": 20,
       "hull_front": 55,
       "hull_sides": 30,
@@ -2718,8 +2718,8 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 49,
-      "turret_sides": 43,
+      "turret_front": 59,
+      "turret_sides": 49,
       "turret_rear": 38,
       "hull_front": 47,
       "hull_sides": 37,
@@ -2767,8 +2767,8 @@
     "is_premium": false,
     "armor": {
       "turret_front": 32,
-      "turret_sides": 16,
-      "turret_rear": 16,
+      "turret_sides": 22,
+      "turret_rear": 22,
       "hull_front": 32,
       "hull_sides": 22,
       "hull_rear": 16
@@ -2800,9 +2800,9 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 220,
-      "turret_sides": 110,
-      "turret_rear": 110,
+      "turret_front": 230,
+      "turret_sides": 120,
+      "turret_rear": 60,
       "hull_front": 125,
       "hull_sides": 125,
       "hull_rear": 62
@@ -2848,9 +2848,9 @@
     "nation": "uk",
     "is_premium": false,
     "armor": {
-      "turret_front": 55,
-      "turret_sides": 30,
-      "turret_rear": 30,
+      "turret_front": 85,
+      "turret_sides": 45,
+      "turret_rear": 40,
       "hull_front": 50,
       "hull_sides": 35,
       "hull_rear": 35
@@ -2896,9 +2896,9 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 40,
-      "turret_sides": 30,
-      "turret_rear": 30,
+      "turret_front": 45,
+      "turret_sides": 35,
+      "turret_rear": 35,
       "hull_front": 35,
       "hull_sides": 30,
       "hull_rear": 20
@@ -2985,9 +2985,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 18,
-      "turret_sides": 16,
-      "turret_rear": 16,
+      "turret_front": 30,
+      "turret_sides": 27,
+      "turret_rear": 25,
       "hull_front": 30,
       "hull_sides": 25,
       "hull_rear": 25
@@ -3074,9 +3074,9 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 84,
-      "turret_sides": 63,
-      "turret_rear": 63,
+      "turret_front": 152,
+      "turret_sides": 84,
+      "turret_rear": 84,
       "hull_front": 108,
       "hull_sides": 86,
       "hull_rear": 65
@@ -3122,9 +3122,9 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 20,
-      "turret_sides": 20,
-      "turret_rear": 20,
+      "turret_front": 35,
+      "turret_sides": 25,
+      "turret_rear": 25,
       "hull_front": 20,
       "hull_sides": 18,
       "hull_rear": 16
@@ -3498,9 +3498,9 @@
     "nation": "france",
     "is_premium": false,
     "armor": {
-      "turret_front": 132,
-      "turret_sides": 60,
-      "turret_rear": 60,
+      "turret_front": 110,
+      "turret_sides": 50,
+      "turret_rear": 30,
       "hull_front": 120,
       "hull_sides": 50,
       "hull_rear": 50
@@ -3546,7 +3546,7 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 70,
+      "turret_front": 90,
       "turret_sides": 60,
       "turret_rear": 35,
       "hull_front": 45,
@@ -3594,9 +3594,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 16,
-      "turret_sides": 16,
-      "turret_rear": 16,
+      "turret_front": 18,
+      "turret_sides": 15,
+      "turret_rear": 12,
       "hull_front": 14,
       "hull_sides": 12,
       "hull_rear": 14
@@ -3628,9 +3628,9 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 78,
-      "turret_sides": 71,
-      "turret_rear": 71,
+      "turret_front": 95,
+      "turret_sides": 86,
+      "turret_rear": 86,
       "hull_front": 81,
       "hull_sides": 65,
       "hull_rear": 65
@@ -3724,9 +3724,9 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 130,
-      "turret_sides": 90,
-      "turret_rear": 90,
+      "turret_front": 200,
+      "turret_sides": 148,
+      "turret_rear": 50,
       "hull_front": 140,
       "hull_sides": 94,
       "hull_rear": 62
@@ -3820,9 +3820,9 @@
     "nation": "uk",
     "is_premium": false,
     "armor": {
-      "turret_front": 102,
+      "turret_front": 127,
       "turret_sides": 90,
-      "turret_rear": 76,
+      "turret_rear": 90,
       "hull_front": 187,
       "hull_sides": 67,
       "hull_rear": 53
@@ -3999,8 +3999,8 @@
     "is_premium": false,
     "armor": {
       "turret_front": 14,
-      "turret_sides": 12,
-      "turret_rear": 12,
+      "turret_sides": 14,
+      "turret_rear": 14,
       "hull_front": 14,
       "hull_sides": 12,
       "hull_rear": 12
@@ -4094,8 +4094,8 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 45,
-      "turret_sides": 35,
+      "turret_front": 50,
+      "turret_sides": 40,
       "turret_rear": 30,
       "hull_front": 30,
       "hull_sides": 35,
@@ -4368,8 +4368,8 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 124,
-      "turret_sides": 90,
+      "turret_front": 151,
+      "turret_sides": 92,
       "turret_rear": 90,
       "hull_front": 151,
       "hull_sides": 82,
@@ -4416,8 +4416,8 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 40,
-      "turret_sides": 30,
+      "turret_front": 45,
+      "turret_sides": 36,
       "turret_rear": 20,
       "hull_front": 45,
       "hull_sides": 30,
@@ -4464,8 +4464,8 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 100,
-      "turret_sides": 60,
+      "turret_front": 152,
+      "turret_sides": 84,
       "turret_rear": 35,
       "hull_front": 55,
       "hull_sides": 35,
@@ -4642,7 +4642,7 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 100,
+      "turret_front": 140,
       "turret_sides": 90,
       "turret_rear": 90,
       "hull_front": 125,
@@ -4834,9 +4834,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 35,
-      "turret_sides": 25,
-      "turret_rear": 20,
+      "turret_front": 45,
+      "turret_sides": 35,
+      "turret_rear": 35,
       "hull_front": 75,
       "hull_sides": 30,
       "hull_rear": 20
@@ -4932,7 +4932,7 @@
     "armor": {
       "turret_front": 279,
       "turret_sides": 127,
-      "turret_rear": 101,
+      "turret_rear": 102,
       "hull_front": 125,
       "hull_sides": 79,
       "hull_rear": 53
@@ -4978,11 +4978,11 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 75,
-      "turret_sides": 48,
+      "turret_front": 58,
+      "turret_sides": 40,
       "turret_rear": 20,
-      "hull_front": 55,
-      "hull_sides": 38,
+      "hull_front": 52,
+      "hull_sides": 35,
       "hull_rear": 20
     },
     "shells": [
@@ -5074,9 +5074,9 @@
     "nation": "uk",
     "is_premium": false,
     "armor": {
-      "turret_front": 152,
-      "turret_sides": 95,
-      "turret_rear": 95,
+      "turret_front": 165,
+      "turret_sides": 112,
+      "turret_rear": 112,
       "hull_front": 139,
       "hull_sides": 53,
       "hull_rear": 40
@@ -5122,12 +5122,12 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 120,
-      "turret_sides": 120,
-      "turret_rear": 120,
-      "hull_front": 190,
+      "turret_front": 0,
+      "turret_sides": 0,
+      "turret_rear": 0,
+      "hull_front": 260,
       "hull_sides": 100,
-      "hull_rear": 55
+      "hull_rear": 60
     },
     "shells": [
       {
@@ -5218,7 +5218,7 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 75,
+      "turret_front": 110,
       "turret_sides": 45,
       "turret_rear": 35,
       "hull_front": 70,
@@ -5266,9 +5266,9 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 105,
-      "turret_sides": 47,
-      "turret_rear": 47,
+      "turret_front": 140,
+      "turret_sides": 79,
+      "turret_rear": 63,
       "hull_front": 84,
       "hull_sides": 47,
       "hull_rear": 52
@@ -5492,9 +5492,9 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 120,
-      "turret_sides": 90,
-      "turret_rear": 75,
+      "turret_front": 150,
+      "turret_sides": 100,
+      "turret_rear": 100,
       "hull_front": 90,
       "hull_sides": 75,
       "hull_rear": 45
@@ -5540,9 +5540,9 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 32,
+      "turret_front": 59,
       "turret_sides": 32,
-      "turret_rear": 27,
+      "turret_rear": 32,
       "hull_front": 54,
       "hull_sides": 32,
       "hull_rear": 32
@@ -5581,9 +5581,9 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 144,
-      "turret_sides": 76,
-      "turret_rear": 76,
+      "turret_front": 298,
+      "turret_sides": 152,
+      "turret_rear": 152,
       "hull_front": 147,
       "hull_sides": 76,
       "hull_rear": 51
@@ -5629,9 +5629,9 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 40,
-      "turret_sides": 35,
-      "turret_rear": 30,
+      "turret_front": 45,
+      "turret_sides": 40,
+      "turret_rear": 35,
       "hull_front": 30,
       "hull_sides": 25,
       "hull_rear": 20
@@ -5718,9 +5718,9 @@
     "nation": "uk",
     "is_premium": false,
     "armor": {
-      "turret_front": 165,
-      "turret_sides": 112,
-      "turret_rear": 112,
+      "turret_front": 178,
+      "turret_sides": 106,
+      "turret_rear": 73,
       "hull_front": 135,
       "hull_sides": 53,
       "hull_rear": 40
@@ -5911,7 +5911,7 @@
     "is_premium": false,
     "armor": {
       "turret_front": 30,
-      "turret_sides": 20,
+      "turret_sides": 25,
       "turret_rear": 20,
       "hull_front": 24,
       "hull_sides": 20,
@@ -5944,9 +5944,9 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 55,
-      "turret_sides": 55,
-      "turret_rear": 45,
+      "turret_front": 60,
+      "turret_sides": 60,
+      "turret_rear": 50,
       "hull_front": 52,
       "hull_sides": 52,
       "hull_rear": 47
@@ -5992,9 +5992,9 @@
     "nation": "uk",
     "is_premium": false,
     "armor": {
-      "turret_front": 89,
-      "turret_sides": 76,
-      "turret_rear": 76,
+      "turret_front": 152,
+      "turret_sides": 95,
+      "turret_rear": 95,
       "hull_front": 152,
       "hull_sides": 95,
       "hull_rear": 51
@@ -6136,12 +6136,12 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 180,
-      "turret_sides": 70,
-      "turret_rear": 50,
-      "hull_front": 125,
-      "hull_sides": 80,
-      "hull_rear": 50
+      "turret_front": 160,
+      "turret_sides": 35,
+      "turret_rear": 20,
+      "hull_front": 100,
+      "hull_sides": 35,
+      "hull_rear": 30
     },
     "shells": [
       {
@@ -6266,8 +6266,8 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 35,
-      "turret_sides": 24,
+      "turret_front": 38,
+      "turret_sides": 28,
       "turret_rear": 20,
       "hull_front": 30,
       "hull_sides": 22,
@@ -6588,8 +6588,8 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 105,
-      "turret_sides": 84,
+      "turret_front": 231,
+      "turret_sides": 105,
       "turret_rear": 84,
       "hull_front": 166,
       "hull_sides": 104,
@@ -6636,8 +6636,8 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 45,
-      "turret_sides": 31,
+      "turret_front": 55,
+      "turret_sides": 32,
       "turret_rear": 30,
       "hull_front": 29,
       "hull_sides": 29,
@@ -6944,9 +6944,9 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 143,
-      "turret_sides": 86,
-      "turret_rear": 76,
+      "turret_front": 209,
+      "turret_sides": 105,
+      "turret_rear": 105,
       "hull_front": 132,
       "hull_sides": 90,
       "hull_rear": 60
@@ -6992,12 +6992,12 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 52,
-      "turret_sides": 60,
-      "turret_rear": 60,
-      "hull_front": 70,
-      "hull_sides": 35,
-      "hull_rear": 25
+      "turret_front": 53,
+      "turret_sides": 32,
+      "turret_rear": 32,
+      "hull_front": 55,
+      "hull_sides": 32,
+      "hull_rear": 32
     },
     "shells": [
       {
@@ -7040,12 +7040,12 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 160,
-      "turret_sides": 110,
-      "turret_rear": 70,
-      "hull_front": 105,
-      "hull_sides": 55,
-      "hull_rear": 40
+      "turret_front": 63,
+      "turret_sides": 47,
+      "turret_rear": 42,
+      "hull_front": 47,
+      "hull_sides": 36,
+      "hull_rear": 36
     },
     "shells": [
       {
@@ -7088,12 +7088,12 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 120,
-      "turret_sides": 120,
-      "turret_rear": 120,
-      "hull_front": 247,
-      "hull_sides": 120,
-      "hull_rear": 70
+      "turret_front": 275,
+      "turret_sides": 160,
+      "turret_rear": 80,
+      "hull_front": 125,
+      "hull_sides": 140,
+      "hull_rear": 73
     },
     "shells": [
       {
@@ -7184,8 +7184,8 @@
     "nation": "uk",
     "is_premium": false,
     "armor": {
-      "turret_front": 76,
-      "turret_sides": 64,
+      "turret_front": 137,
+      "turret_sides": 63,
       "turret_rear": 57,
       "hull_front": 76,
       "hull_sides": 43,
@@ -7232,9 +7232,9 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 80,
-      "turret_sides": 50,
-      "turret_rear": 40,
+      "turret_front": 140,
+      "turret_sides": 80,
+      "turret_rear": 60,
       "hull_front": 90,
       "hull_sides": 55,
       "hull_rear": 40
@@ -7458,7 +7458,7 @@
     "nation": "uk",
     "is_premium": false,
     "armor": {
-      "turret_front": 165,
+      "turret_front": 254,
       "turret_sides": 112,
       "turret_rear": 112,
       "hull_front": 121,
@@ -7506,8 +7506,8 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 110,
-      "turret_sides": 80,
+      "turret_front": 150,
+      "turret_sides": 100,
       "turret_rear": 60,
       "hull_front": 135,
       "hull_sides": 80,
@@ -7602,8 +7602,8 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 100,
-      "turret_sides": 70,
+      "turret_front": 155,
+      "turret_sides": 80,
       "turret_rear": 50,
       "hull_front": 65,
       "hull_sides": 40,
@@ -7650,9 +7650,9 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 145,
-      "turret_sides": 100,
-      "turret_rear": 100,
+      "turret_front": 165,
+      "turret_sides": 115,
+      "turret_rear": 115,
       "hull_front": 165,
       "hull_sides": 90,
       "hull_rear": 90
@@ -7698,8 +7698,8 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 119,
-      "turret_sides": 90,
+      "turret_front": 135,
+      "turret_sides": 114,
       "turret_rear": 67,
       "hull_front": 101,
       "hull_sides": 75,
@@ -7828,9 +7828,9 @@
     "nation": "uk",
     "is_premium": false,
     "armor": {
-      "turret_front": 127,
-      "turret_sides": 76,
-      "turret_rear": 76,
+      "turret_front": 175,
+      "turret_sides": 112,
+      "turret_rear": 69,
       "hull_front": 76,
       "hull_sides": 51,
       "hull_rear": 38
@@ -7876,8 +7876,8 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 152,
-      "turret_sides": 80,
+      "turret_front": 180,
+      "turret_sides": 100,
       "turret_rear": 80,
       "hull_front": 90,
       "hull_sides": 80,
@@ -7972,8 +7972,8 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 75,
-      "turret_sides": 45,
+      "turret_front": 200,
+      "turret_sides": 60,
       "turret_rear": 40,
       "hull_front": 150,
       "hull_sides": 45,
@@ -8287,9 +8287,9 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 120,
-      "turret_sides": 90,
-      "turret_rear": 80,
+      "turret_front": 234,
+      "turret_sides": 105,
+      "turret_rear": 90,
       "hull_front": 203,
       "hull_sides": 100,
       "hull_rear": 90
@@ -8705,8 +8705,8 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 127,
-      "turret_sides": 90,
+      "turret_front": 228,
+      "turret_sides": 105,
       "turret_rear": 90,
       "hull_front": 127,
       "hull_sides": 120,
@@ -8801,9 +8801,9 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 76,
-      "turret_sides": 76,
-      "turret_rear": 57,
+      "turret_front": 86,
+      "turret_sides": 86,
+      "turret_rear": 86,
       "hull_front": 75,
       "hull_sides": 75,
       "hull_rear": 75
@@ -8891,11 +8891,11 @@
     "is_premium": true,
     "armor": {
       "turret_front": 25,
-      "turret_sides": 19,
-      "turret_rear": 13,
-      "hull_front": 22,
-      "hull_sides": 19,
-      "hull_rear": 13
+      "turret_sides": 25,
+      "turret_rear": 25,
+      "hull_front": 25,
+      "hull_sides": 25,
+      "hull_rear": 19
     },
     "shells": [
       {
@@ -8931,9 +8931,9 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 38,
-      "turret_sides": 22,
-      "turret_rear": 16,
+      "turret_front": 43,
+      "turret_sides": 27,
+      "turret_rear": 22,
       "hull_front": 38,
       "hull_sides": 27,
       "hull_rear": 27
@@ -8965,9 +8965,9 @@
     "nation": "france",
     "is_premium": false,
     "armor": {
-      "turret_front": 100,
-      "turret_sides": 72,
-      "turret_rear": 65,
+      "turret_front": 140,
+      "turret_sides": 80,
+      "turret_rear": 60,
       "hull_front": 117,
       "hull_sides": 59,
       "hull_rear": 59
@@ -9109,12 +9109,12 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 47,
-      "turret_sides": 0,
-      "turret_rear": 0,
-      "hull_front": 47,
-      "hull_sides": 47,
-      "hull_rear": 42
+      "turret_front": 49,
+      "turret_sides": 49,
+      "turret_rear": 49,
+      "hull_front": 27,
+      "hull_sides": 27,
+      "hull_rear": 16
     },
     "shells": [
       {
@@ -9301,9 +9301,9 @@
     "nation": "france",
     "is_premium": false,
     "armor": {
-      "turret_front": 80,
-      "turret_sides": 45,
-      "turret_rear": 45,
+      "turret_front": 145,
+      "turret_sides": 90,
+      "turret_rear": 40,
       "hull_front": 100,
       "hull_sides": 70,
       "hull_rear": 40
@@ -9349,9 +9349,9 @@
     "nation": "uk",
     "is_premium": false,
     "armor": {
-      "turret_front": 27,
-      "turret_sides": 26,
-      "turret_rear": 26,
+      "turret_front": 30,
+      "turret_sides": 30,
+      "turret_rear": 30,
       "hull_front": 25,
       "hull_sides": 16,
       "hull_rear": 12
@@ -9575,9 +9575,9 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 86,
-      "turret_sides": 65,
-      "turret_rear": 65,
+      "turret_front": 108,
+      "turret_sides": 89,
+      "turret_rear": 89,
       "hull_front": 81,
       "hull_sides": 65,
       "hull_rear": 43
@@ -9959,9 +9959,9 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 231,
-      "turret_sides": 158,
-      "turret_rear": 158,
+      "turret_front": 265,
+      "turret_sides": 168,
+      "turret_rear": 168,
       "hull_front": 208,
       "hull_sides": 120,
       "hull_rear": 104
@@ -10055,9 +10055,9 @@
     "nation": "uk",
     "is_premium": false,
     "armor": {
-      "turret_front": 35,
-      "turret_sides": 25,
-      "turret_rear": 20,
+      "turret_front": 45,
+      "turret_sides": 35,
+      "turret_rear": 30,
       "hull_front": 40,
       "hull_sides": 22,
       "hull_rear": 20
@@ -10193,8 +10193,8 @@
     "is_premium": false,
     "armor": {
       "turret_front": 250,
-      "turret_sides": 150,
-      "turret_rear": 90,
+      "turret_sides": 160,
+      "turret_rear": 100,
       "hull_front": 120,
       "hull_sides": 90,
       "hull_rear": 60
@@ -10418,9 +10418,9 @@
     "nation": "uk",
     "is_premium": false,
     "armor": {
-      "turret_front": 30,
-      "turret_sides": 20,
-      "turret_rear": 20,
+      "turret_front": 35,
+      "turret_sides": 25,
+      "turret_rear": 25,
       "hull_front": 25,
       "hull_sides": 20,
       "hull_rear": 20
@@ -10548,9 +10548,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 200,
+      "turret_front": 220,
       "turret_sides": 110,
-      "turret_rear": 80,
+      "turret_rear": 90,
       "hull_front": 140,
       "hull_sides": 90,
       "hull_rear": 50
@@ -10596,8 +10596,8 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 160,
-      "turret_sides": 108,
+      "turret_front": 211,
+      "turret_sides": 155,
       "turret_rear": 65,
       "hull_front": 128,
       "hull_sides": 83,
@@ -10925,7 +10925,7 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 110,
+      "turret_front": 160,
       "turret_sides": 80,
       "turret_rear": 50,
       "hull_front": 110,
@@ -11336,9 +11336,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 160,
-      "turret_sides": 80,
-      "turret_rear": 60,
+      "turret_front": 170,
+      "turret_sides": 100,
+      "turret_rear": 70,
       "hull_front": 110,
       "hull_sides": 80,
       "hull_rear": 60
@@ -11384,9 +11384,9 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 126,
-      "turret_sides": 63,
-      "turret_rear": 47,
+      "turret_front": 210,
+      "turret_sides": 89,
+      "turret_rear": 89,
       "hull_front": 150,
       "hull_sides": 72,
       "hull_rear": 42
@@ -11816,12 +11816,12 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 160,
-      "turret_sides": 160,
-      "turret_rear": 160,
-      "hull_front": 160,
-      "hull_sides": 160,
-      "hull_rear": 160
+      "turret_front": 150,
+      "turret_sides": 85,
+      "turret_rear": 60,
+      "hull_front": 80,
+      "hull_sides": 60,
+      "hull_rear": 52
     },
     "shells": [
       {
@@ -12008,9 +12008,9 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 107,
+      "turret_front": 145,
       "turret_sides": 80,
-      "turret_rear": 80,
+      "turret_rear": 96,
       "hull_front": 107,
       "hull_sides": 80,
       "hull_rear": 53
@@ -12296,12 +12296,12 @@
     "nation": "ussr",
     "is_premium": true,
     "armor": {
-      "turret_front": 95,
-      "turret_sides": 86,
-      "turret_rear": 86,
-      "hull_front": 155,
-      "hull_sides": 90,
-      "hull_rear": 60
+      "turret_front": 160,
+      "turret_sides": 150,
+      "turret_rear": 100,
+      "hull_front": 130,
+      "hull_sides": 110,
+      "hull_rear": 68
     },
     "shells": [
       {
@@ -12440,12 +12440,12 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 320,
-      "turret_sides": 320,
-      "turret_rear": 320,
-      "hull_front": 330,
-      "hull_sides": 330,
-      "hull_rear": 330
+      "turret_front": 305,
+      "turret_sides": 160,
+      "turret_rear": 100,
+      "hull_front": 130,
+      "hull_sides": 105,
+      "hull_rear": 95
     },
     "shells": [
       {
@@ -12632,8 +12632,8 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 127,
-      "turret_sides": 127,
+      "turret_front": 152,
+      "turret_sides": 132,
       "turret_rear": 51,
       "hull_front": 203,
       "hull_sides": 51,
@@ -12776,12 +12776,12 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 220,
-      "turret_sides": 220,
-      "turret_rear": 220,
-      "hull_front": 200,
-      "hull_sides": 200,
-      "hull_rear": 200
+      "turret_front": 180,
+      "turret_sides": 130,
+      "turret_rear": 90,
+      "hull_front": 170,
+      "hull_sides": 90,
+      "hull_rear": 85
     },
     "shells": [
       {
@@ -12872,9 +12872,9 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 194,
-      "turret_sides": 84,
-      "turret_rear": 84,
+      "turret_front": 265,
+      "turret_sides": 168,
+      "turret_rear": 168,
       "hull_front": 180,
       "hull_sides": 125,
       "hull_rear": 125
@@ -12920,9 +12920,9 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 32,
+      "turret_front": 40,
       "turret_sides": 25,
-      "turret_rear": 32,
+      "turret_rear": 25,
       "hull_front": 25,
       "hull_sides": 25,
       "hull_rear": 19
@@ -13112,12 +13112,12 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 270,
-      "turret_sides": 270,
-      "turret_rear": 270,
+      "turret_front": 220,
+      "turret_sides": 148,
+      "turret_rear": 90,
       "hull_front": 231,
-      "hull_sides": 231,
-      "hull_rear": 231
+      "hull_sides": 110,
+      "hull_rear": 85
     },
     "shells": [
       {
@@ -13544,12 +13544,12 @@
     "nation": "japan",
     "is_premium": false,
     "armor": {
-      "turret_front": 180,
-      "turret_sides": 130,
-      "turret_rear": 90,
-      "hull_front": 170,
-      "hull_sides": 90,
-      "hull_rear": 85
+      "turret_front": 200,
+      "turret_sides": 110,
+      "turret_rear": 80,
+      "hull_front": 195,
+      "hull_sides": 95,
+      "hull_rear": 70
     },
     "shells": [
       {
@@ -13736,9 +13736,9 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 168,
-      "turret_sides": 82,
-      "turret_rear": 63,
+      "turret_front": 218,
+      "turret_sides": 94,
+      "turret_rear": 84,
       "hull_front": 156,
       "hull_sides": 94,
       "hull_rear": 83
@@ -14065,7 +14065,7 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 105,
+      "turret_front": 250,
       "turret_sides": 84,
       "turret_rear": 84,
       "hull_front": 160,
@@ -14209,9 +14209,9 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 148,
-      "turret_sides": 77,
-      "turret_rear": 42,
+      "turret_front": 154,
+      "turret_sides": 79,
+      "turret_rear": 49,
       "hull_front": 90,
       "hull_sides": 68,
       "hull_rear": 42
@@ -14305,8 +14305,8 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 162,
-      "turret_sides": 162,
+      "turret_front": 238,
+      "turret_sides": 152,
       "turret_rear": 152,
       "hull_front": 160,
       "hull_sides": 140,
@@ -14545,9 +14545,9 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 156,
-      "turret_sides": 67,
-      "turret_rear": 42,
+      "turret_front": 165,
+      "turret_sides": 70,
+      "turret_rear": 50,
       "hull_front": 139,
       "hull_sides": 70,
       "hull_rear": 47
@@ -14593,8 +14593,8 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 245,
-      "turret_sides": 94,
+      "turret_front": 255,
+      "turret_sides": 100,
       "turret_rear": 46,
       "hull_front": 200,
       "hull_sides": 80,
@@ -14641,9 +14641,9 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 180,
-      "turret_sides": 130,
-      "turret_rear": 130,
+      "turret_front": 220,
+      "turret_sides": 150,
+      "turret_rear": 140,
       "hull_front": 200,
       "hull_sides": 150,
       "hull_rear": 90
@@ -14881,7 +14881,7 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 190,
+      "turret_front": 220,
       "turret_sides": 80,
       "turret_rear": 57,
       "hull_front": 110,
@@ -14929,8 +14929,8 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 190,
-      "turret_sides": 110,
+      "turret_front": 250,
+      "turret_sides": 120,
       "turret_rear": 42,
       "hull_front": 210,
       "hull_sides": 75,
@@ -15025,12 +15025,12 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 50,
-      "turret_sides": 50,
-      "turret_rear": 50,
-      "hull_front": 35,
-      "hull_sides": 20,
-      "hull_rear": 20
+      "turret_front": 215,
+      "turret_sides": 100,
+      "turret_rear": 67,
+      "hull_front": 150,
+      "hull_sides": 73,
+      "hull_rear": 65
     },
     "shells": [
       {
@@ -15265,8 +15265,8 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 181,
-      "turret_sides": 157,
+      "turret_front": 200,
+      "turret_sides": 170,
       "turret_rear": 48,
       "hull_front": 132,
       "hull_sides": 92,
@@ -15313,11 +15313,11 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 126,
-      "turret_sides": 63,
-      "turret_rear": 47,
-      "hull_front": 150,
-      "hull_sides": 72,
+      "turret_front": 19,
+      "turret_sides": 17,
+      "turret_rear": 17,
+      "hull_front": 104,
+      "hull_sides": 62,
       "hull_rear": 42
     },
     "shells": [
@@ -15361,9 +15361,9 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 25,
-      "turret_sides": 13,
-      "turret_rear": 13,
+      "turret_front": 90,
+      "turret_sides": 42,
+      "turret_rear": 44,
       "hull_front": 13,
       "hull_sides": 13,
       "hull_rear": 13
@@ -15601,9 +15601,9 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 95,
-      "turret_sides": 75,
-      "turret_rear": 75,
+      "turret_front": 115,
+      "turret_sides": 110,
+      "turret_rear": 110,
       "hull_front": 61,
       "hull_sides": 67,
       "hull_rear": 57
@@ -15793,9 +15793,9 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 100,
-      "turret_sides": 40,
-      "turret_rear": 40,
+      "turret_front": 150,
+      "turret_sides": 60,
+      "turret_rear": 60,
       "hull_front": 140,
       "hull_sides": 45,
       "hull_rear": 40
@@ -15937,9 +15937,9 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 270,
-      "turret_sides": 150,
-      "turret_rear": 150,
+      "turret_front": 18,
+      "turret_sides": 16,
+      "turret_rear": 16,
       "hull_front": 200,
       "hull_sides": 120,
       "hull_rear": 150
@@ -16033,8 +16033,8 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 256,
-      "turret_sides": 120,
+      "turret_front": 268,
+      "turret_sides": 160,
       "turret_rear": 80,
       "hull_front": 120,
       "hull_sides": 80,
@@ -16129,8 +16129,8 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 155,
-      "turret_sides": 80,
+      "turret_front": 165,
+      "turret_sides": 90,
       "turret_rear": 60,
       "hull_front": 90,
       "hull_sides": 45,
@@ -16225,11 +16225,11 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 168,
-      "turret_sides": 82,
-      "turret_rear": 63,
-      "hull_front": 156,
-      "hull_sides": 94,
+      "turret_front": 285,
+      "turret_sides": 114,
+      "turret_rear": 84,
+      "hull_front": 174,
+      "hull_sides": 111,
       "hull_rear": 83
     },
     "shells": [
@@ -16321,7 +16321,7 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 160,
+      "turret_front": 196,
       "turret_sides": 80,
       "turret_rear": 60,
       "hull_front": 80,
@@ -16465,8 +16465,8 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 174,
-      "turret_sides": 80,
+      "turret_front": 180,
+      "turret_sides": 90,
       "turret_rear": 60,
       "hull_front": 80,
       "hull_sides": 60,
@@ -16705,9 +16705,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 170,
-      "turret_sides": 110,
-      "turret_rear": 75,
+      "turret_front": 180,
+      "turret_sides": 120,
+      "turret_rear": 80,
       "hull_front": 140,
       "hull_sides": 80,
       "hull_rear": 70
@@ -16890,9 +16890,9 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 120,
-      "turret_sides": 65,
-      "turret_rear": 33,
+      "turret_front": 128,
+      "turret_sides": 75,
+      "turret_rear": 38,
       "hull_front": 70,
       "hull_sides": 50,
       "hull_rear": 40
@@ -17082,9 +17082,9 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 138,
-      "turret_sides": 66,
-      "turret_rear": 48,
+      "turret_front": 146,
+      "turret_sides": 72,
+      "turret_rear": 50,
       "hull_front": 117,
       "hull_sides": 60,
       "hull_rear": 45
@@ -17274,9 +17274,9 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 167,
-      "turret_sides": 80,
-      "turret_rear": 51,
+      "turret_front": 180,
+      "turret_sides": 120,
+      "turret_rear": 54,
       "hull_front": 103,
       "hull_sides": 70,
       "hull_rear": 55
@@ -17322,9 +17322,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 207,
-      "turret_sides": 90,
-      "turret_rear": 50,
+      "turret_front": 236,
+      "turret_sides": 100,
+      "turret_rear": 55,
       "hull_front": 135,
       "hull_sides": 68,
       "hull_rear": 55
@@ -17610,9 +17610,9 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 190,
-      "turret_sides": 100,
-      "turret_rear": 70,
+      "turret_front": 200,
+      "turret_sides": 110,
+      "turret_rear": 76,
       "hull_front": 110,
       "hull_sides": 80,
       "hull_rear": 65
@@ -17658,9 +17658,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 173,
-      "turret_sides": 80,
-      "turret_rear": 48,
+      "turret_front": 190,
+      "turret_sides": 102,
+      "turret_rear": 52,
       "hull_front": 114,
       "hull_sides": 65,
       "hull_rear": 48
@@ -17706,9 +17706,9 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 53,
-      "turret_sides": 32,
-      "turret_rear": 32,
+      "turret_front": 84,
+      "turret_sides": 47,
+      "turret_rear": 47,
       "hull_front": 62,
       "hull_sides": 42,
       "hull_rear": 52
@@ -17898,9 +17898,9 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 70,
-      "turret_sides": 47,
-      "turret_rear": 28,
+      "turret_front": 78,
+      "turret_sides": 52,
+      "turret_rear": 32,
       "hull_front": 92,
       "hull_sides": 48,
       "hull_rear": 32
@@ -17946,9 +17946,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 138,
-      "turret_sides": 74,
-      "turret_rear": 42,
+      "turret_front": 149,
+      "turret_sides": 82,
+      "turret_rear": 45,
       "hull_front": 165,
       "hull_sides": 75,
       "hull_rear": 42
@@ -18090,9 +18090,9 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 40,
-      "turret_sides": 32,
-      "turret_rear": 26,
+      "turret_front": 45,
+      "turret_sides": 36,
+      "turret_rear": 28,
       "hull_front": 35,
       "hull_sides": 28,
       "hull_rear": 24
@@ -18138,7 +18138,7 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 70,
+      "turret_front": 60,
       "turret_sides": 55,
       "turret_rear": 50,
       "hull_front": 50,
@@ -18282,9 +18282,9 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 184,
-      "turret_sides": 152,
-      "turret_rear": 58,
+      "turret_front": 196,
+      "turret_sides": 158,
+      "turret_rear": 62,
       "hull_front": 136,
       "hull_sides": 94,
       "hull_rear": 56
@@ -18666,9 +18666,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 65,
-      "turret_sides": 50,
-      "turret_rear": 35,
+      "turret_front": 68,
+      "turret_sides": 60,
+      "turret_rear": 40,
       "hull_front": 70,
       "hull_sides": 50,
       "hull_rear": 35
@@ -18762,12 +18762,12 @@
     "nation": "china",
     "is_premium": false,
     "armor": {
-      "turret_front": 230,
-      "turret_sides": 230,
-      "turret_rear": 230,
-      "hull_front": 180,
-      "hull_sides": 180,
-      "hull_rear": 180
+      "turret_front": 190,
+      "turret_sides": 120,
+      "turret_rear": 80,
+      "hull_front": 120,
+      "hull_sides": 80,
+      "hull_rear": 50
     },
     "shells": [
       {
@@ -18810,10 +18810,10 @@
     "nation": "uk",
     "is_premium": false,
     "armor": {
-      "turret_front": 350,
-      "turret_sides": 140,
-      "turret_rear": 30,
-      "hull_front": 127,
+      "turret_front": 254,
+      "turret_sides": 89,
+      "turret_rear": 102,
+      "hull_front": 85,
       "hull_sides": 51,
       "hull_rear": 25
     },
@@ -18906,9 +18906,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 60,
+      "turret_front": 65,
       "turret_sides": 60,
-      "turret_rear": 35,
+      "turret_rear": 37,
       "hull_front": 65,
       "hull_sides": 50,
       "hull_rear": 35
@@ -19146,9 +19146,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 60,
-      "turret_sides": 50,
-      "turret_rear": 35,
+      "turret_front": 70,
+      "turret_sides": 57,
+      "turret_rear": 40,
       "hull_front": 60,
       "hull_sides": 40,
       "hull_rear": 35
@@ -19290,8 +19290,8 @@
     "nation": "france",
     "is_premium": false,
     "armor": {
-      "turret_front": 20,
-      "turret_sides": 20,
+      "turret_front": 25,
+      "turret_sides": 30,
       "turret_rear": 30,
       "hull_front": 30,
       "hull_sides": 30,
@@ -19420,9 +19420,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 80,
-      "turret_sides": 50,
-      "turret_rear": 40,
+      "turret_front": 100,
+      "turret_sides": 60,
+      "turret_rear": 50,
       "hull_front": 55,
       "hull_sides": 40,
       "hull_rear": 32
@@ -19660,12 +19660,12 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 70,
-      "turret_sides": 49,
-      "turret_rear": 43,
-      "hull_front": 103,
-      "hull_sides": 49,
-      "hull_rear": 38
+      "turret_front": 10,
+      "turret_sides": 0,
+      "turret_rear": 0,
+      "hull_front": 80,
+      "hull_sides": 30,
+      "hull_rear": 20
     },
     "shells": [
       {
@@ -19749,9 +19749,9 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 180,
-      "turret_sides": 120,
-      "turret_rear": 101,
+      "turret_front": 196,
+      "turret_sides": 138,
+      "turret_rear": 107,
       "hull_front": 163,
       "hull_sides": 102,
       "hull_rear": 82
@@ -19846,8 +19846,8 @@
     "is_premium": false,
     "armor": {
       "turret_front": 45,
-      "turret_sides": 40,
-      "turret_rear": 40,
+      "turret_sides": 45,
+      "turret_rear": 45,
       "hull_front": 45,
       "hull_sides": 40,
       "hull_rear": 40
@@ -20037,9 +20037,9 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 108,
-      "turret_sides": 70,
-      "turret_rear": 40,
+      "turret_front": 82,
+      "turret_sides": 76,
+      "turret_rear": 47,
       "hull_front": 121,
       "hull_sides": 64,
       "hull_rear": 40
@@ -20181,9 +20181,9 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 192,
-      "turret_sides": 107,
-      "turret_rear": 49,
+      "turret_front": 206,
+      "turret_sides": 117,
+      "turret_rear": 54,
       "hull_front": 194,
       "hull_sides": 76,
       "hull_rear": 49
@@ -20229,7 +20229,7 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 190,
+      "turret_front": 177,
       "turret_sides": 80,
       "turret_rear": 60,
       "hull_front": 105,
@@ -20462,9 +20462,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 200,
-      "turret_sides": 65,
-      "turret_rear": 55,
+      "turret_front": 192,
+      "turret_sides": 110,
+      "turret_rear": 60,
       "hull_front": 135,
       "hull_sides": 70,
       "hull_rear": 60
@@ -20510,12 +20510,12 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 70,
-      "turret_sides": 49,
-      "turret_rear": 43,
-      "hull_front": 103,
-      "hull_sides": 49,
-      "hull_rear": 38
+      "turret_front": 60,
+      "turret_sides": 50,
+      "turret_rear": 50,
+      "hull_front": 50,
+      "hull_sides": 40,
+      "hull_rear": 40
     },
     "shells": [
       {
@@ -20702,9 +20702,9 @@
     "nation": "european",
     "is_premium": false,
     "armor": {
-      "turret_front": 165,
-      "turret_sides": 70,
-      "turret_rear": 55,
+      "turret_front": 170,
+      "turret_sides": 130,
+      "turret_rear": 60,
       "hull_front": 90,
       "hull_sides": 70,
       "hull_rear": 45
@@ -20942,7 +20942,7 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 24,
+      "turret_front": 22,
       "turret_sides": 25,
       "turret_rear": 25,
       "hull_front": 25,
@@ -21086,9 +21086,9 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 164,
-      "turret_sides": 80,
-      "turret_rear": 40,
+      "turret_front": 174,
+      "turret_sides": 85,
+      "turret_rear": 45,
       "hull_front": 100,
       "hull_sides": 46,
       "hull_rear": 27
@@ -21182,12 +21182,12 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 160,
-      "turret_sides": 108,
-      "turret_rear": 65,
-      "hull_front": 128,
-      "hull_sides": 83,
-      "hull_rear": 47
+      "turret_front": 150,
+      "turret_sides": 91,
+      "turret_rear": 53,
+      "hull_front": 72,
+      "hull_sides": 60,
+      "hull_rear": 45
     },
     "shells": [
       {
@@ -21230,12 +21230,12 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 25,
-      "turret_sides": 19,
-      "turret_rear": 13,
-      "hull_front": 22,
-      "hull_sides": 19,
-      "hull_rear": 13
+      "turret_front": 38,
+      "turret_sides": 16,
+      "turret_rear": 16,
+      "hull_front": 25,
+      "hull_sides": 25,
+      "hull_rear": 19
     },
     "shells": [
       {
@@ -21326,9 +21326,9 @@
     "nation": "uk",
     "is_premium": false,
     "armor": {
-      "turret_front": 102,
+      "turret_front": 51,
       "turret_sides": 40,
-      "turret_rear": 40,
+      "turret_rear": 51,
       "hull_front": 89,
       "hull_sides": 51,
       "hull_rear": 38
@@ -21374,9 +21374,9 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 187,
-      "turret_sides": 92,
-      "turret_rear": 77,
+      "turret_front": 207,
+      "turret_sides": 106,
+      "turret_rear": 86,
       "hull_front": 154,
       "hull_sides": 89,
       "hull_rear": 62
@@ -22663,11 +22663,11 @@
     "nation": "usa",
     "is_premium": true,
     "armor": {
-      "turret_front": 18,
-      "turret_sides": 0,
-      "turret_rear": 0,
-      "hull_front": 254,
-      "hull_sides": 102,
+      "turret_front": 215,
+      "turret_sides": 127,
+      "turret_rear": 102,
+      "hull_front": 203,
+      "hull_sides": 75,
       "hull_rear": 51
     },
     "shells": [
@@ -23480,8 +23480,8 @@
     "is_premium": false,
     "armor": {
       "turret_front": 280,
-      "turret_sides": 135,
-      "turret_rear": 120,
+      "turret_sides": 150,
+      "turret_rear": 130,
       "hull_front": 270,
       "hull_sides": 120,
       "hull_rear": 100
@@ -23720,8 +23720,8 @@
     "is_premium": false,
     "armor": {
       "turret_front": 235,
-      "turret_sides": 100,
-      "turret_rear": 70,
+      "turret_sides": 110,
+      "turret_rear": 100,
       "hull_front": 140,
       "hull_sides": 90,
       "hull_rear": 70
@@ -24391,12 +24391,12 @@
     "nation": "germany",
     "is_premium": true,
     "armor": {
-      "turret_front": 160,
-      "turret_sides": 80,
-      "turret_rear": 60,
-      "hull_front": 135,
-      "hull_sides": 60,
-      "hull_rear": 45
+      "turret_front": 120,
+      "turret_sides": 65,
+      "turret_rear": 40,
+      "hull_front": 120,
+      "hull_sides": 30,
+      "hull_rear": 40
     },
     "shells": [
       {
@@ -26586,11 +26586,11 @@
     "is_premium": true,
     "armor": {
       "turret_front": 55,
-      "turret_sides": 55,
-      "turret_rear": 55,
-      "hull_front": 50,
-      "hull_sides": 50,
-      "hull_rear": 45
+      "turret_sides": 45,
+      "turret_rear": 45,
+      "hull_front": 55,
+      "hull_sides": 40,
+      "hull_rear": 40
     },
     "shells": [
       {
@@ -26962,8 +26962,8 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 185,
-      "turret_sides": 120,
+      "turret_front": 200,
+      "turret_sides": 130,
       "turret_rear": 50,
       "hull_front": 120,
       "hull_sides": 65,
@@ -27106,10 +27106,10 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 18,
-      "turret_sides": 16,
+      "turret_front": 25,
+      "turret_sides": 18,
       "turret_rear": 16,
-      "hull_front": 18,
+      "hull_front": 25,
       "hull_sides": 16,
       "hull_rear": 16
     },
@@ -27140,12 +27140,12 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 70,
-      "turret_sides": 49,
-      "turret_rear": 43,
-      "hull_front": 103,
-      "hull_sides": 49,
-      "hull_rear": 38
+      "turret_front": 90,
+      "turret_sides": 35,
+      "turret_rear": 30,
+      "hull_front": 90,
+      "hull_sides": 35,
+      "hull_rear": 30
     },
     "shells": [
       {
@@ -27669,11 +27669,11 @@
     "is_premium": false,
     "armor": {
       "turret_front": 80,
-      "turret_sides": 80,
-      "turret_rear": 80,
-      "hull_front": 80,
-      "hull_sides": 80,
-      "hull_rear": 80
+      "turret_sides": 70,
+      "turret_rear": 50,
+      "hull_front": 65,
+      "hull_sides": 30,
+      "hull_rear": 15
     },
     "shells": [
       {
@@ -28052,12 +28052,12 @@
     "nation": "other",
     "is_premium": false,
     "armor": {
-      "turret_front": 290,
-      "turret_sides": 290,
-      "turret_rear": 290,
-      "hull_front": 220,
-      "hull_sides": 220,
-      "hull_rear": 220
+      "turret_front": 200,
+      "turret_sides": 80,
+      "turret_rear": 80,
+      "hull_front": 75,
+      "hull_sides": 60,
+      "hull_rear": 45
     },
     "shells": [
       {
@@ -28628,12 +28628,12 @@
     "nation": "ussr",
     "is_premium": true,
     "armor": {
-      "turret_front": 200,
-      "turret_sides": 90,
+      "turret_front": 135,
+      "turret_sides": 100,
       "turret_rear": 90,
-      "hull_front": 160,
-      "hull_sides": 110,
-      "hull_rear": 100
+      "hull_front": 120,
+      "hull_sides": 90,
+      "hull_rear": 60
     },
     "shells": [
       {
@@ -29238,11 +29238,11 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 86,
-      "turret_sides": 71,
-      "turret_rear": 49,
-      "hull_front": 45,
-      "hull_sides": 45,
+      "turret_front": 120,
+      "turret_sides": 75,
+      "turret_rear": 52,
+      "hull_front": 85,
+      "hull_sides": 55,
       "hull_rear": 40
     },
     "shells": [
@@ -30095,9 +30095,9 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 180,
-      "turret_sides": 130,
-      "turret_rear": 130,
+      "turret_front": 250,
+      "turret_sides": 180,
+      "turret_rear": 150,
       "hull_front": 200,
       "hull_sides": 150,
       "hull_rear": 90
@@ -30143,9 +30143,9 @@
     "nation": "germany",
     "is_premium": false,
     "armor": {
-      "turret_front": 74,
-      "turret_sides": 56,
-      "turret_rear": 25,
+      "turret_front": 84,
+      "turret_sides": 65,
+      "turret_rear": 30,
       "hull_front": 40,
       "hull_sides": 25,
       "hull_rear": 18
@@ -30239,10 +30239,10 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 181,
-      "turret_sides": 157,
-      "turret_rear": 48,
-      "hull_front": 132,
+      "turret_front": 240,
+      "turret_sides": 180,
+      "turret_rear": 50,
+      "hull_front": 126,
       "hull_sides": 92,
       "hull_rear": 60
     },
@@ -30911,12 +30911,12 @@
     "nation": "germany",
     "is_premium": true,
     "armor": {
-      "turret_front": 89,
-      "turret_sides": 89,
-      "turret_rear": 70,
-      "hull_front": 178,
-      "hull_sides": 89,
-      "hull_rear": 89
+      "turret_front": 54,
+      "turret_sides": 32,
+      "turret_rear": 32,
+      "hull_front": 88,
+      "hull_sides": 42,
+      "hull_rear": 42
     },
     "shells": [
       {
@@ -32711,10 +32711,10 @@
     "nation": "usa",
     "is_premium": false,
     "armor": {
-      "turret_front": 18,
-      "turret_sides": 0,
+      "turret_front": 0,
+      "turret_sides": 102,
       "turret_rear": 0,
-      "hull_front": 254,
+      "hull_front": 203,
       "hull_sides": 102,
       "hull_rear": 51
     },
@@ -32951,11 +32951,11 @@
     "nation": "ussr",
     "is_premium": true,
     "armor": {
-      "turret_front": 95,
-      "turret_sides": 86,
-      "turret_rear": 86,
-      "hull_front": 155,
-      "hull_sides": 90,
+      "turret_front": 201,
+      "turret_sides": 129,
+      "turret_rear": 96,
+      "hull_front": 130,
+      "hull_sides": 120,
       "hull_rear": 60
     },
     "shells": [
@@ -32999,10 +32999,10 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 95,
-      "turret_sides": 86,
-      "turret_rear": 86,
-      "hull_front": 155,
+      "turret_front": 140,
+      "turret_sides": 90,
+      "turret_rear": 90,
+      "hull_front": 120,
       "hull_sides": 90,
       "hull_rear": 60
     },
@@ -33047,10 +33047,10 @@
     "nation": "ussr",
     "is_premium": true,
     "armor": {
-      "turret_front": 95,
-      "turret_sides": 86,
-      "turret_rear": 86,
-      "hull_front": 155,
+      "turret_front": 0,
+      "turret_sides": 0,
+      "turret_rear": 0,
+      "hull_front": 90,
       "hull_sides": 90,
       "hull_rear": 60
     },
@@ -33136,12 +33136,12 @@
     "nation": "ussr",
     "is_premium": true,
     "armor": {
-      "turret_front": 160,
-      "turret_sides": 108,
-      "turret_rear": 65,
-      "hull_front": 128,
-      "hull_sides": 83,
-      "hull_rear": 47
+      "turret_front": 180,
+      "turret_sides": 120,
+      "turret_rear": 75,
+      "hull_front": 120,
+      "hull_sides": 90,
+      "hull_rear": 45
     },
     "shells": [
       {
@@ -33280,12 +33280,12 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 143,
-      "turret_sides": 86,
-      "turret_rear": 76,
-      "hull_front": 132,
-      "hull_sides": 90,
-      "hull_rear": 60
+      "turret_front": 249,
+      "turret_sides": 172,
+      "turret_rear": 100,
+      "hull_front": 130,
+      "hull_sides": 95,
+      "hull_rear": 62
     },
     "shells": [
       {
@@ -33328,12 +33328,12 @@
     "nation": "ussr",
     "is_premium": false,
     "armor": {
-      "turret_front": 43,
-      "turret_sides": 38,
-      "turret_rear": 38,
-      "hull_front": 42,
-      "hull_sides": 26,
-      "hull_rear": 16
+      "turret_front": 15,
+      "turret_sides": 15,
+      "turret_rear": 13,
+      "hull_front": 20,
+      "hull_sides": 19,
+      "hull_rear": 13
     },
     "shells": [
       {
@@ -34178,12 +34178,12 @@
     "nation": "ussr",
     "is_premium": true,
     "armor": {
-      "turret_front": 95,
-      "turret_sides": 86,
-      "turret_rear": 86,
-      "hull_front": 155,
-      "hull_sides": 90,
-      "hull_rear": 60
+      "turret_front": 160,
+      "turret_sides": 150,
+      "turret_rear": 100,
+      "hull_front": 130,
+      "hull_sides": 110,
+      "hull_rear": 68
     },
     "shells": [
       {

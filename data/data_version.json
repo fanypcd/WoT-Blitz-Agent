@@ -1,8 +1,8 @@
 {
   "game_version": "release/11.20.0",
   "blitzkit_updated_at": "2026-09-20T09:40:46Z",
-  "tank_cache_updated_at": "2026-10-01T13:16:58Z",
-  "game_data_updated_at": "2026-10-01T13:16:58Z",
+  "tank_cache_updated_at": "2026-10-03T02:38:37Z",
+  "game_data_updated_at": "2026-10-03T02:38:37Z",
   "tank_count": 735,
-  "game_data_files": 728
+  "game_data_files": 735
 }

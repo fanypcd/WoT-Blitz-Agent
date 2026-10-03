@@ -184,7 +184,9 @@ impl ArmorModel {
     /// 从车辆 XML 文本解析装甲模型。
     pub fn parse_from_xml(text: &str) -> Option<Self> {
         let hull_armor = parse_section_armor(text, "<hull>")?;
-        // XML 用 <turrets0> 而非 <turret>
+        // 炮塔取 <turrets0> 的**顶级**条目（末个炮塔 × 其末个炮管），与 BlitzKit
+        // models.pb 的 turrets.last() × guns.last() 同档——两者混用会让装甲摘要与
+        // armor_model 互相矛盾（见 parse_turret_armor 注释）。
         let turret_armor = parse_turret_armor(text);
         let gun_armor = parse_gun_armor(text);
         let chassis_armor = parse_chassis_armor(text);
@@ -262,30 +264,54 @@ fn parse_section_armor(text: &str, section_tag: &str) -> Option<SectionArmor> {
     Some(SectionArmor { plates, primary, spaced })
 }
 
-/// 解析炮塔装甲（XML 用 `<turrets0>` 而非 `<turret>`，注意区分）。
+/// `<turrets0>` 段（不含闭合标签）。
+fn turrets_section_of(text: &str) -> Option<&str> {
+    let start = text.find("<turrets0>")?;
+    let end = text[start..].find("</turrets0>")?;
+    Some(&text[start..start + end])
+}
+
+/// 拆出**顶级炮塔**自身的字段段与它的 `<guns>` 段。
+///
+/// `<turrets0>` 下的炮塔条目**以模块名为标签**（如 `<T-34_mod_1942>`），不是固定的
+/// `<turret>`，所以不能按标签名定位；但每个炮塔的结构恒为
+/// `…<armor>…<primaryArmor>…<guns>…</guns>…`。因此「最后一个 `<guns>` 之前、上一个
+/// `</guns>` 之后」的区间就是顶级炮塔自己的字段，顶级炮塔内最后一个炮管即顶级主炮。
+///
+/// 顶级炮塔 = 游戏内"顶级配置"，也正是 BlitzKit models.pb 取的那一档
+/// （`turrets.last() × guns.last()`）。旧实现取**首个** `<armor>`，拿到的是初始炮塔，
+/// 导致六面装甲摘要系统性低报、且与 `armor_model`（顶级）自相矛盾。
+fn top_turret_span(turrets_section: &str) -> (&str, &str) {
+    let Some(guns_start) = turrets_section.rfind("<guns>") else {
+        return (turrets_section, "");
+    };
+    let guns_end = turrets_section[guns_start..]
+        .find("</guns>")
+        .map(|e| guns_start + e)
+        .unwrap_or(guns_start);
+    let own_start = turrets_section[..guns_start]
+        .rfind("</guns>")
+        .map(|p| p + "</guns>".len())
+        .unwrap_or(0);
+    (
+        &turrets_section[own_start..guns_start],
+        &turrets_section[guns_start..guns_end],
+    )
+}
+
+/// 解析**顶级炮塔**装甲（`<turrets0>` 的最后一个炮塔条目）。
 fn parse_turret_armor(text: &str) -> Option<SectionArmor> {
-    let turrets_start = text.find("<turrets0>")?;
-    let turrets_end = text[turrets_start..].find("</turrets0>")?;
-    let turrets_section = &text[turrets_start..turrets_start + turrets_end];
+    let (turret_only, _guns) = top_turret_span(turrets_section_of(text)?);
 
-    // 找 <guns> 段，把炮管装甲从炮塔装甲搜索范围中排除
-    let guns_start = turrets_section.find("<guns>");
-
-    let armor_start = turrets_section.find("<armor>")?;
-    if let Some(gs) = guns_start {
-        if armor_start >= gs {
-            return None;
-        }
-    }
-    let armor_end = turrets_section[armor_start..].find("</armor>")?;
-    let armor_block = &turrets_section[armor_start + 7..armor_start + armor_end];
+    // 段内已截到本炮塔的 <guns> 之前，故此处 <armor> 必为炮塔本体装甲（非炮管装甲）；
+    // 顶级炮塔无装甲块时返回 None，而不是回头抓上一个炮塔的板。
+    let armor_start = turret_only.rfind("<armor>")?;
+    let armor_end = turret_only[armor_start..].find("</armor>")?;
+    let armor_block = &turret_only[armor_start + 7..armor_start + armor_end];
 
     let (plates, spaced) = parse_armor_plates(armor_block);
 
-    // 炮塔的 primaryArmor 在 <guns> 之前，截取该段再解析
-    let search_end = guns_start.unwrap_or(turrets_section.len());
-    let turret_only = &turrets_section[..search_end];
-    let primary = if let Some(pa_start) = turret_only.find("<primaryArmor>") {
+    let primary = if let Some(pa_start) = turret_only.rfind("<primaryArmor>") {
         let pa_end = turret_only[pa_start..].find("</primaryArmor>")?;
         let pa_text = &turret_only[pa_start + 14..pa_start + pa_end];
         let parts: Vec<&str> = pa_text.split_whitespace().collect();
@@ -305,17 +331,12 @@ fn parse_turret_armor(text: &str) -> Option<SectionArmor> {
     Some(SectionArmor { plates, primary, spaced })
 }
 
-/// 解析炮管装甲（`<guns>` 段），同时把 `<gun>N</gun>` 的炮管装甲值当作板 "gun"。
+/// 解析**顶级主炮**装甲（顶级炮塔 `<guns>` 内最后一个炮管），
+/// 同时把 `<gun>N</gun>` 的炮管装甲值当作板 "gun"。
 fn parse_gun_armor(text: &str) -> Option<SectionArmor> {
-    let turrets_start = text.find("<turrets0>")?;
-    let turrets_end = text[turrets_start..].find("</turrets0>")?;
-    let turrets_section = &text[turrets_start..turrets_start + turrets_end];
+    let (_turret, guns_section) = top_turret_span(turrets_section_of(text)?);
 
-    let guns_start = turrets_section.find("<guns>")?;
-    let guns_end = turrets_section[guns_start..].find("</guns>")?;
-    let guns_section = &turrets_section[guns_start..guns_start + guns_end];
-
-    let armor_start = guns_section.find("<armor>")?;
+    let armor_start = guns_section.rfind("<armor>")?;
     let armor_end = guns_section[armor_start..].find("</armor>")?;
     let armor_block = &guns_section[armor_start + 7..armor_start + armor_end];
 
@@ -585,6 +606,72 @@ collision:
         assert!((tb.min[0] + 0.5).abs() < 1e-4);
         // averageThickness（hull 均厚 = turret_01: 引用行后的数值）解析不变
         assert!((c.average_thickness_hull.unwrap() - 55.0).abs() < 1e-4);
+    }
+
+    /// 多炮塔车辆：炮塔/主炮必须取**顶级**（`<turrets0>` 最后一个条目 × 其末个炮管），
+    /// 而不是首个。条目以模块名为标签（非固定 `<turret>`），故测试用实名标签。
+    /// 旧实现取首个 `<armor>`（初始炮塔），正是六面摘要低报与 armor_model 矛盾的根源。
+    #[test]
+    fn turret_and_gun_take_top_config_not_first() {
+        let xml = "\
+<root>
+<hull><armor><armor_1>50</armor_1></armor><primaryArmor>armor_1 armor_1 armor_1</primaryArmor></hull>
+<turrets0>
+<T_mod_A>
+<armor><armor_1>55</armor_1><armor_2>55</armor_2></armor>
+<primaryArmor>armor_1 armor_2 armor_2</primaryArmor>
+<guns>
+<_gun_a><armor><armor_1>20</armor_1><gun>10</gun></armor></_gun_a>
+</guns>
+</T_mod_A>
+<T_mod_B>
+<armor><armor_1>60</armor_1><armor_2>60</armor_2><armor_3>60</armor_3>\
+<armor_4>25<vehicleDamageFactor>0.0</vehicleDamageFactor></armor_4></armor>
+<primaryArmor>armor_1 armor_2 armor_3</primaryArmor>
+<guns>
+<_gun_a><armor><armor_1>20</armor_1><gun>10</gun></armor></_gun_a>
+<_gun_b><armor><armor_1>30</armor_1><gun>25</gun></armor></_gun_b>
+</guns>
+</T_mod_B>
+</turrets0>
+</root>";
+        let m = ArmorModel::parse_from_xml(xml).expect("parse");
+
+        // 炮塔：顶级条目 T_mod_B 的板（60），而非首个 T_mod_A 的 55
+        let turret = m.turret.expect("turret armor");
+        assert_eq!(turret.plates.get("1").copied(), Some(60.0), "应取顶级炮塔");
+        assert_eq!(turret.plates.get("3").copied(), Some(60.0));
+        assert_eq!(turret.primary.front, "armor_1");
+        assert_eq!(turret.primary.sides, "armor_2");
+        assert_eq!(turret.primary.rear, "armor_3", "primary 也必须来自顶级炮塔");
+        // spaced 同样来自顶级炮塔（零厚板保留）
+        assert!(turret.spaced.contains("4"), "spaced = {:?}", turret.spaced);
+
+        // 主炮：顶级炮塔的末个炮管
+        let gun = m.gun.expect("gun armor");
+        assert_eq!(gun.plates.get("gun").copied(), Some(25.0), "应取顶级主炮");
+        assert_eq!(gun.plates.get("1").copied(), Some(30.0));
+    }
+
+    /// 单炮塔车辆（`<turrets0>` 只含一个条目）行为不变。
+    #[test]
+    fn single_turret_unchanged() {
+        let xml = "\
+<root>
+<hull><armor><armor_1>50</armor_1></armor><primaryArmor>armor_1 armor_1 armor_1</primaryArmor></hull>
+<turrets0>
+<Only_mod>
+<armor><armor_1>40</armor_1></armor>
+<primaryArmor>armor_1 armor_1 armor_1</primaryArmor>
+<guns>
+<_g><armor><armor_1>5</armor_1><gun>7</gun></armor></_g>
+</guns>
+</Only_mod>
+</turrets0>
+</root>";
+        let m = ArmorModel::parse_from_xml(xml).expect("parse");
+        assert_eq!(m.turret.expect("turret").plates.get("1").copied(), Some(40.0));
+        assert_eq!(m.gun.expect("gun").plates.get("gun").copied(), Some(7.0));
     }
 }
 
