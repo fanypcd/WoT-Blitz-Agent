@@ -1,10 +1,10 @@
+use anyhow::{Context, Result};
 use std::fs::File;
 use std::path::Path;
-use anyhow::{Result, Context};
 use wotbreplay_parser::replay::Replay;
 
-use crate::models::battle::{BattleSummary, AuthorStats, PlayerSummary};
 use super::TankNames;
+use crate::models::battle::{AuthorStats, BattleSummary, PlayerSummary};
 
 // 回放解析（单场）：用 `wotbreplay-parser` 读取 `.wotbreplay` ZIP 包的
 // meta 与 battle_results，提取成项目内部的 BattleSummary（含 14 名玩家战绩）。
@@ -29,12 +29,17 @@ fn read_meta_json(raw: &[u8]) -> Option<serde_json::Value> {
 }
 
 fn meta_arena_bonus_type(meta: &serde_json::Value) -> Option<u32> {
-    meta.get("arenaBonusType").and_then(|x| x.as_u64()).map(|x| x as u32)
+    meta.get("arenaBonusType")
+        .and_then(|x| x.as_u64())
+        .map(|x| x as u32)
 }
 
 fn meta_player_vehicle_name(meta: &serde_json::Value) -> Option<String> {
-    meta.get("playerVehicleName").and_then(|x| x.as_str())
-        .map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+    meta.get("playerVehicleName")
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 /// 结算阵容完整性：花名册与战绩的账号集合完全一致；任一侧为空 → false。
@@ -48,8 +53,11 @@ pub fn roster_complete(roster_accounts: &[u32], result_accounts: &[u32]) -> bool
 }
 
 fn meta_map_key(meta: &serde_json::Value) -> Option<String> {
-    meta.get("mapName").and_then(|x| x.as_str())
-        .map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+    meta.get("mapName")
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 /// 从回放**原始字节**读取 meta.json 的 `arenaBonusType`（名人堂白名单 {1,7}、
@@ -78,7 +86,8 @@ pub fn apply_container_fields(summary: &mut BattleSummary, raw: &[u8]) {
 /// `killer_id` 是 result/entity ID：经同场 `result_id → account_id` 联表成击杀者账号。
 /// 联不上（结算缺 result_id、击杀者非战斗者）保持 None。
 fn resolve_killer_accounts(players: &mut [PlayerSummary]) {
-    let account_by_result: std::collections::HashMap<u32, u32> = players.iter()
+    let account_by_result: std::collections::HashMap<u32, u32> = players
+        .iter()
         .filter_map(|p| p.result_id.map(|r| (r, p.account_id)))
         .collect();
     for p in players.iter_mut() {
@@ -101,31 +110,37 @@ pub fn read_client_version(raw: &[u8]) -> Option<String> {
     if b.len() < 12 || u32::from_le_bytes([b[0], b[1], b[2], b[3]]) != 0x1234_5678 {
         return None;
     }
-    let mut o = 12usize;                       // magic(4) + u64(8)
-    let hlen = *b.get(o)? as usize;             // 长度前缀 hash
+    let mut o = 12usize; // magic(4) + u64(8)
+    let hlen = *b.get(o)? as usize; // 长度前缀 hash
     o += 1 + hlen;
-    let vlen = *b.get(o)? as usize;             // 长度前缀版本串
+    let vlen = *b.get(o)? as usize; // 长度前缀版本串
     o += 1;
     let v = b.get(o..o + vlen)?;
     let text = std::str::from_utf8(v).ok()?;
     // 版本串应可打印；否则视为布局不符（不猜）
-    text.chars().all(|c| c.is_ascii_graphic() || c == '.' || c == '_' || c == '-')
+    text.chars()
+        .all(|c| c.is_ascii_graphic() || c == '.' || c == '_' || c == '-')
         .then(|| text.to_string())
 }
 
 impl<'a> ReplayParser<'a> {
     /// 构造不带解析器的解析器（坦克名无法翻译，只能显示 id）。
     pub fn new() -> Self {
-        Self { tank_resolver: None }
+        Self {
+            tank_resolver: None,
+        }
     }
 
     pub fn with_resolver<R: TankNames>(resolver: &'a R) -> Self {
-        Self { tank_resolver: Some(resolver as &'a dyn TankNames) }
+        Self {
+            tank_resolver: Some(resolver as &'a dyn TankNames),
+        }
     }
 
     /// 解析单个回放文件，返回该场战斗的汇总结构。
     pub fn parse_file(&self, path: &Path) -> Result<BattleSummary> {
-        let file_name = path.file_name()
+        let file_name = path
+            .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("?")
             .to_string();
@@ -135,7 +150,8 @@ impl<'a> ReplayParser<'a> {
 
         let mut replay = Replay::open(File::open(path)?)
             .with_context(|| format!("Failed to open replay: {}", path.display()))?;
-        let mut summary = self.parse_replay(&mut replay, &file_name)
+        let mut summary = self
+            .parse_replay(&mut replay, &file_name)
             .with_context(|| format!("Failed to parse replay: {}", path.display()))?;
         if let Some(raw) = raw_bytes.as_deref() {
             apply_container_fields(&mut summary, raw);
@@ -152,7 +168,8 @@ impl<'a> ReplayParser<'a> {
     ) -> Result<BattleSummary> {
         // meta 可能缺失（.ok() 吞掉错误），battle_results 则必须存在
         let meta = replay.read_meta().ok();
-        let br = replay.read_battle_results()
+        let br = replay
+            .read_battle_results()
             .context("Failed to parse battle_results")?;
         // 结算补充字段（crate 未暴露的 #301 字段：死亡原因/寿命/点亮/毁灭协助/炮印/击杀者）
         // battle_results.dat（pickle 外层）：arenaUniqueId = 名人堂查重/去重键；
@@ -161,36 +178,50 @@ impl<'a> ReplayParser<'a> {
         let arena_id = br_dat.as_ref().map(|d| d.arena_unique_id.to_string());
         // 结算根字段（finishReason / 整秒时长）与 #201 段位：同一 buffer 再走两遍，
         // 结构小、开销可忽略
-        let root_fields = br_dat.as_ref()
+        let root_fields = br_dat
+            .as_ref()
             .map(|d| crate::wargaming::battle_results_extra::parse_root_fields(&d.buffer))
             .unwrap_or_default();
-        let ranks = br_dat.as_ref()
+        let ranks = br_dat
+            .as_ref()
             .map(|d| crate::wargaming::battle_results_extra::parse_rank_entries(&d.buffer))
             .unwrap_or_default();
-        let settlements: std::collections::HashMap<u32, crate::wargaming::battle_results_extra::PlayerSettlement> =
-            br_dat.as_ref()
-                .map(|dat| crate::wargaming::battle_results_extra::parse_settlement_extras(&dat.buffer))
-                .unwrap_or_default()
-                .into_iter()
-                .map(|s| (s.account_id, s))
-                .collect();
+        let settlements: std::collections::HashMap<
+            u32,
+            crate::wargaming::battle_results_extra::PlayerSettlement,
+        > = br_dat
+            .as_ref()
+            .map(|dat| crate::wargaming::battle_results_extra::parse_settlement_extras(&dat.buffer))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|s| (s.account_id, s))
+            .collect();
 
         let room_type = format!("{:?}", br.room_type());
         // 胜方取结算原始字段：crate 的 winner_team_number() 把「无胜方」（平局/未结算）映射成
         // TeamNumber::One，会把平局伪装成 1 队胜。缺省/非 1·2 一律 0 = 无胜方（与 playback_viewer 同口径）。
-        let winner_team = br.winner_team_number.as_ref()
-            .map(|w| if *w == 1 { 1u8 } else if *w == 2 { 2u8 } else { 0u8 })
+        let winner_team = br
+            .winner_team_number
+            .as_ref()
+            .map(|w| {
+                if *w == 1 {
+                    1u8
+                } else if *w == 2 {
+                    2u8
+                } else {
+                    0u8
+                }
+            })
             .unwrap_or(0);
 
         // 地图 ID 取低 16 位（高 16 位是模式标记）
         let map_id = br.mode_map_id & 0xFFFF;
-        let map_name = meta.as_ref()
+        let map_name = meta
+            .as_ref()
             .map(|m| format!("{:?}", m.map_id))
             .unwrap_or_else(|| format!("map_{}", map_id));
 
-        let battle_duration = meta.as_ref()
-            .map(|m| m.battle_duration_secs)
-            .unwrap_or(0.0);
+        let battle_duration = meta.as_ref().map(|m| m.battle_duration_secs).unwrap_or(0.0);
 
         let author = &br.author;
         let author_account_id = author.account_id;
@@ -200,7 +231,11 @@ impl<'a> ReplayParser<'a> {
         // 作者坦克 ID：优先取 meta，缺失时从玩家结果里找
         let mut author_tank_id = meta.as_ref().map(|m| m.tank_id as u32).unwrap_or(0);
         if author_tank_id == 0 {
-            if let Some(pr) = br.player_results.iter().find(|pr| pr.info.account_id == author_account_id) {
+            if let Some(pr) = br
+                .player_results
+                .iter()
+                .find(|pr| pr.info.account_id == author_account_id)
+            {
                 author_tank_id = pr.info.tank_id;
             }
         }
@@ -221,10 +256,12 @@ impl<'a> ReplayParser<'a> {
             is_auto_destroyed,
         };
 
-        let author_nickname = meta.as_ref()
+        let author_nickname = meta
+            .as_ref()
             .map(|m| m.player_name.clone())
             .unwrap_or_else(|| {
-                br.players.iter()
+                br.players
+                    .iter()
                     .find(|p| p.account_id == author_account_id)
                     .map(|p| p.info.nickname.clone())
                     .unwrap_or_default()
@@ -237,8 +274,7 @@ impl<'a> ReplayParser<'a> {
             let tank_name = self.resolve_tank_name(info.tank_id);
 
             // team/platoon/clan/nickname 同取自该账号在 players 里的记录，只查一次
-            let joined = br.players.iter()
-                .find(|p| p.account_id == info.account_id);
+            let joined = br.players.iter().find(|p| p.account_id == info.account_id);
 
             let player_team = joined
                 .map(|p| if p.info.team == 1 { 1u8 } else { 2u8 })
@@ -248,9 +284,7 @@ impl<'a> ReplayParser<'a> {
 
             let clan_tag = joined.and_then(|p| p.info.clan_tag.clone());
 
-            let nickname = joined
-                .map(|p| p.info.nickname.clone())
-                .unwrap_or_default();
+            let nickname = joined.map(|p| p.info.nickname.clone()).unwrap_or_default();
 
             let settlement = settlements.get(&info.account_id);
 
@@ -301,10 +335,14 @@ impl<'a> ReplayParser<'a> {
         let mut summary = BattleSummary::from_naive(br.timestamp_secs);
         summary.file_name = file_name.to_string();
         summary.room_type = room_type;
-        summary.arena_id = arena_id;   // arena_bonus_type 由 parse_file / 宿主入口后置填充
+        summary.arena_id = arena_id; // arena_bonus_type 由 parse_file / 宿主入口后置填充
         summary.finish_reason = root_fields.finish_reason;
         let roster_accounts: Vec<u32> = br.players.iter().map(|p| p.account_id).collect();
-        let result_accounts: Vec<u32> = br.player_results.iter().map(|pr| pr.info.account_id).collect();
+        let result_accounts: Vec<u32> = br
+            .player_results
+            .iter()
+            .map(|pr| pr.info.account_id)
+            .collect();
         summary.roster_complete = Some(roster_complete(&roster_accounts, &result_accounts));
         summary.result_duration_secs = root_fields.duration_secs;
         summary.map_id = map_id;
@@ -354,7 +392,6 @@ pub fn list_replays_in_dir(dir: &Path) -> Result<Vec<std::path::PathBuf>> {
     Ok(files)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -386,7 +423,8 @@ mod tests {
         let mut zip_bytes = Vec::new();
         {
             let mut w = zip::ZipWriter::new(std::io::Cursor::new(&mut zip_bytes));
-            w.start_file("meta.json", zip::write::FileOptions::default()).unwrap();
+            w.start_file("meta.json", zip::write::FileOptions::default())
+                .unwrap();
             std::io::Write::write_all(&mut w, &json).unwrap();
             w.finish().unwrap();
         }

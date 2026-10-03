@@ -232,7 +232,7 @@ impl PlayerSummary {
             victory_points_seized: None,
             hitpoints_left: None,
             rank: None,
-            
+
             damage_blocked: 0,
             damage_assisted_1: 0,
             damage_assisted_2: 0,

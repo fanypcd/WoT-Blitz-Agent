@@ -4,7 +4,7 @@
 //!   （type/穿深/伤害/模块伤害/爆炸半径），为提取链的每发射击回填
 //!   `ShotReplayData.shell_kind`（作者+他人统一），并经 `dump-shell-kinds`
 //!   导出为静态资产/WASM 注入表（客户端路径的弹种反解数据源）。
-//!   全局 id = (shells.xml 局部 id << 8) | 国家基数（nation_id×16+10，回放射击事件逆向分析 §5.1）；
+//!   全局 id = (shells.xml 局部 id << 8) | 国家基数（nation_id×16+10，《回放与射击逆向总集》第一篇 §5.1）；
 //!   tanks.pb field1 = (局部 id << 8) | (国家序×16+1)（items id 形式），取 field1>>8 得局部 id。
 //!   注意：shell_kind 存 tanks.pb 原始串（ap/ap_cr/heat/he/…含 premium 修饰）——
 //!   前端 srShellBadge 自行做标签映射与金弹判定、并按原始串与槽位弹种比对，勿在此归一化。
@@ -24,11 +24,13 @@ use crate::wargaming::blitzkit::load_tanks;
 /// BigWorld 国家序（scripts/common/items 收录顺序）：基数 = 序号×16+10。
 /// usa=0x2a、uk=0x5a、japan=0x6a 回放实测定标；other=0x7a、european=0x8a
 /// 由 0x1b 地形命中广播的 shell_global_id × 射手车型国家联表实证（XM551/J39 场）。
-const NATION_ORDER: [&str; 9] =
-    ["ussr", "germany", "usa", "china", "france", "uk", "japan", "other", "european"];
+const NATION_ORDER: [&str; 9] = [
+    "ussr", "germany", "usa", "china", "france", "uk", "japan", "other", "european",
+];
 
 fn nation_base(nation: &str) -> Option<u32> {
-    NATION_ORDER.iter()
+    NATION_ORDER
+        .iter()
         .position(|n| n.eq_ignore_ascii_case(nation))
         .map(|i| (i * 16 + 10) as u32)
 }
@@ -55,11 +57,15 @@ impl ShellKindTable {
     pub fn from_tanks_pb() -> Self {
         let mut by_global: HashMap<u32, ShellTableEntry> = HashMap::new();
         for tank in load_tanks().values() {
-            let Some(base) = nation_base(&tank.nation) else { continue };
+            let Some(base) = nation_base(&tank.nation) else {
+                continue;
+            };
             for turret in &tank.turrets {
                 for gun in &turret.guns {
                     for s in &gun.shells {
-                        if s.id == 0 || s.shell_type.is_empty() { continue; }
+                        if s.id == 0 || s.shell_type.is_empty() {
+                            continue;
+                        }
                         // field1 = (局部 id << 8) | (国家序×16+1)：剥掉低字节得 shells.xml 局部 id，
                         // 再按回放基数（国家序×16+10）组全局 id 与回放 shell_id 同域
                         let gid = ((s.id >> 8) << 8) | base;
@@ -80,7 +86,9 @@ impl ShellKindTable {
     /// 回填每发射击的 shell_kind；已有非空值或 shell_id=0（未知弹种）保持原样。
     pub fn annotate(&self, shots: &mut [ShotReplayData]) {
         for s in shots.iter_mut() {
-            if !s.shell_kind.is_empty() || s.shell_id == 0 { continue; }
+            if !s.shell_kind.is_empty() || s.shell_id == 0 {
+                continue;
+            }
             if let Some(e) = self.by_global.get(&s.shell_id) {
                 s.shell_kind = e.shell_type.clone();
             }
@@ -90,7 +98,9 @@ impl ShellKindTable {
     /// 单点查询工具（诊断/探针用；主管线走 annotate）。
     #[allow(dead_code)]
     pub fn kind_of(&self, global_id: u32) -> Option<&str> {
-        self.by_global.get(&global_id).map(|e| e.shell_type.as_str())
+        self.by_global
+            .get(&global_id)
+            .map(|e| e.shell_type.as_str())
     }
 
     /// 导出为 JSON 对象（{全局弹种 id: {type, penetration, damage, module_damage,
@@ -98,7 +108,8 @@ impl ShellKindTable {
     /// 离线生成入口（`wotb-agent dump-shell-kinds`）——浏览器侧无 tanks.pb，射击复现
     /// 弹种反解（kind + 穿深/伤害）消费该表（与 annotate 同源同域）。
     pub fn to_json(&self) -> String {
-        let mut entries: Vec<(u32, &ShellTableEntry)> = self.by_global.iter().map(|(k, v)| (*k, v)).collect();
+        let mut entries: Vec<(u32, &ShellTableEntry)> =
+            self.by_global.iter().map(|(k, v)| (*k, v)).collect();
         entries.sort_by_key(|(k, _)| *k);
         let body: Vec<String> = entries
             .iter()
@@ -113,7 +124,11 @@ impl ShellKindTable {
 
 /// f64 → 紧凑 JSON 数字（整数不带小数点，与 BlitzKit 显示口径一致）
 fn fmt_f64(v: f64) -> String {
-    if (v - v.round()).abs() < f64::EPSILON { format!("{}", v.round() as i64) } else { format!("{}", v) }
+    if (v - v.round()).abs() < f64::EPSILON {
+        format!("{}", v.round() as i64)
+    } else {
+        format!("{}", v)
+    }
 }
 
 /// tanks.pb 局部弹种 id → 全局 id：`(局部 id << 8) | 国家基数`（nation_id×16+10）。
@@ -153,15 +168,22 @@ pub struct PlayerLoadout {
 /// type=5 数据包（eid=[0..4]、昵称长度前缀串@57、开局血量见 [`initial_hp_from_type5`]）
 /// 联表 battle_results（昵称→队伍/tank_id）与 tanks.pb（基准 HP/弹种表）。
 /// 未联上花名册的实体（观察者等）跳过；花名册玩家缺 type=5 时按缺数据输出。
-pub fn collect_player_loadouts(packets: &[(u32, f32, &[u8])], br: &BattleResults) -> Vec<PlayerLoadout> {
+pub fn collect_player_loadouts(
+    packets: &[(u32, f32, &[u8])],
+    br: &BattleResults,
+) -> Vec<PlayerLoadout> {
     // type=5 开局实体：eid → (昵称, 初始 HP)；昵称解码走 replay-core SSOT（UTF-8 全域）
     let mut entities: HashMap<u32, (String, u32)> = HashMap::new();
     for (pkt_type, _, p) in packets {
-        if *pkt_type != 5 || p.len() < 60 { continue; }
+        if *pkt_type != 5 || p.len() < 60 {
+            continue;
+        }
         let eid = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
         let hp = initial_hp_from_type5(p);
         let entry = entities.entry(eid).or_insert((String::new(), hp));
-        if entry.1 == 0 { entry.1 = hp; }
+        if entry.1 == 0 {
+            entry.1 = hp;
+        }
         if entry.0.is_empty() {
             if let Some((_, s)) = wotb_replay_core::replay::combat::decode_type5_nickname(p) {
                 entry.0 = s.to_string();
@@ -170,50 +192,73 @@ pub fn collect_player_loadouts(packets: &[(u32, f32, &[u8])], br: &BattleResults
     }
 
     // 花名册：昵称 → (队伍, account_id)；account_id → tank_id
-    let nick_team: HashMap<&str, (i32, u32)> = br.players.iter()
+    let nick_team: HashMap<&str, (i32, u32)> = br
+        .players
+        .iter()
         .map(|p| (p.info.nickname.as_str(), (p.info.team, p.account_id)))
         .collect();
-    let tank_of: HashMap<u32, u32> = br.player_results.iter()
+    let tank_of: HashMap<u32, u32> = br
+        .player_results
+        .iter()
         .map(|pr| (pr.info.account_id, pr.info.tank_id))
         .collect();
 
     let tanks = load_tanks();
     let mut out: Vec<PlayerLoadout> = Vec::new();
     for (eid, (nickname, hp_initial)) in entities {
-        let Some(&(team, account_id)) = nick_team.get(nickname.as_str()) else { continue };
-        let Some(tank_id) = tank_of.get(&account_id).copied() else { continue };
+        let Some(&(team, account_id)) = nick_team.get(nickname.as_str()) else {
+            continue;
+        };
+        let Some(tank_id) = tank_of.get(&account_id).copied() else {
+            continue;
+        };
         let tank = tanks.get(&tank_id);
-        let hp_base = tank.map(|t| t.hp + t.turrets.last().map(|tr| tr.health).unwrap_or(0)).unwrap_or(0);
+        let hp_base = tank
+            .map(|t| t.hp + t.turrets.last().map(|tr| tr.health).unwrap_or(0))
+            .unwrap_or(0);
         let hp_bonus_pct = if hp_base > 0 && hp_initial > hp_base {
             Some((hp_initial as f64 / hp_base as f64 - 1.0) * 100.0)
-        } else { None };
+        } else {
+            None
+        };
         let durability_equipment = match hp_bonus_pct {
             Some(pct) if (pct - 12.5).abs() < 0.5 => "改进耐久".to_string(),
             Some(pct) if pct >= 1.0 => "耐久加成".to_string(),
             _ => String::new(),
         };
-        let shells = tank.map(|t| {
-            let base = nation_base(&t.nation);
-            let mut v: Vec<ShellEntry> = Vec::new();
-            if let Some(top) = t.turrets.last() {
-                if let Some(gun) = top.guns.last() {
-                    for s in &gun.shells {
-                        if s.id == 0 { continue; }
-                        v.push(ShellEntry {
-                            global_id: ((s.id >> 8) << 8) | base.unwrap_or(0),
-                            kind: s.shell_type.clone(),
-                            damage: s.damage as u32,
-                            penetration: s.penetration as u32,
-                        });
+        let shells = tank
+            .map(|t| {
+                let base = nation_base(&t.nation);
+                let mut v: Vec<ShellEntry> = Vec::new();
+                if let Some(top) = t.turrets.last() {
+                    if let Some(gun) = top.guns.last() {
+                        for s in &gun.shells {
+                            if s.id == 0 {
+                                continue;
+                            }
+                            v.push(ShellEntry {
+                                global_id: ((s.id >> 8) << 8) | base.unwrap_or(0),
+                                kind: s.shell_type.clone(),
+                                damage: s.damage as u32,
+                                penetration: s.penetration as u32,
+                            });
+                        }
                     }
                 }
-            }
-            v
-        }).unwrap_or_default();
+                v
+            })
+            .unwrap_or_default();
         out.push(PlayerLoadout {
             team,
             nickname,
-            tank_name: tank.map(|t| if t.name.is_empty() { t.dev_name.clone() } else { t.name.clone() })
+            tank_name: tank
+                .map(|t| {
+                    if t.name.is_empty() {
+                        t.dev_name.clone()
+                    } else {
+                        t.name.clone()
+                    }
+                })
                 .unwrap_or_else(|| format!("tank_{}", tank_id)),
             entity_id: eid,
             hp_base,
@@ -230,22 +275,30 @@ pub fn collect_player_loadouts(packets: &[(u32, f32, &[u8])], br: &BattleResults
 /// type=5 开局血量：尾部属性表 id13 优先（重广播包恒为开局值），旧客户端无尾部表
 /// 回退偏移 51 的 u16 满血锚点（该偏移在重广播包为当前血量，首包才等于开局值）。
 fn initial_hp_from_type5(p: &[u8]) -> u32 {
-    if let Some(hp) = tail_table_hp(p) { return hp as u32; }
-    if p.len() >= 53 { return u16::from_le_bytes([p[51], p[52]]) as u32; }
+    if let Some(hp) = tail_table_hp(p) {
+        return hp as u32;
+    }
+    if p.len() >= 53 {
+        return u16::from_le_bytes([p[51], p[52]]) as u32;
+    }
     0
 }
 
 /// type=5 尾部属性表（>100B 车辆实体包；按 (属性 id u8)(定长值) 序列，值长随 id 定）。
 /// 血量 = id13；扫描尾部 `0c 00 0d ?? ?? 0e` 锚（id12=1B、id13=u16、id14=u16），
-/// 值域 100..10000 防误配。五回放 30+ 实体逐包验证；id11 = 匿名乱码名（长度前缀串）。
+/// 值域 100..10000 防误配；id11 = 匿名乱码名（长度前缀串）。
 fn tail_table_hp(p: &[u8]) -> Option<u16> {
-    if p.len() < 100 { return None; }
+    if p.len() < 100 {
+        return None;
+    }
     let n = p.len();
     let mut i = n.saturating_sub(48);
     while i + 6 <= n {
         if p[i] == 0x0c && p[i + 1] == 0x00 && p[i + 2] == 0x0d && p[i + 5] == 0x0e {
             let hp = u16::from_le_bytes([p[i + 3], p[i + 4]]);
-            if (100..=10000).contains(&hp) { return Some(hp); }
+            if (100..=10000).contains(&hp) {
+                return Some(hp);
+            }
         }
         i += 1;
     }
@@ -283,15 +336,18 @@ mod tests {
     fn tail_table_hp_scan() {
         // 合成尾部表：…[0b 01 'g'][0c 00][0d e8 0a][0e 00 00][0f ×8][10 00][11 00]
         let mut p = vec![0u8; 100];
-        let mut tail: Vec<u8> = vec![0x0b, 0x01, b'g', 0x0c, 0x00, 0x0d, 0xe8, 0x0a, 0x0e, 0x00, 0x00];
-        tail.extend_from_slice(&[0u8; 8]);   // id15
+        let mut tail: Vec<u8> = vec![
+            0x0b, 0x01, b'g', 0x0c, 0x00, 0x0d, 0xe8, 0x0a, 0x0e, 0x00, 0x00,
+        ];
+        tail.extend_from_slice(&[0u8; 8]); // id15
         tail.extend_from_slice(&[0x10, 0x00, 0x11, 0x00]);
         p.extend_from_slice(&tail);
         assert_eq!(initial_hp_from_type5(&p), 2792);
         // 血量超值域 → 不认表，回退偏移 51
         let mut bad = p.clone();
         let off = bad.len() - tail.len() + 6;
-        bad[off] = 0xff; bad[off + 1] = 0xff;
+        bad[off] = 0xff;
+        bad[off + 1] = 0xff;
         assert_eq!(initial_hp_from_type5(&bad), 0);
         // 短包（旧格式无尾部表）→ 偏移 51
         let legacy = [0u8; 53];

@@ -3,7 +3,6 @@ use std::collections::HashMap;
 
 use crate::models::battle::BattleSummary;
 
-
 /// 多场回放聚合后的战绩报告（`scan` 命令、Agent 的 `scan_replays` 工具、Web 的 `/api/scan` 共用）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AggregatedReport {
@@ -36,7 +35,7 @@ pub struct AggregatedReport {
     /// 自动击毁（溺水/坠桥等）的场数
     pub auto_destroyed_count: usize,
 
-    /// 排位评级摘要（首/末场 mm_rating；逐场走势序列随 Rating Trend 图一并移除）
+    /// 排位评级摘要（首/末场 mm_rating）
     pub rating_start: Option<f32>,
     pub rating_end: Option<f32>,
     pub rating_delta: Option<f32>,
@@ -92,7 +91,10 @@ impl AggregatedReport {
         let total_pen: u64 = battles.iter().map(|b| b.author.n_penetrations as u64).sum();
         let total_xp: u64 = battles.iter().map(|b| b.author.total_xp as u64).sum();
         let total_duration: f64 = battles.iter().map(|b| b.battle_duration_secs).sum();
-        let auto_destroyed = battles.iter().filter(|b| b.author.is_auto_destroyed).count();
+        let auto_destroyed = battles
+            .iter()
+            .filter(|b| b.author.is_auto_destroyed)
+            .count();
 
         // 击毁/格挡/助攻与评级不在 author 里，需按作者账号 ID 从该场玩家列表找到
         // 作者记录；每场只查找一次，同一遍循环里完成累计、评级记录与坦克/地图分组
@@ -106,12 +108,15 @@ impl AggregatedReport {
         let mut map_map: HashMap<u32, MapStat> = HashMap::new();
         let mut map_damage: HashMap<u32, f64> = HashMap::new();
         for b in &battles {
-            let author_rec = b.players.iter().find(|p| p.account_id == b.author_account_id);
+            let author_rec = b
+                .players
+                .iter()
+                .find(|p| p.account_id == b.author_account_id);
             if let Some(p) = author_rec {
                 total_frags += p.n_enemies_destroyed as u64;
                 total_block += p.damage_blocked as u64;
                 total_assist += (p.damage_assisted_1 + p.damage_assisted_2) as u64;
-                // —— 排位评级 —— 首场记起始、逐场覆盖末值（与原序列 first/last 同语义）
+                // —— 排位评级 —— 首场记起始、逐场覆盖末值
                 if !rating_seen_first {
                     rating_start = p.mm_rating;
                     rating_seen_first = true;
@@ -119,8 +124,9 @@ impl AggregatedReport {
                 rating_end = p.mm_rating;
             }
 
-            let entry = tank_map.entry(b.author_tank_id).or_insert_with(|| {
-                TankUsage {
+            let entry = tank_map
+                .entry(b.author_tank_id)
+                .or_insert_with(|| TankUsage {
                     tank_id: b.author_tank_id,
                     tank_name: b.author_tank_name.clone(),
                     battles: 0,
@@ -130,8 +136,7 @@ impl AggregatedReport {
                     avg_damage: 0.0,
                     total_frags: 0,
                     avg_frags: 0.0,
-                }
-            });
+                });
             entry.battles += 1;
             if b.author_won {
                 entry.wins += 1;
@@ -141,15 +146,13 @@ impl AggregatedReport {
                 entry.total_frags += p.n_enemies_destroyed as u64;
             }
 
-            let mentry = map_map.entry(b.map_id).or_insert_with(|| {
-                MapStat {
-                    map_id: b.map_id,
-                    map_name: b.map_name.clone(),
-                    battles: 0,
-                    wins: 0,
-                    win_rate: 0.0,
-                    avg_damage: 0.0,
-                }
+            let mentry = map_map.entry(b.map_id).or_insert_with(|| MapStat {
+                map_id: b.map_id,
+                map_name: b.map_name.clone(),
+                battles: 0,
+                wins: 0,
+                win_rate: 0.0,
+                avg_damage: 0.0,
             });
             mentry.battles += 1;
             if b.author_won {
@@ -257,8 +260,14 @@ impl AggregatedReport {
         println!("  Win rate:        {:.1}%", self.win_rate);
         println!("  Avg damage:      {:.0}", self.avg_damage);
         println!("  Avg frags:       {:.2}", self.avg_frags);
-        println!("  Hit rate:        {:.1}%  ({}/{})", self.hit_rate, self.total_hits, self.total_shots);
-        println!("  Pen rate:        {:.1}%  ({})", self.penetration_rate, self.total_penetrations);
+        println!(
+            "  Hit rate:        {:.1}%  ({}/{})",
+            self.hit_rate, self.total_hits, self.total_shots
+        );
+        println!(
+            "  Pen rate:        {:.1}%  ({})",
+            self.penetration_rate, self.total_penetrations
+        );
         println!("  Avg block:       {:.0}", self.avg_damage_blocked);
         println!("  Avg assisted:    {:.0}", self.avg_assisted);
         println!("  Avg XP:          {:.0}", self.avg_xp);
@@ -275,19 +284,34 @@ impl AggregatedReport {
             let display_start = self.rating_start.map(|r| (3000.0 + r * 10.0) as u32);
             let display_end = self.rating_end.map(|r| (3000.0 + r * 10.0) as u32);
             if let (Some(s), Some(e)) = (display_start, display_end) {
-                println!("  Display rating:   {} -> {} ({:+})", s, e, e as i64 - s as i64);
+                println!(
+                    "  Display rating:   {} -> {} ({:+})",
+                    s,
+                    e,
+                    e as i64 - s as i64
+                );
             }
             println!();
         }
 
         if !self.tank_usage.is_empty() {
             println!("--- Tank Usage (top {}) ---", self.tank_usage.len().min(10));
-            println!("  {:<30} {:>4} {:>5} {:>6} {:>8} {:>8} {:>6}",
-                "Tank", "Bat", "WR%", "Frags", "TotalDmg", "AvgDmg", "AvgFr");
+            println!(
+                "  {:<30} {:>4} {:>5} {:>6} {:>8} {:>8} {:>6}",
+                "Tank", "Bat", "WR%", "Frags", "TotalDmg", "AvgDmg", "AvgFr"
+            );
             println!("  {}", "-".repeat(75));
             for t in self.tank_usage.iter().take(10) {
-                println!("  {:<30} {:>4} {:>4.0}% {:>6} {:>8} {:>8.0} {:>6.2}",
-                    t.tank_name, t.battles, t.win_rate, t.total_frags, t.total_damage, t.avg_damage, t.avg_frags);
+                println!(
+                    "  {:<30} {:>4} {:>4.0}% {:>6} {:>8} {:>8.0} {:>6.2}",
+                    t.tank_name,
+                    t.battles,
+                    t.win_rate,
+                    t.total_frags,
+                    t.total_damage,
+                    t.avg_damage,
+                    t.avg_frags
+                );
             }
             println!();
         }
@@ -298,7 +322,10 @@ impl AggregatedReport {
             println!("  {:<25} {:>4} {:>5} {:>6}", "Map", "Bat", "WR%", "AvgDmg");
             println!("  {}", "-".repeat(50));
             for m in self.map_stats.iter() {
-                println!("  {:<25} {:>4} {:>4.0}% {:>8.0}", m.map_name, m.battles, m.win_rate, m.avg_damage);
+                println!(
+                    "  {:<25} {:>4} {:>4.0}% {:>8.0}",
+                    m.map_name, m.battles, m.win_rate, m.avg_damage
+                );
             }
             println!();
         }

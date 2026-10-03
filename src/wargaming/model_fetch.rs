@@ -61,13 +61,19 @@ impl DlProgress {
 
 /// 全量预热全部坦克模型。返回 `(downloaded, cached, failed, downloaded_bytes)`。
 /// 幂等可重跑；已有同类任务在跑时返回错误（`running` 防重入）。
-pub async fn fetch_all_models(force: bool, concurrency: usize) -> Result<(usize, usize, usize, u64)> {
+pub async fn fetch_all_models(
+    force: bool,
+    concurrency: usize,
+) -> Result<(usize, usize, usize, u64)> {
     let ids = crate::wargaming::blitzkit::load_model_ids();
     anyhow::ensure!(
         !ids.is_empty(),
         "models.pb 为空或缺失 —— 先运行 `fetch-blitzkit` / `update-data` 生成数据源"
     );
-    anyhow::ensure!(!PROGRESS.running.swap(true, Ordering::SeqCst), "已有模型下载任务在运行");
+    anyhow::ensure!(
+        !PROGRESS.running.swap(true, Ordering::SeqCst),
+        "已有模型下载任务在运行"
+    );
     // 提前返回的路径都要复位 running
     let out = fetch_all_models_inner(force, concurrency, ids).await;
     PROGRESS.running.store(false, Ordering::SeqCst);
@@ -97,8 +103,13 @@ async fn fetch_all_models_inner(
     PROGRESS.bytes.store(0, Ordering::Relaxed);
 
     println!("=== Fetch Models (full offline preload) ===");
-    println!("  Tanks: {}  Files: {}  Concurrency: {}  Force: {}",
-        ids.len(), total, concurrency, force);
+    println!(
+        "  Tanks: {}  Files: {}  Concurrency: {}  Force: {}",
+        ids.len(),
+        total,
+        concurrency,
+        force
+    );
 
     let downloaded = Arc::new(AtomicUsize::new(0));
     let cached = Arc::new(AtomicUsize::new(0));
@@ -110,10 +121,12 @@ async fn fetch_all_models_inner(
 
     let mut set = tokio::task::JoinSet::new();
     for (tank_id, filename) in jobs {
-        let permit = sem.clone().acquire_owned().await
+        let permit = sem
+            .clone()
+            .acquire_owned()
+            .await
             .context("download semaphore closed")?;
-        let (downloaded, cached, failed) =
-            (downloaded.clone(), cached.clone(), failed.clone());
+        let (downloaded, cached, failed) = (downloaded.clone(), cached.clone(), failed.clone());
         let (total_bytes, errors) = (total_bytes.clone(), errors.clone());
         set.spawn(async move {
             let _permit = permit;
@@ -145,11 +158,14 @@ async fn fetch_all_models_inner(
             // done 计数即全局进度（Web /api/models/status 直接轮询 PROGRESS）
             let d = done.fetch_add(1, Ordering::Relaxed) + 1;
             if d.is_multiple_of(PROGRESS_STEP) || d == total {
-                eprintln!("  [{}/{}] downloaded={} cached={} failed={}",
-                    d, total,
+                eprintln!(
+                    "  [{}/{}] downloaded={} cached={} failed={}",
+                    d,
+                    total,
                     downloaded.load(Ordering::Relaxed),
                     cached.load(Ordering::Relaxed),
-                    failed.load(Ordering::Relaxed));
+                    failed.load(Ordering::Relaxed)
+                );
             }
         });
     }
@@ -161,7 +177,10 @@ async fn fetch_all_models_inner(
         failed.load(Ordering::Relaxed),
     );
     let mb = total_bytes.load(Ordering::Relaxed) as f64 / 1024.0 / 1024.0;
-    println!("  Done: downloaded={} ({:.0} MB) cached={} failed={}", d, mb, c, f);
+    println!(
+        "  Done: downloaded={} ({:.0} MB) cached={} failed={}",
+        d, mb, c, f
+    );
     let errs = errors.lock().unwrap();
     if !errs.is_empty() {
         println!("  Failed items:");
@@ -179,6 +198,9 @@ mod tests {
     #[test]
     fn model_ids_sorted_and_unique() {
         let ids = crate::wargaming::blitzkit::load_model_ids();
-        assert!(ids.windows(2).all(|w| w[0] < w[1]), "model ids must be strictly ascending");
+        assert!(
+            ids.windows(2).all(|w| w[0] < w[1]),
+            "model ids must be strictly ascending"
+        );
     }
 }

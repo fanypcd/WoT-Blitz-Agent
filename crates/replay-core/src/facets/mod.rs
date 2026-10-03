@@ -9,8 +9,7 @@
 //! - **智能体评审切面** = 花名册 + 归一化事件流 + 结算锚点（→ Java → 大语言模型）。
 //!
 //! 名人堂（HoF）不是 Agent 公开能力：它是消费方（WotBTools）产品域，由消费方
-//! 从结果能力自行投影——Agent 不感知消费方的下游产品（此前 `HofFacet` 已删除，
-//! giant envelope `{playback,ai,hof}` 已拆除，breaking，契约 v2）。
+//! 从结果能力自行投影——Agent 不感知消费方的下游产品（契约 v2）。
 //!
 //! 原则：unknown ≠ 0 ≠ false——缺失一律 null/Option；分发机制（npm 包/构建产物/
 //! 传输接口）不在本层定义，serde JSON 即契约本体。CLI/写盘 IO 胶水留在 wotb-agent
@@ -18,8 +17,8 @@
 
 pub mod ai_review;
 
-pub use ai_review::AiReviewFacet;
 pub use crate::replay::playback::PlaybackData as PlaybackFacet;
+pub use ai_review::AiReviewFacet;
 
 use std::collections::HashMap;
 
@@ -49,8 +48,13 @@ impl CrossCheck {
 
 /// 作者反馈计数 × 结算互验：击杀（code 3）与点亮（code 2）。
 /// count/value 哪个是"次数"口径未逐项复核——两者任一对上即判 OK。
-pub fn cross_check_author_counters(model: &ReplayModel, summary: &BattleSummary) -> Vec<CrossCheck> {
-    let author = summary.players.iter()
+pub fn cross_check_author_counters(
+    model: &ReplayModel,
+    summary: &BattleSummary,
+) -> Vec<CrossCheck> {
+    let author = summary
+        .players
+        .iter()
         .find(|p| p.account_id == summary.author_account_id);
     let mut max_by_code: HashMap<u8, (u32, u32)> = Default::default();
     for e in &model.timeline.counters {
@@ -60,13 +64,24 @@ pub fn cross_check_author_counters(model: &ReplayModel, summary: &BattleSummary)
     }
     let mk = |label: &'static str, code: u8, settlement: Option<u32>| {
         let (count, value) = max_by_code.get(&code).copied().unwrap_or((0, 0));
-        CrossCheck { label, settlement, counter_count: count, counter_value: value }
+        CrossCheck {
+            label,
+            settlement,
+            counter_count: count,
+            counter_value: value,
+        }
     };
     vec![
-        mk("击杀 code=KILL vs n_enemies_destroyed", feedback_code::KILL,
-            author.map(|a| a.n_enemies_destroyed)),
-        mk("点亮 code=SPOTTED vs n_enemies_spotted", feedback_code::SPOTTED,
-            author.and_then(|a| a.n_enemies_spotted)),
+        mk(
+            "击杀 code=KILL vs n_enemies_destroyed",
+            feedback_code::KILL,
+            author.map(|a| a.n_enemies_destroyed),
+        ),
+        mk(
+            "点亮 code=SPOTTED vs n_enemies_spotted",
+            feedback_code::SPOTTED,
+            author.and_then(|a| a.n_enemies_spotted),
+        ),
     ]
 }
 
@@ -78,9 +93,17 @@ mod tests {
     #[test]
     fn cross_check_verdicts() {
         let mut model = ReplayModel::default();
-        model.timeline.counters.push(crate::replay::combat::FeedbackCounterEvent {
-            clock: 1.0, avatar_eid: 1, event_code: feedback_code::KILL, seq: 0, count: 2, value: 2,
-        });
+        model
+            .timeline
+            .counters
+            .push(crate::replay::combat::FeedbackCounterEvent {
+                clock: 1.0,
+                avatar_eid: 1,
+                event_code: feedback_code::KILL,
+                seq: 0,
+                count: 2,
+                value: 2,
+            });
         let mut summary = BattleSummary::from_naive(0);
         let mut p = crate::models::battle::PlayerSummary::for_test(7, "a");
         p.n_enemies_destroyed = 2;

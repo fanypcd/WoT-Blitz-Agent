@@ -76,8 +76,10 @@ impl CombatTimeline {
         let entity_names = extract_entity_names(packets);
         let mut events = Vec::new();
         // 血量缓存以 type=5 满血锚点预置：否则受害者首个 prop3 事件的降幅恒为 0（首刀不进掉血表）
-        let mut entity_health: HashMap<u32, u16> = collect_initial_hp(packets).into_iter()
-            .map(|(k, (_, hp))| (k, hp)).collect();
+        let mut entity_health: HashMap<u32, u16> = collect_initial_hp(packets)
+            .into_iter()
+            .map(|(k, (_, hp))| (k, hp))
+            .collect();
         let mut death_entities = std::collections::HashSet::new();
 
         for (pkt_type, clock, payload) in packets {
@@ -87,7 +89,10 @@ impl CombatTimeline {
 
             let entity_id = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
             let sub_type = u32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);
-            let entity_name = entity_names.get(&entity_id).cloned().unwrap_or_else(|| format!("0x{:08x}", entity_id));
+            let entity_name = entity_names
+                .get(&entity_id)
+                .cloned()
+                .unwrap_or_else(|| format!("0x{:08x}", entity_id));
 
             let event = match sub_type {
                 1 => {
@@ -113,7 +118,10 @@ impl CombatTimeline {
                         timestamp: *clock,
                         entity_id,
                         entity_name,
-                        event_type: CombatEventType::HealthUpdate { health, damage_taken },
+                        event_type: CombatEventType::HealthUpdate {
+                            health,
+                            damage_taken,
+                        },
                         value: damage_taken as u32,
                     }
                 }
@@ -127,7 +135,9 @@ impl CombatTimeline {
                         timestamp: *clock,
                         entity_id,
                         entity_name,
-                        event_type: CombatEventType::DamageCounter { cumulative_damage: cum_dmg },
+                        event_type: CombatEventType::DamageCounter {
+                            cumulative_damage: cum_dmg,
+                        },
                         value: cum_dmg,
                     }
                 }
@@ -184,7 +194,8 @@ impl CombatTimeline {
             events.push(event);
         }
 
-        let total_damage_tracked = events.iter()
+        let total_damage_tracked = events
+            .iter()
             .filter_map(|e| match &e.event_type {
                 CombatEventType::DamageCounter { cumulative_damage } => Some(*cumulative_damage),
                 _ => None,
@@ -205,11 +216,19 @@ impl CombatTimeline {
 
     /// 提取所有生命值变化事件：`(时间, 实体ID, 名称, 当前血量, 受击伤害)`。
     pub fn health_timeline(&self) -> Vec<(f32, u32, String, u16, u16)> {
-        self.events.iter()
+        self.events
+            .iter()
             .filter_map(|e| match &e.event_type {
-                CombatEventType::HealthUpdate { health, damage_taken } => {
-                    Some((e.timestamp, e.entity_id, e.entity_name.clone(), *health, *damage_taken))
-                }
+                CombatEventType::HealthUpdate {
+                    health,
+                    damage_taken,
+                } => Some((
+                    e.timestamp,
+                    e.entity_id,
+                    e.entity_name.clone(),
+                    *health,
+                    *damage_taken,
+                )),
                 _ => None,
             })
             .collect()
@@ -217,7 +236,8 @@ impl CombatTimeline {
 
     /// 提取所有死亡事件：`(时间, 实体ID, 名称)`。
     pub fn death_events(&self) -> Vec<(f32, u32, String)> {
-        self.events.iter()
+        self.events
+            .iter()
             .filter_map(|e| match e.event_type {
                 CombatEventType::Death => Some((e.timestamp, e.entity_id, e.entity_name.clone())),
                 _ => None,
@@ -246,7 +266,8 @@ impl CombatTimeline {
         let mut prev_dc_time = 0.0f32;
         for (dc_time, dc_delta) in &dmg_increases {
             let window_lo = prev_dc_time.max(*dc_time - 3.0);
-            let nearby: Vec<&(f32, u32, String, u16, u16)> = health.iter()
+            let nearby: Vec<&(f32, u32, String, u16, u16)> = health
+                .iter()
                 .filter(|(t, eid, _, _, _)| {
                     *t > window_lo && *t <= *dc_time + 0.05 && *eid != author_eid
                 })
@@ -255,23 +276,29 @@ impl CombatTimeline {
             let target = if nearby.len() == 1 {
                 Some(nearby[0])
             } else if nearby.len() > 1 {
-                nearby.iter().min_by_key(|x| {
-                    (x.4 as i32 - *dc_delta as i32).unsigned_abs()
-                }).copied()
+                nearby
+                    .iter()
+                    .min_by_key(|x| (x.4 as i32 - *dc_delta as i32).unsigned_abs())
+                    .copied()
             } else {
                 None
             };
             prev_dc_time = *dc_time;
 
             let is_kill = if let Some((_, target_eid, _, _, _)) = target {
-                deaths.iter().any(|(d_time, d_eid, _)|
-                    *d_eid == *target_eid && (*d_time - dc_time).abs() < 1.0)
-            } else { false };
+                deaths.iter().any(|(d_time, d_eid, _)| {
+                    *d_eid == *target_eid && (*d_time - dc_time).abs() < 1.0
+                })
+            } else {
+                false
+            };
 
             shots.push(ShotEvent {
                 timestamp: *dc_time,
                 damage: *dc_delta,
-                target_name: target.map(|(_, _, name, _, _)| name.clone()).unwrap_or_else(|| "miss/assist".to_string()),
+                target_name: target
+                    .map(|(_, _, name, _, _)| name.clone())
+                    .unwrap_or_else(|| "miss/assist".to_string()),
                 target_eid: target.map(|(_, eid, _, _, _)| *eid).unwrap_or_default(),
                 target_hp_after: target.map(|(_, _, _, hp, _)| *hp),
                 target_damage: target.map(|(_, _, _, _, dmg)| *dmg).unwrap_or(0),
@@ -281,8 +308,6 @@ impl CombatTimeline {
         }
         shots
     }
-
-
 }
 
 /// 血量终态哨兵族（WotbTools PROVEN：终态 prop3/method1 分布 0:-223/-1:68/-2:1/-3:59，
@@ -290,7 +315,11 @@ impl CombatTimeline {
 /// hp<=0 是充分非必要条件，cause=5 溺死不经血量归零）。归一化后 DmgLoss.hp_cur==0
 /// 覆盖全族，击杀判定与降幅推导对哨兵终态同样成立。
 pub fn hp_terminal_normalized(hp: u16) -> u16 {
-    if (hp as i16) < 0 { 0 } else { hp }
+    if (hp as i16) < 0 {
+        0
+    } else {
+        hp
+    }
 }
 
 /// method1 (0x01) 血量/来源/原因事件（WotbTools AFFIRMED）：
@@ -317,9 +346,12 @@ pub struct HpEvent {
 pub fn collect_initial_hp(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, (f32, u16)> {
     let mut out: HashMap<u32, (f32, u16)> = HashMap::new();
     for (ptype, clock, p) in packets {
-        if *ptype != 5 || p.len() < 53 { continue; }
+        if *ptype != 5 || p.len() < 53 {
+            continue;
+        }
         let eid = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
-        out.entry(eid).or_insert((*clock, u16::from_le_bytes([p[51], p[52]])));
+        out.entry(eid)
+            .or_insert((*clock, u16::from_le_bytes([p[51], p[52]])));
     }
     out
 }
@@ -339,8 +371,12 @@ pub struct Prop3Health {
 pub fn collect_prop3_health(packets: &[(u32, f32, &[u8])]) -> Vec<Prop3Health> {
     let mut out: Vec<Prop3Health> = Vec::new();
     for (ptype, clock, p) in packets {
-        if *ptype != 7 || p.len() < 14 { continue; }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 3 { continue; }
+        if *ptype != 7 || p.len() < 14 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 3 {
+            continue;
+        }
         out.push(Prop3Health {
             clock: *clock,
             eid: u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
@@ -355,10 +391,16 @@ pub fn collect_prop3_health(packets: &[(u32, f32, &[u8])]) -> Vec<Prop3Health> {
 pub fn parse_hp_events(packets: &[(u32, f32, &[u8])]) -> Vec<HpEvent> {
     let mut out: Vec<HpEvent> = Vec::new();
     for (_, clock, p) in packets {
-        if p.len() < 12 + 7 { continue; }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x01 { continue; }
+        if p.len() < 12 + 7 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x01 {
+            continue;
+        }
         let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if args_len != 7 || 12 + args_len > p.len() { continue; }
+        if args_len != 7 || 12 + args_len > p.len() {
+            continue;
+        }
         let a = &p[12..12 + args_len];
         out.push(HpEvent {
             clock: *clock,

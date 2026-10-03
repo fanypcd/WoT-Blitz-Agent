@@ -6,7 +6,6 @@
 //! 已知边界如实透出：队友点亮的事件级归属不在回放中（仅结算总量），可见性窗口
 //! 是本队视角（AoI 生命周期）。
 
-
 use serde::Serialize;
 
 use crate::models::battle::BattleSummary;
@@ -54,32 +53,49 @@ pub struct RawTurretTrack {
 
 /// type=10 原始世界位姿 + type=7 prop2 原始值（按 eid 升序、每实体包序）。
 /// 载荷：type10 `[eid][spaceId][attachmentParent][x y z][posError×3][yaw pitch roll]`（≥48）。
-pub fn collect_raw_tracks(packets: &[(u32, f32, &[u8])]) -> (Vec<RawPoseTrack>, Vec<RawTurretTrack>) {
+pub fn collect_raw_tracks(
+    packets: &[(u32, f32, &[u8])],
+) -> (Vec<RawPoseTrack>, Vec<RawTurretTrack>) {
     use std::collections::BTreeMap;
     let mut poses: BTreeMap<u32, RawPoseTrack> = BTreeMap::new();
     let mut turrets: BTreeMap<u32, RawTurretTrack> = BTreeMap::new();
     for (ptype, clock, p) in packets {
         let eid_of = |p: &[u8]| u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
         if *ptype == 10 && p.len() >= 48 {
-            if u32::from_le_bytes([p[8], p[9], p[10], p[11]]) != 0 { continue; }
+            if u32::from_le_bytes([p[8], p[9], p[10], p[11]]) != 0 {
+                continue;
+            }
             let f = |o: usize| f32::from_le_bytes([p[o], p[o + 1], p[o + 2], p[o + 3]]);
             let eid = eid_of(p);
             let tr = poses.entry(eid).or_insert_with(|| RawPoseTrack {
-                eid, t: Vec::new(), x: Vec::new(), y: Vec::new(), z: Vec::new(), yaw: Vec::new(),
+                eid,
+                t: Vec::new(),
+                x: Vec::new(),
+                y: Vec::new(),
+                z: Vec::new(),
+                yaw: Vec::new(),
             });
             tr.t.push(*clock);
             tr.x.push(f(12));
             tr.y.push(f(16));
             tr.z.push(f(20));
             tr.yaw.push(f(36));
-        } else if *ptype == 7 && p.len() >= 14 && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 2 {
+        } else if *ptype == 7 && p.len() >= 14 && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 2
+        {
             let eid = eid_of(p);
-            let tr = turrets.entry(eid).or_insert_with(|| RawTurretTrack { eid, t: Vec::new(), raw: Vec::new() });
+            let tr = turrets.entry(eid).or_insert_with(|| RawTurretTrack {
+                eid,
+                t: Vec::new(),
+                raw: Vec::new(),
+            });
             tr.t.push(*clock);
             tr.raw.push(u16::from_le_bytes([p[12], p[13]]));
         }
     }
-    (poses.into_values().collect(), turrets.into_values().collect())
+    (
+        poses.into_values().collect(),
+        turrets.into_values().collect(),
+    )
 }
 
 /// 战斗头
@@ -143,7 +159,14 @@ pub enum AiEvent {
     /// `hp_raw` = 未钳制的原始 u16（0x0000 / 0xFFFD / 0xFFFF / 0xFFFE 等终态哨兵族原样保留），
     /// 供消费方按自己的口径区分「确知 HP=0」与「终态哨兵（血量未知）」——`hp` 的钳 0
     /// 只是显示便利，不是血量事实。
-    Damage { t: f32, victim_eid: u32, hp: u16, hp_raw: u16, source_eid: u32, cause: u8 },
+    Damage {
+        t: f32,
+        victim_eid: u32,
+        hp: u16,
+        hp_raw: u16,
+        source_eid: u32,
+        cause: u8,
+    },
     /// 击毁（击杀播报归属增强：击杀者/死因/≥50% 助攻）
     Kill {
         t: f32,
@@ -182,7 +205,12 @@ pub enum AiEvent {
         secondary: Option<u8>,
     },
     /// 作者战斗反馈计数（0x0c；code 语义见 combat::feedback_code）
-    Counter { t: f32, code: u8, count: u16, value: u16 },
+    Counter {
+        t: f32,
+        code: u8,
+        count: u16,
+        value: u16,
+    },
     /// 累计伤害进度（prop10；相邻差 = 区段内伤害）
     DamageTick { t: f32, eid: u32, cumulative: u32 },
 }
@@ -206,7 +234,11 @@ impl AiEvent {
 impl AiReviewFacet {
     /// 从内部模型 + 结算联表投影。
     /// 投影 + 原始位姿/炮塔流（`packets` 与建模所用同一包流）。
-    pub fn from_model_with_packets(model: &ReplayModel, summary: &BattleSummary, packets: &[(u32, f32, &[u8])]) -> Self {
+    pub fn from_model_with_packets(
+        model: &ReplayModel,
+        summary: &BattleSummary,
+        packets: &[(u32, f32, &[u8])],
+    ) -> Self {
         let mut facet = Self::from_model(model, summary);
         let (poses, turrets) = collect_raw_tracks(packets);
         facet.poses = poses;
@@ -222,11 +254,14 @@ impl AiReviewFacet {
         //（playback 切面保留完整 AoI 粒度，不受此约束）。
         // 花名册只收有身份的实体（昵称/结算联表命中）。
         let tank_name_of = |e: &EntityRecord| -> String {
-            e.account_id.and_then(|aid| {
-                summary.players.iter().find(|p| p.account_id == aid)
-            }).map(|p| p.tank_name.clone()).unwrap_or_default()
+            e.account_id
+                .and_then(|aid| summary.players.iter().find(|p| p.account_id == aid))
+                .map(|p| p.tank_name.clone())
+                .unwrap_or_default()
         };
-        let rosters: Vec<AiRosterEntry> = model.entities.iter()
+        let rosters: Vec<AiRosterEntry> = model
+            .entities
+            .iter()
             .filter(|e| e.nickname.is_some() || e.account_id.is_some())
             .map(|e| AiRosterEntry {
                 eid: e.eid,
@@ -236,12 +271,16 @@ impl AiReviewFacet {
                 tank_id: e.tank_id,
                 tank_name: tank_name_of(e),
                 is_author: e.is_author,
-            }).collect();
-        let roster_eids: std::collections::HashSet<u32> =
-            rosters.iter().map(|r| r.eid).collect();
+            })
+            .collect();
+        let roster_eids: std::collections::HashSet<u32> = rosters.iter().map(|r| r.eid).collect();
 
         for (eid, (t, hp)) in &model.timeline.initial_hp {
-            events.push(AiEvent::Spawn { t: *t, eid: *eid, max_hp: *hp });
+            events.push(AiEvent::Spawn {
+                t: *t,
+                eid: *eid,
+                max_hp: *hp,
+            });
         }
         for e in &model.timeline.hp_events {
             // overkill 负值钳 0（与回放切面同式）
@@ -266,11 +305,20 @@ impl AiReviewFacet {
         }
         for p in &model.timeline.presence {
             if roster_eids.contains(&p.eid) {
-                events.push(AiEvent::Visibility { t_in: p.t_in, eid: p.eid, t_out: p.t_out, hp_raw: p.hp_raw });
+                events.push(AiEvent::Visibility {
+                    t_in: p.t_in,
+                    eid: p.eid,
+                    t_out: p.t_out,
+                    hp_raw: p.hp_raw,
+                });
             }
         }
         for h in &model.timeline.prop3_health {
-            events.push(AiEvent::Health { t: h.clock, eid: h.eid, hp_raw: h.hp_raw });
+            events.push(AiEvent::Health {
+                t: h.clock,
+                eid: h.eid,
+                hp_raw: h.hp_raw,
+            });
         }
         for h in &model.timeline.hit_notices {
             events.push(AiEvent::HitNotice {
@@ -284,18 +332,26 @@ impl AiReviewFacet {
             });
         }
         for c in &model.timeline.counters {
-            events.push(AiEvent::Counter { t: c.clock, code: c.event_code, count: c.count, value: c.value });
+            events.push(AiEvent::Counter {
+                t: c.clock,
+                code: c.event_code,
+                count: c.count,
+                value: c.value,
+            });
         }
         for (eid, series) in &model.timeline.damage_progress {
             for (t, cum) in series {
-                events.push(AiEvent::DamageTick { t: *t, eid: *eid, cumulative: *cum });
+                events.push(AiEvent::DamageTick {
+                    t: *t,
+                    eid: *eid,
+                    cumulative: *cum,
+                });
             }
         }
         for s in &model.timeline.shots {
             // 受击方身份直接用弹道自带的 target_eid（作者 = method38 受击者、他人 =
-            // method8 直击通知，均为服务器权威）。此前按昵称反查 entity_names：受击方
-            // 昵称损坏/缺失时该发 hit/target 全丢（身份域被显示域绑架）。名字缺失不作为
-            // 提取失败条件——target_eid 与 target_name 已解耦，本切面不再需要反查表。
+            // method8 直击通知，均为服务器权威）——eid 是身份域，名字仅显示域，
+            // 本切面不做昵称反查。名字缺失不作为提取失败条件。
             let target_eid = s.target_eid;
             events.push(AiEvent::Shot {
                 t: s.fire_time,
@@ -362,11 +418,7 @@ mod tests {
         c[4..8].copy_from_slice(&0x0Cu32.to_le_bytes());
         c[8..12].copy_from_slice(&6u32.to_le_bytes());
         c[12..].copy_from_slice(&[2, 0, 1, 0, 1, 0]);
-        let packets: Vec<(u32, f32, &[u8])> = vec![
-            (8, 5.0, &c),
-            (33, 6.0, &p33),
-            (5, 6.4, &p5),
-        ];
+        let packets: Vec<(u32, f32, &[u8])> = vec![(8, 5.0, &c), (33, 6.0, &p33), (5, 6.4, &p5)];
         let roster: Vec<crate::replay::playback::PlaybackPlayer> = Vec::new();
         let model = ReplayModel::scan(&crate::replay::model::ScanInput {
             packets: &packets,
@@ -379,12 +431,16 @@ mod tests {
 
         // 核心不变量：每条 visibility 的 eid 都必须可联表到花名册（裸 EID 不泄漏）。
         // 0x33 带 type=5 昵称 → 有身份 → 进花名册，其可见性窗口保留且可联表。
-        let roster_ids: std::collections::HashSet<u32> = facet.rosters.iter().map(|r| r.eid).collect();
+        let roster_ids: std::collections::HashSet<u32> =
+            facet.rosters.iter().map(|r| r.eid).collect();
         assert!(facet.events.iter().all(|e| match e {
             AiEvent::Visibility { eid, .. } => roster_ids.contains(eid),
             _ => true,
         }));
-        assert!(facet.rosters.iter().any(|r| r.eid == 0x33 && r.nickname.as_deref() == Some("abc")));
+        assert!(facet
+            .rosters
+            .iter()
+            .any(|r| r.eid == 0x33 && r.nickname.as_deref() == Some("abc")));
         assert!(facet.events.iter().any(|e| matches!(e,
             AiEvent::Visibility { eid: 0x33, t_in, .. } if (*t_in - 6.4).abs() < 1e-5)));
 
@@ -403,7 +459,10 @@ mod tests {
         })
         .unwrap();
         let facet2 = AiReviewFacet::from_model(&model2, &summary);
-        assert!(facet2.rosters.iter().any(|r| r.eid == 0x33 && r.team == Some(1) && r.tank_id == Some(1001)));
+        assert!(facet2
+            .rosters
+            .iter()
+            .any(|r| r.eid == 0x33 && r.team == Some(1) && r.tank_id == Some(1001)));
 
         let ts: Vec<f32> = facet2.events.iter().map(|e| e.t()).collect();
         let mut sorted = ts.clone();
@@ -451,26 +510,61 @@ mod tests {
         };
         let (e1, e2, m1, m2) = (type5(2000), type5(1500), method1(1700), method1(0xFFFD));
         let packets: Vec<(u32, f32, &[u8])> = vec![
-            (33, 1.0, &p33), (5, 1.4, &e1), (8, 2.0, &m1), (4, 3.0, &p4),
-            (33, 9.0, &p33), (5, 9.4, &e2), (8, 10.0, &m2),
+            (33, 1.0, &p33),
+            (5, 1.4, &e1),
+            (8, 2.0, &m1),
+            (4, 3.0, &p4),
+            (33, 9.0, &p33),
+            (5, 9.4, &e2),
+            (8, 10.0, &m2),
         ];
         let roster: Vec<crate::replay::playback::PlaybackPlayer> = Vec::new();
         let model = ReplayModel::scan(&crate::replay::model::ScanInput {
-            packets: &packets, roster: &roster, author_account_id: 0, pitch_limits: &limits,
-        }).unwrap();
+            packets: &packets,
+            roster: &roster,
+            author_account_id: 0,
+            pitch_limits: &limits,
+        })
+        .unwrap();
         let facet = AiReviewFacet::from_model(&model, &summary);
 
-        let vis: Vec<(f32, Option<f32>, Option<u16>)> = facet.events.iter().filter_map(|e| match e {
-            AiEvent::Visibility { t_in, t_out, hp_raw, eid } if *eid == victim => Some((*t_in, *t_out, *hp_raw)),
-            _ => None,
-        }).collect();
-        assert_eq!(vis, vec![(1.4, Some(3.0), Some(2000)), (9.4, None, Some(1500))], "每次重入各自携带物化 HP");
+        let vis: Vec<(f32, Option<f32>, Option<u16>)> = facet
+            .events
+            .iter()
+            .filter_map(|e| match e {
+                AiEvent::Visibility {
+                    t_in,
+                    t_out,
+                    hp_raw,
+                    eid,
+                } if *eid == victim => Some((*t_in, *t_out, *hp_raw)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            vis,
+            vec![(1.4, Some(3.0), Some(2000)), (9.4, None, Some(1500))],
+            "每次重入各自携带物化 HP"
+        );
 
-        let dmg: Vec<(u16, u16)> = facet.events.iter().filter_map(|e| match e {
-            AiEvent::Damage { victim_eid, hp, hp_raw, .. } if *victim_eid == victim => Some((*hp, *hp_raw)),
-            _ => None,
-        }).collect();
-        assert_eq!(dmg, vec![(1700, 1700), (0, 0xFFFD)], "hp 钳 0、hp_raw 保留哨兵原值");
+        let dmg: Vec<(u16, u16)> = facet
+            .events
+            .iter()
+            .filter_map(|e| match e {
+                AiEvent::Damage {
+                    victim_eid,
+                    hp,
+                    hp_raw,
+                    ..
+                } if *victim_eid == victim => Some((*hp, *hp_raw)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            dmg,
+            vec![(1700, 1700), (0, 0xFFFD)],
+            "hp 钳 0、hp_raw 保留哨兵原值"
+        );
 
         // 非战斗车辆（entityTypeId≠2）的物化不透出 HP
         let mut other = type5(2000);
@@ -502,12 +596,29 @@ mod tests {
         other[9] = 1;
         let short = vec![0x55u8, 0, 0, 0, 0x44];
         let (a, b, c) = (method8(&direct), method8(&other), method8(&short));
-        let packets: Vec<(u32, f32, &[u8])> = vec![(8, 1.0, &a), (8, 2.0, &b), (8, 3.0, &c), (7, 4.0, &a)];
+        let packets: Vec<(u32, f32, &[u8])> =
+            vec![(8, 1.0, &a), (8, 2.0, &b), (8, 3.0, &c), (7, 4.0, &a)];
         let n = crate::replay::combat::collect_hit_notices(&packets);
         assert_eq!(n.len(), 3, "type=7 包不收");
-        assert_eq!((n[0].shooter_eid, n[0].victim_eid, n[0].result, n[0].secondary), (Some(0x55), Some(0x44), Some(3), Some(2)));
+        assert_eq!(
+            (
+                n[0].shooter_eid,
+                n[0].victim_eid,
+                n[0].result,
+                n[0].secondary
+            ),
+            (Some(0x55), Some(0x44), Some(3), Some(2))
+        );
         assert_eq!(n[1].result, Some(1));
-        assert_eq!((n[2].payload_len, n[2].shooter_eid, n[2].victim_eid, n[2].result), (17, Some(0x55), None, None));
+        assert_eq!(
+            (
+                n[2].payload_len,
+                n[2].shooter_eid,
+                n[2].victim_eid,
+                n[2].result
+            ),
+            (17, Some(0x55), None, None)
+        );
     }
 
     /// prop3 血量广播：type=7 sub=3 且载荷 ≥14 才收，原始 u16（含哨兵）原样；短包/其它 sub 不收。
@@ -517,16 +628,40 @@ mod tests {
             let mut p = vec![0u8; len];
             p[0..4].copy_from_slice(&0x77u32.to_le_bytes());
             p[4..8].copy_from_slice(&sub.to_le_bytes());
-            if len >= 14 { p[12..14].copy_from_slice(&hp.to_le_bytes()); }
+            if len >= 14 {
+                p[12..14].copy_from_slice(&hp.to_le_bytes());
+            }
             p
         };
-        let (a, b, c, d) = (prop3(3, 1200, 14), prop3(3, 0xFFFD, 16), prop3(3, 999, 13), prop3(2, 5, 14));
-        let packets: Vec<(u32, f32, &[u8])> = vec![(7, 2.0, &b), (7, 1.0, &a), (7, 3.0, &c), (7, 4.0, &d), (8, 5.0, &a)];
+        let (a, b, c, d) = (
+            prop3(3, 1200, 14),
+            prop3(3, 0xFFFD, 16),
+            prop3(3, 999, 13),
+            prop3(2, 5, 14),
+        );
+        let packets: Vec<(u32, f32, &[u8])> = vec![
+            (7, 2.0, &b),
+            (7, 1.0, &a),
+            (7, 3.0, &c),
+            (7, 4.0, &d),
+            (8, 5.0, &a),
+        ];
         let got = crate::replay::combat::collect_prop3_health(&packets);
-        assert_eq!(got, vec![
-            crate::replay::combat::Prop3Health { clock: 1.0, eid: 0x77, hp_raw: 1200 },
-            crate::replay::combat::Prop3Health { clock: 2.0, eid: 0x77, hp_raw: 0xFFFD },
-        ]);
+        assert_eq!(
+            got,
+            vec![
+                crate::replay::combat::Prop3Health {
+                    clock: 1.0,
+                    eid: 0x77,
+                    hp_raw: 1200
+                },
+                crate::replay::combat::Prop3Health {
+                    clock: 2.0,
+                    eid: 0x77,
+                    hp_raw: 0xFFFD
+                },
+            ]
+        );
     }
 
     /// 原始位姿：只收世界坐标（attachmentParent=0）的 type10，列式等长；prop2 原始 u16 原样。
@@ -545,10 +680,21 @@ mod tests {
         prop2[4..8].copy_from_slice(&2u32.to_le_bytes());
         prop2[12..14].copy_from_slice(&0xABCDu16.to_le_bytes());
         let (a, b, c) = (pose(7, 0, 1.0), pose(7, 99, 2.0), pose(7, 0, 3.0));
-        let packets: Vec<(u32, f32, &[u8])> = vec![(10, 1.0, &a), (10, 2.0, &b), (10, 3.0, &c), (7, 4.0, &prop2)];
+        let packets: Vec<(u32, f32, &[u8])> = vec![
+            (10, 1.0, &a),
+            (10, 2.0, &b),
+            (10, 3.0, &c),
+            (7, 4.0, &prop2),
+        ];
         let (poses, turrets) = collect_raw_tracks(&packets);
         assert_eq!(poses.len(), 1);
-        assert_eq!((poses[0].t.clone(), poses[0].x.clone(), poses[0].yaw.clone()), (vec![1.0, 3.0], vec![1.0, 3.0], vec![0.5, 0.5]));
-        assert_eq!((turrets[0].eid, turrets[0].t.clone(), turrets[0].raw.clone()), (7, vec![4.0], vec![0xABCD]));
+        assert_eq!(
+            (poses[0].t.clone(), poses[0].x.clone(), poses[0].yaw.clone()),
+            (vec![1.0, 3.0], vec![1.0, 3.0], vec![0.5, 0.5])
+        );
+        assert_eq!(
+            (turrets[0].eid, turrets[0].t.clone(), turrets[0].raw.clone()),
+            (7, vec![4.0], vec![0xABCD])
+        );
     }
 }

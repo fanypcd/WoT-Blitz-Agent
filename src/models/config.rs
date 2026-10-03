@@ -1,6 +1,6 @@
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use anyhow::Result;
 
 // 全局配置（config.toml）：WG API 接入、LLM 模型接入、回放路径三部分。
 
@@ -12,7 +12,7 @@ pub struct Config {
     pub replay: ReplayConfig,
 }
 
-/// WG API 小节：用于战绩查询（坦克数据已全部来自 BlitzKit，不再走 WG 百科）。
+/// WG API 小节：用于战绩查询（坦克数据来自 BlitzKit，不走 WG 百科）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WgApiConfig {
     /// Wargaming 开发者平台申请的 Application ID
@@ -61,7 +61,9 @@ pub struct ReplayConfig {
     pub path_translate: String,
 }
 
-fn default_path_translate() -> String { "auto".to_string() }
+fn default_path_translate() -> String {
+    "auto".to_string()
+}
 
 impl ReplayConfig {
     /// 按配置把用户输入的路径转成本地可用形式（见 [`Self::path_translate`]）。
@@ -86,14 +88,24 @@ impl ReplayConfig {
             "windows" => "win",
             "wsl" | "linux" => "wsl",
             // auto：按运行平台的本地形式（编译期即确定，WSL 内构建即 Linux 目标）
-            _ => if cfg!(windows) { "win" } else { "wsl" },
+            _ => {
+                if cfg!(windows) {
+                    "win"
+                } else {
+                    "wsl"
+                }
+            }
         };
         if target == "win" {
             if let Some((drive, rest)) = Self::parse_wsl_drive(p) {
                 return format!("{}:/{}", drive.to_ascii_uppercase(), rest);
             }
         } else if let Some((drive, rest)) = Self::parse_win_drive(p) {
-            return format!("/mnt/{}/{}", drive.to_ascii_lowercase(), rest.replace('\\', "/"));
+            return format!(
+                "/mnt/{}/{}",
+                drive.to_ascii_lowercase(),
+                rest.replace('\\', "/")
+            );
         }
         p.to_string()
     }
@@ -101,8 +113,11 @@ impl ReplayConfig {
     /// 识别 Windows 风格 `C:\...` / `C:/...`（返回盘符与剩余部分）；UNC 不算。
     fn parse_win_drive(p: &str) -> Option<(char, &str)> {
         let b = p.as_bytes();
-        if b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':'
-            && (b[2] == b'\\' || b[2] == b'/') {
+        if b.len() >= 3
+            && b[0].is_ascii_alphabetic()
+            && b[1] == b':'
+            && (b[2] == b'\\' || b[2] == b'/')
+        {
             Some((b[0] as char, &p[3..]))
         } else {
             None
@@ -112,8 +127,12 @@ impl ReplayConfig {
     /// 识别 WSL 风格 `/mnt/c/...`（返回盘符与剩余部分）。
     fn parse_wsl_drive(p: &str) -> Option<(char, &str)> {
         let b = p.as_bytes();
-        if b.len() >= 7 && p.is_char_boundary(7) && &p[..5] == "/mnt/"
-            && b[5].is_ascii_alphabetic() && b[6] == b'/' {
+        if b.len() >= 7
+            && p.is_char_boundary(7)
+            && &p[..5] == "/mnt/"
+            && b[5].is_ascii_alphabetic()
+            && b[6] == b'/'
+        {
             Some((b[5] as char, &p[7..]))
         } else {
             None
@@ -172,7 +191,7 @@ impl Config {
     }
 }
 
-// Token 用量统计（R6 要求）：精确记录每次调用的 token 数与费用，支持预算上限自动中断。
+// Token 用量统计：精确记录每次调用的 token 数与费用，支持预算上限自动中断。
 
 /// 全局 token 用量累计与调用明细；每次 LLM 调用通过 [`TokenUsage::record`] 追加一条记录。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -260,20 +279,30 @@ impl TokenUsage {
         println!("  Total calls:        {}", self.call_count);
         println!("  Total input tokens: {}", self.total_input_tokens);
         println!("  Total output tokens: {}", self.total_output_tokens);
-        println!("  Total tokens:       {}", self.total_input_tokens + self.total_output_tokens);
+        println!(
+            "  Total tokens:       {}",
+            self.total_input_tokens + self.total_output_tokens
+        );
         println!("  Total cost:        ${:.4}", self.total_cost);
         println!();
 
         if !self.calls.is_empty() {
             println!("  Recent calls:");
-            println!("  {:<20} {:<20} {:>8} {:>8} {:>8} {:<15}",
-                "Time", "Model", "Input", "Output", "Cost", "Purpose");
+            println!(
+                "  {:<20} {:<20} {:>8} {:>8} {:>8} {:<15}",
+                "Time", "Model", "Input", "Output", "Cost", "Purpose"
+            );
             println!("  {}", "-".repeat(85));
             for call in self.calls.iter().rev().take(10) {
-                println!("  {:<20} {:<20} {:>8} {:>8} {:>7.4} {:<15}",
-                    call.timestamp, call.model,
-                    call.input_tokens, call.output_tokens,
-                    call.cost, call.purpose);
+                println!(
+                    "  {:<20} {:<20} {:>8} {:>8} {:>7.4} {:<15}",
+                    call.timestamp,
+                    call.model,
+                    call.input_tokens,
+                    call.output_tokens,
+                    call.cost,
+                    call.purpose
+                );
             }
         }
         println!();
@@ -289,23 +318,28 @@ mod path_translate_tests {
     fn wsl_style_to_windows() {
         assert_eq!(
             ReplayConfig::translate_with_mode("/mnt/c/Users/me/a.wotbreplay", "windows"),
-            "C:/Users/me/a.wotbreplay");
+            "C:/Users/me/a.wotbreplay"
+        );
         assert_eq!(
             ReplayConfig::translate_with_mode("/mnt/C/replay_samples", "windows"),
-            "C:/replay_samples");
+            "C:/replay_samples"
+        );
         assert_eq!(
             ReplayConfig::translate_with_mode("/mnt/d/x", "windows"),
-            "D:/x");
+            "D:/x"
+        );
     }
 
     #[test]
     fn windows_style_to_wsl() {
         assert_eq!(
             ReplayConfig::translate_with_mode("C:\\Users\\me\\a.wotbreplay", "wsl"),
-            "/mnt/c/Users/me/a.wotbreplay");
+            "/mnt/c/Users/me/a.wotbreplay"
+        );
         assert_eq!(
             ReplayConfig::translate_with_mode("c:/Users/me/a.wotbreplay", "wsl"),
-            "/mnt/c/Users/me/a.wotbreplay");
+            "/mnt/c/Users/me/a.wotbreplay"
+        );
     }
 
     #[test]
@@ -326,25 +360,44 @@ mod path_translate_tests {
 
     #[test]
     fn off_and_native_pass_through() {
-        assert_eq!(ReplayConfig::translate_with_mode("/mnt/c/x", "off"), "/mnt/c/x");
+        assert_eq!(
+            ReplayConfig::translate_with_mode("/mnt/c/x", "off"),
+            "/mnt/c/x"
+        );
         assert_eq!(ReplayConfig::translate_with_mode("C:\\x", "off"), "C:\\x");
-        assert_eq!(ReplayConfig::translate_with_mode("replay_samples", "auto"), "replay_samples");
-        assert_eq!(ReplayConfig::translate_with_mode("/home/u/a.wotbreplay", "auto"), "/home/u/a.wotbreplay");
-        assert_eq!(ReplayConfig::translate_with_mode("\\\\srv\\share\\a", "wsl"), "\\\\srv\\share\\a");
+        assert_eq!(
+            ReplayConfig::translate_with_mode("replay_samples", "auto"),
+            "replay_samples"
+        );
+        assert_eq!(
+            ReplayConfig::translate_with_mode("/home/u/a.wotbreplay", "auto"),
+            "/home/u/a.wotbreplay"
+        );
+        assert_eq!(
+            ReplayConfig::translate_with_mode("\\\\srv\\share\\a", "wsl"),
+            "\\\\srv\\share\\a"
+        );
     }
 
     #[test]
     fn quotes_and_whitespace_trimmed() {
         assert_eq!(
             ReplayConfig::translate_with_mode("  \"C:\\Users\\me\\a.wotbreplay\"  ", "wsl"),
-            "/mnt/c/Users/me/a.wotbreplay");
+            "/mnt/c/Users/me/a.wotbreplay"
+        );
     }
 
     #[test]
     fn short_and_malformed_inputs_safe() {
         assert_eq!(ReplayConfig::translate_with_mode("", "auto"), "");
-        assert_eq!(ReplayConfig::translate_with_mode("/mnt/", "windows"), "/mnt/");
+        assert_eq!(
+            ReplayConfig::translate_with_mode("/mnt/", "windows"),
+            "/mnt/"
+        );
         assert_eq!(ReplayConfig::translate_with_mode("C:", "wsl"), "C:");
-        assert_eq!(ReplayConfig::translate_with_mode("/mnt/c", "windows"), "/mnt/c");
+        assert_eq!(
+            ReplayConfig::translate_with_mode("/mnt/c", "windows"),
+            "/mnt/c"
+        );
     }
 }

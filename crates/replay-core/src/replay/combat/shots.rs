@@ -2,9 +2,9 @@
 //! 作者严格路径与他人宽松路径（合并方案见 docs/architecture-debt.md 第 2 节）。
 
 use super::*;
+use crate::replay::filter::FilteredTimeline;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::replay::filter::FilteredTimeline;
 
 /// 单发射击的数据质量标注（宽松降级与快照陈旧度的可视化依据）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,8 +42,7 @@ pub struct ShotQuality {
     /// 射手炮管俯仰由发射速度向量推算（prop2 缺失回退；作者路径恒 false——作者回退走 method36 field2）
     #[serde(skip_serializing_if = "is_false")]
     pub shooter_pitch_from_velocity: bool,
-    /// 射手炮管俯仰回退到 method36 field2（车体系炮管俯仰，WotbTools PROVEN；仅作者路径 prop2 缺失时）。
-    /// 旧回退源 avatar prop9 已废弃：其为本车炮塔相对偏航镜像（vs prop2 r=0.999993），非俯仰
+    /// 射手炮管俯仰回退到 method36 field2（车体系炮管俯仰，WotbTools PROVEN；仅作者路径 prop2 缺失时）
     #[serde(default, skip_serializing_if = "is_false")]
     pub shooter_pitch_from_method36: bool,
     /// 炮管俯仰回退（prop2 frac 不可得）："shooter"=射手回退速度向量/method36 field2，"target"=受击方回退车体 pitch
@@ -63,9 +62,8 @@ pub struct ShotReplayData {
     pub damage: u32,
     pub target_name: String,
     /// 受击方实体 id（作者 = method38 受击者，服务器权威；他人 = method8 直击通知）。
-    /// 身份域与显示域（[`Self::target_name`]）解耦——投影/消费方联表一律用 eid。
-    /// 此前本字段不存在，playback 投影用 target_name 反查 eid：名字缺失（如受击方
-    /// 昵称损坏）时 hit/target 全丢。名字缺失不作为提取失败条件（fail-soft）。
+    /// 身份域与显示域（[`Self::target_name`]）解耦——投影/消费方联表一律用 eid；
+    /// 名字缺失不作为提取失败条件（fail-soft）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_eid: Option<u32>,
     pub is_kill: bool,
@@ -95,8 +93,8 @@ pub struct ShotReplayData {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub target_gun_pitch_server: bool,
     /// 恒 0（占位兼容字段）。type=32 通知包内**无**受击者炮塔角——26/27B 的
-    /// 字节9=每实体序号、26B 字节11=cmpIndex、27B 字节10(7bit) 均非炮塔角
-    /// （2026-09-23 五回放验证，逆向分析 §10.4）；主用 target_turret_yaw（prop2）。
+    /// 字节9=每实体序号、26B 字节11=cmpIndex、27B 字节10(7bit) 均非炮塔角；
+    /// 主用 target_turret_yaw（prop2）。
     pub type32_turret_yaw: f32,
     /// 射手炮塔绝对朝向（弧度）= sub2_rel + shooter_hullYaw，用于精确入射方位角（替代位置差推算）。
     pub shooter_turret_yaw: f32,
@@ -129,8 +127,7 @@ pub struct ShotReplayData {
     /// 游戏原生命中段 u64（type=32 警告包尾 8 字节 LE）：`[result u8][shell_global_id u24 LE][0x00][X][Y][Z]`。
     /// - result：命中结果枚举（同 game_hit_result）。
     /// - shell_global_id（u24 LE）= (shells.xml 局部 id << 8) | 国家基数（nation_id×16+10：uk=0x5a、japan=0x6a、usa=0x2a）。
-    ///   实测：GSOR AP 2040 → 522330、金HE 2039 → 522074、Type2605 112 → 28778、XM551 2018 → 516650，与 WI 逐发一致 ✓。
-    /// - 字节4 恒 0x00；末 3 字节语义未解（WI segment = [result][layer][hash6] 亦不含——服务器不下发片元编号）；仅转发部分警告（GB109 覆盖 7/10），0 = 未获取。
+    /// - 字节4 恒 0x00；末 3 字节语义未解（服务器不下发片元编号）；服务器仅转发部分命中通知，0 = 未获取。
     pub segment: u64,
     /// 命中弹种全局 id（24 位，含国家基数字节；与 WI shell_id 同值同源；0 = 未获取）
     pub shell_id: u32,
@@ -138,21 +135,18 @@ pub struct ShotReplayData {
     /// shell_id 全局 id 回填，兜底链各级均可命中；未识别为空串）。前端自行做标签映射与金弹判定，勿在此归一化。
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub shell_kind: String,
-    /// segment[7]（B7）= 命中装甲板 plateId——五回放 15 型号 27 发渲染位姿 raycast
-    /// 对照 23 匹配/3 相邻板/1 miss（逆向分析 §10.2）；viewer 片元验证 fragOk 用同源值
+    /// segment[7]（B7）= 命中装甲板 plateId；viewer 片元验证 fragOk 用同源值
     pub armor_group: u8,
-    /// segment[5..7] 组成的 u16 BE——**非三角形索引（已证伪）**，res=1 未穿时恒负值
-    /// （可作未穿判定冗余位）、res=0 恒 ~71-83；参照系未解，保留透传
+    /// segment[5..7] 组成的 u16 BE——非三角形索引：res=1 未穿时恒负值（可作未穿
+    /// 判定冗余位）、res=0 恒 ~71-83；参照系未解，保留透传
     pub hit_triangle: u16,
-    /// 游戏命中结果枚举（method8 b9 / type=32 segment 低字节同源，86/86 事件实测一致）：
+    /// 游戏命中结果枚举（method8 b9 / type=32 segment 低字节同源）：
     /// 0=无命中结果 1=未击穿 2=间隙层止 3=有伤害（击穿/HE 爆炸）4=履带/模块交互
-    /// （**非纯跳弹**——1436 五回放交叉表：b9=4 9/9 伴随内部模块穿旗标，含履带穿透带全额伤害、
-    /// 履带吸收零伤与击杀穿透，与 0x0001/伤害共存证伪"跳弹"旧标注）；255 = 未获取。
+    /// （非跳弹——与内部模块穿旗标共存）；255 = 未获取。
     pub game_hit_result: u8,
-    /// method8 ↔ type=32 同事件共享的 6 字节（86/86 一致）。
-    /// 语义 = 游戏客户端 DecodeShotSegment 两点编码：出入点的部件 AABB 量化坐标
-    /// （轴序/解码/盒源详见《WI 射击参数与命中位置分析》§5.1）；3D 查看器据此
-    /// 标注出入点并构建 P1→P2 判定射线。
+    /// method8 ↔ type=32 同事件共享的 6 字节 = 游戏客户端 DecodeShotSegment 两点编码
+    /// （出入点的部件 AABB 量化坐标，权威定义见《回放与射击逆向总集》第三篇 §二）；
+    /// 3D 查看器据此标注出入点并构建 P1→P2 判定射线。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hit_token: Option<String>,
     /// 特殊弹药效果 ID（WotbTools PROVEN：1=精准火力 2=钨芯弹，可同发共存）。
@@ -177,9 +171,7 @@ pub struct ShotReplayData {
     /// 地形命中数据（Avatar method 0x1b；全局广播含所有玩家脱靶弹，shotId 精确配对；
     /// 仅当该发未命中任何坦克且撞到地形时存在，约覆盖 2/3 地形弹）。
     /// args(34) = [shotId u32][shell_global_id u32][material u8][impactPoint 3×f32][terminalDir 3×f32][tail u8]。
-    /// impact_point == method20 弹道终点（本地 84/92 复核一致）；terminal_dir = 弹道末段速度方向向量
-    /// （P1-B1 裁决：与 method29 发射速度 cos 中位 1.000000、79/79>0.99，norm 散布 0.23..249——
-    /// 旧"segmentStartPoint 位置点/弹跳点"定名已被证伪：|seg−launch|<0.5m 为 0/79）；
+    /// impact_point == method20 弹道终点；terminal_dir = 弹道末段速度方向向量（与发射速度同向）；
     /// material 落点材质类（观测 0/1/2/4/5，命名未定）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terrain_impact: Option<TerrainImpactData>,
@@ -202,8 +194,8 @@ pub struct ShotReplayData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality: Option<ShotQuality>,
     /// 服务器下发的受击部件索引 cmpIndex（method8 args[10]；0=底盘/履带 1=车体 2=炮塔 3=炮管，
-    /// 命中高度统计实证）——游戏 showDamageFromShot/DecodeShotSegment 用它在指定部件上放
-    /// 弹着点（报告 §4.7）；与本地 raycast 的部件选择对照 = 命中位置偏差的校准基准。
+    /// 命中高度分层实证）——游戏 showDamageFromShot/DecodeShotSegment 用它在指定部件上放
+    /// 弹着点；与本地 raycast 的部件选择对照 = 命中位置偏差的校准基准。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server_part_index: Option<u8>,
     /// 射手渲染层锚点（客户端位置滤波器输出；None = type=10 采样缺失不可构建时间线）
@@ -242,47 +234,45 @@ pub struct TerrainImpactData {
     pub material: u8,
     /// 精确落点（回放世界系，米；== method20 弹道终点）
     pub impact_point: [f32; 3],
-    /// 弹道末段速度方向向量（世界系；与发射速度同向，norm 非单位长度——WotbTools
-    /// "PROVEN physical direction"，P1-B1 本地裁决 79/79 复现。旧"segment_start 位置点"已证伪）
+    /// 弹道末段速度方向向量（世界系；与发射速度同向，norm 非单位长度，非位置点）
     pub terminal_dir: [f32; 3],
 }
 
 /// Avatar method36 (0x24) 开火时刻瞄准快照（可选，无快照则 None）；args = [payloadLen u8][protobuf]。
-/// field1(f64)=炮塔相对车体偏航（与 prop2 同语义，实测 |Δ|≤0.024 rad）；开火时刻成对出现（射击前/后各一条，f1 恒同）。
+/// field1(f64)=炮塔相对车体偏航（与 prop2 同语义）；开火时刻成对出现（射击前/后各一条，f1 恒同）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShooterAimData {
     pub turret_rel_yaw: f64,
-    /// 成对快照 field6.field1（射击前；跨坦克/跨发实测恒 ≈0.842——旧标注"扩散度"与实测矛盾，语义未定，透传供研究）
+    /// 成对快照 field6.field1（射击前；语义未定，透传）
     pub state_before: f64,
-    /// 成对快照 field6.field1（射击后；实测恒 ≈0.906；无成对快照时 None）
+    /// 成对快照 field6.field1（射击后；无成对快照时 None）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_after: Option<f64>,
-    /// root.field2 = 炮管俯仰（车体系 rad；WotbTools PROVEN：与 type39 f6 中位误差 0.0018 rad）——
-    /// 作者俯仰权威来源（prop2 锚定缺失时的回退也走它）
+    /// root.field2 = 炮管俯仰（车体系 rad，WotbTools PROVEN）——作者俯仰权威来源（prop2 锚定缺失时的回退也走它）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gun_pitch: Option<f64>,
-    /// type39 f0 世界系炮线 yaw（rad；本地 P2-4 验证 yaw 中位误差 0.10~0.14°）——viewer 画真实 3D 炮线
+    /// type39 f0 世界系炮线 yaw（rad）——viewer 画真实 3D 炮线
     #[serde(skip_serializing_if = "Option::is_none")]
     pub world_gun_yaw: Option<f32>,
-    /// type39 f1 世界系炮线 pitch（rad，取负还原；开火锚定 0.45°）
+    /// type39 f1 世界系炮线 pitch（rad，存储取负，还原时取反）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub world_gun_pitch: Option<f32>,
 }
 
-/// method36 (0x24) 单快照解码结果（WotbTools PROVEN 全字段，11.19 China；根标量均为 fixed64）。
+/// method36 (0x24) 单快照解码结果（WotbTools PROVEN 全字段；根标量均为 fixed64）。
 #[derive(Debug, Clone, Default)]
 pub struct AimSnapshot {
     /// root.field1 = 炮塔/炮管相对车体偏航（rad；与 prop2 同语义 f64 全精度）
     pub turret_rel_yaw: Option<f64>,
-    /// root.field2 = 炮管俯仰（车体系 rad；与 type39 f6 中位误差 0.0018 rad，p90 0.01224）
+    /// root.field2 = 炮管俯仰（车体系 rad）
     pub gun_pitch: Option<f64>,
-    /// root.field3 = 水平炮塔最大角速度（rad/s 车型常量，如 WZ-120 受控 0.8792）
+    /// root.field3 = 水平炮塔最大角速度（rad/s 车型常量）
     pub yaw_speed_limit: Option<f64>,
-    /// root.field4 = 垂直炮管最大角速度（rad/s 车型常量；火炮受损 ×0.675，修复精确复原）
+    /// root.field4 = 垂直炮管最大角速度（rad/s 车型常量；火炮受损 ×0.675，修复复原）
     pub pitch_speed_limit: Option<f64>,
-    /// root.field5 = 瞄准时间物理标量（Reticle Calibration 边界恰 ×0.70）
+    /// root.field5 = 瞄准时间物理标量（Reticle Calibration 恰 ×0.70）
     pub aim_time: Option<f64>,
-    /// field6.field1 = 动态扩散/开花 bloom（开火后必正跳 326/326；火炮受损 ×2）
+    /// field6.field1 = 动态扩散/开花 bloom（开火后正跳；火炮受损 ×2）
     pub bloom: Option<f64>,
 }
 
@@ -290,7 +280,9 @@ pub struct AimSnapshot {
 /// 相应字段为 None；格式不合法返回全 None（fail-soft，调用方忽略）。
 fn parse_method36(args: &[u8]) -> AimSnapshot {
     let mut out = AimSnapshot::default();
-    if args.is_empty() { return out; }
+    if args.is_empty() {
+        return out;
+    }
     // args[0] = payload 长度前缀（= args.len()-1），容错取 min
     let end = (args[0] as usize + 1).min(args.len());
     let payload = &args[1..end];
@@ -302,7 +294,9 @@ fn parse_method36(args: &[u8]) -> AimSnapshot {
         f64::from_le_bytes(b[f.2..f.2 + 8].try_into().unwrap())
     };
     for f in &fields {
-        if f.1 != 1 { continue; }
+        if f.1 != 1 {
+            continue;
+        }
         match f.0 {
             1 => out.turret_rel_yaw = Some(fixed64(payload, f)),
             2 => out.gun_pitch = Some(fixed64(payload, f)),
@@ -322,9 +316,9 @@ fn parse_method36(args: &[u8]) -> AimSnapshot {
     out
 }
 
-/// method38 (0x26) 命中反馈（作者 Avatar 专属）：args 布局（WotbTools PROVEN + 4 回放实测）：
+/// method38 (0x26) 命中反馈（作者 Avatar 专属）：args 布局（WotbTools PROVEN）：
 /// [victimVehicleId u32][resultFlags16 u16][headerHi16 u16][resultCount u8][resultCount × (componentToken u8 + rawState u8)]
-/// [modifierCount u8][modifierCount × modifierId u32]；rawState（WotbTools PROVEN 修正）：1=受损或乘员受伤
+/// [modifierCount u8][modifierCount × modifierId u32]；rawState（WotbTools PROVEN）：1=受损或乘员受伤
 /// 2=critical/禁用族（"摧毁"过强，是否=摧毁 PARTIAL）0=命中/参与但无新持久负面（"无变化"过强）；
 /// modifierId 加性叠加可并存 [1,2]；组件号 31=引擎 32=弹药架 33=油箱 34/35=右/左履带 36=火炮
 /// 37=炮塔旋转机 38=观察装置 39=车长 40=驾驶员 41=炮手 42=UNKNOWN 禁猜 43=装填手（WotbTools 枚举）
@@ -339,11 +333,8 @@ pub(crate) struct HitFeedback {
     modifiers: Vec<u32>,
 }
 
-/// 两条射击提取路径（作者严格 / 他人宽松）的共享预分析产物。
-///
-/// 此前两条路径各自全量重扫包流（合计约 20 遍冗余 pass；st10/prop2 索引每场数 MB
-/// 被复制三份；FilteredTimeline 渲染缓存两路各建一遍）——现在一次收集、两路复用，
-/// `ReplayModel::scan` 也从本结构取位姿/血量/名字索引，整场分析只此一份。
+/// 两条射击提取路径（作者严格 / 他人宽松）的共享预分析产物：一次收集、两路复用，
+/// `ReplayModel::scan` 亦从此取位姿/血量/名字索引，整场分析只此一份。
 pub(crate) struct ShotScanShared {
     /// 全部 Shot 的 primary method29（作者 + 他人；按发射时刻排序，shotId 全局去重）。
     /// unique shotId = 一次开火；同 shotId 的后续 method29 不增加 Shot 数。
@@ -364,8 +355,7 @@ pub(crate) struct ShotScanShared {
     pub vehicle_equipment: HashMap<u32, [u8; 9]>,
     /// type=35 tick 计数器（保持包序）
     pub tick_timeline: Vec<(f32, u8)>,
-    /// per-entity type=10 状态采样（**已按 clock 稳定排序**——锚点选择与 roll 线性插值
-    /// 依赖时序；他人路径此前沿用包序，现与作者路径统一为时钟序）
+    /// per-entity type=10 状态采样（**已按 clock 稳定排序**——锚点选择与 roll 线性插值依赖时序）
     pub st10: HashMap<u32, Vec<St10Sample>>,
     /// per-entity prop2 打包角流（**已按 clock 稳定排序**，等钟保持包序——prop2_at 的
     /// 夹逼插值语义本就假设时钟序，排序同时让二分查找成立）
@@ -421,17 +411,25 @@ pub(crate) fn build_shot_scan_shared(
     // ③ method38 命中结果（Avatar 方法 = 仅作者自己的射击反馈）
     let mut hit_results: Vec<HitFeedback> = Vec::new();
     for (_, clock, p) in packets {
-        if p.len() < 12 + 9 { continue; }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x26 { continue; }
+        if p.len() < 12 + 9 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x26 {
+            continue;
+        }
         let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if args_len < 9 || 12 + args_len > p.len() { continue; }
+        if args_len < 9 || 12 + args_len > p.len() {
+            continue;
+        }
         let a = &p[12..12 + args_len];
         let mut crit_modules = 0u32;
         let mut destroyed_modules = 0u32;
         let mut components: Vec<(u8, u8)> = Vec::new();
         let mut off = 9usize;
         for _ in 0..a[8] {
-            if off + 2 > args_len { break; }
+            if off + 2 > args_len {
+                break;
+            }
             let (tok, state) = (a[off], a[off + 1]);
             components.push((tok, state));
             let bit = (tok as u32).checked_sub(31).map(|b| 1u32 << b).unwrap_or(0);
@@ -447,15 +445,22 @@ pub(crate) fn build_shot_scan_shared(
             let mcount = a[off];
             off += 1;
             for _ in 0..mcount {
-                if off + 4 > args_len { break; }
-                modifiers.push(u32::from_le_bytes([a[off], a[off+1], a[off+2], a[off+3]]));
+                if off + 4 > args_len {
+                    break;
+                }
+                modifiers.push(u32::from_le_bytes([
+                    a[off],
+                    a[off + 1],
+                    a[off + 2],
+                    a[off + 3],
+                ]));
                 off += 4;
             }
         }
         hit_results.push(HitFeedback {
             t: *clock,
             victim: u32::from_le_bytes([a[0], a[1], a[2], a[3]]),
-            // 完整位图 = flags16 | headerHi<<16（wotinspector hit_flags 同源，0x20000=headerHi 基础位）
+            // 完整位图 = flags16 | headerHi<<16（wotinspector hit_flags 同源）
             flags: u32::from_le_bytes([a[4], a[5], a[6], a[7]]),
             crit_modules,
             destroyed_modules,
@@ -480,7 +485,9 @@ pub(crate) fn build_shot_scan_shared(
                     }
                 }
                 for m in h.modifiers {
-                    if !last.modifiers.contains(&m) { last.modifiers.push(m); }
+                    if !last.modifiers.contains(&m) {
+                        last.modifiers.push(m);
+                    }
                 }
                 continue;
             }
@@ -491,49 +498,67 @@ pub(crate) fn build_shot_scan_shared(
     // ⑤' 弹药选择时间线（type=28，payload=u32 LE 槽位；录像者本人的选择状态）
     let mut ammo_selects: Vec<(f32, u32)> = Vec::new();
     for (t, clock, p) in packets {
-        if *t != 28 || p.len() < 4 { continue; }
+        if *t != 28 || p.len() < 4 {
+            continue;
+        }
         ammo_selects.push((*clock, u32::from_le_bytes([p[0], p[1], p[2], p[3]])));
     }
     ammo_selects.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
 
     // ⑤'' Avatar method 0x07 弹种广播时间线：args(5) = [a0 u8][shell_global_id u32 LE]。
-    // shell@fire_time 与 type=32 segment 弹种 30/30 一致，命中通知未转发时（含脱靶弹）以此兜底。
+    // 命中通知未转发时（含脱靶弹）以此兜底。
     let mut shell_broadcasts: Vec<(f32, u32)> = Vec::new();
     for (_, clock, p) in packets {
-        if p.len() < 17 { continue; }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x07 { continue; }
+        if p.len() < 17 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x07 {
+            continue;
+        }
         let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if args_len < 5 || 12 + args_len > p.len() { continue; }
-        if p[12] != 0 && p[12] != 1 { continue; }
+        if args_len < 5 || 12 + args_len > p.len() {
+            continue;
+        }
+        if p[12] != 0 && p[12] != 1 {
+            continue;
+        }
         shell_broadcasts.push((*clock, u32::from_le_bytes([p[13], p[14], p[15], p[16]])));
     }
     shell_broadcasts.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
 
     // ⑤'''' Avatar method36 (0x24) 瞄准快照时间线（envelope = avatar = 录像者本人）；
-    // args = [len u8][protobuf]，开火时刻成对；布局不合法的包 fail-soft 跳过。
-    // 全字段解码见 AimSnapshot（WotbTools PROVEN：field1 偏航 / field2 车体系俯仰 / field3-5 车型
-    // 角速度上限与瞄准时间 / field6.f1 bloom）。
+    // args = [len u8][protobuf]，开火时刻成对；布局不合法的包 fail-soft 跳过（解码见 AimSnapshot）。
     let mut aim_snapshots: Vec<(f32, AimSnapshot)> = Vec::new();
     for (_, clock, p) in packets {
-        if p.len() < 14 { continue; }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x24 { continue; }
+        if p.len() < 14 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x24 {
+            continue;
+        }
         let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if args_len < 2 || 12 + args_len > p.len() { continue; }
+        if args_len < 2 || 12 + args_len > p.len() {
+            continue;
+        }
         let snap = parse_method36(&p[12..12 + args_len]);
         if snap.turret_rel_yaw.is_some() && snap.bloom.is_some() {
             aim_snapshots.push((*clock, snap));
         }
     }
     aim_snapshots.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
-    let aim_pitch_series: Vec<(f32, f32)> = aim_snapshots.iter()
+    let aim_pitch_series: Vec<(f32, f32)> = aim_snapshots
+        .iter()
         .filter_map(|(c, s)| s.gun_pitch.map(|p| (*c, p as f32)))
         .collect();
     let type39_frames = collect_type39_frames(packets);
 
     // 作者伤害计数器（type=7 sub=10）增量序列——首次命中（血量链无前值）兜底；
     // 撞击/火伤等非弹伤害增量与 method1 cause≠0 且涉及作者的事件同批剔除
-    let mut non_shell_ticks: Vec<f32> = hp_events.iter()
-        .filter(|e| e.cause != 0 && (e.source == author_player_eid || e.victim == author_player_eid))
+    let mut non_shell_ticks: Vec<f32> = hp_events
+        .iter()
+        .filter(|e| {
+            e.cause != 0 && (e.source == author_player_eid || e.victim == author_player_eid)
+        })
         .map(|e| e.clock)
         .collect();
     non_shell_ticks.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -541,8 +566,12 @@ pub(crate) fn build_shot_scan_shared(
     {
         let mut last_cum: u32 = 0;
         for (t, clock, p) in packets {
-            if *t != 7 || p.len() < 16 { continue; }
-            if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 10 { continue; }
+            if *t != 7 || p.len() < 16 {
+                continue;
+            }
+            if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 10 {
+                continue;
+            }
             let cum = u32::from_le_bytes([p[12], p[13], p[14], p[15]]);
             if cum > last_cum {
                 // 二分判定 |clock - tc| <= 0.3 的污染 tick（non_shell_ticks 已排序）
@@ -581,7 +610,6 @@ pub(crate) fn build_shot_scan_shared(
     }
 }
 
-
 /// 作者路径 type=32 选择：method38 先确定 victim；同一 victim/命中时钟可能合法出现
 /// 多个不同 segment（一次 Shot 的多次装甲交互）。method8 与 type=32 的 hash6 是同事件
 /// 确定性令牌，因此有唯一 method8 token 时先按 token 收窄；重复 method8 广播按 hash6 去重。
@@ -593,7 +621,8 @@ fn select_author_warning32<'a>(
     victim_eid: u32,
     end_time: f32,
 ) -> Result<Option<&'a ArenaWarning32>, usize> {
-    let window: Vec<&ArenaWarning32> = warnings32.iter()
+    let window: Vec<&ArenaWarning32> = warnings32
+        .iter()
         .filter(|w| w.eid == victim_eid && (w.t - end_time).abs() <= 0.05)
         .collect();
     if window.is_empty() {
@@ -601,22 +630,25 @@ fn select_author_warning32<'a>(
     }
 
     let mut hashes: Vec<[u8; 6]> = Vec::new();
-    for d in direct_hits8.iter().filter(|d|
-        d.shooter == author_player_eid
-            && d.victim == victim_eid
-            && (d.t - end_time).abs() <= 0.05
-    ) {
+    for d in direct_hits8.iter().filter(|d| {
+        d.shooter == author_player_eid && d.victim == victim_eid && (d.t - end_time).abs() <= 0.05
+    }) {
         if !hashes.contains(&d.hash6) {
             hashes.push(d.hash6);
         }
     }
 
     let candidates: Vec<&ArenaWarning32> = if hashes.len() == 1 {
-        let matched: Vec<&ArenaWarning32> = window.iter()
+        let matched: Vec<&ArenaWarning32> = window
+            .iter()
             .copied()
             .filter(|w| w.hash6 == hashes[0])
             .collect();
-        if matched.is_empty() { window } else { matched }
+        if matched.is_empty() {
+            window
+        } else {
+            matched
+        }
     } else {
         window
     };
@@ -628,14 +660,17 @@ fn select_author_warning32<'a>(
     Ok(Some(first))
 }
 
-// ---------- 作者/他人两路径的同构段共享实现（合并方案见架构债文档第 2 节） ----------
-// 两条路径的本质差异只在"缺失时怎么办"（作者 bail / 他人跳过或兜底）；下列函数把
-// 逐行复制的组装段收敛为单份——数字窗口（渲染受击 −3.0~+2.0 / 射手 −3.0~+2.0、
-// 炮塔角射手 −2.0~+2.0）集中在此，两路径不再各自维护常量（此前注释与代码已漂移过一次）。
+// ---------- 作者/他人两路径的同构段共享实现 ----------
+// 两条路径的本质差异只在"缺失时怎么办"（作者 bail / 他人跳过或兜底）；组装段收敛为
+// 单份，时间窗常量（渲染受击 −3.0~+2.0 / 射手 −3.0~+2.0、炮塔角射手 −2.0~+2.0）集中在此。
 
 /// 炮塔相对角：流序快照（method29/8 处理时刻，WI 同基准）优先 → 时钟序 prop2 兜底。
 /// None = prop2 缺失（调用方按路径 bail 或降级为车体朝向）。
-fn turret_rel_at(stream_snapshot: Option<(f32, u16)>, series: Option<&Vec<(f32, f32, u16)>>, t: f32) -> Option<f32> {
+fn turret_rel_at(
+    stream_snapshot: Option<(f32, u16)>,
+    series: Option<&Vec<(f32, f32, u16)>>,
+    t: f32,
+) -> Option<f32> {
     match stream_snapshot {
         Some((_, v)) => Some(decode_prop2_u16(v).0),
         None => prop2_at_arrived(series, t).map(|(r, _)| r),
@@ -655,11 +690,15 @@ fn pitch_from_prop2(
 ) -> Option<f32> {
     if let Some(((_, v), lim)) = stream_snapshot.zip(limits) {
         let (y, fr) = decode_prop2_u16(v);
-        if prop2_frac_frozen(series, t) { pitch_frozen.push(who.into()); }
+        if prop2_frac_frozen(series, t) {
+            pitch_frozen.push(who.into());
+        }
         return Some(decode_prop2_gun_pitch(fr, lim, y));
     }
     if let Some(((y, fr), lim)) = prop2_at_arrived(series, t).zip(limits) {
-        if prop2_frac_frozen(series, t) { pitch_frozen.push(who.into()); }
+        if prop2_frac_frozen(series, t) {
+            pitch_frozen.push(who.into());
+        }
         return Some(decode_prop2_gun_pitch(fr, lim, y));
     }
     None
@@ -684,7 +723,7 @@ enum ShooterGunFallback<'a> {
     None,
 }
 
-#[allow(clippy::too_many_arguments)]   // 两路径组装的公共入参，聚合结构反而不透明
+#[allow(clippy::too_many_arguments)] // 两路径组装的公共入参，聚合结构反而不透明
 fn shot_render_pack(
     render_cache: &mut HashMap<u32, FilteredTimeline>,
     st10: &St10Index,
@@ -705,57 +744,111 @@ fn shot_render_pack(
     // 判定层锚点（调用方 sp/tp）保持不动——装甲命中几何必须用判定层。
     // 他人路径炮口兜底（pos_from_muzzle）时 sp 非车体位姿，跳过射手侧渲染数据。
     let shooter_render = if !skip_shooter {
-        render_anchor(render_cache, shooter_eid, st10.get(&shooter_eid), fire_time, shooter_judgment_pos)
-    } else { None };
+        render_anchor(
+            render_cache,
+            shooter_eid,
+            st10.get(&shooter_eid),
+            fire_time,
+            shooter_judgment_pos,
+        )
+    } else {
+        None
+    };
     let target_render = if hit {
-        target_eid.and_then(|teid|
-            render_anchor(render_cache, teid, st10.get(&teid), end_time, target_judgment_pos))
-    } else { None };
+        target_eid.and_then(|teid| {
+            render_anchor(
+                render_cache,
+                teid,
+                st10.get(&teid),
+                end_time,
+                target_judgment_pos,
+            )
+        })
+    } else {
+        None
+    };
     // 渲染时间线（滑块严格对齐游戏每帧显示位姿，0.1s 步长）：受击方命中 −3.0~+2.0s、
     // 射手方开火 −3.0~+2.0s。命中后数据保留：滤波器误差盒钳位会渐进滑向通道切换后
     // 的真相，即游戏当时渲染的画面。
     let target_render_timeline = if hit {
-        target_eid.map(|teid| render_timeline(
-            render_cache, teid, st10.get(&teid), end_time, -3.0, 2.0, 0.1))
+        target_eid
+            .map(|teid| {
+                render_timeline(
+                    render_cache,
+                    teid,
+                    st10.get(&teid),
+                    end_time,
+                    -3.0,
+                    2.0,
+                    0.1,
+                )
+            })
             .unwrap_or_default()
-    } else { Vec::new() };
+    } else {
+        Vec::new()
+    };
     let shooter_render_timeline = if !skip_shooter {
-        render_timeline(render_cache, shooter_eid, st10.get(&shooter_eid), fire_time, -3.0, 2.0, 0.1)
-    } else { Vec::new() };
+        render_timeline(
+            render_cache,
+            shooter_eid,
+            st10.get(&shooter_eid),
+            fire_time,
+            -3.0,
+            2.0,
+            0.1,
+        )
+    } else {
+        Vec::new()
+    };
     // 炮塔/炮管实时时间线（prop2，客户端语义 0.1s 网格，与锚点同一求值器）：
     // 受击方命中 −3.0~+2.0s、射手方开火 −2.0~+2.0s
     let target_turret_timeline = if hit {
-        target_eid.and_then(|teid| prop2.get(&teid))
+        target_eid
+            .and_then(|teid| prop2.get(&teid))
             .map(|series| timeline_prop2_client(Some(series), end_time, -3.0, 2.0, None))
             .unwrap_or_default()
-    } else { Vec::new() };
-    let shooter_turret_timeline = timeline_prop2_client(prop2.get(&shooter_eid), fire_time, -2.0, 2.0, None);
+    } else {
+        Vec::new()
+    };
+    let shooter_turret_timeline =
+        timeline_prop2_client(prop2.get(&shooter_eid), fire_time, -2.0, 2.0, None);
     let shooter_gun_timeline = match shooter_limits {
-        Some(lim) => timeline_prop2_client(prop2.get(&shooter_eid), fire_time, -2.0, 2.0, Some(lim)),
+        Some(lim) => {
+            timeline_prop2_client(prop2.get(&shooter_eid), fire_time, -2.0, 2.0, Some(lim))
+        }
         None => match gun_fallback {
-            ShooterGunFallback::Method36Series(series) => timeline_1f(Some(series), fire_time, -2.0, 2.0),
+            ShooterGunFallback::Method36Series(series) => {
+                timeline_1f(Some(series), fire_time, -2.0, 2.0)
+            }
             ShooterGunFallback::None => Vec::new(),
         },
     };
     let target_gun_timeline = if hit {
-        target_eid.and_then(|teid| prop2.get(&teid))
+        target_eid
+            .and_then(|teid| prop2.get(&teid))
             .map(|series| timeline_prop2_client(Some(series), end_time, -3.0, 2.0, target_limits))
             .unwrap_or_default()
-    } else { Vec::new() };
+    } else {
+        Vec::new()
+    };
     ShotRenderPack {
-        shooter_render, target_render,
-        target_render_timeline, shooter_render_timeline,
-        target_turret_timeline, shooter_turret_timeline,
-        shooter_gun_timeline, target_gun_timeline,
+        shooter_render,
+        target_render,
+        target_render_timeline,
+        shooter_render_timeline,
+        target_turret_timeline,
+        shooter_turret_timeline,
+        shooter_gun_timeline,
+        target_gun_timeline,
     }
 }
 
 /// type=10 采样窗口（base_t ±1s，锚点/补发簇截断 + "游戏渲染位"合成）——
 /// 受击方相对判定锚点（relative=true），射手世界系绝对坐标。
 /// 窗口右端 +0.09 仅作锚点兜底：有真锚点（|dt|<0.05）时 trim 截断其后样本——
-/// 命中/开火后数据包源切换（AoI 远端基线），其后首包含数米级瞬移（96 段实测
-/// 40 段反转）；射手前窗取 −1.0s：过窄时靠前 tick 钳死在开火位置呈现"不动"假象。
-#[allow(clippy::too_many_arguments)]   // 两路径组装的公共入参（同 shot_render_pack）
+/// 命中/开火后数据包源切换（AoI 远端基线），其后首包含数米级瞬移；
+/// 射手前窗取 −1.0s：过窄时靠前 tick 钳死在开火位置呈现"不动"假象。
+#[allow(clippy::too_many_arguments)] // 两路径组装的公共入参（同 shot_render_pack）
 fn tick_window_samples(
     st10: &St10Index,
     tick_timeline: &[(f32, u8)],
@@ -770,19 +863,45 @@ fn tick_window_samples(
     if let Some(samples) = st10.get(&eid) {
         for s in samples {
             let dt = s.clock - base_t;
-            if !(-1.0..=0.09).contains(&dt) { continue; }
+            if !(-1.0..=0.09).contains(&dt) {
+                continue;
+            }
             let pos = if relative {
-                [s.pos[0] - anchor_pos[0], s.pos[1] - anchor_pos[1], s.pos[2] - anchor_pos[2]]
-            } else { s.pos };
-            out.push(TickSample::raw(dt, tick_at(tick_timeline, s.clock), pos, s.yaw, s.pitch, s.roll));
+                [
+                    s.pos[0] - anchor_pos[0],
+                    s.pos[1] - anchor_pos[1],
+                    s.pos[2] - anchor_pos[2],
+                ]
+            } else {
+                s.pos
+            };
+            out.push(TickSample::raw(
+                dt,
+                tick_at(tick_timeline, s.clock),
+                pos,
+                s.yaw,
+                s.pitch,
+                s.roll,
+            ));
         }
     }
-    trim_tick_samples(&mut out, refresh_cluster_after(refresh_clusters, eid, base_t));
+    trim_tick_samples(
+        &mut out,
+        refresh_cluster_after(refresh_clusters, eid, base_t),
+    );
     if let Some(r) = render {
         let pos = if relative {
-            [r.pos[0] - anchor_pos[0], r.pos[1] - anchor_pos[1], r.pos[2] - anchor_pos[2]]
-        } else { r.pos };
-        out.push(TickSample::render_ghost(0.0, pos, r.ang[0], r.ang[1], r.ang[2]));
+            [
+                r.pos[0] - anchor_pos[0],
+                r.pos[1] - anchor_pos[1],
+                r.pos[2] - anchor_pos[2],
+            ]
+        } else {
+            r.pos
+        };
+        out.push(TickSample::render_ghost(
+            0.0, pos, r.ang[0], r.ang[1], r.ang[2],
+        ));
     }
     out
 }
@@ -790,7 +909,7 @@ fn tick_window_samples(
 /// 从射击事件抽取复现数据（WotbTools 权威弹丸生命周期，全部 shotId 确定性配对）：
 /// method29 (0x1d) 发射 / method20 (0x14) 终点 / method38 (0x26) 命中结果（仅作者）；目标 = method38 victimVehicleId（服务器权威，无则 miss）；
 /// 伤害 = method1 血量链差值（victim + source=作者 + cause=0）。数据完整性 fail-fast：任何缺失/歧义直接返回 Err，不做保守降级（零值掩盖问题）。
-/// 便捷入口（作者 eid 版）：保留作文档引用的外部调用面，当前管线走 with_limits 路径。
+/// 便捷入口（作者 eid 版）外部调用面；当前管线走 [`extract_shot_replays_with_limits`]。
 #[allow(dead_code)]
 pub fn extract_shot_replays(
     packets: &[(u32, f32, &[u8])],
@@ -801,7 +920,7 @@ pub fn extract_shot_replays(
 
 /// [`extract_shot_replays`] 的完整形态：`pitch_limits` = 昵称→(俯角°,仰角°) 锚定表
 /// （[`gun_pitch_limits_from`] 构建）。双方炮管俯仰主来源 = prop2 frac 比例解码；
-/// 无锚定表时回退旧路径（作者 method36 field2 / 他人速度向量 / 受击方车体 pitch）并打质量标记。
+/// 无锚定表时回退路径（作者 method36 field2 / 他人速度向量 / 受击方车体 pitch）并打质量标记。
 pub fn extract_shot_replays_with_limits(
     packets: &[(u32, f32, &[u8])],
     author_player_eid: u32,
@@ -814,7 +933,7 @@ pub fn extract_shot_replays_with_limits(
 
 /// [`extract_shot_replays_with_limits`] 的共享扫描形态：预分析产物由调用方一次构建
 /// （[`build_shot_scan_shared`]），作者/他人两路复用；`render_cache`（滤波时间线，
-/// 按实体确定）亦可跨路复用。收集语义与逐路径版本逐位一致。
+/// 按实体确定）亦可跨路复用。
 pub(crate) fn extract_shot_replays_from_shared(
     shared: &ShotScanShared,
     author_player_eid: u32,
@@ -826,10 +945,17 @@ pub(crate) fn extract_shot_replays_from_shared(
     }
 
     // ① 作者的 method29 发射事件（共享发射表按 shooter 过滤）；args<37 = 布局漂移，fail-fast
-    let launches: Vec<LaunchEntry> = shared.launches.iter()
-        .filter(|l| l.shooter == author_player_eid).cloned().collect();
+    let launches: Vec<LaunchEntry> = shared
+        .launches
+        .iter()
+        .filter(|l| l.shooter == author_player_eid)
+        .cloned()
+        .collect();
     if let Some(&args_len) = shared.short_args.get(&author_player_eid) {
-        anyhow::bail!("作者的 method29 发射包 args 长度 {} < 37（回放版本布局漂移？）", args_len);
+        anyhow::bail!(
+            "作者的 method29 发射包 args 长度 {} < 37（回放版本布局漂移？）",
+            args_len
+        );
     }
 
     // ② method20 弹道终点（shotId 配对；含 miss 的空地终点）
@@ -839,7 +965,7 @@ pub(crate) fn extract_shot_replays_from_shared(
     // 布局见 ShotScanShared.hit_results38 文档）
     let mut hit_results = shared.hit_results38.clone();
 
-    // ③'' type=32 来袭炮弹警告/命中通知（eid = 受击者，AoI 广播含他人命中）；segment u64 低字节 = 命中结果枚举（与 method8 b9 同域，86/86 实测一致）。
+    // ③'' type=32 来袭炮弹警告/命中通知（eid = 受击者，AoI 广播含他人命中）；segment u64 低字节 = 命中结果枚举（与 method8 b9 同域）。
     // 共享表保持包序，此处按时钟排序供时间窗扫描（filter 保序）
     let mut warnings32 = shared.warnings32.clone();
     warnings32.sort_by(|x, y| x.t.partial_cmp(&y.t).unwrap());
@@ -849,14 +975,10 @@ pub(crate) fn extract_shot_replays_from_shared(
 
     let names = &shared.names;
 
-    // ④' type=7 刷新簇时钟（AoI 补发/通道切换签名，逆向文档 6.x）——tick 采样窗口截断依据
+    // ④' type=7 刷新簇时钟（AoI 补发/通道切换签名）——tick 采样窗口截断依据
     let refresh_clusters = &shared.refresh_clusters;
 
-    // （旧 ⑤ avatar 实体探测已移除：其唯一用途是 avatar prop9"俯仰"回退，而 WotbTools 证明
-    // avatar prop9 = 本车炮塔相对偏航镜像（vs prop2 r=0.999993），非俯仰——作者俯仰回退改走
-    // method36 field2，见 aim_snapshots / aim_pitch_series。）
-
-    // ⑤'' type=35 服务器竞技场 tick 计数器（u8 递增 @10Hz，自然回绕）；开火 tick 判定 100/100 实测对齐。
+    // ⑤'' type=35 服务器竞技场 tick 计数器（u8 递增 @10Hz，自然回绕）。
     let tick_timeline = &shared.tick_timeline;
 
     // ⑥ per-entity 索引（共享一次预建，st10/prop2 均已按 clock 排序）：type=10 状态采样 / type=7 prop2 炮塔偏航。
@@ -886,13 +1008,17 @@ pub(crate) fn extract_shot_replays_from_shared(
     let vehicle_equipment = &shared.vehicle_equipment;
     // ⑥' 确定性伤害降幅区间（WotbTools deriveLosses 同款；仅作者造成的 cause=0 炮弹直击降幅）
     // type=5 满血锚点补链：受害者首个 method1 已是掉血后血量时，首刀降幅才可归属
-    let dmg_losses = derive_dmg_losses(&shared.hp_events, Some(author_player_eid), &shared.initial_hp);
+    let dmg_losses = derive_dmg_losses(
+        &shared.hp_events,
+        Some(author_player_eid),
+        &shared.initial_hp,
+    );
     // 降幅互斥消费标记（一段降幅只归属一发，防同区间多发重复计数）
     let mut dmg_losses_used: std::collections::HashSet<usize> = std::collections::HashSet::new();
     // 作者伤害计数器增量序列（共享收集，已剔除非弹伤害污染 tick）
     let dc_increments = &shared.dc_increments;
-    let mut hr_cursor = 0usize;   // method38 消费游标（按时间顺序，逐发消费）
-    let mut dc_cursor = 0usize;   // 计数器增量顺序游标（每个造成伤害的命中消费一条）
+    let mut hr_cursor = 0usize; // method38 消费游标（按时间顺序，逐发消费）
+    let mut dc_cursor = 0usize; // 计数器增量顺序游标（每个造成伤害的命中消费一条）
 
     // ⑦ 逐发处理（fail-fast：任何数据缺失/歧义直接报错）
     let mut out: Vec<ShotReplayData> = Vec::with_capacity(launches.len());
@@ -904,20 +1030,31 @@ pub(crate) fn extract_shot_replays_from_shared(
         let ctx = || format!("shot #{} (shotId={}, t={:.2}s)", i + 1, shot_id, fire_time);
 
         let (sp, sa, sp_dt, sp_src) = select_anchor_state(
-            st10.get(&author_player_eid).map(Vec::as_slice).unwrap_or(&[]),
-            refresh_clusters, author_player_eid, fire_time)
-            .ok_or_else(|| anyhow::anyhow!("{}: 射手 type=10 状态快照缺失", ctx()))?;
+            st10.get(&author_player_eid)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]),
+            refresh_clusters,
+            author_player_eid,
+            fire_time,
+        )
+        .ok_or_else(|| anyhow::anyhow!("{}: 射手 type=10 状态快照缺失", ctx()))?;
 
         // 弹道终点（shotId 精确配对）；ball_a = method29 炮口发射位置
         let ball_a = l.point;
-        let (end_time, ball_b) = endpoints.get(&shot_id).cloned()
+        let (end_time, ball_b) = endpoints
+            .get(&shot_id)
+            .cloned()
             .ok_or_else(|| anyhow::anyhow!("{}: method20 弹道终点缺失（shotId 无配对）", ctx()))?;
         let fire_tick = tick_at(tick_timeline, fire_time);
 
         // ⑦' 弹药槽位：发射时刻的最后选择（type=28 时间线 ≤ fire_time 的最新值）
         let mut shell_slot: u32 = 0;
         for (t_sel, slot) in ammo_selects.iter() {
-            if *t_sel <= fire_time { shell_slot = *slot; } else { break; }
+            if *t_sel <= fire_time {
+                shell_slot = *slot;
+            } else {
+                break;
+            }
         }
 
         // ⑧ 目标实体：method38 victimVehicleId（服务器权威，确定性）
@@ -934,14 +1071,22 @@ pub(crate) fn extract_shot_replays_from_shared(
         let mut matched: Option<usize> = None;
         let mut cands = 0usize;
         for (j, hr) in hit_results.iter().enumerate().skip(hr_cursor) {
-            if hr.t > end_time + 0.5 { break; }   // 已排序，越过窗口即止
+            if hr.t > end_time + 0.5 {
+                break;
+            } // 已排序，越过窗口即止
             if (hr.t - end_time).abs() < 0.5 && hr.t >= end_time - 0.05 {
                 cands += 1;
-                if matched.is_none() { matched = Some(j); }
+                if matched.is_none() {
+                    matched = Some(j);
+                }
             }
         }
         if cands > 1 {
-            anyhow::bail!("{}: method38 配对歧义——命中窗口内出现 {} 条命中结果", ctx(), cands);
+            anyhow::bail!(
+                "{}: method38 配对歧义——命中窗口内出现 {} 条命中结果",
+                ctx(),
+                cands
+            );
         }
         if let Some(j) = matched {
             let hr = &mut hit_results[j];
@@ -962,7 +1107,7 @@ pub(crate) fn extract_shot_replays_from_shared(
         }
 
         // ⑧' 游戏原生命中段 + 结果枚举（wotinspector segment 对齐）：type=32 警告包优先（segment 低字节=结果枚举），
-        // method8 直击通知兜底；两者 hash6 命中令牌一致（86/86 实测）。歧义 fail-fast；服务器未转发时 segment=0 / result=255。
+        // method8 直击通知兜底；两者 hash6 命中令牌一致。歧义 fail-fast；服务器未转发时 segment=0 / result=255。
         let mut segment: u64 = 0;
         let mut shell_id: u32 = 0;
         let mut armor_group: u8 = 0;
@@ -973,13 +1118,18 @@ pub(crate) fn extract_shot_replays_from_shared(
             // 一次 Shot 可以在同一 victim/同钟产生多个装甲交互；只按 victim+time 会把
             // 合法的不同 type=32 segment 误判为歧义。作者路径与他人路径统一优先使用
             // method8.hash6 ↔ type32.hash6 的确定性事件令牌；证据不足时仍 fail-fast。
-            match select_author_warning32(&warnings32, direct_hits8, author_player_eid, teid, end_time) {
+            match select_author_warning32(
+                &warnings32,
+                direct_hits8,
+                author_player_eid,
+                teid,
+                end_time,
+            ) {
                 Ok(Some(first)) => {
                     segment = first.segment;
                     game_hit_result = first.result;
                     hit_token = Some(first.hash6.iter().map(|b| format!("{:02x}", b)).collect());
                     // segment 布局解码：[result][shell_global_id u24 LE（=(局部 id<<8)|国家基数）][00][X][Y][Z=armor_group]
-                    // （旧 "[tank+9]" 解释为 4 样本巧合，已证伪——B1 是弹种 id 的国家基数字节）
                     let sb = segment.to_le_bytes();
                     // 全局弹种 id = B1B2B3 u24 LE（=(局部 id<<8)|国家基数），与 WI shell_id 同值
                     shell_id = (sb[1] as u32) | ((sb[2] as u32) << 8) | ((sb[3] as u32) << 16);
@@ -988,20 +1138,34 @@ pub(crate) fn extract_shot_replays_from_shared(
                 }
                 Ok(None) => {
                     // type=32 未转发：direct_hits8 已按 t 排序且 filter 保序，r8 天然有序
-                    let r8: Vec<&DirectHit8> = direct_hits8.iter()
-                        .filter(|d| d.shooter == author_player_eid && d.victim == teid && (d.t - end_time).abs() <= 0.05)
+                    let r8: Vec<&DirectHit8> = direct_hits8
+                        .iter()
+                        .filter(|d| {
+                            d.shooter == author_player_eid
+                                && d.victim == teid
+                                && (d.t - end_time).abs() <= 0.05
+                        })
                         .collect();
                     if !r8.is_empty() {
                         let first = r8[0];
                         if r8.iter().any(|d| d.result != first.result) {
-                            anyhow::bail!("{}: method8 结果枚举歧义——窗口内 {} 条互不一致", ctx(), r8.len());
+                            anyhow::bail!(
+                                "{}: method8 结果枚举歧义——窗口内 {} 条互不一致",
+                                ctx(),
+                                r8.len()
+                            );
                         }
                         game_hit_result = first.result;
-                        hit_token = Some(first.hash6.iter().map(|b| format!("{:02x}", b)).collect());
+                        hit_token =
+                            Some(first.hash6.iter().map(|b| format!("{:02x}", b)).collect());
                     }
                 }
                 Err(n) => {
-                    anyhow::bail!("{}: type=32 segment 歧义——窗口内 {} 条互不一致的命中段", ctx(), n);
+                    anyhow::bail!(
+                        "{}: type=32 segment 歧义——窗口内 {} 条互不一致的命中段",
+                        ctx(),
+                        n
+                    );
                 }
             }
         }
@@ -1014,49 +1178,73 @@ pub(crate) fn extract_shot_replays_from_shared(
         let terrain_hit = terrain_impacts.get(&shot_id);
         if shell_id == 0 {
             for (t_sel, sh) in shell_broadcasts.iter() {
-                if *t_sel <= fire_time { shell_id = *sh; shell_from_broadcast = true; } else { break; }
+                if *t_sel <= fire_time {
+                    shell_id = *sh;
+                    shell_from_broadcast = true;
+                } else {
+                    break;
+                }
             }
             if shell_id == 0 {
-                if let Some((gid, _)) = terrain_hit { shell_id = *gid; shell_from_terrain = true; }
+                if let Some((gid, _)) = terrain_hit {
+                    shell_id = *gid;
+                    shell_from_terrain = true;
+                }
             }
         }
         let terrain_impact = terrain_hit.map(|(_, d)| d.clone());
 
         // ⑧''' 开火时刻瞄准快照（method36 成对，|dt|≤0.05）：前=射击前，后=射击后。
         let shooter_aim = {
-            let cands: Vec<&AimSnapshot> = aim_snapshots.iter()
+            let cands: Vec<&AimSnapshot> = aim_snapshots
+                .iter()
                 .filter(|(t2, _)| (*t2 - fire_time).abs() <= 0.05)
                 .map(|(_, s)| s)
                 .collect();
-            // type39 世界系炮线：开火时刻锚定（|dt|≤0.05s；326/326 三明治保证开火帧存在）
-            let gun_line = type39_frames.iter()
+            // type39 世界系炮线：开火时刻锚定（|dt|≤0.05s，开火帧必被前后帧夹住）
+            let gun_line = type39_frames
+                .iter()
                 .filter(|f2| (f2.clock - fire_time).abs() <= 0.05)
                 .min_by_key(|f2| (((f2.clock - fire_time).abs()) * 1000.0) as u32);
-            cands.first().and_then(|s| s.turret_rel_yaw.map(|yaw| ShooterAimData {
-                turret_rel_yaw: yaw,
-                state_before: s.bloom.unwrap_or(0.0),
-                state_after: cands.get(1).and_then(|s2| s2.bloom),
-                gun_pitch: s.gun_pitch,
-                world_gun_yaw: gun_line.map(|f2| f2.gun_yaw),
-                world_gun_pitch: gun_line.map(|f2| f2.gun_pitch_world),
-            }))
+            cands.first().and_then(|s| {
+                s.turret_rel_yaw.map(|yaw| ShooterAimData {
+                    turret_rel_yaw: yaw,
+                    state_before: s.bloom.unwrap_or(0.0),
+                    state_after: cands.get(1).and_then(|s2| s2.bloom),
+                    gun_pitch: s.gun_pitch,
+                    world_gun_yaw: gun_line.map(|f2| f2.gun_yaw),
+                    world_gun_pitch: gun_line.map(|f2| f2.gun_pitch_world),
+                })
+            })
         };
 
         // 伤害归属（确定性，WotbTools deriveLosses 同款）：穿透族谓词 0x1110 = 材料击穿 0x0010 /
-        // 内部模块穿 0x0100 / HE 爆炸 0x1000（WotbTools PROVEN：对结算 penetrations 269/270，r≈0.9924）→
-        // 互斥：一段降幅只归属一次（防同区间双发重复计数，见 assign_dmg_losses 注）
+        // 内部模块穿 0x0100 / HE 爆炸 0x1000 → 互斥：一段降幅只归属一次（防同区间双发重复计数，
+        // 见 assign_dmg_losses 注）
         let mut dmg_unattributed = false;
         if hit && hit_flags & hit_flags_mod::PENETRATION_FAMILY != 0 {
             let victim = target_eid.unwrap_or(0);
-            let containing: Vec<(usize, &DmgLoss)> = dmg_losses.iter().enumerate()
-                .filter(|(li, l)| !dmg_losses_used.contains(li)
-                    && l.victim == victim && l.t_prev < end_time && end_time <= l.t_cur + 1e-6)
+            let containing: Vec<(usize, &DmgLoss)> = dmg_losses
+                .iter()
+                .enumerate()
+                .filter(|(li, l)| {
+                    !dmg_losses_used.contains(li)
+                        && l.victim == victim
+                        && l.t_prev < end_time
+                        && end_time <= l.t_cur + 1e-6
+                })
                 .collect();
             if containing.len() > 1 {
-                anyhow::bail!("{}: 伤害归属歧义（{} 个血量降幅区间包含命中时刻）", ctx(), containing.len());
+                anyhow::bail!(
+                    "{}: 伤害归属歧义（{} 个血量降幅区间包含命中时刻）",
+                    ctx(),
+                    containing.len()
+                );
             }
             let dc_delta = dc_increments.get(dc_cursor).map(|x| x.1);
-            if dc_delta.is_some() { dc_cursor += 1; }
+            if dc_delta.is_some() {
+                dc_cursor += 1;
+            }
             match containing.first() {
                 Some((li, l)) => {
                     dmg_losses_used.insert(*li);
@@ -1070,88 +1258,135 @@ pub(crate) fn extract_shot_replays_from_shared(
             }
             // hp_cur 已按哨兵族归一化（{0,-1,-2,-3}→0），==0 即终态；溺水（cause=5，HP 可为正）
             // 不产生降幅、不进入本链——非炮弹击杀，正确地不计入 is_kill
-            is_kill = containing.first().map(|(_, l)| l.hp_cur == 0).unwrap_or(false)
+            is_kill = containing
+                .first()
+                .map(|(_, l)| l.hp_cur == 0)
+                .unwrap_or(false)
                 || hit_flags & hit_flags_mod::DIRECT_KILL != 0;
         }
 
-        // ⑨ 目标位置与姿态 @ 命中通知状态（WI 对齐确定性锚点，逆向文档 4.0'）：
+        // ⑨ 目标位置与姿态 @ 命中通知状态（WI 对齐确定性锚点）：
         // method8 命中通知包处理时刻（文件序）受击者的最后已知 type=10 姿态——判定批次内
-        // 服务器对受击者的最新已知位置。与 wotinspector 的 distance 取值逐发 μ 级一致
-        // （99/99 发，同文件回放对照）；method8 缺失时回退 end_time 插值状态。
+        // 服务器对受击者的最新已知位置；method8 缺失时回退 end_time 插值状态。
         // miss 无目标基准，回退开火时刻。
         let (tp, ta, tp_dt, tp_src) = if hit {
             let teid = target_eid.unwrap_or(0);
-            let d8state = direct_hits8.iter().find(|d| {
-                d.shooter == author_player_eid && d.victim == teid
-                    && (d.t - end_time).abs() <= 0.05 && d.victim_state.is_some()
-            })
-            .and_then(|d| d.victim_state);
+            let d8state = direct_hits8
+                .iter()
+                .find(|d| {
+                    d.shooter == author_player_eid
+                        && d.victim == teid
+                        && (d.t - end_time).abs() <= 0.05
+                        && d.victim_state.is_some()
+                })
+                .and_then(|d| d.victim_state);
             match d8state {
                 // 正常路径（UI 不告警）；回退路径保留 nearest/filtered/extrapolated 供徽章告警
                 Some((pos, ang, state_clock)) => (pos, ang, state_clock - end_time, "wi_hit_state"),
                 None => select_anchor_state(
                     st10.get(&teid).map(Vec::as_slice).unwrap_or(&[]),
-                    refresh_clusters, teid, end_time)
-                    .ok_or_else(|| anyhow::anyhow!("{}: 命中时刻目标 type=10 状态快照缺失", ctx()))?,
+                    refresh_clusters,
+                    teid,
+                    end_time,
+                )
+                .ok_or_else(|| anyhow::anyhow!("{}: 命中时刻目标 type=10 状态快照缺失", ctx()))?,
             }
-        } else { ([0.0; 3], [0.0; 3], 0.0, "nearest") };
+        } else {
+            ([0.0; 3], [0.0; 3], 0.0, "nearest")
+        };
 
         // ⑨' 渲染层锚点 + 时间线（窗口语义与实现见 shot_render_pack，两路径共用；
         // 射手炮管俯仰时间线的无锚定回退 = method36 field2 车体系俯仰序列）
         let target_limits = pitch_limits.get(&target_name);
         let ShotRenderPack {
-            shooter_render, target_render,
-            target_render_timeline, shooter_render_timeline,
-            target_turret_timeline, shooter_turret_timeline,
-            shooter_gun_timeline, target_gun_timeline,
+            shooter_render,
+            target_render,
+            target_render_timeline,
+            shooter_render_timeline,
+            target_turret_timeline,
+            shooter_turret_timeline,
+            shooter_gun_timeline,
+            target_gun_timeline,
         } = shot_render_pack(
-            render_cache, st10, prop2,
-            author_player_eid, fire_time, sp, false,
-            target_eid, hit, end_time, tp,
-            shooter_limits, target_limits,
-            ShooterGunFallback::Method36Series(aim_pitch_series));
+            render_cache,
+            st10,
+            prop2,
+            author_player_eid,
+            fire_time,
+            sp,
+            false,
+            target_eid,
+            hit,
+            end_time,
+            tp,
+            shooter_limits,
+            target_limits,
+            ShooterGunFallback::Method36Series(aim_pitch_series),
+        );
 
-        // ⑨'' 服务器下发的受击部件索引（method8 args[10]，报告 §4.7）：hit 时刻 method8 通知的
-        // cmpIndex 0..3。与本地 raycast 的部件选择对照 = 命中位置偏差的校准基准。
+        // ⑨'' 服务器下发的受击部件索引（method8 args[10]，cmpIndex 0..3）：
+        // 与本地 raycast 的部件选择对照 = 命中位置偏差的校准基准。
         let server_part_index = if hit {
             let teid = target_eid.unwrap_or(0);
-            direct_hits8.iter()
-                .find(|d| d.shooter == author_player_eid && d.victim == teid && (d.t - end_time).abs() <= 0.05)
+            direct_hits8
+                .iter()
+                .find(|d| {
+                    d.shooter == author_player_eid
+                        && d.victim == teid
+                        && (d.t - end_time).abs() <= 0.05
+                })
                 .and_then(|d| d.component_index)
-        } else { None };
+        } else {
+            None
+        };
 
-        // ⑨''' 受击者炮管俯仰（原始解码恢复，ea2f8c6）：method8/type=32 的抵达成角 pitch
+        // ⑨''' 受击者炮管俯仰：method8/type=32 的抵达成角 pitch
         // （来向方位角校验通过者，见 decoded_target_gun_pitch）——受击者被命中时的
         // 反向瞄准俯仰，viewer 渲染"炮口指向射手"的炮管俯角。无有效解码时回退车体 pitch。
         let bearing = if tp != [0.0; 3] && sp != [0.0; 3] {
             Some((sp[0] - tp[0]).atan2(sp[2] - tp[2]))
-        } else { None };
+        } else {
+            None
+        };
         let server_gun_pitch = if hit {
-            decoded_target_gun_pitch(&warnings32, target_eid.unwrap_or(0), end_time, bearing).map(|(p, _)| p)
-        } else { None };
+            decoded_target_gun_pitch(&warnings32, target_eid.unwrap_or(0), end_time, bearing)
+                .map(|(p, _)| p)
+        } else {
+            None
+        };
 
-        // ⑩ 目标炮塔朝向 = prop2 + hullYaw（命中弹必须有）；prop2 索引保持包序，min_by_key 首最小语义与原扫包一致
-        let state_time = end_time;   // 炮塔/炮管取样基准 = 命中通知时刻（与 WI turret_yaw 同域）
-        // ⑩' method8 流序 prop2 快照（WI 逐位对齐，2026-09-24 T110E5 21/21 验证）：method8 包
-        // 处理时刻受击者的最后已知 prop2——时钟序"≤t 最后采样"在同 tick 包序错位时会取到
-        // method8 之后的更新（炮塔转动中差 1~8 个 coarse 步），流序快照与 WI battle.json 逐位相等。
+        // ⑩ 目标炮塔朝向 = prop2 + hullYaw（命中弹必须有）
+        let state_time = end_time; // 炮塔/炮管取样基准 = 命中通知时刻（与 WI turret_yaw 同域）
+                                   // ⑩' method8 流序 prop2 快照：method8 包处理时刻受击者的最后已知
+                                   // prop2——时钟序"≤t 最后采样"在同 tick 包序错位时会取到 method8
+                                   // 之后的更新（炮塔转动中差 1~8 个 coarse 步），流序快照与 WI battle.json 逐位相等。
         let d8_prop2 = if hit {
             let teid = target_eid.unwrap_or(0);
-            direct_hits8.iter()
-                .find(|d| d.shooter == author_player_eid && d.victim == teid && (d.t - end_time).abs() <= 0.05)
+            direct_hits8
+                .iter()
+                .find(|d| {
+                    d.shooter == author_player_eid
+                        && d.victim == teid
+                        && (d.t - end_time).abs() <= 0.05
+                })
                 .and_then(|d| d.victim_prop2)
-        } else { None };
+        } else {
+            None
+        };
         let turret_yaw = if hit {
             let teid = target_eid.unwrap();
             turret_rel_at(d8_prop2, prop2.get(&teid), state_time)
                 .map(|rel| rel + ta[0])
                 .ok_or_else(|| anyhow::anyhow!("{}: 目标炮塔朝向（type=7 prop2）缺失", ctx()))?
-        } else { 0.0 };
+        } else {
+            0.0
+        };
 
         // ⑪ 射手炮塔朝向 = prop2 + 射手 hullYaw，@ 开火时刻（method29 流序快照优先，语义同 ⑩'）
-        let shooter_turret_yaw = turret_rel_at(l.shooter_prop2, prop2.get(&author_player_eid), fire_time)
-            .map(|rel| rel + sa[0])
-            .ok_or_else(|| anyhow::anyhow!("{}: 射手炮塔朝向（type=7 prop2）缺失", ctx()))?;
+        let shooter_turret_yaw =
+            turret_rel_at(l.shooter_prop2, prop2.get(&author_player_eid), fire_time)
+                .map(|rel| rel + sa[0])
+                .ok_or_else(|| anyhow::anyhow!("{}: 射手炮塔朝向（type=7 prop2）缺失", ctx()))?;
 
         // ⑪' 受击方炮管俯仰 = prop2 frac 比例解码（车型极限锚定）@ 命中通知时刻；
         // 流序快照优先（扇区选择用同一快照的偏航角，与 WI 同基准）；prop2 采样或锚定缺失
@@ -1160,48 +1395,88 @@ pub(crate) fn extract_shot_replays_from_shared(
         let mut pitch_frozen: Vec<String> = Vec::new();
         let target_gun_pitch_val = if hit {
             let teid = target_eid.unwrap();
-            pitch_from_prop2(d8_prop2, prop2.get(&teid), state_time, target_limits,
-                &mut pitch_frozen, "target")
-                .unwrap_or_else(|| { gun_pitch_degraded.push("target".into()); ta[1] })
-        } else { ta[1] };
+            pitch_from_prop2(
+                d8_prop2,
+                prop2.get(&teid),
+                state_time,
+                target_limits,
+                &mut pitch_frozen,
+                "target",
+            )
+            .unwrap_or_else(|| {
+                gun_pitch_degraded.push("target".into());
+                ta[1]
+            })
+        } else {
+            ta[1]
+        };
 
         // ⑫ 射手炮管俯仰 = prop2 frac 比例解码 @ 开火时刻（与受击方同源同锚定；method29 流序快照优先）；
         // prop2/锚定缺失 → 回退 method36 field2（车体系炮管俯仰，WotbTools PROVEN），仍缺则 fail-fast
-        let (shooter_gun_pitch, shooter_pitch_from_method36) =
-            match pitch_from_prop2(l.shooter_prop2, prop2.get(&author_player_eid), fire_time,
-                shooter_limits, &mut pitch_frozen, "shooter")
-            {
-                Some(p) => (p, false),
-                None => {
-                    gun_pitch_degraded.push("shooter".into());
-                    let snap_pitch = aim_snapshots.iter()
-                        .min_by_key(|(c, _)| (((*c - fire_time).abs()) * 1000.0) as u32)
-                        .and_then(|(_, s)| s.gun_pitch);
-                    match snap_pitch {
-                        Some(p) => (p as f32, true),
-                        None => anyhow::bail!("{}: 射手炮管俯仰（prop2 与 method36 快照均缺失）", ctx()),
+        let (shooter_gun_pitch, shooter_pitch_from_method36) = match pitch_from_prop2(
+            l.shooter_prop2,
+            prop2.get(&author_player_eid),
+            fire_time,
+            shooter_limits,
+            &mut pitch_frozen,
+            "shooter",
+        ) {
+            Some(p) => (p, false),
+            None => {
+                gun_pitch_degraded.push("shooter".into());
+                let snap_pitch = aim_snapshots
+                    .iter()
+                    .min_by_key(|(c, _)| (((*c - fire_time).abs()) * 1000.0) as u32)
+                    .and_then(|(_, s)| s.gun_pitch);
+                match snap_pitch {
+                    Some(p) => (p as f32, true),
+                    None => {
+                        anyhow::bail!("{}: 射手炮管俯仰（prop2 与 method36 快照均缺失）", ctx())
                     }
                 }
-            };
+            }
+        };
 
         // ⑬ aim_point / launch_point_rel = 相对【命中通知状态】目标位置（type10 接地高度）的偏移
         let (aim_point_val, launch_point_rel) = if ball_b != [0.0; 3] && target_eid.is_some() {
             let rel = |p: [f32; 3]| [p[0] - tp[0], p[1] - tp[1], p[2] - tp[2]];
             (rel(ball_b), rel(ball_a))
-        } else { ([0.0; 3], [0.0; 3]) };
+        } else {
+            ([0.0; 3], [0.0; 3])
+        };
 
-// ⑭/⑮ type=10 采样窗口（受击方相对锚点 / 射手世界系；窗口语义与截断规则见
+        // ⑭/⑮ type=10 采样窗口（受击方相对锚点 / 射手世界系；窗口语义与截断规则见
         // tick_window_samples——两路径共用，注释里记录的实测依据不再逐路径复制）
         let tick_samples = if hit {
-            target_eid.map(|victim| tick_window_samples(
-                st10, tick_timeline, refresh_clusters, victim, end_time, tp, true, target_render.as_ref()))
+            target_eid
+                .map(|victim| {
+                    tick_window_samples(
+                        st10,
+                        tick_timeline,
+                        refresh_clusters,
+                        victim,
+                        end_time,
+                        tp,
+                        true,
+                        target_render.as_ref(),
+                    )
+                })
                 .unwrap_or_default()
-        } else { Vec::new() };
+        } else {
+            Vec::new()
+        };
         let shooter_tick_samples = tick_window_samples(
-            st10, tick_timeline, refresh_clusters, author_player_eid, fire_time,
-            [0.0; 3], false, shooter_render.as_ref());
+            st10,
+            tick_timeline,
+            refresh_clusters,
+            author_player_eid,
+            fire_time,
+            [0.0; 3],
+            false,
+            shooter_render.as_ref(),
+        );
 
-                out.push(ShotReplayData {
+        out.push(ShotReplayData {
             index: i + 1,
             time_s: fire_time,
             damage,
@@ -1247,13 +1522,21 @@ pub(crate) fn extract_shot_replays_from_shared(
             fire_tick,
             terrain_impact,
             shooter_aim,
-            shooter_equipment: vehicle_equipment.get(&author_player_eid).map(VehicleEquipment::from_ids),
-            target_equipment: target_eid.and_then(|t| vehicle_equipment.get(&t)).map(VehicleEquipment::from_ids),
+            shooter_equipment: vehicle_equipment
+                .get(&author_player_eid)
+                .map(VehicleEquipment::from_ids),
+            target_equipment: target_eid
+                .and_then(|t| vehicle_equipment.get(&t))
+                .map(VehicleEquipment::from_ids),
             quality: Some(ShotQuality {
                 shooter_state_dt_ms: (sp_dt * 1000.0).round() as i32,
                 shooter_pos_from_muzzle: false,
-                target_state_dt_ms: if hit { Some((tp_dt * 1000.0).round() as i32) } else { None },
-                turret_degraded: Vec::new(),   // 作者路径 prop2 缺失即 fail-fast，不存在降级
+                target_state_dt_ms: if hit {
+                    Some((tp_dt * 1000.0).round() as i32)
+                } else {
+                    None
+                },
+                turret_degraded: Vec::new(), // 作者路径 prop2 缺失即 fail-fast，不存在降级
                 dmg_unattributed,
                 shell_from_broadcast,
                 shell_from_terrain,
@@ -1261,9 +1544,17 @@ pub(crate) fn extract_shot_replays_from_shared(
                 shooter_pitch_from_method36,
                 gun_pitch_degraded,
                 pitch_frozen,
-                shooter_anchor_src: if sp_src != "filtered" { Some(sp_src.into()) } else { None },
+                shooter_anchor_src: if sp_src != "filtered" {
+                    Some(sp_src.into())
+                } else {
+                    None
+                },
                 // 受击方 filtered 仅出现于 method8 缺失回退路径（正常路径为 wi_hit_state），需序列化提示
-                target_anchor_src: if hit && tp_src != "wi_hit_state" { Some(tp_src.into()) } else { None },
+                target_anchor_src: if hit && tp_src != "wi_hit_state" {
+                    Some(tp_src.into())
+                } else {
+                    None
+                },
             }),
             shooter_render,
             target_render,
@@ -1292,22 +1583,28 @@ pub(crate) fn extract_shot_replays_from_shared(
 pub fn author_nick_from_battle_results(
     br: &wotbreplay_parser::models::battle_results::BattleResults,
 ) -> String {
-    br.players.iter()
+    br.players
+        .iter()
         .find(|p| p.account_id == br.author.account_id)
         .map(|p| p.info.nickname.clone())
         .unwrap_or_default()
 }
 
 /// 从 type=5 实体创建包按昵称精确匹配作者玩家实体 eid。
-/// 作者昵称来自回放自身：meta.player_name / battle_results author→花名册（2026-09-25 起
-/// 替代文件名包含匹配——文件名不属于回放数据，改名即失效）。昵称解码走
+/// 作者昵称来自回放自身：meta.player_name / battle_results author→花名册（不用文件名——
+/// 文件名不属于回放数据，改名即失效）。昵称解码走
 /// [`decode_type5_nickname`] SSOT（原始 UTF-8 全域，含非 ASCII），与作者昵称精确比较
 ///（有 battle_results 昵称作锚，无垃圾误配风险）。无匹配返回 0。
 pub fn resolve_author_player_eid_by_nick(packets: &[(u32, f32, &[u8])], author_nick: &str) -> u32 {
-    if author_nick.is_empty() { return 0; }
-    packets.iter()
+    if author_nick.is_empty() {
+        return 0;
+    }
+    packets
+        .iter()
         .filter_map(|(t, _, p)| {
-            if *t != 5 { return None; }
+            if *t != 5 {
+                return None;
+            }
             decode_type5_nickname(p)
                 .filter(|(_, s)| *s == author_nick)
                 .map(|(eid, _)| eid)
@@ -1337,10 +1634,9 @@ pub fn extract_shot_replays_auto_with_limits(
 }
 
 /// 一次共享扫描完成"作者严格 + 他人宽松"两路提取（web `replay_shots_handler` /
-/// CLI `replay` 子命令入口）：预分析产物与滤波渲染缓存两路复用，替代两接口各自
-/// 全量重扫包流。作者路径 fail 语义与 [`extract_shot_replays_auto_with_limits`]
-/// 一致（错误原样上抛，由调用方决定降级策略）；`author_player_eid` 非零时直接
-/// 采用，为 0 时按 `author_nick` 解析。
+/// CLI `replay` 子命令入口）：预分析产物与滤波渲染缓存两路复用。作者路径 fail
+/// 语义与 [`extract_shot_replays_auto_with_limits`] 一致（错误原样上抛，由调用方
+/// 决定降级策略）；`author_player_eid` 非零时直接采用，为 0 时按 `author_nick` 解析。
 pub fn extract_all_shots_auto_with_limits(
     packets: &[(u32, f32, &[u8])],
     author_nick: &str,
@@ -1354,8 +1650,14 @@ pub fn extract_all_shots_auto_with_limits(
     };
     let shared = build_shot_scan_shared(packets, author_eid);
     let mut render_cache: HashMap<u32, FilteredTimeline> = HashMap::new();
-    let author = extract_shot_replays_from_shared(&shared, author_eid, pitch_limits, &mut render_cache)?;
-    let others = extract_other_shot_replays_from_shared(&shared, author_eid, pitch_limits, &mut render_cache);
+    let author =
+        extract_shot_replays_from_shared(&shared, author_eid, pitch_limits, &mut render_cache)?;
+    let others = extract_other_shot_replays_from_shared(
+        &shared,
+        author_eid,
+        pitch_limits,
+        &mut render_cache,
+    );
     Ok((author, others))
 }
 
@@ -1374,7 +1676,7 @@ pub struct OtherShotsExtraction {
 
 /// 其他玩家（队友/敌方）射击的宽松提取：与 [`extract_shot_replays`] 同源数据，但 Avatar 专属包不可得，对应字段降级：
 /// method38 命中反馈（作者专属）→ hit_flags/crit/destroyed/modifiers 恒空，结果 = method8 result 枚举；目标 = method8 就近匹配（±0.05s）；
-/// segment/弹种/装甲组 = method8 hash6 令牌 ↔ type=32 精确配对（86/86 实测同源），未配对时弹种回退
+/// segment/弹种/装甲组 = method8 hash6 令牌 ↔ type=32 精确配对（同源），未配对时弹种回退
 /// 0x1b 地形命中广播的 shell_global_id（全局广播含所有玩家脱靶弹，shotId 配对）并置 shell_from_terrain；
 /// 伤害 = 血量链降幅（source=射手，cause=0）；双方炮管俯仰 = prop2 frac 解码（无锚定时射手回退发射速度向量、受击方回退车体 pitch）；
 /// method36 瞄准快照 / type=28 弹药槽 = Avatar 专属 → None / 0。
@@ -1396,7 +1698,12 @@ pub fn extract_other_shot_replays_with_limits(
 ) -> OtherShotsExtraction {
     let shared = build_shot_scan_shared(packets, author_player_eid);
     let mut render_cache: HashMap<u32, FilteredTimeline> = HashMap::new();
-    extract_other_shot_replays_from_shared(&shared, author_player_eid, pitch_limits, &mut render_cache)
+    extract_other_shot_replays_from_shared(
+        &shared,
+        author_player_eid,
+        pitch_limits,
+        &mut render_cache,
+    )
 }
 
 /// [`extract_other_shot_replays_with_limits`] 的共享扫描形态（预分析产物复用，见
@@ -1408,8 +1715,12 @@ pub(crate) fn extract_other_shot_replays_from_shared(
     render_cache: &mut HashMap<u32, FilteredTimeline>,
 ) -> OtherShotsExtraction {
     // ① 全部非作者的 method29 发射事件（作者由严格路径处理；shotId 全局去重）；args<37 的包直接跳过
-    let launches: Vec<LaunchEntry> = shared.launches.iter()
-        .filter(|l| l.shooter != author_player_eid).cloned().collect();
+    let launches: Vec<LaunchEntry> = shared
+        .launches
+        .iter()
+        .filter(|l| l.shooter != author_player_eid)
+        .cloned()
+        .collect();
 
     // ② method20 弹道终点（shotId 配对，全量收集，与作者路径同构）
     let endpoints = &shared.endpoints;
@@ -1434,23 +1745,30 @@ pub(crate) fn extract_other_shot_replays_from_shared(
 
     // ⑤ 血量链降幅区间（全 source 保留——作者路径 ⑥' 的无过滤版本，cause=0 炮弹直击；含 type=5 满血锚点）
     let dmg_losses = derive_dmg_losses(&shared.hp_events, None, &shared.initial_hp);
-    // ⑤' 互斥预归属（修复 1436 类错配）：每段降幅给区间内 end_time 最大的命中发射——
-    // 旧 find 首个匹配会把同区间未穿弹也计入并重复计数（1436：44.865/53.972 未穿各
-    // 抢 322、200.256 未穿抢走 261.662 的 428）。目标识别与循环内同式（method8 ±0.05s）。
-    let shot_dmg_inputs: Vec<Option<(f32, u32, u32)>> = launches.iter().map(|l| {
-        let (end_time, _) = endpoints.get(&l.shot_id).copied()?;
-        let teid = direct_hits8.iter()
-            .filter(|d| d.shooter == l.shooter && (d.t - end_time).abs() <= 0.05)
-            .min_by(|x, y| (x.t - end_time).abs().partial_cmp(&(y.t - end_time).abs()).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|d| d.victim)?;
-        Some((end_time, l.shooter, teid))
-    }).collect();
+    // ⑤' 互斥预归属：每段降幅只归属区间内 end_time 最大的命中发射（同区间未穿弹不计入、
+    // 不重复计数）。目标识别与循环内同式（method8 ±0.05s）。
+    let shot_dmg_inputs: Vec<Option<(f32, u32, u32)>> = launches
+        .iter()
+        .map(|l| {
+            let (end_time, _) = endpoints.get(&l.shot_id).copied()?;
+            let teid = direct_hits8
+                .iter()
+                .filter(|d| d.shooter == l.shooter && (d.t - end_time).abs() <= 0.05)
+                .min_by(|x, y| {
+                    (x.t - end_time)
+                        .abs()
+                        .partial_cmp(&(y.t - end_time).abs())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|d| d.victim)?;
+            Some((end_time, l.shooter, teid))
+        })
+        .collect();
     let dmg_assign = assign_dmg_losses(&shot_dmg_inputs, &dmg_losses);
 
-    // ⑥ type=10 状态索引 + type=7 prop2 炮塔偏航索引（共享一次预建，均按 clock 排序；
-    // 此前他人路径沿用包序，排序后与作者路径及 prop2_at 时序假设一致）
+    // ⑥ type=10 状态索引 + type=7 prop2 炮塔偏航索引（共享一次预建，均按 clock 排序）
     let (st10, prop2) = (&shared.st10, &shared.prop2);
-    // 补发簇签名（AoI 通道切换点，逆向文档 6.x）——tick 采样截断 + 锚点选择依据
+    // 补发簇签名（AoI 通道切换点）——tick 采样截断 + 锚点选择依据
     let refresh_clusters = &shared.refresh_clusters;
     let anchor_at = |eid: u32, t: f32| -> Option<([f32; 3], [f32; 3], f32, &'static str)> {
         select_anchor_state(st10.get(&eid)?, refresh_clusters, eid, t)
@@ -1464,11 +1782,20 @@ pub(crate) fn extract_other_shot_replays_from_shared(
     let mut muzzle_fallback = 0usize;
     for (li, l) in launches.iter().enumerate() {
         // ctx 仅在跳过/兜底打印时格式化（避免逐发无条件分配）
-        let ctx = || format!("shotId={} shooter={:08x} t={:.2}s", l.shot_id, l.shooter, l.t);
+        let ctx = || {
+            format!(
+                "shotId={} shooter={:08x} t={:.2}s",
+                l.shot_id, l.shooter, l.t
+            )
+        };
         let ball_a = l.point;
         let (end_time, ball_b) = match endpoints.get(&l.shot_id) {
             Some(x) => *x,
-            None => { skipped_no_endpoint += 1; eprintln!("[replay_others] 跳过 {}: method20 终点缺失", ctx()); continue; }
+            None => {
+                skipped_no_endpoint += 1;
+                eprintln!("[replay_others] 跳过 {}: method20 终点缺失", ctx());
+                continue;
+            }
         };
         // 射手状态快照；AoI 裁剪缺失时用炮口坐标兜底（ball_a = method29 服务器权威发射位置），朝向从速度向量推算，不整发跳过
         let (sp, sa, sp_dt, sp_src, pos_from_muzzle) = match anchor_at(l.shooter, l.t) {
@@ -1477,19 +1804,32 @@ pub(crate) fn extract_other_shot_replays_from_shared(
                 let yaw = l.vel[2].atan2(l.vel[0]);
                 let pitch = {
                     let horiz = (l.vel[0] * l.vel[0] + l.vel[2] * l.vel[2]).sqrt();
-                    if horiz > 1e-6 { l.vel[1].atan2(horiz) } else { 0.0 }
+                    if horiz > 1e-6 {
+                        l.vel[1].atan2(horiz)
+                    } else {
+                        0.0
+                    }
                 };
                 muzzle_fallback += 1;
-                eprintln!("[replay_others] {}: 射手 type=10 状态缺失，用炮口坐标兜底", ctx());
+                eprintln!(
+                    "[replay_others] {}: 射手 type=10 状态缺失，用炮口坐标兜底",
+                    ctx()
+                );
                 (ball_a, [yaw, pitch, 0.0], 0.0, "nearest", true)
             }
         };
         let fire_tick = tick_at(tick_timeline, l.t);
 
         // 目标 = method8 就近匹配（窗口 ±0.05s，同作者路径命中窗口）
-        let dhit = direct_hits8.iter()
+        let dhit = direct_hits8
+            .iter()
             .filter(|d| d.shooter == l.shooter && (d.t - end_time).abs() <= 0.05)
-            .min_by(|x, y| (x.t - end_time).abs().partial_cmp(&(y.t - end_time).abs()).unwrap_or(std::cmp::Ordering::Equal));
+            .min_by(|x, y| {
+                (x.t - end_time)
+                    .abs()
+                    .partial_cmp(&(y.t - end_time).abs())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
         let target_eid = dhit.map(|d| d.victim);
         let hit = target_eid.is_some();
 
@@ -1505,7 +1845,10 @@ pub(crate) fn extract_other_shot_replays_from_shared(
         if let Some(d) = dhit {
             hit_token = Some(d.hash6.iter().map(|b| format!("{:02x}", b)).collect());
             if let Some(teid) = target_eid {
-                if let Some(w) = warnings32.iter().find(|w| w.eid == teid && w.hash6 == d.hash6) {
+                if let Some(w) = warnings32
+                    .iter()
+                    .find(|w| w.eid == teid && w.hash6 == d.hash6)
+                {
                     segment = w.segment;
                     game_hit_result = w.result;
                     let sb = segment.to_le_bytes();
@@ -1517,7 +1860,10 @@ pub(crate) fn extract_other_shot_replays_from_shared(
         }
         let terrain_hit = terrain_impacts.get(&l.shot_id);
         if shell_id == 0 {
-            if let Some((gid, _)) = terrain_hit { shell_id = *gid; shell_from_terrain = true; }
+            if let Some((gid, _)) = terrain_hit {
+                shell_id = *gid;
+                shell_from_terrain = true;
+            }
         }
         let terrain_impact = terrain_hit.map(|(_, d)| d.clone());
 
@@ -1525,12 +1871,17 @@ pub(crate) fn extract_other_shot_replays_from_shared(
         let mut damage = 0u32;
         let mut is_kill = false;
         let mut dmg_unattributed = false;
-        let target_name = target_eid.and_then(|e| names.get(&e).cloned()).unwrap_or_default();
+        let target_name = target_eid
+            .and_then(|e| names.get(&e).cloned())
+            .unwrap_or_default();
         if let Some(d) = dhit {
             if let Some(&(dm, hp_cur)) = dmg_assign.get(&li) {
                 damage = dm;
-                is_kill = hp_cur == 0;   // 归属链已按哨兵族 {0,-1,-2,-3}→0 归一化
-            } else if d.result == 3 || d.result == 4 || (d.result == 2 && d.component_index == Some(0)) {
+                is_kill = hp_cur == 0; // 归属链已按哨兵族 {0,-1,-2,-3}→0 归一化
+            } else if d.result == 3
+                || d.result == 4
+                || (d.result == 2 && d.component_index == Some(0))
+            {
                 // 应伤结果（3=击穿 / 4=履带·模块交互可带伤）却无降幅 = 服务器未记账 HP
                 dmg_unattributed = true;
             }
@@ -1545,7 +1896,14 @@ pub(crate) fn extract_other_shot_replays_from_shared(
                 Some((pos, ang, state_clock)) => (pos, ang, state_clock - end_time, "wi_hit_state"),
                 None => match anchor_at(d.victim, end_time) {
                     Some(x) => x,
-                    None => { skipped_no_target_state += 1; eprintln!("[replay_others] 跳过 {}: 命中时刻目标 type=10 状态缺失", ctx()); continue; }
+                    None => {
+                        skipped_no_target_state += 1;
+                        eprintln!(
+                            "[replay_others] 跳过 {}: 命中时刻目标 type=10 状态缺失",
+                            ctx()
+                        );
+                        continue;
+                    }
                 },
             }
         } else {
@@ -1558,23 +1916,41 @@ pub(crate) fn extract_other_shot_replays_from_shared(
         let shooter_limits = pitch_limits.get(&shooter_name_val);
         let target_limits = pitch_limits.get(&target_name);
         let ShotRenderPack {
-            shooter_render, target_render,
-            target_render_timeline, shooter_render_timeline,
-            target_turret_timeline, shooter_turret_timeline,
-            shooter_gun_timeline, target_gun_timeline,
+            shooter_render,
+            target_render,
+            target_render_timeline,
+            shooter_render_timeline,
+            target_turret_timeline,
+            shooter_turret_timeline,
+            shooter_gun_timeline,
+            target_gun_timeline,
         } = shot_render_pack(
-            render_cache, st10, prop2,
-            l.shooter, l.t, sp, pos_from_muzzle,
-            target_eid, hit, end_time, tp,
-            shooter_limits, target_limits,
-            ShooterGunFallback::None);
-        // 服务器受击部件索引（method8 args[10]，报告 §4.7）
+            render_cache,
+            st10,
+            prop2,
+            l.shooter,
+            l.t,
+            sp,
+            pos_from_muzzle,
+            target_eid,
+            hit,
+            end_time,
+            tp,
+            shooter_limits,
+            target_limits,
+            ShooterGunFallback::None,
+        );
+        // 服务器受击部件索引（method8 args[10]）
         let server_part_index = dhit.and_then(|d| d.component_index);
         // 受击者炮管俯仰（原始解码恢复）：来向方位角校验通过的抵达成角 pitch
         let bearing = if tp != [0.0; 3] && sp != [0.0; 3] {
             Some((sp[0] - tp[0]).atan2(sp[2] - tp[2]))
-        } else { None };
-        let server_gun_pitch = decoded_target_gun_pitch(warnings32, target_eid.unwrap_or(0), end_time, bearing).map(|(p, _)| p);
+        } else {
+            None
+        };
+        let server_gun_pitch =
+            decoded_target_gun_pitch(warnings32, target_eid.unwrap_or(0), end_time, bearing)
+                .map(|(p, _)| p);
 
         // 炮塔朝向（prop2 相对角 @ 命中通知时刻；method8 流序快照优先 = WI 逐位同基准，
         // 见 DirectHit8::victim_prop2；AoI 裁剪缺失时降级为车体朝向，不跳过）
@@ -1586,49 +1962,99 @@ pub(crate) fn extract_other_shot_replays_from_shared(
             let teid = target_eid.unwrap_or(0);
             match turret_rel_at(d8_prop2, prop2.get(&teid), end_time) {
                 Some(rel) => rel + ta[0],
-                None => { turret_degraded.push("target".into()); ta[0] }
+                None => {
+                    turret_degraded.push("target".into());
+                    ta[0]
+                }
             }
-        } else { 0.0 };
+        } else {
+            0.0
+        };
         let shooter_turret_yaw = match turret_rel_at(l.shooter_prop2, prop2.get(&l.shooter), l.t) {
             Some(rel) => rel + sa[0],
-            None => { if !pos_from_muzzle { turret_degraded.push("shooter".into()); } sa[0] }
+            None => {
+                if !pos_from_muzzle {
+                    turret_degraded.push("shooter".into());
+                }
+                sa[0]
+            }
         };
 
         // 炮管俯仰：prop2 frac 比例解码（双方同源，method29/8 流序快照优先）；prop2/锚定缺失
         // → 射手回退发射速度向量反解（垂直/水平分量），受击方回退车体 pitch，均打质量标记
-        let shooter_gun_pitch = match pitch_from_prop2(l.shooter_prop2, prop2.get(&l.shooter), l.t,
-            shooter_limits, &mut pitch_frozen, "shooter")
-        {
+        let shooter_gun_pitch = match pitch_from_prop2(
+            l.shooter_prop2,
+            prop2.get(&l.shooter),
+            l.t,
+            shooter_limits,
+            &mut pitch_frozen,
+            "shooter",
+        ) {
             Some(p) => p,
             None => {
                 gun_pitch_degraded.push("shooter".into());
                 let horiz = (l.vel[0] * l.vel[0] + l.vel[2] * l.vel[2]).sqrt();
-                if horiz > 1e-6 { l.vel[1].atan2(horiz) } else { 0.0 }
+                if horiz > 1e-6 {
+                    l.vel[1].atan2(horiz)
+                } else {
+                    0.0
+                }
             }
         };
         let target_gun_pitch_val = if hit {
             let teid = target_eid.unwrap();
-            pitch_from_prop2(d8_prop2, prop2.get(&teid), end_time, target_limits,
-                &mut pitch_frozen, "target")
-                .unwrap_or_else(|| { gun_pitch_degraded.push("target".into()); ta[1] })
-        } else { ta[1] };
+            pitch_from_prop2(
+                d8_prop2,
+                prop2.get(&teid),
+                end_time,
+                target_limits,
+                &mut pitch_frozen,
+                "target",
+            )
+            .unwrap_or_else(|| {
+                gun_pitch_degraded.push("target".into());
+                ta[1]
+            })
+        } else {
+            ta[1]
+        };
 
         // aim_point / launch_point_rel = 相对命中通知状态目标位置的偏移（与作者路径同式）
         let (aim_point_val, launch_point_rel) = if ball_b != [0.0; 3] && target_eid.is_some() {
             let rel = |p: [f32; 3]| [p[0] - tp[0], p[1] - tp[1], p[2] - tp[2]];
             (rel(ball_b), rel(ball_a))
-        } else { ([0.0; 3], [0.0; 3]) };
+        } else {
+            ([0.0; 3], [0.0; 3])
+        };
 
-// ⑭/⑮ type=10 采样窗口（与作者路径共用 tick_window_samples）
-        let tick_samples = target_eid.map(|victim| tick_window_samples(
-            st10, tick_timeline, refresh_clusters, victim, end_time, tp, true, target_render.as_ref()))
+        // ⑭/⑮ type=10 采样窗口（与作者路径共用 tick_window_samples）
+        let tick_samples = target_eid
+            .map(|victim| {
+                tick_window_samples(
+                    st10,
+                    tick_timeline,
+                    refresh_clusters,
+                    victim,
+                    end_time,
+                    tp,
+                    true,
+                    target_render.as_ref(),
+                )
+            })
             .unwrap_or_default();
         let shooter_tick_samples = tick_window_samples(
-            st10, tick_timeline, refresh_clusters, l.shooter, l.t,
-            [0.0; 3], false, shooter_render.as_ref());
+            st10,
+            tick_timeline,
+            refresh_clusters,
+            l.shooter,
+            l.t,
+            [0.0; 3],
+            false,
+            shooter_render.as_ref(),
+        );
 
-                out.push(ShotReplayData {
-            index: 0,   // 合并后由调用方按 time_s 全局重编号
+        out.push(ShotReplayData {
+            index: 0, // 合并后由调用方按 time_s 全局重编号
             time_s: l.t,
             damage,
             target_name,
@@ -1652,7 +2078,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
             ball_a,
             ball_b,
             launch_velocity: l.vel,
-            hit_flags: 0,           // method38 作者专属，他人不可得（结果看 game_hit_result）
+            hit_flags: 0, // method38 作者专属，他人不可得（结果看 game_hit_result）
             crit_modules: 0,
             destroyed_modules: 0,
             segment,
@@ -1663,7 +2089,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
             game_hit_result,
             hit_token,
             modifiers: Vec::new(),
-            shell_slot: 0,          // type=28 弹药槽是作者本人的选择状态，对他人无意义
+            shell_slot: 0, // type=28 弹药槽是作者本人的选择状态，对他人无意义
             fire_time: l.t,
             shot_id: l.shot_id,
             incoming_yaw: 0.0,
@@ -1671,25 +2097,41 @@ pub(crate) fn extract_other_shot_replays_from_shared(
             tick_samples,
             shooter_tick_samples,
             fire_tick,
-            terrain_impact,         // 0x1b 全局广播：他人脱靶弹同样有精确落点
-            shooter_aim: None,      // method36 瞄准快照 = 作者 Avatar 专属
-            shooter_equipment: vehicle_equipment.get(&l.shooter).map(VehicleEquipment::from_ids),
-            target_equipment: target_eid.and_then(|t| vehicle_equipment.get(&t)).map(VehicleEquipment::from_ids),
+            terrain_impact,    // 0x1b 全局广播：他人脱靶弹同样有精确落点
+            shooter_aim: None, // method36 瞄准快照 = 作者 Avatar 专属
+            shooter_equipment: vehicle_equipment
+                .get(&l.shooter)
+                .map(VehicleEquipment::from_ids),
+            target_equipment: target_eid
+                .and_then(|t| vehicle_equipment.get(&t))
+                .map(VehicleEquipment::from_ids),
             quality: Some(ShotQuality {
                 shooter_state_dt_ms: (sp_dt * 1000.0).round() as i32,
                 shooter_pos_from_muzzle: pos_from_muzzle,
-                target_state_dt_ms: if hit { Some((tp_dt * 1000.0).round() as i32) } else { None },
+                target_state_dt_ms: if hit {
+                    Some((tp_dt * 1000.0).round() as i32)
+                } else {
+                    None
+                },
                 turret_degraded,
                 dmg_unattributed,
-                shell_from_broadcast: false,   // 0x07 弹种广播 = 作者 Avatar 弹药状态，他人不可得
+                shell_from_broadcast: false, // 0x07 弹种广播 = 作者 Avatar 弹药状态，他人不可得
                 shell_from_terrain,
                 shooter_pitch_from_velocity: gun_pitch_degraded.iter().any(|s| s == "shooter"),
                 shooter_pitch_from_method36: false,
                 gun_pitch_degraded,
                 pitch_frozen,
-                shooter_anchor_src: if sp_src != "filtered" { Some(sp_src.into()) } else { None },
+                shooter_anchor_src: if sp_src != "filtered" {
+                    Some(sp_src.into())
+                } else {
+                    None
+                },
                 // 受击方 filtered 仅出现于 method8 缺失回退路径（正常路径为 wi_hit_state），需序列化提示
-                target_anchor_src: if hit && tp_src != "wi_hit_state" { Some(tp_src.into()) } else { None },
+                target_anchor_src: if hit && tp_src != "wi_hit_state" {
+                    Some(tp_src.into())
+                } else {
+                    None
+                },
             }),
             shooter_render,
             target_render,
@@ -1768,18 +2210,18 @@ mod author_warning32_pairing_tests {
     fn conflicting_type32_without_unique_method8_hash_remains_fail_fast() {
         let a = [1, 2, 3, 4, 5, 6];
         let b = [6, 5, 4, 3, 2, 1];
-        let warnings = vec![
-            warning(20.0, 42, a, 0x10),
-            warning(20.0, 42, b, 0x20),
-        ];
+        let warnings = vec![warning(20.0, 42, a, 0x10), warning(20.0, 42, b, 0x20)];
 
-        assert!(matches!(select_author_warning32(&warnings, &[], 7, 42, 20.0), Err(2)));
+        assert!(matches!(
+            select_author_warning32(&warnings, &[], 7, 42, 20.0),
+            Err(2)
+        ));
 
-        let hits = vec![
-            direct(20.0, 7, 42, a, 0),
-            direct(20.0, 7, 42, b, 1),
-        ];
-        assert!(matches!(select_author_warning32(&warnings, &hits, 7, 42, 20.0), Err(2)));
+        let hits = vec![direct(20.0, 7, 42, a, 0), direct(20.0, 7, 42, b, 1)];
+        assert!(matches!(
+            select_author_warning32(&warnings, &hits, 7, 42, 20.0),
+            Err(2)
+        ));
     }
 
     #[test]
@@ -1797,4 +2239,3 @@ mod author_warning32_pairing_tests {
         assert_eq!(picked.segment, 0x1234);
     }
 }
-

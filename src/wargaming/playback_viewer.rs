@@ -15,8 +15,8 @@
 //!   turret.rotation.y = −(turret_abs − hull_yaw)；gunPivot.rotation.x = −gun_pitch。
 //!   hull_yaw/turret_yaw 为后端解卷绕连续域（可超 ±π），直接线性插值即物理正确。
 
-use axum::response::{IntoResponse, Response};
 use crate::wargaming::tank_resolver::TankResolver;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use std::collections::HashMap;
@@ -30,7 +30,7 @@ const CACHE_MAX: usize = 4;
 
 type Cache = Mutex<Vec<(String, Arc<Vec<u8>>)>>;
 static CACHE: OnceLock<Cache> = OnceLock::new();
-/// gzip 响应缓存（与 JSON 缓存同键；此前缓存命中后每次请求仍重新压缩多 MB JSON）。
+/// gzip 响应缓存（与 JSON 缓存同键）。
 /// 值为 Arc<Bytes>（克隆 = 引用计数，跨请求零拷贝；Body 本身非 Sync 不能入 static）
 type GzCacheEntry = (String, Arc<axum::body::Bytes>);
 static GZ_BYTES_CACHE: OnceLock<Mutex<Vec<GzCacheEntry>>> = OnceLock::new();
@@ -48,9 +48,15 @@ fn cache_put(c: &'static Cache, key: String, v: Arc<Vec<u8>>) {
 /// 解析回放 → PlaybackData → 未压缩 JSON 字节（缓存命中直接返回）。
 /// TankResolver 由调用方注入（web = AppState mtime 缓存实例；standalone = 自建；
 /// None 回退进程级 GLOBAL_RESOLVER）。
-pub fn build_playback_json(path: &Path, resolver: Option<Arc<TankResolver>>) -> anyhow::Result<Arc<Vec<u8>>> {
-    let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
-        .to_string_lossy().to_string();
+pub fn build_playback_json(
+    path: &Path,
+    resolver: Option<Arc<TankResolver>>,
+) -> anyhow::Result<Arc<Vec<u8>>> {
+    let key = path
+        .canonicalize()
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .to_string();
     if let Some((_, v)) = cache().lock().unwrap().iter().find(|(k, _)| k == &key) {
         return Ok(v.clone());
     }
@@ -60,47 +66,73 @@ pub fn build_playback_json(path: &Path, resolver: Option<Arc<TankResolver>>) -> 
     Ok(arc)
 }
 
-fn build_playback_json_uncached(path: &Path, key: &str, resolver: Option<Arc<TankResolver>>) -> anyhow::Result<Vec<u8>> {
+fn build_playback_json_uncached(
+    path: &Path,
+    key: &str,
+    resolver: Option<Arc<TankResolver>>,
+) -> anyhow::Result<Vec<u8>> {
     use wotbreplay_parser::replay::Replay;
 
     let mut replay = Replay::open(std::fs::File::open(path)?)?;
     let meta = replay.read_meta().ok();
     let data = replay.read_data()?;
-    let packets: Vec<(u32, f32, &[u8])> = data.packets.iter().map(|pkt| {
-        let t = match &pkt.payload {
-            wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate { .. } => 0,
-            wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
-            wotbreplay_parser::models::data::payload::Payload::Unknown { packet_type } => *packet_type,
-        };
-        (t, pkt.clock_secs, &pkt.raw_payload[..])
-    }).collect();
+    let packets: Vec<(u32, f32, &[u8])> = data
+        .packets
+        .iter()
+        .map(|pkt| {
+            let t = match &pkt.payload {
+                wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate { .. } => 0,
+                wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
+                wotbreplay_parser::models::data::payload::Payload::Unknown { packet_type } => {
+                    *packet_type
+                }
+            };
+            (t, pkt.clock_secs, &pkt.raw_payload[..])
+        })
+        .collect();
 
     let br = replay.read_battle_results().ok();
-    // resolver 由调用方注入（web 走 AppState 的 mtime 缓存解析器；standalone 传自建实例；
-    // 缺省回退进程级 GLOBAL_RESOLVER——它只在 tank_cache.json 离线刷新后短暂过期）
     let resolver = resolver.unwrap_or_else(crate::wargaming::tank_configs::global_resolver);
     // 实际搭载 comp blob（俯仰锚定与变体标注共用一份收集）
-    let valid_tanks: Vec<u32> = br.as_ref().map(|br| br.player_results.iter()
-        .map(|pr| pr.info.tank_id).collect()).unwrap_or_default();
+    let valid_tanks: Vec<u32> = br
+        .as_ref()
+        .map(|br| br.player_results.iter().map(|pr| pr.info.tank_id).collect())
+        .unwrap_or_default();
     let comps = crate::replay::playback::collect_comp_descriptors(&packets, &valid_tanks);
-    let pitch_limits = br.as_ref()
+    let pitch_limits = br
+        .as_ref()
         .map(|br| resolver.pitch_limits_from_battle_results(br, &comps))
         .unwrap_or_default();
 
     // battle_results → 玩家联表（昵称/队伍 × tank_id）+ 坦克名
-    let winner_team = br.as_ref().and_then(|br| br.winner_team_number.as_ref())
-        .map(|w| if *w == 1 { 1u8 } else if *w == 2 { 2u8 } else { 0u8 })
+    let winner_team = br
+        .as_ref()
+        .and_then(|br| br.winner_team_number.as_ref())
+        .map(|w| {
+            if *w == 1 {
+                1u8
+            } else if *w == 2 {
+                2u8
+            } else {
+                0u8
+            }
+        })
         .unwrap_or(0);
     let mut players = Vec::new();
     let mut tank_names = HashMap::new();
     if let Some(br) = br.as_ref() {
         for pr in &br.player_results {
-            let joined = br.players.iter().find(|p| p.account_id == pr.info.account_id);
+            let joined = br
+                .players
+                .iter()
+                .find(|p| p.account_id == pr.info.account_id);
             let tank_id = pr.info.tank_id;
             players.push(crate::replay::playback::PlaybackPlayer {
                 account_id: pr.info.account_id,
                 nickname: joined.map(|p| p.info.nickname.clone()).unwrap_or_default(),
-                team: joined.map(|p| if p.info.team == 1 { 1u8 } else { 2u8 }).unwrap_or(0),
+                team: joined
+                    .map(|p| if p.info.team == 1 { 1u8 } else { 2u8 })
+                    .unwrap_or(0),
                 tank_id,
             });
             if let Some(name) = resolver.resolve(tank_id) {
@@ -134,11 +166,18 @@ fn build_playback_json_uncached(path: &Path, key: &str, resolver: Option<Arc<Tan
     let mut pb = crate::replay::playback::build_playback_data(&input)?;
     // 实际搭载：comp blob（确定性）优先，弹种/血量推断回退（comps 已在锚定表构建时收集）
     if !comps.is_empty() {
-        eprintln!("[playback] comp 描述符: {} 条（updateArena subtype 1）", comps.len());
+        eprintln!(
+            "[playback] comp 描述符: {} 条（updateArena subtype 1）",
+            comps.len()
+        );
     }
     annotate_vehicle_configs(&mut pb, &comps);
-    eprintln!("[playback] 完成: {} 车 / {} 发 / {:.0}s",
-        pb.vehicles.len(), pb.shots.len(), pb.meta.duration);
+    eprintln!(
+        "[playback] 完成: {} 车 / {} 发 / {:.0}s",
+        pb.vehicles.len(),
+        pb.shots.len(),
+        pb.meta.duration
+    );
     let json = serde_json::to_vec(&pb)?;
     Ok(json)
 }
@@ -150,19 +189,29 @@ fn build_playback_json_uncached(path: &Path, key: &str, resolver: Option<Arc<Tan
 // 2. 初始血量：总 HP = 车体 health + 炮塔 health（tanks.pb），装备"改进耐久"= ×1.125。
 // 弹种证据缺失（未开炮）时按血量；再缺失取顶级配置。多匹配取最后一档。
 
-fn annotate_vehicle_configs(pb: &mut crate::replay::playback::PlaybackData,
-                            comps: &HashMap<String, crate::replay::playback::CompDescriptor>) {
-    // 实际搭载解析统一走 viewer::resolve_config_index（comp blob → 弹种 → 血量 三级证据链，
-    // 与射击复现共享同一实现）；返回 dense (turret_index, gun_index)
+fn annotate_vehicle_configs(
+    pb: &mut crate::replay::playback::PlaybackData,
+    comps: &HashMap<String, crate::replay::playback::CompDescriptor>,
+) {
+    // 实际搭载解析统一走 tank_configs::resolve_config_index（comp blob → 弹种 → 血量
+    // 三级证据链，与射击复现共享同一实现）；返回 dense (turret_index, gun_index)
     let mut cache: HashMap<u32, Option<(u32, u32)>> = HashMap::new();
     for v in &mut pb.vehicles {
-        if v.tank_id == 0 { continue; }
+        if v.tank_id == 0 {
+            continue;
+        }
         let pair = cache.entry(v.tank_id).or_insert_with(|| {
             let comp = comps.get(&v.nickname).and_then(|c| {
-                ((c.tank_id & 0xFFFF) == (v.tank_id & 0xFFFF)).then_some((c.turret_local, c.gun_local))
+                ((c.tank_id & 0xFFFF) == (v.tank_id & 0xFFFF))
+                    .then_some((c.turret_local, c.gun_local))
             });
-            crate::wargaming::tank_configs::resolve_config_index(v.tank_id, comp, &v.shell_ids, v.max_hp)
-                .map(|(_, ti, gi)| (ti, gi))
+            crate::wargaming::tank_configs::resolve_config_index(
+                v.tank_id,
+                comp,
+                &v.shell_ids,
+                v.max_hp,
+            )
+            .map(|(_, ti, gi)| (ti, gi))
         });
         if let Some((ti, gi)) = *pair {
             v.turret_index = Some(ti);
@@ -180,8 +229,11 @@ fn gzip_bytes(data: &[u8]) -> Vec<u8> {
 
 /// 数据响应：gzip JSON（浏览器 fetch 按 Content-Encoding 透明解压）。
 /// 全场时间线构建（多 MB JSON）与 gzip 压缩都是 CPU 重活——整体 spawn_blocking
-/// （同文件 map/terrain/groundtex 系列均有此纪律，此前唯独最重的数据端点漏了）。
-pub async fn playback_data_response(path: &Path, resolver: Option<std::sync::Arc<TankResolver>>) -> Response {
+/// （map/terrain/groundtex 系列同此纪律）。
+pub async fn playback_data_response(
+    path: &Path,
+    resolver: Option<std::sync::Arc<TankResolver>>,
+) -> Response {
     let path = path.to_path_buf();
     match tokio::task::spawn_blocking(move || playback_gzip_blocking(&path, resolver)).await {
         Ok(Ok(gz)) => (
@@ -190,24 +242,37 @@ pub async fn playback_data_response(path: &Path, resolver: Option<std::sync::Arc
                 (axum::http::header::CONTENT_ENCODING, "gzip"),
             ],
             gz,
-        ).into_response(),
+        )
+            .into_response(),
         Ok(Err(e)) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             format!("回放数据构建失败: {e:?}"),
-        ).into_response(),
+        )
+            .into_response(),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             format!("playback task failed: {e}"),
-        ).into_response(),
+        )
+            .into_response(),
     }
 }
 
 /// [`playback_data_response`] 的阻塞实现：JSON 构建（自带缓存）→ gzip（结果缓存）。
-fn playback_gzip_blocking(path: &Path, resolver: Option<std::sync::Arc<TankResolver>>) -> anyhow::Result<axum::body::Bytes> {
-    let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
-        .to_string_lossy().to_string();
-    if let Some((_, b)) = GZ_BYTES_CACHE.get_or_init(|| Mutex::new(Vec::new()))
-        .lock().unwrap().iter().find(|(k, _)| k == &key)
+fn playback_gzip_blocking(
+    path: &Path,
+    resolver: Option<std::sync::Arc<TankResolver>>,
+) -> anyhow::Result<axum::body::Bytes> {
+    let key = path
+        .canonicalize()
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .to_string();
+    if let Some((_, b)) = GZ_BYTES_CACHE
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|(k, _)| k == &key)
     {
         return Ok((**b).clone());
     }
@@ -216,7 +281,10 @@ fn playback_gzip_blocking(path: &Path, resolver: Option<std::sync::Arc<TankResol
     // Bytes::from(Vec) 取所有权零拷贝；Bytes 克隆共享底层缓冲
     let bytes = Arc::new(axum::body::Bytes::from(gz));
     let out = (*bytes).clone();
-    let mut c = GZ_BYTES_CACHE.get_or_init(|| Mutex::new(Vec::new())).lock().unwrap();
+    let mut c = GZ_BYTES_CACHE
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .unwrap();
     c.insert(0, (key, bytes));
     c.truncate(CACHE_MAX);
     Ok(out)
@@ -241,7 +309,7 @@ fn map_query_param(q: &HashMap<String, String>) -> String {
 
 /// GET /api/playback/map?id=19 —— 地图底图（提取/覆盖/缓存链路见
 /// [`crate::wargaming::map_assets`]；不可用时仍 404，前端回退程序生成网格）。
-/// `&res=mini` 伺服客户端小地图（低画质档地面：缓存→客户端提取→随包→高清兜底）
+/// `&res=mini` 伺服客户端小地图（低画质档地面：缓存→客户端提取→高清兜底）
 pub async fn playback_map_handler(
     axum::extract::Query(q): axum::extract::Query<HashMap<String, String>>,
 ) -> Response {
@@ -255,7 +323,13 @@ pub async fn playback_map_handler(
         }
     })
     .await
-    .unwrap_or_else(|_| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "map task failed").into_response())
+    .unwrap_or_else(|_| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "map task failed",
+        )
+            .into_response()
+    })
 }
 
 /// GET /api/playback/terrain?id=19 —— 高度场地形（u16 LE + X-Terrain-Meta；
@@ -266,7 +340,13 @@ pub async fn playback_terrain_handler(
     let map = map_query_param(&q);
     tokio::task::spawn_blocking(move || crate::wargaming::map_assets::terrain_response(&map))
         .await
-        .unwrap_or_else(|_| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "terrain task failed").into_response())
+        .unwrap_or_else(|_| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "terrain task failed",
+            )
+                .into_response()
+        })
 }
 
 /// GET /api/playback/groundmeta?id=19 —— 地表分层合成参数（缺失 404，
@@ -279,7 +359,13 @@ pub async fn playback_groundmeta_handler(
         crate::wargaming::map_assets::ground_layers_meta_response(&map)
     })
     .await
-    .unwrap_or_else(|_| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "ground meta task failed").into_response())
+    .unwrap_or_else(|_| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "ground meta task failed",
+        )
+            .into_response()
+    })
 }
 
 /// GET /api/playback/groundtex?id=19&k=cm|tile|mask|hmap —— 地表分层贴图
@@ -292,7 +378,13 @@ pub async fn playback_groundtex_handler(
         crate::wargaming::map_assets::ground_layer_response(&map, &layer)
     })
     .await
-    .unwrap_or_else(|_| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "ground tex task failed").into_response())
+    .unwrap_or_else(|_| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "ground tex task failed",
+        )
+            .into_response()
+    })
 }
 
 /// GET /api/playback/scenery?id=19 —— 静态场景 GLB（客户端管线离线导出；
@@ -303,10 +395,16 @@ pub async fn playback_scenery_handler(
     let map = map_query_param(&q);
     tokio::task::spawn_blocking(move || crate::wargaming::map_assets::scenery_response(&map))
         .await
-        .unwrap_or_else(|_| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "scenery task failed").into_response())
+        .unwrap_or_else(|_| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "scenery task failed",
+            )
+                .into_response()
+        })
 }
 
-// 播放器页面已切流至 Vue SPA（/playback → crate::web::spa_index_handler，
+// 播放器页面为 Vue SPA（/playback → crate::web::spa_index_handler，
 // vue-router 路由 PlaybackView + scene/playbackScene.js 场景内核）。
 
 // ---------- 独立服务（CLI `playback <replay>`） ----------
@@ -315,7 +413,8 @@ pub async fn serve_standalone(replay_path: &Path) -> anyhow::Result<()> {
     // 全局 resolver（GLB 车模名/俯仰极限表用）
     let resolver = crate::wargaming::tank_resolver::TankResolver::load_from_json_file(
         crate::data::data_path("tank_cache.json").as_path(),
-    ).unwrap_or_default();
+    )
+    .unwrap_or_default();
     crate::wargaming::tank_configs::set_global_resolver(resolver.clone());
 
     // 预热缓存（启动即构建，首开页面零等待；失败不退出——页面仍可显示错误）
@@ -325,19 +424,36 @@ pub async fn serve_standalone(replay_path: &Path) -> anyhow::Result<()> {
 
     // 页面为 Vue SPA（crate::web 嵌入产物）；根路径重定向到 /playback 路由
     let app = Router::new()
-        .route("/", get(|| async { axum::response::Redirect::temporary("/playback") }))
-        .route("/playback", get(|| async { crate::web::spa_index_response() }))
-        .route("/assets/{*path}", get(|axum::extract::Path(path): axum::extract::Path<String>| async move {
-            crate::web::spa_asset_response(&path)
-        }))
+        .route(
+            "/",
+            get(|| async { axum::response::Redirect::temporary("/playback") }),
+        )
+        .route(
+            "/playback",
+            get(|| async { crate::web::spa_index_response() }),
+        )
+        .route(
+            "/assets/{*path}",
+            get(
+                |axum::extract::Path(path): axum::extract::Path<String>| async move {
+                    crate::web::spa_asset_response(&path)
+                },
+            ),
+        )
         .route("/api/playback/data", post(playback_data_handler))
         .route("/api/playback/map", get(playback_map_handler))
         .route("/api/playback/terrain", get(playback_terrain_handler))
         .route("/api/playback/scenery", get(playback_scenery_handler))
         .route("/api/playback/groundmeta", get(playback_groundmeta_handler))
         .route("/api/playback/groundtex", get(playback_groundtex_handler))
-        .route("/api/tank/{tank_id}", get(crate::web::assets::tank_data_handler))
-        .route("/glb/{tank_id}/{filename}", get(crate::web::assets::glb_handler))
+        .route(
+            "/api/tank/{tank_id}",
+            get(crate::web::assets::tank_data_handler),
+        )
+        .route(
+            "/glb/{tank_id}/{filename}",
+            get(crate::web::assets::glb_handler),
+        )
         .with_state(());
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 0));
@@ -351,6 +467,3 @@ pub async fn serve_standalone(replay_path: &Path) -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
     Ok(())
 }
-
-// ---------- 内嵌前端 ----------
-

@@ -6,7 +6,7 @@
 // `Replay::read_battle_results_dat()` 的原始 buffer 中补齐（unknown ≠ 0：字段缺失保留 None，
 // 不猜 0）。
 //
-// 字段号权威来源：WotbTools battle-results.md + 本项目全量遍历（回放未解析数据清单.md）：
+// 字段号权威来源：WotbTools battle-results.md + 本项目全量遍历（《回放与射击逆向总集》第一篇 §九）：
 //   #301（每战斗者一条，repeated length-delimited）内：
 //   1=终局血量 i32（-2=自动击毁/不活动哨兵、-3 语义禁猜）  16=点亮敌人数
 //   24=存活寿命整秒                                        25=击杀者 ID
@@ -58,12 +58,21 @@ use crate::replay::combat::pb_varint;
 fn skip_field(b: &[u8], o: &mut usize, wire_type: u64) -> bool {
     match wire_type {
         0 => pb_varint(b, o).is_some(),
-        1 => { *o += 8; *o <= b.len() }
+        1 => {
+            *o += 8;
+            *o <= b.len()
+        }
         2 => match pb_varint(b, o) {
-            Some(len) => { *o += len as usize; *o <= b.len() }
+            Some(len) => {
+                *o += len as usize;
+                *o <= b.len()
+            }
             None => false,
         },
-        5 => { *o += 4; *o <= b.len() }
+        5 => {
+            *o += 4;
+            *o <= b.len()
+        }
         _ => false,
     }
 }
@@ -121,10 +130,14 @@ pub fn parse_root_fields(proto: &[u8]) -> SettlementRootFields {
     let mut out = SettlementRootFields::default();
     let mut o = 0usize;
     while o < proto.len() {
-        let Some(key) = pb_varint(proto, &mut o) else { break };
+        let Some(key) = pb_varint(proto, &mut o) else {
+            break;
+        };
         let (field, wt) = (key >> 3, key & 7);
         if wt == 0 {
-            let Some(v) = pb_varint(proto, &mut o) else { break };
+            let Some(v) = pb_varint(proto, &mut o) else {
+                break;
+            };
             match field {
                 4 => out.finish_reason = Some(v as u32),
                 5 => out.duration_secs = Some(v as u32),
@@ -147,34 +160,54 @@ pub fn parse_rank_entries(proto: &[u8]) -> std::collections::HashMap<u32, u32> {
     let mut out: HashMap<u32, u32> = HashMap::new();
     let mut o = 0usize;
     while o < proto.len() {
-        let Some(key) = pb_varint(proto, &mut o) else { break };
+        let Some(key) = pb_varint(proto, &mut o) else {
+            break;
+        };
         let (field, wt) = (key >> 3, key & 7);
         if field == 201 && wt == 2 {
-            let Some(len) = pb_varint(proto, &mut o) else { break };
+            let Some(len) = pb_varint(proto, &mut o) else {
+                break;
+            };
             let end = o + len as usize;
-            if end > proto.len() { break }
+            if end > proto.len() {
+                break;
+            }
             let entry = &proto[o..end];
             let mut io = 0usize;
             let mut account_id: Option<u32> = None;
             let mut rank: Option<u32> = None;
             while io < entry.len() {
-                let Some(ikey) = pb_varint(entry, &mut io) else { break };
+                let Some(ikey) = pb_varint(entry, &mut io) else {
+                    break;
+                };
                 let (ifield, iwt) = (ikey >> 3, ikey & 7);
                 if ifield == 1 && iwt == 0 {
-                    let Some(v) = pb_varint(entry, &mut io) else { break };
+                    let Some(v) = pb_varint(entry, &mut io) else {
+                        break;
+                    };
                     account_id = Some(v as u32);
                 } else if ifield == 2 && iwt == 2 {
-                    let Some(ilen) = pb_varint(entry, &mut io) else { break };
+                    let Some(ilen) = pb_varint(entry, &mut io) else {
+                        break;
+                    };
                     let iend = io + ilen as usize;
-                    if iend > entry.len() { break }
+                    if iend > entry.len() {
+                        break;
+                    }
                     // info 内取 f9 = rank
                     let mut jo = io;
                     while jo < iend {
-                        let Some(jkey) = pb_varint(entry, &mut jo) else { break };
+                        let Some(jkey) = pb_varint(entry, &mut jo) else {
+                            break;
+                        };
                         let (jfield, jwt) = (jkey >> 3, jkey & 7);
                         if jwt == 0 {
-                            let Some(v) = pb_varint(entry, &mut jo) else { break };
-                            if jfield == 9 { rank = Some(v as u32); }
+                            let Some(v) = pb_varint(entry, &mut jo) else {
+                                break;
+                            };
+                            if jfield == 9 {
+                                rank = Some(v as u32);
+                            }
                         } else if !skip_field(entry, &mut jo, jwt) {
                             break;
                         }
@@ -203,27 +236,41 @@ pub fn parse_settlement_extras(proto: &[u8]) -> Vec<PlayerSettlement> {
     let mut out = Vec::new();
     let mut o = 0usize;
     while o < proto.len() {
-        let Some(key) = pb_varint(proto, &mut o) else { break };
+        let Some(key) = pb_varint(proto, &mut o) else {
+            break;
+        };
         let (field, wt) = (key >> 3, key & 7);
         if field == 301 && wt == 2 {
-            let Some(len) = pb_varint(proto, &mut o) else { break };
+            let Some(len) = pb_varint(proto, &mut o) else {
+                break;
+            };
             let end = o + len as usize;
-            if end > proto.len() { break }
+            if end > proto.len() {
+                break;
+            }
             // 进两层：#301 → tag1 result_id / tag2 = PlayerResultsInfo（两者顺序不假设）
             let entry = &proto[o..end];
             let mut io = 0usize;
             let mut result_id: Option<u32> = None;
             let mut parsed: Option<PlayerSettlement> = None;
             while io < entry.len() {
-                let Some(ikey) = pb_varint(entry, &mut io) else { break };
+                let Some(ikey) = pb_varint(entry, &mut io) else {
+                    break;
+                };
                 let (ifield, iwt) = (ikey >> 3, ikey & 7);
                 if ifield == 1 && iwt == 0 {
-                    let Some(v) = pb_varint(entry, &mut io) else { break };
+                    let Some(v) = pb_varint(entry, &mut io) else {
+                        break;
+                    };
                     result_id = Some(v as u32);
                 } else if ifield == 2 && iwt == 2 {
-                    let Some(ilen) = pb_varint(entry, &mut io) else { break };
+                    let Some(ilen) = pb_varint(entry, &mut io) else {
+                        break;
+                    };
                     let iend = io + ilen as usize;
-                    if iend > entry.len() { break }
+                    if iend > entry.len() {
+                        break;
+                    }
                     parsed = parse_player_entry(&entry[io..iend]);
                     io = iend;
                 } else if !skip_field(entry, &mut io, iwt) {

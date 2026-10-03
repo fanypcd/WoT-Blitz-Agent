@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 
 // =====================================================================
 //  DVPL 解码 + 装甲/碰撞解析（DVPL 为 WG 本地资源压缩格式，末尾 20 字节 footer）
@@ -25,7 +25,8 @@ impl DvplFile {
             return Err(anyhow!("Not a DVPL file (magic mismatch)"));
         }
 
-        let original_size = u32::from_le_bytes([footer[0], footer[1], footer[2], footer[3]]) as usize;
+        let original_size =
+            u32::from_le_bytes([footer[0], footer[1], footer[2], footer[3]]) as usize;
         let comp_size = u32::from_le_bytes([footer[4], footer[5], footer[6], footer[7]]) as usize;
         let _crc32 = u32::from_le_bytes([footer[8], footer[9], footer[10], footer[11]]);
         let comp_type = u32::from_le_bytes([footer[12], footer[13], footer[14], footer[15]]);
@@ -46,7 +47,10 @@ impl DvplFile {
             _ => return Err(anyhow!("Unknown compression type: {}", comp_type)),
         };
 
-        Ok(Self { data, compression_type: comp_type })
+        Ok(Self {
+            data,
+            compression_type: comp_type,
+        })
     }
 }
 
@@ -57,24 +61,36 @@ fn lz4_decompress(src: &[u8], output_size: usize) -> Result<Vec<u8>> {
     let mut di = 0;
 
     while si < src.len() && di < output_size {
-        let token = src[si]; si += 1;
+        let token = src[si];
+        si += 1;
 
         let mut lit_len = ((token >> 4) & 0x0f) as usize;
         if lit_len == 15 {
             while si < src.len() {
-                let b = src[si]; si += 1;
+                let b = src[si];
+                si += 1;
                 lit_len += b as usize;
-                if b != 255 { break; }
+                if b != 255 {
+                    break;
+                }
             }
         }
 
         for _ in 0..lit_len {
-            if si >= src.len() || di >= output_size { break; }
-            dst[di] = src[si]; si += 1; di += 1;
+            if si >= src.len() || di >= output_size {
+                break;
+            }
+            dst[di] = src[si];
+            si += 1;
+            di += 1;
         }
 
-        if si >= src.len() || di >= output_size { break; }
-        if si + 2 > src.len() { break; }
+        if si >= src.len() || di >= output_size {
+            break;
+        }
+        if si + 2 > src.len() {
+            break;
+        }
 
         let offset = (src[si] as usize) | ((src[si + 1] as usize) << 8);
         si += 2;
@@ -82,14 +98,19 @@ fn lz4_decompress(src: &[u8], output_size: usize) -> Result<Vec<u8>> {
         let mut match_len = ((token & 0x0f) as usize) + 4;
         if (token & 0x0f) == 15 {
             while si < src.len() {
-                let b = src[si]; si += 1;
+                let b = src[si];
+                si += 1;
                 match_len += b as usize;
-                if b != 255 { break; }
+                if b != 255 {
+                    break;
+                }
             }
         }
 
         for _ in 0..match_len {
-            if di >= output_size { break; }
+            if di >= output_size {
+                break;
+            }
             if di < offset {
                 di += 1;
                 continue;
@@ -185,12 +206,12 @@ impl ArmorModel {
     pub fn parse_from_xml(text: &str) -> Option<Self> {
         let hull_armor = parse_section_armor(text, "<hull>")?;
         // 炮塔取 <turrets0> 的**顶级**条目（末个炮塔 × 其末个炮管），与 BlitzKit
-        // models.pb 的 turrets.last() × guns.last() 同档——两者混用会让装甲摘要与
-        // armor_model 互相矛盾（见 parse_turret_armor 注释）。
+        // models.pb 的 turrets.last() × guns.last() 同档；两者混用会让装甲摘要与
+        // armor_model 互相矛盾。
         let turret_armor = parse_turret_armor(text);
         let gun_armor = parse_gun_armor(text);
         let chassis_armor = parse_chassis_armor(text);
-        
+
         Some(ArmorModel {
             hull: hull_armor,
             turret: turret_armor,
@@ -200,7 +221,7 @@ impl ArmorModel {
     }
 }
 
-/// 装甲板标签匹配（`<armor_N>厚度`），进程内只编译一次（原先三个函数各自重复编译）。
+/// 装甲板标签匹配（`<armor_N>厚度`），进程内只编译一次。
 static ARMOR_PLATE_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
     regex::Regex::new(r"<armor_(\d+)>\s*(\d+(?:\.\d+)?)").expect("armor plate regex should compile")
 });
@@ -219,9 +240,11 @@ fn parse_armor_plates(
         let plate_id = cap.get(1).unwrap().as_str().to_string();
         let thickness: f32 = cap.get(2).unwrap().as_str().parse().unwrap_or(0.0);
         plates.insert(plate_id.clone(), thickness);
-        let plate_end = armor_block[cap.get(0).unwrap().end()..].find(&format!("</armor_{}>", plate_id));
+        let plate_end =
+            armor_block[cap.get(0).unwrap().end()..].find(&format!("</armor_{}>", plate_id));
         if let Some(end_pos) = plate_end {
-            let plate_content = &armor_block[cap.get(0).unwrap().end()..cap.get(0).unwrap().end() + end_pos];
+            let plate_content =
+                &armor_block[cap.get(0).unwrap().end()..cap.get(0).unwrap().end() + end_pos];
             if plate_content.contains("vehicleDamageFactor") {
                 spaced.insert(plate_id);
             }
@@ -241,7 +264,6 @@ fn parse_section_armor(text: &str, section_tag: &str) -> Option<SectionArmor> {
     let armor_end_marker = section[armor_start..].find("</armor>")?;
     let armor_block = &section[armor_start + 7..armor_start + armor_end_marker];
 
-    // 解析所有 <armor_N>VALUE</armor_N>，有的含 vehicleDamageFactor 子字段（spaced 装甲）
     let (plates, spaced) = parse_armor_plates(armor_block);
 
     let primary = if let Some(pa_start) = section.find("<primaryArmor>") {
@@ -260,8 +282,12 @@ fn parse_section_armor(text: &str, section_tag: &str) -> Option<SectionArmor> {
             rear: "armor_4".to_string(),
         }
     };
-    
-    Some(SectionArmor { plates, primary, spaced })
+
+    Some(SectionArmor {
+        plates,
+        primary,
+        spaced,
+    })
 }
 
 /// `<turrets0>` 段（不含闭合标签）。
@@ -278,9 +304,8 @@ fn turrets_section_of(text: &str) -> Option<&str> {
 /// `…<armor>…<primaryArmor>…<guns>…</guns>…`。因此「最后一个 `<guns>` 之前、上一个
 /// `</guns>` 之后」的区间就是顶级炮塔自己的字段，顶级炮塔内最后一个炮管即顶级主炮。
 ///
-/// 顶级炮塔 = 游戏内"顶级配置"，也正是 BlitzKit models.pb 取的那一档
-/// （`turrets.last() × guns.last()`）。旧实现取**首个** `<armor>`，拿到的是初始炮塔，
-/// 导致六面装甲摘要系统性低报、且与 `armor_model`（顶级）自相矛盾。
+/// 顶级炮塔 = 游戏内"顶级配置" = BlitzKit models.pb 取的那一档
+/// （`turrets.last() × guns.last()`）。
 fn top_turret_span(turrets_section: &str) -> (&str, &str) {
     let Some(guns_start) = turrets_section.rfind("<guns>") else {
         return (turrets_section, "");
@@ -304,7 +329,7 @@ fn parse_turret_armor(text: &str) -> Option<SectionArmor> {
     let (turret_only, _guns) = top_turret_span(turrets_section_of(text)?);
 
     // 段内已截到本炮塔的 <guns> 之前，故此处 <armor> 必为炮塔本体装甲（非炮管装甲）；
-    // 顶级炮塔无装甲块时返回 None，而不是回头抓上一个炮塔的板。
+    // 顶级炮塔无装甲块时返回 None，不回头抓上一个炮塔的板。
     let armor_start = turret_only.rfind("<armor>")?;
     let armor_end = turret_only[armor_start..].find("</armor>")?;
     let armor_block = &turret_only[armor_start + 7..armor_start + armor_end];
@@ -328,7 +353,11 @@ fn parse_turret_armor(text: &str) -> Option<SectionArmor> {
         }
     };
 
-    Some(SectionArmor { plates, primary, spaced })
+    Some(SectionArmor {
+        plates,
+        primary,
+        spaced,
+    })
 }
 
 /// 解析**顶级主炮**装甲（顶级炮塔 `<guns>` 内最后一个炮管），
@@ -340,7 +369,6 @@ fn parse_gun_armor(text: &str) -> Option<SectionArmor> {
     let armor_end = guns_section[armor_start..].find("</armor>")?;
     let armor_block = &guns_section[armor_start + 7..armor_start + armor_end];
 
-    // 后续把 <gun>N</gun> 的炮管装甲值也写入 plates，故 plates 需要 mut
     let (mut plates, spaced) = parse_armor_plates(armor_block);
 
     if let Some(gun_start) = armor_block.find("<gun>") {
@@ -362,9 +390,9 @@ fn parse_gun_armor(text: &str) -> Option<SectionArmor> {
     })
 }
 
-/// 解析底盘（左右履带）装甲。注意：<chassis> 段内按模块名嵌套（如 <T-34_mod_1941>…），
-/// 且 <unlocks> 里也有同名 <chassis> 引用标签——按段边界截取会在第一个内嵌 </chassis>
-/// 处提前截断（约 1/3 车辆因此丢数据，如 T-34）。leftTrack/rightTrack 全文件唯一，直接全局查找。
+/// 解析底盘（左右履带）装甲。<chassis> 段内按模块名嵌套（如 <T-34_mod_1941>…），
+/// 且 <unlocks> 里也有同名 <chassis> 引用标签——按段边界截取会在第一个内嵌
+/// </chassis> 处提前截断。leftTrack/rightTrack 全文件唯一，直接全局查找。
 fn parse_chassis_armor(text: &str) -> Option<ChassisArmor> {
     let left = extract_tag_value(text, "leftTrack")?;
     let right = extract_tag_value(text, "rightTrack")?;
@@ -412,9 +440,8 @@ impl CollisionData {
             data.hull_points = parse_section_points(collision_text, "hull:");
             data.turret_points = parse_section_points(collision_text, "turret_01:");
             data.gun_points = parse_section_points(collision_text, "gun_01:");
-            // 全量收集带节点号的炮塔/炮管段（段名不全是 _01：如 T110E5 的游戏文件
-            // 里唯一炮塔叫 turret_02、主炮叫 gun_06）。顶级配置的挑选在 extract 阶段
-            // 按 models.pb 模块→节点映射完成。
+            // 全量收集带节点号的炮塔/炮管段（段名不全是 _01）。顶级配置的挑选在
+            // extract 阶段按 models.pb 模块→节点映射完成。
             data.turret_bboxes = parse_numbered_section_bboxes(collision_text, "turret_");
             data.gun_bboxes = parse_numbered_section_bboxes(collision_text, "gun_");
 
@@ -423,7 +450,8 @@ impl CollisionData {
                 let after = &collision_text[avg_idx..];
                 if let Some(t_idx) = after.find("turret_01:") {
                     let value_str = &after[t_idx + "turret_01:".len()..];
-                    let num: String = value_str.trim_start()
+                    let num: String = value_str
+                        .trim_start()
                         .chars()
                         .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
                         .collect();
@@ -445,8 +473,7 @@ fn parse_section_bbox(text: &str, section_name: &str) -> Option<BoundingBox> {
 
 /// 从 `from` 偏移起找段名并解析 min/max 包围盒（供同段名多处出现时按位置区分）。
 /// 段名必须命中**真段头**（见 [`find_section_header`]）——否则 averageThickness 块的
-/// 厚度引用行（`turret_01: 186.08`）会抢先命中，400 字符窗口抓到后续段
-/// （常为 chassis）的包围盒（game_data 曾有 178 辆炮塔 bbox 因此污染）。
+/// 厚度引用行（`turret_01: 186.08`）会抢先命中，400 字符窗口抓到后续段（常为 chassis）的包围盒。
 fn parse_section_bbox_from(text: &str, from: usize, section_name: &str) -> Option<BoundingBox> {
     let section_idx = find_section_header(text.get(from..)?, section_name)? + from;
     // 固定 400 字节窗口可能落在多字节 UTF-8 字符中间：向左回退到安全边界再切片
@@ -465,7 +492,7 @@ fn parse_section_bbox_from(text: &str, from: usize, section_name: &str) -> Optio
     let min = parse_float_array(min_str)?;
     let max = parse_float_array(max_str)?;
 
-    // 退化盒（全零）：部分 TD（如 AT-7）的炮塔段在源文件里就是零盒——视为缺失，
+    // 退化盒（全零）：部分 TD 的炮塔段在源文件里就是零盒——视为缺失，
     // 让上层回退（game_extract 节点兜底 / 前端网格紧致盒），与 models.pb 的省略一致
     if min == [0.0, 0.0, 0.0] && max == [0.0, 0.0, 0.0] {
         return None;
@@ -501,12 +528,19 @@ pub(crate) fn parse_numbered_section_bboxes(text: &str, prefix: &str) -> Vec<Num
         search_from = idx + prefix.len();
         let after = &text[idx + prefix.len()..];
         let digits: usize = after.chars().take_while(|c| c.is_ascii_digit()).count();
-        if digits == 0 { continue; }
-        let Ok(node) = after[..digits].parse::<u32>() else { continue };
+        if digits == 0 {
+            continue;
+        }
+        let Ok(node) = after[..digits].parse::<u32>() else {
+            continue;
+        };
         let rest = &after[digits..];
-        let is_header = rest.starts_with(":\n") || rest.starts_with(":\r\n")
+        let is_header = rest.starts_with(":\n")
+            || rest.starts_with(":\r\n")
             || rest.starts_with(':') && rest[1..].trim_start_matches('\r').starts_with('\n');
-        if !is_header { continue; }
+        if !is_header {
+            continue;
+        }
         // 段名用原始数字串（YAML 零填充：turret_02: 而非 turret_2:）；node 存数值供 models.pb 匹配
         let name = format!("{prefix}{}:", &after[..digits]);
         if let Some(bb) = parse_section_bbox_from(text, idx, &name) {
@@ -537,9 +571,12 @@ fn parse_section_points(text: &str, section_name: &str) -> Option<[f32; 3]> {
 fn parse_float_array(s: &str) -> Option<[f32; 3]> {
     let start = s.find('[')?;
     let end = s.find(']')?;
-    if end <= start { return None; }
-    let inner = &s[start+1..end];
-    let nums: Vec<f32> = inner.split(',')
+    if end <= start {
+        return None;
+    }
+    let inner = &s[start + 1..end];
+    let nums: Vec<f32> = inner
+        .split(',')
         .filter_map(|s| s.trim().parse::<f32>().ok())
         .collect();
     if nums.len() >= 3 {
@@ -555,7 +592,7 @@ mod tests {
 
     /// averageThickness 块的厚度引用行（`turret_01: 55.0`）先于真段头出现时，
     /// 包围盒/points 解析必须跳到真段头——否则首次字面量匹配 + 400 字符窗口
-    /// 会抓到后续段（常为 chassis）的包围盒（game_data 178 辆炮塔 bbox 污染根源）。
+    /// 会抓到后续段（常为 chassis）的包围盒。
     #[test]
     fn section_parse_skips_thickness_reference_lines() {
         let yaml = "\
@@ -580,7 +617,7 @@ collision:
         let tp = c.turret_points.expect("turret points");
         assert!((tp[2] - 0.3).abs() < 1e-4, "points.z = {}", tp[2]);
 
-        // hull 只有引用行、无真段 → 不再误抓 chassis 段，返回 None
+        // hull 只有引用行、无真段 → 返回 None（不误抓 chassis 段）
         assert!(c.hull_bbox.is_none(), "hull 引用行不应解析出包围盒");
         assert!(c.hull_points.is_none());
 
@@ -610,7 +647,6 @@ collision:
 
     /// 多炮塔车辆：炮塔/主炮必须取**顶级**（`<turrets0>` 最后一个条目 × 其末个炮管），
     /// 而不是首个。条目以模块名为标签（非固定 `<turret>`），故测试用实名标签。
-    /// 旧实现取首个 `<armor>`（初始炮塔），正是六面摘要低报与 armor_model 矛盾的根源。
     #[test]
     fn turret_and_gun_take_top_config_not_first() {
         let xml = "\
@@ -670,8 +706,10 @@ collision:
 </turrets0>
 </root>";
         let m = ArmorModel::parse_from_xml(xml).expect("parse");
-        assert_eq!(m.turret.expect("turret").plates.get("1").copied(), Some(40.0));
+        assert_eq!(
+            m.turret.expect("turret").plates.get("1").copied(),
+            Some(40.0)
+        );
         assert_eq!(m.gun.expect("gun").plates.get("gun").copied(), Some(7.0));
     }
 }
-

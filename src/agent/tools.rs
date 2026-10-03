@@ -1,16 +1,16 @@
 use anyhow::Result;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::path::Path;
 
 use crate::agent::llm_client::ToolDefinition;
 use crate::agent::llm_client::ToolFunction;
-use crate::wargaming::api_client::WgApiClient;
-use crate::wargaming::tank_resolver::{TankResolver, TankInfo, norm_name, strip_ws};
+use crate::models::report::AggregatedReport;
 use crate::replay::parser::ReplayParser;
 use crate::replay::scanner::{ReplayScanner, ScanFilter};
-use crate::models::report::AggregatedReport;
+use crate::wargaming::api_client::WgApiClient;
 use crate::wargaming::blitzkit;
 use crate::wargaming::penetration::{self, ArmorHit, ArmorSection, PenetrationRequest};
+use crate::wargaming::tank_resolver::{norm_name, strip_ws, TankInfo, TankResolver};
 
 // Agent 工具集：注册给 LLM 的工具定义 + 执行逻辑；Agent Loop 调用 execute() 并把结果回填为 tool 消息。
 
@@ -36,7 +36,7 @@ impl AgentTools {
         }
     }
 
-    /// 返回注册给 LLM 的工具定义（OpenAI tools 格式，共 6 个）。
+    /// 返回注册给 LLM 的工具定义（OpenAI tools 格式）。
     pub fn definitions() -> Vec<ToolDefinition> {
         vec![
             ToolDefinition {
@@ -210,10 +210,15 @@ impl AgentTools {
                 if results.is_empty() {
                     Ok("No players found.".to_string())
                 } else {
-                    let lines: Vec<String> = results.iter()
+                    let lines: Vec<String> = results
+                        .iter()
                         .map(|(n, id)| format!("  {} (account_id={})", n, id))
                         .collect();
-                    Ok(format!("Found {} players:\n{}", results.len(), lines.join("\n")))
+                    Ok(format!(
+                        "Found {} players:\n{}",
+                        results.len(),
+                        lines.join("\n")
+                    ))
                 }
             }
             "get_player_stats" => {
@@ -228,13 +233,26 @@ impl AgentTools {
                      \n--- Rating Battles ---\n\
                      Battles: {}, WR: {:.1}%, Avg Dmg: {:.0}, Avg Frags: {:.2}, Hit Rate: {:.1}%\n\
                      mm_rating: {:.2}, Display Rating: {}, Season: {}",
-                    stats.nickname, stats.account_id,
-                    stats.random_battles, stats.random_wins as f64 / n_r * 100.0,
-                    stats.random_damage_dealt as f64 / n_r, stats.random_frags as f64 / n_r,
-                    if stats.random_shots > 0 { stats.random_hits as f64 / stats.random_shots as f64 * 100.0 } else { 0.0 },
-                    stats.rating_battles, stats.rating_wins as f64 / n_t * 100.0,
-                    stats.rating_damage_dealt as f64 / n_t, stats.rating_frags as f64 / n_t,
-                    if stats.rating_shots > 0 { stats.rating_hits as f64 / stats.rating_shots as f64 * 100.0 } else { 0.0 },
+                    stats.nickname,
+                    stats.account_id,
+                    stats.random_battles,
+                    stats.random_wins as f64 / n_r * 100.0,
+                    stats.random_damage_dealt as f64 / n_r,
+                    stats.random_frags as f64 / n_r,
+                    if stats.random_shots > 0 {
+                        stats.random_hits as f64 / stats.random_shots as f64 * 100.0
+                    } else {
+                        0.0
+                    },
+                    stats.rating_battles,
+                    stats.rating_wins as f64 / n_t * 100.0,
+                    stats.rating_damage_dealt as f64 / n_t,
+                    stats.rating_frags as f64 / n_t,
+                    if stats.rating_shots > 0 {
+                        stats.rating_hits as f64 / stats.rating_shots as f64 * 100.0
+                    } else {
+                        0.0
+                    },
                     stats.rating_mm_rating.unwrap_or(0.0),
                     stats.rating_display_rating.unwrap_or(0),
                     stats.rating_season.unwrap_or(0),
@@ -255,7 +273,10 @@ impl AgentTools {
                     return Ok("No replays found matching the filter.".to_string());
                 }
 
-                let room_type = battles.first().map(|b| b.room_type.clone()).unwrap_or_else(|| "Unknown".to_string());
+                let room_type = battles
+                    .first()
+                    .map(|b| b.room_type.clone())
+                    .unwrap_or_else(|| "Unknown".to_string());
                 let report = AggregatedReport::from_battles(battles, &room_type);
 
                 let mut result = format!(
@@ -265,16 +286,26 @@ impl AgentTools {
                      Hit Rate: {:.1}%, Avg Block: {:.0}, Avg Assist: {:.0}\n\
                      Rating: {:.2} -> {:.2} ({:+.2})\n\
                      \nTop Tanks:\n",
-                    report.author_name, report.room_type, report.date_range,
-                    report.total_battles, report.win_rate, report.avg_damage, report.avg_frags,
-                    report.hit_rate, report.avg_damage_blocked, report.avg_assisted,
-                    report.rating_start.unwrap_or(0.0), report.rating_end.unwrap_or(0.0),
+                    report.author_name,
+                    report.room_type,
+                    report.date_range,
+                    report.total_battles,
+                    report.win_rate,
+                    report.avg_damage,
+                    report.avg_frags,
+                    report.hit_rate,
+                    report.avg_damage_blocked,
+                    report.avg_assisted,
+                    report.rating_start.unwrap_or(0.0),
+                    report.rating_end.unwrap_or(0.0),
                     report.rating_delta.unwrap_or(0.0),
                 );
 
                 for t in report.tank_usage.iter().take(5) {
-                    result.push_str(&format!("  {} - {}b, WR {:.0}%, avg_dmg {:.0}\n",
-                        t.tank_name, t.battles, t.win_rate, t.avg_damage));
+                    result.push_str(&format!(
+                        "  {} - {}b, WR {:.0}%, avg_dmg {:.0}\n",
+                        t.tank_name, t.battles, t.win_rate, t.avg_damage
+                    ));
                 }
 
                 Ok(result)
@@ -288,15 +319,25 @@ impl AgentTools {
                     "Replay: {}\nPlayer: {} (tank: {})\nMap: {}, Mode: {}, Duration: {:.0}s\n\
                      Winner: Team {}\nAuthor: Team {} ({})\n\
                      Shots: {}/{}, Pens: {}, Damage: {}, Kills: {}",
-                    summary.file_name, summary.author_nickname, summary.author_tank_name,
-                    summary.map_name, summary.room_type, summary.battle_duration_secs,
-                    summary.winner_team, summary.author_team,
+                    summary.file_name,
+                    summary.author_nickname,
+                    summary.author_tank_name,
+                    summary.map_name,
+                    summary.room_type,
+                    summary.battle_duration_secs,
+                    summary.winner_team,
+                    summary.author_team,
                     if summary.author_won { "WON" } else { "LOST" },
-                    summary.author.n_shots, summary.author.n_hits,
-                    summary.author.n_penetrations, summary.author.damage_dealt,
-                    summary.players.iter()
+                    summary.author.n_shots,
+                    summary.author.n_hits,
+                    summary.author.n_penetrations,
+                    summary.author.damage_dealt,
+                    summary
+                        .players
+                        .iter()
                         .find(|p| p.account_id == summary.author_account_id)
-                        .map(|p| p.n_enemies_destroyed).unwrap_or(0),
+                        .map(|p| p.n_enemies_destroyed)
+                        .unwrap_or(0),
                 ))
             }
             "compare_replay_vs_api" => {
@@ -318,22 +359,40 @@ impl AgentTools {
                     return Ok("No replays found.".to_string());
                 }
 
-                let room_type = battles.first().map(|b| b.room_type.clone()).unwrap_or_else(|| "Unknown".to_string());
+                let room_type = battles
+                    .first()
+                    .map(|b| b.room_type.clone())
+                    .unwrap_or_else(|| "Unknown".to_string());
                 let report = AggregatedReport::from_battles(battles, &room_type);
 
                 let is_rating = mode == "rating";
-                let (api_battles, api_wins, api_dmg, api_frags, api_shots, api_hits) = if is_rating {
-                    (api_stats.rating_battles, api_stats.rating_wins,
-                     api_stats.rating_damage_dealt, api_stats.rating_frags,
-                     api_stats.rating_shots, api_stats.rating_hits)
+                let (api_battles, api_wins, api_dmg, api_frags, api_shots, api_hits) = if is_rating
+                {
+                    (
+                        api_stats.rating_battles,
+                        api_stats.rating_wins,
+                        api_stats.rating_damage_dealt,
+                        api_stats.rating_frags,
+                        api_stats.rating_shots,
+                        api_stats.rating_hits,
+                    )
                 } else {
-                    (api_stats.random_battles, api_stats.random_wins,
-                     api_stats.random_damage_dealt, api_stats.random_frags,
-                     api_stats.random_shots, api_stats.random_hits)
+                    (
+                        api_stats.random_battles,
+                        api_stats.random_wins,
+                        api_stats.random_damage_dealt,
+                        api_stats.random_frags,
+                        api_stats.random_shots,
+                        api_stats.random_hits,
+                    )
                 };
 
                 let an = api_battles.max(1) as f64;
-                let api_hit_rate = if api_shots > 0 { api_hits as f64 / api_shots as f64 * 100.0 } else { 0.0 };
+                let api_hit_rate = if api_shots > 0 {
+                    api_hits as f64 / api_shots as f64 * 100.0
+                } else {
+                    0.0
+                };
                 Ok(format!(
                     "Comparison: {} ({} mode)\n\
                      \n  Metric          Replay     API Total   Difference\n\
@@ -345,15 +404,27 @@ impl AgentTools {
                      \nReplay Rating: {:.2} -> {:.2} ({:+.2})\n\
                      API Rating: {:.2} (display {})\n\
                      Coverage: {:.1}%",
-                    nickname, mode,
-                    report.total_battles, api_battles,
-                    report.win_rate, api_wins as f64 / an * 100.0, report.win_rate - api_wins as f64 / an * 100.0,
-                    report.avg_damage, api_dmg as f64 / an, report.avg_damage - api_dmg as f64 / an,
-                    report.avg_frags, api_frags as f64 / an, report.avg_frags - api_frags as f64 / an,
-                    report.hit_rate, api_hit_rate,
+                    nickname,
+                    mode,
+                    report.total_battles,
+                    api_battles,
+                    report.win_rate,
+                    api_wins as f64 / an * 100.0,
+                    report.win_rate - api_wins as f64 / an * 100.0,
+                    report.avg_damage,
+                    api_dmg as f64 / an,
+                    report.avg_damage - api_dmg as f64 / an,
+                    report.avg_frags,
+                    api_frags as f64 / an,
+                    report.avg_frags - api_frags as f64 / an,
+                    report.hit_rate,
+                    api_hit_rate,
                     report.hit_rate - api_hit_rate,
-                    report.rating_start.unwrap_or(0.0), report.rating_end.unwrap_or(0.0), report.rating_delta.unwrap_or(0.0),
-                    api_stats.rating_mm_rating.unwrap_or(0.0), api_stats.rating_display_rating.unwrap_or(0),
+                    report.rating_start.unwrap_or(0.0),
+                    report.rating_end.unwrap_or(0.0),
+                    report.rating_delta.unwrap_or(0.0),
+                    api_stats.rating_mm_rating.unwrap_or(0.0),
+                    api_stats.rating_display_rating.unwrap_or(0),
                     report.total_battles as f64 / api_battles.max(1) as f64 * 100.0,
                 ))
             }
@@ -371,10 +442,15 @@ impl AgentTools {
     /// runtime 中启动，不卡 Agent 循环。
     fn execute_view_tank(&self, args: &Value) -> Result<String> {
         let target_ref = args["target"].as_str().unwrap_or("").trim();
-        let shooter_ref = args["shooter"].as_str().map(|s| s.trim()).filter(|s| !s.is_empty());
+        let shooter_ref = args["shooter"]
+            .as_str()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty());
 
         if target_ref.is_empty() {
-            return Ok("Please provide a tank name or ID to view (e.g. target: 'E 100').".to_string());
+            return Ok(
+                "Please provide a tank name or ID to view (e.g. target: 'E 100').".to_string(),
+            );
         }
 
         let resolver = self.load_resolver()?;
@@ -418,17 +494,27 @@ impl AgentTools {
             None
         };
 
-        let target_name = resolver.resolve(target).unwrap_or_else(|| format!("tank_{}", target));
-        let shooter_name = shooter.map(|id| resolver.resolve(id).unwrap_or_else(|| format!("tank_{}", id)));
+        let target_name = resolver
+            .resolve(target)
+            .unwrap_or_else(|| format!("tank_{}", target));
+        let shooter_name = shooter.map(|id| {
+            resolver
+                .resolve(id)
+                .unwrap_or_else(|| format!("tank_{}", id))
+        });
 
         // 服务器线程与旧标签页共存是既定行为（每次 view_tank 新端口新页签，
         // 旧页签靠旧服务器存活）；泄漏有界，见架构债文档次级清单
         std::thread::spawn(move || {
-            let _ = tool_runtime().block_on(crate::wargaming::viewer::serve(resolver, target, shooter));
+            let _ =
+                tool_runtime().block_on(crate::wargaming::viewer::serve(resolver, target, shooter));
         });
 
         let desc = match (&shooter_name, shooter) {
-            (Some(sname), Some(_)) => format!("**{}** (attacking) → **{}** (defending)", sname, target_name),
+            (Some(sname), Some(_)) => format!(
+                "**{}** (attacking) → **{}** (defending)",
+                sname, target_name
+            ),
             (_, _) => format!("**{}**", target_name),
         };
         Ok(format!(
@@ -450,8 +536,13 @@ impl AgentTools {
 
     /// 加载坦克解析器（tank_cache.json，与 execute_view_tank 相同）。
     fn load_resolver(&self) -> Result<TankResolver> {
-        TankResolver::load_from_json_file(&crate::data::data_path("tank_cache.json"))
-            .or_else(|_| self.tank_resolver.clone().ok_or_else(|| anyhow::anyhow!("no resolver")))
+        TankResolver::load_from_json_file(&crate::data::data_path("tank_cache.json")).or_else(
+            |_| {
+                self.tank_resolver
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("no resolver"))
+            },
+        )
     }
 
     /// 构建 ReplayScanner：有坦克解析器则带车名翻译，否则退化为 ID 显示。
@@ -482,16 +573,24 @@ impl AgentTools {
         let target = match self.resolve_tank(&resolver, target_ref) {
             ResolveTank::One(id) => id,
             ResolveTank::Ambiguous(cands) => {
-                return Ok(format!("The name '{}' matches multiple tanks. Please pick one:\n{}", target_ref, format_candidates(&cands)));
+                return Ok(format!(
+                    "The name '{}' matches multiple tanks. Please pick one:\n{}",
+                    target_ref,
+                    format_candidates(&cands)
+                ));
             }
-            ResolveTank::None => return Ok(format!("Could not find a tank matching '{}'.", target_ref)),
+            ResolveTank::None => {
+                return Ok(format!("Could not find a tank matching '{}'.", target_ref))
+            }
         };
-        let name = resolver.resolve(target).unwrap_or_else(|| format!("tank_{}", target));
+        let name = resolver
+            .resolve(target)
+            .unwrap_or_else(|| format!("tank_{}", target));
 
         // 装甲汇总（前/侧/后，mm）与血量（一次 resolve_info 复用）
         let info = resolver.resolve_info(target);
         let summary = info.and_then(|i| i.armor.clone());
-        // 逐板厚度（models.pb 唯一来源；armor_cache.json 已退役）
+        // 逐板厚度（models.pb 唯一来源）
         let plates: Value = crate::wargaming::tank_configs::synth_armor_model(target)
             .and_then(|m| serde_json::to_value(m).ok())
             .unwrap_or(json!(null));
@@ -504,16 +603,26 @@ impl AgentTools {
         if let Some(tank) = blitzkit::tank_full(target) {
             let mi = blitzkit::model_info(target);
             let mut sp_map = serde_json::Map::new();
-            sp_map.insert("hull".into(), json!(mi.as_ref().map(|m| m.hull_spaced.clone()).unwrap_or_default()));
+            sp_map.insert(
+                "hull".into(),
+                json!(mi
+                    .as_ref()
+                    .map(|m| m.hull_spaced.clone())
+                    .unwrap_or_default()),
+            );
             if let Some(t) = tank.turrets.last() {
                 // 同一炮塔只查一次，turret/gun 的 spaced 分类复用
-                let ti = mi.as_ref().and_then(|m| m.turrets.iter().find(|x| x.module_id == t.module_id));
+                let ti = mi
+                    .as_ref()
+                    .and_then(|m| m.turrets.iter().find(|x| x.module_id == t.module_id));
                 if let Some(ti) = ti {
                     sp_map.insert("turret".into(), json!(ti.turret_spaced.clone()));
                 }
                 if let Some(g) = t.guns.last() {
                     gun_name = g.name.clone();
-                    if let Some(gi) = ti.and_then(|x| x.guns.iter().find(|y| y.gun_module_id == g.module_id)) {
+                    if let Some(gi) =
+                        ti.and_then(|x| x.guns.iter().find(|y| y.gun_module_id == g.module_id))
+                    {
                         sp_map.insert("gun".into(), json!(gi.gun_spaced.clone()));
                     }
                     for s in &g.shells {
@@ -542,7 +651,8 @@ impl AgentTools {
             "spaced": sp,
             "top_gun": gun_name,
             "shells": shells_json,
-        }).to_string())
+        })
+        .to_string())
     }
 
     /// simulate_penetration 工具：对齐 BlitzKit 的击穿模拟（penetration.rs）。
@@ -555,16 +665,42 @@ impl AgentTools {
         let resolver = self.load_resolver()?;
         let target = match self.resolve_tank(&resolver, target_ref) {
             ResolveTank::One(id) => id,
-            ResolveTank::Ambiguous(cands) => return Ok(format!("The target name '{}' matches multiple tanks. Please pick one:\n{}", target_ref, format_candidates(&cands))),
-            ResolveTank::None => return Ok(format!("Could not find a target tank matching '{}'.", target_ref)),
+            ResolveTank::Ambiguous(cands) => {
+                return Ok(format!(
+                    "The target name '{}' matches multiple tanks. Please pick one:\n{}",
+                    target_ref,
+                    format_candidates(&cands)
+                ))
+            }
+            ResolveTank::None => {
+                return Ok(format!(
+                    "Could not find a target tank matching '{}'.",
+                    target_ref
+                ))
+            }
         };
         let shooter = match self.resolve_tank(&resolver, shooter_ref) {
             ResolveTank::One(id) => id,
-            ResolveTank::Ambiguous(cands) => return Ok(format!("The shooter name '{}' matches multiple tanks. Please pick one:\n{}", shooter_ref, format_candidates(&cands))),
-            ResolveTank::None => return Ok(format!("Could not find a shooter tank matching '{}'.", shooter_ref)),
+            ResolveTank::Ambiguous(cands) => {
+                return Ok(format!(
+                    "The shooter name '{}' matches multiple tanks. Please pick one:\n{}",
+                    shooter_ref,
+                    format_candidates(&cands)
+                ))
+            }
+            ResolveTank::None => {
+                return Ok(format!(
+                    "Could not find a shooter tank matching '{}'.",
+                    shooter_ref
+                ))
+            }
         };
-        let target_name = resolver.resolve(target).unwrap_or_else(|| format!("tank_{}", target));
-        let shooter_name = resolver.resolve(shooter).unwrap_or_else(|| format!("tank_{}", shooter));
+        let target_name = resolver
+            .resolve(target)
+            .unwrap_or_else(|| format!("tank_{}", target));
+        let shooter_name = resolver
+            .resolve(shooter)
+            .unwrap_or_else(|| format!("tank_{}", shooter));
 
         let Some(tank) = blitzkit::tank_full(shooter) else {
             return Ok(format!("No shell data for shooter {}.", shooter_name));
@@ -579,12 +715,24 @@ impl AgentTools {
             return Ok(format!("No shells for shooter {}.", shooter_name));
         }
         let shell = match args["shell"].as_str() {
-            Some(filt) => {
-                gun.shells.iter().find(|s| {
-                    Self::shell_label(&s.shell_type).eq_ignore_ascii_case(filt) || s.shell_type.eq_ignore_ascii_case(filt)
-                }).ok_or_else(|| anyhow::anyhow!("shell '{}' not found; available: {}", filt,
-                    gun.shells.iter().map(|s| Self::shell_label(&s.shell_type)).collect::<Vec<_>>().join("/")))?
-            }
+            Some(filt) => gun
+                .shells
+                .iter()
+                .find(|s| {
+                    Self::shell_label(&s.shell_type).eq_ignore_ascii_case(filt)
+                        || s.shell_type.eq_ignore_ascii_case(filt)
+                })
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "shell '{}' not found; available: {}",
+                        filt,
+                        gun.shells
+                            .iter()
+                            .map(|s| Self::shell_label(&s.shell_type))
+                            .collect::<Vec<_>>()
+                            .join("/")
+                    )
+                })?,
             None => &gun.shells[0],
         };
 
@@ -598,12 +746,25 @@ impl AgentTools {
         let mut aim_desc = String::from("custom layers");
         if let Some(hits_arr) = args["hits"].as_array() {
             for (i, h) in hits_arr.iter().enumerate() {
-                let section: ArmorSection = serde_json::from_value(h["section"].clone())
-                    .map_err(|_| anyhow::anyhow!("invalid section '{}' (use hull/turret/gun/spaced/chassis/gunBarrel)", h["section"].as_str().unwrap_or("?")))?;
+                let section: ArmorSection =
+                    serde_json::from_value(h["section"].clone()).map_err(|_| {
+                        anyhow::anyhow!(
+                            "invalid section '{}' (use hull/turret/gun/spaced/chassis/gunBarrel)",
+                            h["section"].as_str().unwrap_or("?")
+                        )
+                    })?;
                 let thickness = h["thickness_mm"].as_f64().unwrap_or(0.0) as f32;
                 hits.push(ArmorHit {
-                    section, plate_id: format!("h{}", i + 1), thickness,
-                    normal, point: [0.0, 0.0, 0.0], part_name: format!("Layer {} ({})", i + 1, h["section"].as_str().unwrap_or("?")),
+                    section,
+                    plate_id: format!("h{}", i + 1),
+                    thickness,
+                    normal,
+                    point: [0.0, 0.0, 0.0],
+                    part_name: format!(
+                        "Layer {} ({})",
+                        i + 1,
+                        h["section"].as_str().unwrap_or("?")
+                    ),
                 });
             }
         } else if let Some(aim) = args["aim"].as_str() {
@@ -624,12 +785,19 @@ impl AgentTools {
             }
             aim_desc = part.to_string();
             hits.push(ArmorHit {
-                section, plate_id: "aim".into(), thickness: thickness as f32,
-                normal, point: [0.0, 0.0, 0.0], part_name: part.into(),
+                section,
+                plate_id: "aim".into(),
+                thickness: thickness as f32,
+                normal,
+                point: [0.0, 0.0, 0.0],
+                part_name: part.into(),
             });
         }
         if hits.is_empty() {
-            return Ok("Provide `aim` (e.g. hull_front) or explicit `hits` for the simulation.".to_string());
+            return Ok(
+                "Provide `aim` (e.g. hull_front) or explicit `hits` for the simulation."
+                    .to_string(),
+            );
         }
 
         let distance = args["distance_m"].as_f64().unwrap_or(100.0) as f32;
@@ -645,7 +813,11 @@ impl AgentTools {
             enhanced_armor: args["enhanced_armor"].as_bool().unwrap_or(false),
             // blitzkit：normalization ?? 0；ricochet 仅非 explosive 弹使用（HEAT/HE 强制 90°）
             normalization_deg: Some(shell.normalization as f32),
-            ricochet_deg: if shell.ricochet > 0.0 { Some(shell.ricochet as f32) } else { None },
+            ricochet_deg: if shell.ricochet > 0.0 {
+                Some(shell.ricochet as f32)
+            } else {
+                None
+            },
             allow_ricochet: true,
         };
         let res = penetration::calculate(&req);
@@ -658,11 +830,21 @@ impl AgentTools {
             let status = if l.ricochet {
                 "RICOCHET".to_string()
             } else if l.penetrated {
-                format!("penetrated, remaining pen {:.0}mm", (l.remaining_before - l.effective).max(0.0))
+                format!(
+                    "penetrated, remaining pen {:.0}mm",
+                    (l.remaining_before - l.effective).max(0.0)
+                )
             } else {
                 "BLOCKED here".to_string()
             };
-            out.push_str(&format!("  {}. {} — nominal {:.0}mm / effective {:.0}mm — {}\n", i + 1, l.part_name, l.thickness, l.effective, status));
+            out.push_str(&format!(
+                "  {}. {} — nominal {:.0}mm / effective {:.0}mm — {}\n",
+                i + 1,
+                l.part_name,
+                l.thickness,
+                l.effective,
+                status
+            ));
         }
         out.push_str(&format!("Total effective: {:.0}mm\n", res.total_effective));
         if res.damage > 0.0 {
@@ -676,59 +858,110 @@ impl AgentTools {
     fn execute_render_heatmap(&self, args: &Value) -> Result<String> {
         let target_ref = args["target"].as_str().unwrap_or("").trim();
         if target_ref.is_empty() {
-            return Ok("Please provide a target tank name or ID (e.g. target: 'E 100').".to_string());
+            return Ok(
+                "Please provide a target tank name or ID (e.g. target: 'E 100').".to_string(),
+            );
         }
-        let shooter_ref = args["shooter"].as_str().map(|s| s.trim()).filter(|s| !s.is_empty());
+        let shooter_ref = args["shooter"]
+            .as_str()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty());
 
         let resolver = self.load_resolver()?;
         let target = match self.resolve_tank(&resolver, target_ref) {
             ResolveTank::One(id) => id,
             ResolveTank::Ambiguous(cands) => {
-                return Ok(format!("The target name '{}' matches multiple tanks. Please pick one:\n{}", target_ref, format_candidates(&cands)));
+                return Ok(format!(
+                    "The target name '{}' matches multiple tanks. Please pick one:\n{}",
+                    target_ref,
+                    format_candidates(&cands)
+                ));
             }
-            ResolveTank::None => return Ok(format!("Could not find a target tank matching '{}'.", target_ref)),
+            ResolveTank::None => {
+                return Ok(format!(
+                    "Could not find a target tank matching '{}'.",
+                    target_ref
+                ))
+            }
         };
         let shooter = match shooter_ref {
             Some(sref) => match self.resolve_tank(&resolver, sref) {
                 ResolveTank::One(id) => Some(id),
                 ResolveTank::Ambiguous(cands) => {
-                    return Ok(format!("The shooter name '{}' matches multiple tanks. Please pick one:\n{}", sref, format_candidates(&cands)));
+                    return Ok(format!(
+                        "The shooter name '{}' matches multiple tanks. Please pick one:\n{}",
+                        sref,
+                        format_candidates(&cands)
+                    ));
                 }
-                ResolveTank::None => return Ok(format!("Could not find a shooter tank matching '{}'.", sref)),
+                ResolveTank::None => {
+                    return Ok(format!(
+                        "Could not find a shooter tank matching '{}'.",
+                        sref
+                    ))
+                }
             },
             None => None,
         };
         let shooter_id = shooter.unwrap_or(target);
-        let target_name = resolver.resolve(target).unwrap_or_else(|| format!("tank_{}", target));
-        let shooter_name = resolver.resolve(shooter_id).unwrap_or_else(|| format!("tank_{}", shooter_id));
+        let target_name = resolver
+            .resolve(target)
+            .unwrap_or_else(|| format!("tank_{}", target));
+        let shooter_name = resolver
+            .resolve(shooter_id)
+            .unwrap_or_else(|| format!("tank_{}", shooter_id));
 
         // 弹种索引（查看器弹种选择器 = 射手**顶级炮塔 × 顶级主炮**的弹种列表，按正式名过滤）。
-        // 必须与 `/api/shells/{tank_id}`（shells_handler）取同一档炮——两处一起才是自洽的；
-        // 取初始炮会与同屏渲染的顶级炮塔装甲、以及列表/详情的穿深对不上。
+        // 必须与 `/api/shells/{tank_id}`（shells_handler）取同一档炮，否则与同屏渲染的
+        // 顶级炮塔装甲、以及列表/详情的穿深对不上。
         let shell_filter = args["shell"].as_str().map(|s| s.trim().to_string());
         let shooter_tank = blitzkit::tank_full(shooter_id);
         let shell_idx = shell_filter.as_ref().and_then(|f| {
-            shooter_tank.as_ref().and_then(|t| t.turrets.last().and_then(|tu| tu.guns.last()).and_then(|g| {
-                g.shells.iter().position(|s| {
-                    Self::shell_label(&s.shell_type).eq_ignore_ascii_case(f) || s.shell_type.eq_ignore_ascii_case(f)
-                })
-            }))
+            shooter_tank.as_ref().and_then(|t| {
+                t.turrets
+                    .last()
+                    .and_then(|tu| tu.guns.last())
+                    .and_then(|g| {
+                        g.shells.iter().position(|s| {
+                            Self::shell_label(&s.shell_type).eq_ignore_ascii_case(f)
+                                || s.shell_type.eq_ignore_ascii_case(f)
+                        })
+                    })
+            })
         });
         if let Some(f) = &shell_filter {
             if shell_idx.is_none() {
-                let avail = shooter_tank.as_ref()
-                    .and_then(|t| t.turrets.last().and_then(|tu| tu.guns.last()).map(|g|
-                        g.shells.iter().map(|s| Self::shell_label(&s.shell_type)).collect::<Vec<_>>().join("/")))
+                let avail = shooter_tank
+                    .as_ref()
+                    .and_then(|t| {
+                        t.turrets.last().and_then(|tu| tu.guns.last()).map(|g| {
+                            g.shells
+                                .iter()
+                                .map(|s| Self::shell_label(&s.shell_type))
+                                .collect::<Vec<_>>()
+                                .join("/")
+                        })
+                    })
                     .unwrap_or_default();
-                return Ok(format!("Shell '{}' not found for {}. Available: {}", f, shooter_name, avail));
+                return Ok(format!(
+                    "Shell '{}' not found for {}. Available: {}",
+                    f, shooter_name, avail
+                ));
             }
         }
 
         // 视角预设由前端按炮线高度解析（水平/卖头/俯视），工具只传语义名称；azimuth_deg 可覆盖方位角
         let view_raw = args["view"].as_str().unwrap_or("front").trim().to_string();
         let view: String = {
-            let safe: String = view_raw.chars().filter(|c| c.is_ascii_lowercase() || *c == '_').collect();
-            if safe.is_empty() { "front".into() } else { safe }
+            let safe: String = view_raw
+                .chars()
+                .filter(|c| c.is_ascii_lowercase() || *c == '_')
+                .collect();
+            if safe.is_empty() {
+                "front".into()
+            } else {
+                safe
+            }
         };
         let yaw = args["yaw_deg"].as_f64().unwrap_or(0.0);
         let pitch = args["pitch_deg"].as_f64().unwrap_or(0.0);
@@ -744,7 +977,10 @@ impl AgentTools {
         let fname = crate::data::data_path("cache/screenshots")
             .join(format!(
                 "heatmap_{}_vs_{}_{}_{}.png",
-                sanitize_name(&target_name), sanitize_name(&shooter_name), sanitize_name(&shell_txt), view
+                sanitize_name(&target_name),
+                sanitize_name(&shooter_name),
+                sanitize_name(&shell_txt),
+                view
             ))
             .to_string_lossy()
             .to_string();
@@ -765,7 +1001,9 @@ impl AgentTools {
         };
         let view2 = view.clone();
         let handle = std::thread::spawn(move || -> Result<String> {
-            let port = tool_runtime().block_on(crate::wargaming::viewer::start_viewer_server(resolver2, target, shooter_id))?;
+            let port = tool_runtime().block_on(crate::wargaming::viewer::start_viewer_server(
+                resolver2, target, shooter_id,
+            ))?;
             let url = url.replace("PORT", &port.to_string());
             // WSL 调 Windows 侧浏览器：--screenshot 输出路径转 Windows 形式（/mnt/d/x → D:\x）
             let is_win_browser = chrome2.contains("/mnt/");
@@ -774,13 +1012,19 @@ impl AgentTools {
                 .map(|d| d.join(&fname2).to_string_lossy().to_string())
                 .unwrap_or_else(|_| fname2.clone());
             let shot_arg = if is_win_browser {
-                format!("--screenshot={}", wsl_to_windows_path(&fname_abs).unwrap_or_else(|| fname_abs.clone()))
+                format!(
+                    "--screenshot={}",
+                    wsl_to_windows_path(&fname_abs).unwrap_or_else(|| fname_abs.clone())
+                )
             } else {
                 format!("--screenshot={}", fname_abs)
             };
             let out = std::process::Command::new(&chrome2)
                 .args([
-                    "--headless=new", "--no-sandbox", "--disable-dev-shm-usage", "--hide-scrollbars",
+                    "--headless=new",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--hide-scrollbars",
                     &format!("--window-size={},{}", width, height),
                     "--virtual-time-budget=20000",
                     &shot_arg,
@@ -798,7 +1042,9 @@ impl AgentTools {
                     stderr.chars().take(400).collect::<String>()
                 ));
             }
-            let written = stderr.lines().rev()
+            let written = stderr
+                .lines()
+                .rev()
                 .find(|l| l.contains("bytes written to file"))
                 .map(|l| l.trim().trim_start_matches('[').to_string())
                 .unwrap_or_default();
@@ -816,7 +1062,9 @@ impl AgentTools {
             ))
         });
 
-        let detail = handle.join().map_err(|_| anyhow::anyhow!("screenshot thread panicked"))??;
+        let detail = handle
+            .join()
+            .map_err(|_| anyhow::anyhow!("screenshot thread panicked"))??;
         Ok(format!(
             "Heatmap screenshot saved: {}\nTarget: {} · Shooter: {} · View: {} · Turret yaw {}° · Gun pitch {}°\nThe image colors armor faces by penetration chance (green=likely penetration, red=blocked, magenta=ricochet, orange=HE splash). The temporary viewer server has been stopped; use view_tank for an interactive session.",
             detail, target_name, shooter_name, view2, yaw, pitch
@@ -825,7 +1073,11 @@ impl AgentTools {
 
     /// replay_shot：回放解析（extract_shot_replays_auto）→ 带复现数据的查看器 → 射手 POV 无头截图。
     fn execute_replay_shot(&self, args: &Value) -> Result<String> {
-        let file = args["replay_file"].as_str().unwrap_or("").trim().to_string();
+        let file = args["replay_file"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_string();
         if file.is_empty() {
             return Ok("Please provide replay_file (path to the .wotbreplay file).".to_string());
         }
@@ -835,46 +1087,76 @@ impl AgentTools {
         };
 
         let resolver = self.load_resolver()?;
-        let fname2 = crate::data::data_path("cache/screenshots").join(format!("replay_shot_{:02}.png", shot_no)).to_string_lossy().to_string();
+        let fname2 = crate::data::data_path("cache/screenshots")
+            .join(format!("replay_shot_{:02}.png", shot_no))
+            .to_string_lossy()
+            .to_string();
 
         let handle = std::thread::spawn(move || -> Result<String> {
-            let (port, shell_slot, target_cfg, shooter_cfg) = tool_runtime().block_on(crate::wargaming::viewer::start_viewer_server_for_replay(
-                std::path::Path::new(&file), resolver, shot_no))?;
+            let (port, shell_slot, target_cfg, shooter_cfg) = tool_runtime().block_on(
+                crate::wargaming::viewer::start_viewer_server_for_replay(
+                    std::path::Path::new(&file),
+                    resolver,
+                    shot_no,
+                ),
+            )?;
             let is_win = chrome.contains("/mnt/");
             let fname_abs = std::env::current_dir()
                 .map(|d| d.join(&fname2).to_string_lossy().to_string())
                 .unwrap_or_else(|_| fname2.clone());
             let shot_arg = if is_win {
-                format!("--screenshot={}", wsl_to_windows_path(&fname_abs).unwrap_or_else(|| fname_abs.clone()))
+                format!(
+                    "--screenshot={}",
+                    wsl_to_windows_path(&fname_abs).unwrap_or_else(|| fname_abs.clone())
+                )
             } else {
                 format!("--screenshot={}", fname_abs)
             };
             // 实际搭载配置（comp blob/弹种/血量证据链）：目标模型按其选炮塔/主炮变体；
             // 射手配置（scfg）= 射手弹表域，shell 下标与 3D 端下拉同域对齐
-            let cfg_arg = target_cfg.map(|c| format!("&config={}", c)).unwrap_or_default();
-            let scfg_arg = shooter_cfg.map(|c| format!("&scfg={}", c)).unwrap_or_default();
+            let cfg_arg = target_cfg
+                .map(|c| format!("&config={}", c))
+                .unwrap_or_default();
+            let scfg_arg = shooter_cfg
+                .map(|c| format!("&scfg={}", c))
+                .unwrap_or_default();
             let url = format!(
                 "http://127.0.0.1:{}/?headless=1&heatmap=1&clean=1&shot={}&shell={}{}{}&dist=9",
                 port, shot_no, shell_slot, cfg_arg, scfg_arg
             );
             let out = std::process::Command::new(&chrome)
                 .args([
-                    "--headless=new", "--no-sandbox", "--disable-dev-shm-usage", "--hide-scrollbars",
-                    "--window-size=1280,800", "--virtual-time-budget=25000",
-                    &shot_arg, &url,
+                    "--headless=new",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--hide-scrollbars",
+                    "--window-size=1280,800",
+                    "--virtual-time-budget=25000",
+                    &shot_arg,
+                    &url,
                 ])
                 .output()
                 .map_err(|e| anyhow::anyhow!("failed to launch browser: {}", e))?;
             if !out.status.success() {
-                return Err(anyhow::anyhow!("browser failed: {}", String::from_utf8_lossy(&out.stderr).chars().take(300).collect::<String>()));
+                return Err(anyhow::anyhow!(
+                    "browser failed: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                        .chars()
+                        .take(300)
+                        .collect::<String>()
+                ));
             }
-            let written = String::from_utf8_lossy(&out.stderr).lines().rev()
+            let written = String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .rev()
                 .find(|l| l.contains("bytes written to file"))
                 .map(|l| l.trim().trim_start_matches('[').to_string())
                 .unwrap_or_default();
             Ok(format!("{} — [{}]", fname2, written))
         });
-        let result = handle.join().map_err(|_| anyhow::anyhow!("screenshot thread panicked"))??;
+        let result = handle
+            .join()
+            .map_err(|_| anyhow::anyhow!("screenshot thread panicked"))??;
         Ok(format!(
             "Shot #{} replay view saved (世界模式双车视角): {}\n相机置于双车侧后 3/4 视角，弹着点按服务器部件约束；◎渲染位/双 tick 下拉可对照渲染滞后。",
             shot_no, result
@@ -892,7 +1174,9 @@ impl AgentTools {
         // 归一规则（'-'/'·'/'.'/'_' → 空格 + 小写；再剥空白）见 tank_resolver::norm_name/strip_ws。
         let needle = norm_name(tank_ref);
         let needle_ns = strip_ws(&needle);
-        if needle.is_empty() { return ResolveTank::None; }
+        if needle.is_empty() {
+            return ResolveTank::None;
+        }
         let mut exacts: Vec<(u32, &TankInfo)> = Vec::new();
         let mut subs: Vec<(u32, &TankInfo, usize)> = Vec::new(); // (id, info, score)
         for e in resolver.name_index() {
@@ -901,8 +1185,13 @@ impl AgentTools {
                 if let Some(info) = resolver.resolve_info(e.id) {
                     exacts.push((e.id, info));
                 }
-            } else if let Some(pos) = e.norm.find(&needle)
-                .or_else(|| if needle_ns.is_empty() { None } else { e.norm_ns.find(&needle_ns) }) {
+            } else if let Some(pos) = e.norm.find(&needle).or_else(|| {
+                if needle_ns.is_empty() {
+                    None
+                } else {
+                    e.norm_ns.find(&needle_ns)
+                }
+            }) {
                 // 命中位置越靠前越好；同名不同短名长度带来惩罚
                 let score = pos + e.norm.len().saturating_sub(needle.len());
                 if let Some(info) = resolver.resolve_info(e.id) {
@@ -922,7 +1211,8 @@ impl AgentTools {
             [] => ResolveTank::None,
             [single] => ResolveTank::One(single.0),
             many => {
-                let candidates: Vec<TankCandidate> = many.iter()
+                let candidates: Vec<TankCandidate> = many
+                    .iter()
                     .map(|(id, info)| TankCandidate {
                         id: *id,
                         name: info.name.clone(),
@@ -959,22 +1249,27 @@ struct TankCandidate {
 fn format_candidates(cands: &[TankCandidate]) -> String {
     let mut out = String::new();
     for (i, c) in cands.iter().enumerate() {
-        out.push_str(&format!("  {}. {} (id={}) — Tier {}, {}, {}\n",
-            i + 1, c.name, c.id, c.tier, c.nation, c.tank_type));
+        out.push_str(&format!(
+            "  {}. {} (id={}) — Tier {}, {}, {}\n",
+            i + 1,
+            c.name,
+            c.id,
+            c.tier,
+            c.nation,
+            c.tank_type
+        ));
     }
     out
 }
 
-/// 探测 Chrome/Chromium 可执行文件：CHROME_PATH 环境变量 → 常见 Linux 命令 → WSL Windows 安装路径。
-/// 工具线程共享的 Tokio Runtime（block_on 可多线程并发；此前 view_tank/截图
-/// 每次调用各建一个完整 runtime——线程池+reactor 全套分配只为单次 block_on）。
+/// 工具线程共享的 Tokio Runtime（block_on 可多线程并发；复用单例，避免每次调用重建线程池+reactor）。
 fn tool_runtime() -> &'static tokio::runtime::Runtime {
     static RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
     RT.get_or_init(|| tokio::runtime::Runtime::new().expect("tool runtime"))
 }
 
-/// Chrome/Edge 探测结果缓存（PATH 子进程 --version ×5 + 文件系统探测，
-/// 每次截图都重跑一遍纯属浪费；进程内环境不变，首次结果即最终结果）。
+/// 探测 Chrome/Chromium 可执行文件：CHROME_PATH 环境变量 → 常见命令 → Windows/WSL 安装路径。
+/// 结果进程内缓存（环境不变，首次探测即最终结果）。
 fn find_chrome() -> Option<String> {
     static CACHE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     CACHE.get_or_init(find_chrome_uncached).clone()
@@ -987,7 +1282,14 @@ fn find_chrome_uncached() -> Option<String> {
             return Some(p);
         }
     }
-    for c in ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome", "msedge"] {
+    for c in [
+        "google-chrome",
+        "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
+        "chrome",
+        "msedge",
+    ] {
         if let Ok(out) = std::process::Command::new(c).arg("--version").output() {
             if out.status.success() {
                 return Some(c.to_string());
@@ -1023,17 +1325,23 @@ fn find_chrome_uncached() -> Option<String> {
 fn wsl_to_windows_path(p: &str) -> Option<String> {
     let rest = p.strip_prefix("/mnt/")?;
     let (drive, path) = rest.split_once('/')?;
-    
-    
+
     if drive.len() != 1 || path.is_empty() {
         return None;
     }
-    Some(format!("{}:\\{}", drive.to_uppercase(), path.replace('/', "\\")))
+    Some(format!(
+        "{}:\\{}",
+        drive.to_uppercase(),
+        path.replace('/', "\\")
+    ))
 }
 
 /// 文件名清理：非字母数字字符替换为下划线。
 fn sanitize_name(s: &str) -> String {
-    let s: String = s.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
+    let s: String = s
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect();
     s.trim_matches('_').to_string()
 }
 
@@ -1045,26 +1353,29 @@ mod tests {
     fn mk_resolver(tanks: &[(u32, &str, u8, &str, &str)]) -> TankResolver {
         let mut r = TankResolver::new();
         for (id, name, tier, nation, ttype) in tanks {
-            r.add(*id, TankInfo {
-                name: name.to_string(),
-                tier: *tier,
-                tank_type: ttype.to_string(),
-                nation: nation.to_string(),
-                is_premium: false,
-                is_collector: false,
-                armor: None,
-                shells: Vec::new(),
-                hp: None,
-                speed_forward: None,
-                speed_reverse: None,
-                hull_traverse: None,
-                view_range: None,
-                turret_traverse_speed: None,
-                gun_depression: None,
-                gun_elevation: None,
-                turret_traverse_left: None,
-                turret_traverse_right: None,
-            });
+            r.add(
+                *id,
+                TankInfo {
+                    name: name.to_string(),
+                    tier: *tier,
+                    tank_type: ttype.to_string(),
+                    nation: nation.to_string(),
+                    is_premium: false,
+                    is_collector: false,
+                    armor: None,
+                    shells: Vec::new(),
+                    hp: None,
+                    speed_forward: None,
+                    speed_reverse: None,
+                    hull_traverse: None,
+                    view_range: None,
+                    turret_traverse_speed: None,
+                    gun_depression: None,
+                    gun_elevation: None,
+                    turret_traverse_left: None,
+                    turret_traverse_right: None,
+                },
+            );
         }
         r
     }
@@ -1120,10 +1431,13 @@ mod tests {
     #[test]
     fn none_when_not_found() {
         let r = mk_resolver(&[(1, "T-34", 5, "ussr", "mediumTank")]);
-        assert!(matches!(tools().resolve_tank(&r, "Maus"), ResolveTank::None));
+        assert!(matches!(
+            tools().resolve_tank(&r, "Maus"),
+            ResolveTank::None
+        ));
     }
 
-    // 用真实 tank_cache.json（723 辆）验证模糊查询；文件缺失则跳过。
+    // 用真实 tank_cache.json 验证模糊查询；文件缺失则跳过。
     #[test]
     fn simulate_penetration_smoke() {
         let tools = tools();
@@ -1135,26 +1449,44 @@ mod tests {
         let out = tools.execute_simulate_penetration(&args).unwrap();
         assert!(out.contains("Result:"), "missing result header: {}", out);
         assert!(out.contains("Layers:"), "missing layer breakdown: {}", out);
-        assert!(out.contains("PENETRATION"), "250mm AP vs 200mm@0° should penetrate: {}", out);
+        assert!(
+            out.contains("PENETRATION"),
+            "250mm AP vs 200mm@0° should penetrate: {}",
+            out
+        );
         // 显式厚板（1000mm 车体）→ BLOCKED
         args["hits"] = json!([{"section": "hull", "thickness_mm": 1000}]);
         let out2 = tools.execute_simulate_penetration(&args).unwrap();
-        assert!(out2.contains("BLOCKED"), "expected BLOCKED vs 1000mm: {}", out2);
+        assert!(
+            out2.contains("BLOCKED"),
+            "expected BLOCKED vs 1000mm: {}",
+            out2
+        );
         // HE 弹路径（溅射公式）不 panic
         args["shell"] = json!("HE");
         args["hits"] = json!([{"section": "hull", "thickness_mm": 80}]);
         let out3 = tools.execute_simulate_penetration(&args).unwrap();
         assert!(out3.contains("Result:"), "{}", out3);
         // get_tank_armor 冒烟：plates/shells/spaced 字段齐全
-        let out4 = tools.execute_get_tank_armor(&json!({"target": "E 100"})).unwrap();
-        assert!(out4.contains("plates") && out4.contains("shells") && out4.contains("spaced"), "{}", out4);
+        let out4 = tools
+            .execute_get_tank_armor(&json!({"target": "E 100"}))
+            .unwrap();
+        assert!(
+            out4.contains("plates") && out4.contains("shells") && out4.contains("spaced"),
+            "{}",
+            out4
+        );
     }
 
     #[test]
     fn replay_shot_smoke() {
         let tools = tools();
-        let f = "data/replay_samples/20260902_2104__Anonyme_A116_XM551_Exp_3355505117896350.wotbreplay";
-        if !std::path::Path::new(f).exists() { eprintln!("replay sample missing, skip"); return; }
+        let f =
+            "data/replay_samples/20260902_2104__Anonyme_A116_XM551_Exp_3355505117896350.wotbreplay";
+        if !std::path::Path::new(f).exists() {
+            eprintln!("replay sample missing, skip");
+            return;
+        }
         let args = json!({"replay_file": f, "shot_no": 1});
         match tools.execute_replay_shot(&args) {
             Ok(out) => {
@@ -1164,8 +1496,11 @@ mod tests {
             Err(e) => {
                 // 无 Chrome 环境时允许跳过（服务器启动/浏览器缺失），但数据抽取错误仍算失败
                 let msg = format!("{}", e);
-                if msg.contains("Chrome") || msg.contains("browser") { eprintln!("skip (no browser): {}", msg); }
-                else { panic!("{}", msg); }
+                if msg.contains("Chrome") || msg.contains("browser") {
+                    eprintln!("skip (no browser): {}", msg);
+                } else {
+                    panic!("{}", msg);
+                }
             }
         }
     }
@@ -1181,14 +1516,25 @@ mod tests {
         let out = tools.execute_render_heatmap(&args).unwrap();
         eprintln!("render_heatmap: {}", out);
         assert!(out.contains("Heatmap screenshot saved:"), "{}", out);
-        let _path = out.split("saved: ").nth(1).and_then(|s| s.split('\n').next()).unwrap().trim().to_string();
+        let _path = out
+            .split("saved: ")
+            .nth(1)
+            .and_then(|s| s.split('\n').next())
+            .unwrap()
+            .trim()
+            .to_string();
         // 完成判据 = 浏览器 stderr "bytes written to file"（WSL stat 缓存不可靠）
-        assert!(out.contains("bytes written to file"), "no written confirmation: {}", out);
+        assert!(
+            out.contains("bytes written to file"),
+            "no written confirmation: {}",
+            out
+        );
     }
 
     #[test]
     fn real_cache_fuzzy_search() {
-        let Ok(r) = TankResolver::load_from_json_file(&crate::data::data_path("tank_cache.json")) else {
+        let Ok(r) = TankResolver::load_from_json_file(&crate::data::data_path("tank_cache.json"))
+        else {
             eprintln!("tank_cache.json missing, skipping real_cache test");
             return;
         };
@@ -1200,7 +1546,10 @@ mod tests {
             ResolveTank::One(id) => assert_eq!(id, 9489),
             other => panic!("E 100 should be exact match, got {:?}", other),
         }
-        assert!(matches!(tools().resolve_tank(&r, "Tiger"), ResolveTank::Ambiguous(_)));
+        assert!(matches!(
+            tools().resolve_tank(&r, "Tiger"),
+            ResolveTank::Ambiguous(_)
+        ));
         match tools().resolve_tank(&r, "Maus") {
             ResolveTank::One(id) => assert_eq!(id, 6929),
             other => panic!("Maus should be unique, got {:?}", other),
@@ -1210,18 +1559,31 @@ mod tests {
     #[test]
     fn view_tank_tool_definition_uses_target_shooter() {
         let defs = AgentTools::definitions();
-        let vt = defs.iter()
+        let vt = defs
+            .iter()
             .find(|d| d.function.name == "view_tank")
             .expect("view_tank tool must exist");
-        let props = vt.function.parameters.get("properties").and_then(|p| p.as_object())
+        let props = vt
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|p| p.as_object())
             .expect("parameters.properties");
         assert!(props.contains_key("target"), "must have target param");
         assert!(props.contains_key("shooter"), "must have shooter param");
-        assert!(!props.contains_key("tank"), "old 'tank' param should be gone");
-        let required = vt.function.parameters.get("required").and_then(|r| r.as_array())
+        assert!(
+            !props.contains_key("tank"),
+            "old 'tank' param should be gone"
+        );
+        let required = vt
+            .function
+            .parameters
+            .get("required")
+            .and_then(|r| r.as_array())
             .expect("required array");
-        assert!(required.iter().any(|r| r == "target"), "target must be required");
+        assert!(
+            required.iter().any(|r| r == "target"),
+            "target must be required"
+        );
     }
-
-
 }

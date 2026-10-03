@@ -69,27 +69,30 @@ pub fn analyze_lineup(players: Vec<PlayerStats>) -> Result<LineupReport> {
     let avg_win_rate = infos.iter().map(|p| p.win_rate).sum::<f32>() / infos.len() as f32;
     let avg_damage = infos.iter().map(|p| p.avg_damage).sum::<f32>() / infos.len() as f32;
 
-    // 按场均伤害取最强 / 最弱（与原先"降序稳定排序后取首/尾"等价：
-    // 并列时最强取原顺序靠前者、最弱取靠后者）
-    let strongest = infos.iter()
+    // 按场均伤害取最强 / 最弱（并列时：最强取原顺序靠前者、最弱取靠后者）
+    let strongest = infos
+        .iter()
         .min_by(|a, b| b.avg_damage.partial_cmp(&a.avg_damage).unwrap())
         .unwrap()
         .clone();
-    let weakest = infos.iter()
+    let weakest = infos
+        .iter()
         .max_by(|a, b| b.avg_damage.partial_cmp(&a.avg_damage).unwrap())
         .unwrap()
         .clone();
 
     // 高威胁：场均伤害 ≥ 均值 × 1.2
     let threat_threshold = avg_damage * 1.2;
-    let threats: Vec<PlayerInfo> = infos.iter()
+    let threats: Vec<PlayerInfo> = infos
+        .iter()
         .filter(|p| p.avg_damage >= threat_threshold)
         .cloned()
         .collect();
 
     // 薄弱点：胜率 ≤ 均值 × 0.95
     let weak_threshold = avg_win_rate * 0.95;
-    let weaknesses: Vec<PlayerInfo> = infos.iter()
+    let weaknesses: Vec<PlayerInfo> = infos
+        .iter()
         .filter(|p| p.win_rate <= weak_threshold)
         .cloned()
         .collect();
@@ -126,10 +129,7 @@ fn build_suggestion(
 
     if !weaknesses.is_empty() {
         let names: Vec<&str> = weaknesses.iter().map(|p| p.nickname.as_str()).collect();
-        parts.push(format!(
-            "可针对弱点（胜率偏低）：{}",
-            names.join(", ")
-        ));
+        parts.push(format!("可针对弱点（胜率偏低）：{}", names.join(", ")));
     }
 
     parts.push(format!(
@@ -152,15 +152,33 @@ pub fn print_report(report: &LineupReport) {
     println!("平均胜率: {:.1}%", report.avg_win_rate);
     println!("平均场均伤害: {:.0}", report.avg_damage);
     println!();
-    println!("最强者: {} (场均伤害 {:.0}, 胜率 {:.1}%)",
-        report.strongest.nickname, report.strongest.avg_damage, report.strongest.win_rate);
-    println!("最弱者: {} (场均伤害 {:.0}, 胜率 {:.1}%)",
-        report.weakest.nickname, report.weakest.avg_damage, report.weakest.win_rate);
+    println!(
+        "最强者: {} (场均伤害 {:.0}, 胜率 {:.1}%)",
+        report.strongest.nickname, report.strongest.avg_damage, report.strongest.win_rate
+    );
+    println!(
+        "最弱者: {} (场均伤害 {:.0}, 胜率 {:.1}%)",
+        report.weakest.nickname, report.weakest.avg_damage, report.weakest.win_rate
+    );
     println!();
-    println!("高威胁: {}", report.threats.iter()
-        .map(|p| p.nickname.as_str()).collect::<Vec<_>>().join(", "));
-    println!("薄弱点: {}", report.weaknesses.iter()
-        .map(|p| p.nickname.as_str()).collect::<Vec<_>>().join(", "));
+    println!(
+        "高威胁: {}",
+        report
+            .threats
+            .iter()
+            .map(|p| p.nickname.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    println!(
+        "薄弱点: {}",
+        report
+            .weaknesses
+            .iter()
+            .map(|p| p.nickname.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     println!();
     println!("建议: {}", report.suggestion);
     println!();

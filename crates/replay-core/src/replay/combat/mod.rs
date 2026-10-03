@@ -33,4 +33,6 @@ pub use pitch::*;
 pub use shots::*;
 
 /// serde skip_serializing_if 助手：false 不序列化
-fn is_false(b: &bool) -> bool { !*b }
+fn is_false(b: &bool) -> bool {
+    !*b
+}

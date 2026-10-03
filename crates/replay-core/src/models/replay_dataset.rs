@@ -1,12 +1,12 @@
-// ReplayDataset 契约（阶段 1：metadata / settlement / diagnostics）。
+// ReplayDataset 契约：metadata / settlement / diagnostics。
 //
-// 目标（架构共识 2026-09-28）：Rust Replay Core 对外输出**权威语义数据集**，而不是
+// 目标：Rust Replay Core 对外输出**权威语义数据集**，而不是
 // Rust-specific DTO / Agent-specific BattleSummary——未来 WotbTools Java 与 AI 编排
 // consume 的是本契约。原则：
 //   unknown ≠ 0 ≠ false ≠ 没发生 —— 观测缺失一律 Option/哨兵保留 raw，不编码为 0/false；
 //   packet unsupported ≠ event didn't happen —— 未消费数据段进 diagnostics.unsupported。
 //
-// 阶段 2（未做）：observations（entities/positions/hp/combat 时序）与 simulation
+// 待扩展：observations（entities/positions/hp/combat 时序）与 simulation
 // （shots/projectiles/turret/gun）从 combat.rs 拆层输出。
 
 use serde::Serialize;
@@ -108,27 +108,31 @@ impl ReplayDataset {
     /// 从 BattleSummary（meta + battle_results 联表产物）投影 metadata/settlement。
     /// diagnostics 由调用方补充（需包流/射击复现数据）。
     pub fn from_summary(summary: &BattleSummary) -> Self {
-        let settlement_players = summary.players.iter().map(|p| PlayerSettlementRow {
-            account_id: p.account_id,
-            nickname: p.nickname.clone(),
-            team: p.team,
-            tank_id: p.tank_id,
-            tank_name: p.tank_name.clone(),
-            damage_dealt: p.damage_dealt,
-            kills: p.n_enemies_destroyed,
-            death_reason: p.death_reason,
-            survived: p.survived,
-            life_time_secs: p.life_time_secs,
-            killer_id: p.killer_id,
-            n_enemies_spotted: p.n_enemies_spotted,
-            destruction_assistance: p.destruction_assistance,
-            gun_marks: p.gun_marks,
-            n_shots: p.n_shots,
-            n_hits: p.n_hits_dealt,
-            n_penetrations: p.n_penetrations_dealt,
-            damage_blocked: p.damage_blocked,
-            damage_assisted_total: p.damage_assisted_1 + p.damage_assisted_2,
-        }).collect();
+        let settlement_players = summary
+            .players
+            .iter()
+            .map(|p| PlayerSettlementRow {
+                account_id: p.account_id,
+                nickname: p.nickname.clone(),
+                team: p.team,
+                tank_id: p.tank_id,
+                tank_name: p.tank_name.clone(),
+                damage_dealt: p.damage_dealt,
+                kills: p.n_enemies_destroyed,
+                death_reason: p.death_reason,
+                survived: p.survived,
+                life_time_secs: p.life_time_secs,
+                killer_id: p.killer_id,
+                n_enemies_spotted: p.n_enemies_spotted,
+                destruction_assistance: p.destruction_assistance,
+                gun_marks: p.gun_marks,
+                n_shots: p.n_shots,
+                n_hits: p.n_hits_dealt,
+                n_penetrations: p.n_penetrations_dealt,
+                damage_blocked: p.damage_blocked,
+                damage_assisted_total: p.damage_assisted_1 + p.damage_assisted_2,
+            })
+            .collect();
         ReplayDataset {
             metadata: DatasetMetadata {
                 file_name: summary.file_name.clone(),

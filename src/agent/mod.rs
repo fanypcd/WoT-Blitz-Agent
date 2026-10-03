@@ -1,12 +1,12 @@
 use anyhow::Result;
+use serde_json::Value;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::models::config::{Config, TokenUsage};
-use crate::agent::llm_client::{LlmClient, ChatMessage, ToolDefinition};
+use crate::agent::llm_client::{ChatMessage, LlmClient, ToolDefinition};
 use crate::agent::tools::AgentTools;
+use crate::models::config::{Config, TokenUsage};
 
 pub mod llm_client;
 pub mod tools;
@@ -38,7 +38,7 @@ pub enum AgentEvent {
     Error { message: String },
 }
 
-/// 一次可保存/加载的会话（用于 R5 会话持久化）。
+/// 一次可保存/加载的会话。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SavedSession {
     pub datetime: String,
@@ -67,7 +67,7 @@ impl Agent {
     /// 从配置文件构造 Agent（加载配置、工具集、token 统计，写入系统提示）。
     pub fn new(config_path: &Path) -> Result<Self> {
         let config = Config::load_or_create(config_path)?;
-        
+
         let replay_dir = config.replay.replay_dir.clone();
         let tank_cache_path = config.replay.tank_cache_path.clone();
         let tank_cache = if Path::new(&tank_cache_path).exists() {
@@ -132,14 +132,17 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
     where
         F: FnMut(AgentEvent) + Send,
     {
-        // 全局打断标志只对"设置时正在运行的轮次"生效；新轮次开始即复位，
-        // 否则一次 Web 取消（无 session_id 的回退分支）或 Ctrl+C 会让
-        // 之后所有会话立即返回 "[Interrupted by user]"，直到进程重启。
+        // 新轮次开始即复位全局打断标志：否则一次 Ctrl+C / Web 回退取消会让之后
+        // 所有会话立即返回 "[Interrupted by user]"，直到进程重启。
         INTERRUPTED.store(false, Ordering::SeqCst);
 
         if self.config.llm.api_key.is_empty() {
-            on_event(AgentEvent::Error { message: "LLM API key not configured.".into() });
-            return Err(anyhow::anyhow!("LLM API key not configured. Run `wotb-agent config --show` to edit config.toml."));
+            on_event(AgentEvent::Error {
+                message: "LLM API key not configured.".into(),
+            });
+            return Err(anyhow::anyhow!(
+                "LLM API key not configured. Run `wotb-agent config --show` to edit config.toml."
+            ));
         }
 
         self.messages.push(ChatMessage {
@@ -168,13 +171,23 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
 
             if !llm.check_budget(&self.usage) {
                 let budget = self.config.llm.budget.unwrap_or(0.0);
-                let msg = format!("Token budget exceeded: ${:.4} >= ${:.2}", self.usage.total_cost, budget);
-                on_event(AgentEvent::Error { message: msg.clone() });
+                let msg = format!(
+                    "Token budget exceeded: ${:.4} >= ${:.2}",
+                    self.usage.total_cost, budget
+                );
+                on_event(AgentEvent::Error {
+                    message: msg.clone(),
+                });
                 return Err(anyhow::anyhow!("{}", msg));
             }
 
-            on_event(AgentEvent::StepStart { step: i + 1, max: max_iterations });
-            let response = llm.chat(&self.messages, Some(&self.tool_defs), &mut self.usage).await?;
+            on_event(AgentEvent::StepStart {
+                step: i + 1,
+                max: max_iterations,
+            });
+            let response = llm
+                .chat(&self.messages, Some(&self.tool_defs), &mut self.usage)
+                .await?;
             // 仅在确有工具调用时克隆 tool_calls；content 随消息直接入历史（最终回复路径零克隆）
             let tool_calls = response.tool_calls.clone();
             self.messages.push(response);
@@ -185,9 +198,12 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
                         break;
                     }
                     let tool_name = &tc.function.name;
-                    let args: Value = serde_json::from_str(&tc.function.arguments)
-                        .unwrap_or(Value::Null);
-                    on_event(AgentEvent::ToolCall { name: tool_name.clone(), args: args.clone() });
+                    let args: Value =
+                        serde_json::from_str(&tc.function.arguments).unwrap_or(Value::Null);
+                    on_event(AgentEvent::ToolCall {
+                        name: tool_name.clone(),
+                        args: args.clone(),
+                    });
 
                     // 工具内部全是阻塞 IO（reqwest::blocking WG API、回放扫描、文件解析），
                     // 挪到 blocking 线程执行：reqwest::blocking 的内部 runtime 在 async
@@ -196,13 +212,17 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
                         let tools = self.tools.clone();
                         let name = tool_name.clone();
                         let args = args.clone();
-                        match tokio::task::spawn_blocking(move || tools.execute(&name, &args)).await {
+                        match tokio::task::spawn_blocking(move || tools.execute(&name, &args)).await
+                        {
                             Ok(Ok(r)) => r,
                             Ok(Err(e)) => format!("Error: {}", e),
                             Err(e) => format!("Error: tool task failed: {}", e),
                         }
                     };
-                    on_event(AgentEvent::ToolResult { name: tool_name.clone(), result: result.clone() });
+                    on_event(AgentEvent::ToolResult {
+                        name: tool_name.clone(),
+                        result: result.clone(),
+                    });
 
                     self.messages.push(ChatMessage {
                         role: "tool".to_string(),
@@ -216,29 +236,48 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
 
             self.usage.save_to_file(&self.usage_path).ok();
             // 最终回复即刚入历史的 assistant 消息
-            let content = self.messages.last().expect("assistant reply just pushed").content.clone();
-            on_event(AgentEvent::Done { content: content.clone() });
+            let content = self
+                .messages
+                .last()
+                .expect("assistant reply just pushed")
+                .content
+                .clone();
+            on_event(AgentEvent::Done {
+                content: content.clone(),
+            });
             return Ok(content);
         }
 
         self.usage.save_to_file(&self.usage_path).ok();
-        let msg = "Reached maximum tool call iterations. Please try a more specific question.".to_string();
-        on_event(AgentEvent::Done { content: msg.clone() });
+        let msg = "Reached maximum tool call iterations. Please try a more specific question."
+            .to_string();
+        on_event(AgentEvent::Done {
+            content: msg.clone(),
+        });
         Ok(msg)
     }
 
     /// CLI 用的阻塞包装：在本线程创建 runtime 驱动 async 循环，并把事件打印到 stderr。
     pub fn chat(&mut self, user_input: &str) -> Result<String> {
         let runtime = tokio::runtime::Runtime::new()?;
-        let result = runtime.block_on(self.chat_async(user_input, |e| {
-            match &e {
-                AgentEvent::StepStart { step, max } => eprintln!("[Agent] Calling LLM (step {}/{})...", step, max),
-                AgentEvent::ToolCall { name, args } => eprintln!("[Agent] Tool call: {} ({})", name,
-                    if args.is_object() { args.to_string() } else { String::new() }),
-                AgentEvent::ToolResult { name: _, result } => eprintln!("[Agent]   Done ({} chars)", result.len()),
-                AgentEvent::Interrupted => eprintln!("[Agent]   Interrupted by user"),
-                _ => {}
+        let result = runtime.block_on(self.chat_async(user_input, |e| match &e {
+            AgentEvent::StepStart { step, max } => {
+                eprintln!("[Agent] Calling LLM (step {}/{})...", step, max)
             }
+            AgentEvent::ToolCall { name, args } => eprintln!(
+                "[Agent] Tool call: {} ({})",
+                name,
+                if args.is_object() {
+                    args.to_string()
+                } else {
+                    String::new()
+                }
+            ),
+            AgentEvent::ToolResult { name: _, result } => {
+                eprintln!("[Agent]   Done ({} chars)", result.len())
+            }
+            AgentEvent::Interrupted => eprintln!("[Agent]   Interrupted by user"),
+            _ => {}
         }))?;
         Ok(result)
     }
@@ -277,12 +316,12 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
 
     /// 获取对话历史（不含系统提示），供 Web GUI 展示。
     pub fn history(&self) -> Vec<ChatMessage> {
-        self.messages.iter()
+        self.messages
+            .iter()
             .filter(|m| m.role != "system")
             .cloned()
             .collect()
     }
-
 
     /// 打印 token 用量汇总（CLI `usage` 子命令）。
     pub fn print_usage(&self) {
@@ -306,7 +345,10 @@ Respond in Chinese if the user speaks Chinese, in English otherwise.";
                         }
                     }
                 }
-                "tool" => println!("  [Tool Result]: {}...", msg.content.chars().take(100).collect::<String>()),
+                "tool" => println!(
+                    "  [Tool Result]: {}...",
+                    msg.content.chars().take(100).collect::<String>()
+                ),
                 _ => {}
             }
         }

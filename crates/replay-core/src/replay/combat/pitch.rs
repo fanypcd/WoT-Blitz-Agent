@@ -40,16 +40,26 @@ pub type GunPitchLimits = HashMap<String, GunPitchRange>;
 /// 过渡带几何为合理推断（BlitzKit applyPitchYawLimits 同名语义），transition 缺省 = 0。
 fn gun_pitch_range_at(r: &GunPitchRange, turret_rel_deg: f32) -> (f32, f32) {
     let mut theta = turret_rel_deg;
-    while theta > 180.0 { theta -= 360.0; }
-    while theta < -180.0 { theta += 360.0; }
+    while theta > 180.0 {
+        theta -= 360.0;
+    }
+    while theta < -180.0 {
+        theta += 360.0;
+    }
     let trans = r.transition.unwrap_or(0.0);
     // 单扇区混合：d = |θ−中心|，扇区内→扇区值，扇区外→基础值，边界两侧 ±trans/2 插值
     let blend = |base: f32, sect: f32, d: f32, half: f32| -> f32 {
-        if half <= 0.0 { return base; }
+        if half <= 0.0 {
+            return base;
+        }
         let lo = half - trans * 0.5;
         let hi = half + trans * 0.5;
-        if d <= lo { return sect; }
-        if d >= hi { return base; }
+        if d <= lo {
+            return sect;
+        }
+        if d >= hi {
+            return base;
+        }
         let f = if hi > lo { (d - lo) / (hi - lo) } else { 1.0 };
         sect + (base - sect) * f
     };
@@ -71,12 +81,11 @@ fn gun_pitch_range_at(r: &GunPitchRange, turret_rel_deg: f32) -> (f32, f32) {
 /// prop2 frac6 → 炮管俯仰（弧度，炮塔系，正=仰角）。
 /// **frac=63 ↔ 当前炮塔朝向的俯角极限（炮管最低）、frac=0 ↔ 仰角极限（最高）**：
 /// pitch = ele(θ) − frac/63 × (dep(θ) + ele(θ))，其中 (dep,ele) 随炮塔相对角 θ 分段
-/// （front/back 扇区，`gun_pitch_range_at`）。**比例锚定随炮塔朝向分段**（2026-09-23
-/// T95E6 旋转实验定案：旋转一周 frac 恒钉 63，而后方扇区俯角仅 −0.5° vs 前方 −10°——
-/// 物理角随朝向被钳而比例恒定 = 服务器按当前朝向限制打包 frac）。基础锚定证据：
-/// T110 1617 受控实验（极限动作 0/63 精确钳位）+ 实战 frac 常态贴 63（第三人称预瞄
-/// 点在近地面）。快速偏航段 frac 恒钉极限 = 炮管贴极限的**实时如实上报**（用户实战
-/// 确认为正常操作现象，非通道冻结——服务器按需重发不变值）。
+/// （front/back 扇区，`gun_pitch_range_at`）。**比例锚定随炮塔朝向分段**：旋转一周
+/// frac 恒钉 63 而后方扇区俯角远小于前方 = 服务器按当前朝向限制打包 frac
+/// （受控实验极限动作 0/63 精确钳位 + 实战 frac 常态贴 63——第三人称预瞄点在
+/// 近地面的操作常态）。快速偏航段 frac 恒钉极限 = 炮管贴极限的**实时如实上报**
+/// （非通道冻结——服务器按需重发不变值）。
 #[inline]
 pub fn decode_prop2_gun_pitch(frac: f32, range: &GunPitchRange, turret_rel_rad: f32) -> f32 {
     let (dep, ele) = gun_pitch_range_at(range, turret_rel_rad * 57.29578);

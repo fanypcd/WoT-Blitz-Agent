@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow, Context};
+use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -63,7 +63,10 @@ impl LlmClient {
             .timeout(std::time::Duration::from_secs(120))
             .build()
             .unwrap_or_default();
-        Self { http, config: config.clone() }
+        Self {
+            http,
+            config: config.clone(),
+        }
     }
 
     /// 发起一次对话补全（async）：`messages` 为完整对话历史（含系统提示），`tools` 可空；
@@ -94,9 +97,13 @@ impl LlmClient {
             }
         }
 
-        let resp = self.http
+        let resp = self
+            .http
             .post(&url)
-            .header("Authorization", format!("Bearer {}", self.config.llm.api_key))
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.config.llm.api_key),
+            )
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
@@ -112,7 +119,9 @@ impl LlmClient {
         let mut resp_json: Value = resp.json().await.context("Failed to parse LLM response")?;
 
         let input_tokens = resp_json["usage"]["prompt_tokens"].as_u64().unwrap_or(0);
-        let output_tokens = resp_json["usage"]["completion_tokens"].as_u64().unwrap_or(0);
+        let output_tokens = resp_json["usage"]["completion_tokens"]
+            .as_u64()
+            .unwrap_or(0);
 
         usage.record(
             &self.config.llm.model,
@@ -123,9 +132,13 @@ impl LlmClient {
             "chat",
         );
 
-        let content = resp_json["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+        let content = resp_json["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
         // 零拷贝取出 tool_calls（take 后 resp_json 不再使用；get_mut 链对异常响应形状安全，不 panic 不插入）
-        let taken = resp_json.get_mut("choices")
+        let taken = resp_json
+            .get_mut("choices")
             .and_then(|c| c.get_mut(0))
             .and_then(|c| c.get_mut("message"))
             .and_then(|m| m.get_mut("tool_calls"))
@@ -133,7 +146,11 @@ impl LlmClient {
         let tool_calls = match taken {
             Some(v) if !v.is_null() => {
                 let calls: Vec<ToolCall> = serde_json::from_value(v).unwrap_or_default();
-                if calls.is_empty() { None } else { Some(calls) }
+                if calls.is_empty() {
+                    None
+                } else {
+                    Some(calls)
+                }
             }
             _ => None,
         };
@@ -154,5 +171,4 @@ impl LlmClient {
             true
         }
     }
-
 }

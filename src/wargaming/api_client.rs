@@ -100,10 +100,9 @@ impl WgApiClient {
 
         let data = &resp["data"][&account_id.to_string()];
         let stats = &data["statistics"];
-        let all = &stats["all"];        // 随机战统计
-        let rating = &stats["rating"];  // 排位战统计
+        let all = &stats["all"];
+        let rating = &stats["rating"];
 
-        // 显示评级 = 3000 + mm*10（WG 的换算公式）
         let mm_rating = rating["mm_rating"].as_f64().map(|v| v as f32);
         let display_rating = mm_rating.map(|v| (3000.0 + v * 10.0) as u32);
 
@@ -143,14 +142,30 @@ impl WgApiClient {
         println!("========================================================");
         println!();
         println!("--- Random Battles ---");
-        Self::print_section(stats.random_battles, stats.random_wins, stats.random_losses,
-            stats.random_damage_dealt, stats.random_frags, stats.random_shots,
-            stats.random_hits, stats.random_xp, stats.random_spotted);
+        Self::print_section(
+            stats.random_battles,
+            stats.random_wins,
+            stats.random_losses,
+            stats.random_damage_dealt,
+            stats.random_frags,
+            stats.random_shots,
+            stats.random_hits,
+            stats.random_xp,
+            stats.random_spotted,
+        );
         println!();
         println!("--- Rating Battles ---");
-        Self::print_section(stats.rating_battles, stats.rating_wins, stats.rating_losses,
-            stats.rating_damage_dealt, stats.rating_frags, stats.rating_shots,
-            stats.rating_hits, stats.rating_xp, stats.rating_spotted);
+        Self::print_section(
+            stats.rating_battles,
+            stats.rating_wins,
+            stats.rating_losses,
+            stats.rating_damage_dealt,
+            stats.rating_frags,
+            stats.rating_shots,
+            stats.rating_hits,
+            stats.rating_xp,
+            stats.rating_spotted,
+        );
         if let Some(mm) = stats.rating_mm_rating {
             println!();
             println!("  mm_rating:     {:.2}", mm);
@@ -165,17 +180,43 @@ impl WgApiClient {
         println!("========================================================");
     }
 
-    #[allow(clippy::too_many_arguments)]   // 报表打印的平铺参数，语义清晰
-    fn print_section(battles: u32, wins: u32, losses: u32, dmg: u64, frags: u64,
-        shots: u64, hits: u64, xp: u64, spotted: u64)
-    {
+    #[allow(clippy::too_many_arguments)] // 报表打印的平铺参数，语义清晰
+    fn print_section(
+        battles: u32,
+        wins: u32,
+        losses: u32,
+        dmg: u64,
+        frags: u64,
+        shots: u64,
+        hits: u64,
+        xp: u64,
+        spotted: u64,
+    ) {
         let n = battles.max(1) as f64;
         println!("  Battles:       {}", battles);
-        println!("  Win/Loss:       {}/{}  ({:.1}%)", wins, losses, wins as f64 / n * 100.0);
+        println!(
+            "  Win/Loss:       {}/{}  ({:.1}%)",
+            wins,
+            losses,
+            wins as f64 / n * 100.0
+        );
         println!("  Total damage:   {} (avg {:.0})", dmg, dmg as f64 / n);
         println!("  Total frags:    {} (avg {:.2})", frags, frags as f64 / n);
-        println!("  Shots/Hits:     {}/{} ({:.1}%)", shots, hits, if shots > 0 { hits as f64 / shots as f64 * 100.0 } else { 0.0 });
+        println!(
+            "  Shots/Hits:     {}/{} ({:.1}%)",
+            shots,
+            hits,
+            if shots > 0 {
+                hits as f64 / shots as f64 * 100.0
+            } else {
+                0.0
+            }
+        );
         println!("  Total XP:       {} (avg {:.0})", xp, xp as f64 / n);
-        println!("  Spotted:        {} (avg {:.2})", spotted, spotted as f64 / n);
+        println!(
+            "  Spotted:        {} (avg {:.2})",
+            spotted,
+            spotted as f64 / n
+        );
     }
 }

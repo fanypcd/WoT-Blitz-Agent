@@ -58,7 +58,13 @@ impl Waypoint {
 
 impl StoredInput {
     fn zero() -> Self {
-        Self { time: 0.0, pos: [0.0; 3], pos_error: [0.0; 3], yaw: 0.0, pitch: 0.0 }
+        Self {
+            time: 0.0,
+            pos: [0.0; 3],
+            pos_error: [0.0; 3],
+            yaw: 0.0,
+            pitch: 0.0,
+        }
     }
 }
 
@@ -179,7 +185,13 @@ impl AvatarFilter {
             pos,
             yaw,
             pitch,
-            stored: StoredInput { time: time - NONZERO_TIME_DIFFERENCE, pos, pos_error, yaw, pitch },
+            stored: StoredInput {
+                time: time - NONZERO_TIME_DIFFERENCE,
+                pos,
+                pos_error,
+                yaw,
+                pitch,
+            },
         };
         self.previous_waypoint = self.next_waypoint;
         self.previous_waypoint.time -= NONZERO_TIME_DIFFERENCE;
@@ -195,16 +207,21 @@ impl AvatarFilter {
         if self.got_new_input {
             self.got_new_input = false;
             let newest_time = self.input_at(0).time;
-            let older_time = self.input_at(7).time;   // (cur+7)%8 ≡ (cur−1)&7，与二进制同槽
+            let older_time = self.input_at(7).time; // (cur+7)%8 ≡ (cur−1)&7，与二进制同槽
             let latency_frames = LATENCY_FRAMES.clamp(0.0, 7.0);
             let ratio = (7.0 - latency_frames) / 7.0;
-            self.ideal_latency = (time - (older_time + (newest_time - older_time) * ratio as f64)) as f32;
+            self.ideal_latency =
+                (time - (older_time + (newest_time - older_time) * ratio as f64)) as f32;
             self.ideal_latency = self.ideal_latency.max(LATENCY_MINIMUM);
         }
         // latency 以 1.0×|Δ|² s/s 二次缓动逼近理想值
         let d_time = (time - self.time_of_last_output) as f32;
         let d_latency = (LATENCY_VELOCITY * d_time)
-            * (1.0f32.min((self.ideal_latency - self.latency).abs().powf(LATENCY_CURVE_POWER)));
+            * (1.0f32.min(
+                (self.ideal_latency - self.latency)
+                    .abs()
+                    .powf(LATENCY_CURVE_POWER),
+            ));
         if self.ideal_latency > self.latency {
             self.latency = (self.latency + d_latency).min(self.ideal_latency);
         } else {
@@ -390,7 +407,11 @@ impl FilteredTimeline {
             frames.push(filter.output(t));
             t += FRAME_DT;
         }
-        Some(Self { start, dt: FRAME_DT, frames })
+        Some(Self {
+            start,
+            dt: FRAME_DT,
+            frames,
+        })
     }
 
     /// 事件时刻的渲染位姿。`at_or_after=true` 取首个 ≥t 的帧（包在帧首网络泵处理后渲染于当帧）。
@@ -399,11 +420,7 @@ impl FilteredTimeline {
             return None;
         }
         let idx = (t - self.start) / self.dt;
-        let i = if at_or_after {
-            idx.ceil()
-        } else {
-            idx.floor()
-        };
+        let i = if at_or_after { idx.ceil() } else { idx.floor() };
         let i = (i.max(0.0) as usize).min(self.frames.len() - 1);
         Some(self.frames[i])
     }
@@ -415,7 +432,10 @@ impl FilteredTimeline {
 
     /// 时间线实际覆盖的绝对时刻范围 [start, end]（首帧 = 首输入时刻，其后为 60Hz 外推/钳位）
     pub fn time_range(&self) -> (f64, f64) {
-        (self.start, self.start + self.dt * (self.frames.len() as f64 - 1.0).max(0.0))
+        (
+            self.start,
+            self.start + self.dt * (self.frames.len() as f64 - 1.0).max(0.0),
+        )
     }
 }
 
@@ -481,7 +501,11 @@ mod referee {
         let mut out = Vec::new();
         if let Ok(rd) = std::fs::read_dir(root) {
             for e in rd.flatten() {
-                if e.path().extension().map(|x| x == "wotbreplay").unwrap_or(false) {
+                if e.path()
+                    .extension()
+                    .map(|x| x == "wotbreplay")
+                    .unwrap_or(false)
+                {
                     out.push(e.path());
                 }
             }
@@ -492,17 +516,26 @@ mod referee {
 
     fn median(v: &mut [f32]) -> f32 {
         v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        if v.is_empty() { 0.0 } else { v[v.len() / 2] }
+        if v.is_empty() {
+            0.0
+        } else {
+            v[v.len() / 2]
+        }
     }
     fn percentile(v: &mut [f32], p: usize) -> f32 {
         v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        if v.is_empty() { 0.0 } else { v[v.len() * p / 100] }
+        if v.is_empty() {
+            0.0
+        } else {
+            v[v.len() * p / 100]
+        }
     }
 
     #[test]
     #[ignore = "裁判探针：WOTB_FILTER_PROBE=<path|dir> cargo test referee_probe -- --ignored --nocapture"]
     fn referee_probe() {
-        let root = std::env::var("WOTB_FILTER_PROBE").unwrap_or_else(|_| "data/replay_samples".into());
+        let root =
+            std::env::var("WOTB_FILTER_PROBE").unwrap_or_else(|_| "data/replay_samples".into());
         let files = collect_replay_files(Path::new(&root));
         assert!(!files.is_empty(), "未找到回放文件：{root}");
         eprintln!("=== 渲染层锚点裁判实验（{} 个回放）===", files.len());
@@ -524,14 +557,22 @@ mod referee {
             let data = replay.read_data().unwrap();
             let u32le = |b: &[u8]| u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
             let f32le = |b: &[u8]| f32::from_le_bytes([b[0], b[1], b[2], b[3]]);
-            let packets: Vec<(u32, f32, &[u8])> = data.packets.iter().map(|pkt| {
-                let t = match &pkt.payload {
-                    wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate { .. } => 0,
-                    wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
-                    wotbreplay_parser::models::data::payload::Payload::Unknown { packet_type } => *packet_type,
-                };
-                (t, pkt.clock_secs, &pkt.raw_payload[..])
-            }).collect();
+            let packets: Vec<(u32, f32, &[u8])> = data
+                .packets
+                .iter()
+                .map(|pkt| {
+                    let t = match &pkt.payload {
+                        wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate {
+                            ..
+                        } => 0,
+                        wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
+                        wotbreplay_parser::models::data::payload::Payload::Unknown {
+                            packet_type,
+                        } => *packet_type,
+                    };
+                    (t, pkt.clock_secs, &pkt.raw_payload[..])
+                })
+                .collect();
 
             // per-entity type=10 流（含 pos_error）
             let mut st10: HashMap<u32, Vec<St10Sample>> = HashMap::new();
@@ -543,23 +584,33 @@ mod referee {
                         clock: *clock,
                         pos: [f32le(&p[12..16]), f32le(&p[16..20]), f32le(&p[20..24])],
                         pos_error: [f32le(&p[24..28]), f32le(&p[28..32]), f32le(&p[32..36])],
-                        yaw: f32le(&p[36..40]), pitch: f32le(&p[40..44]), roll: f32le(&p[44..48]),
+                        yaw: f32le(&p[36..40]),
+                        pitch: f32le(&p[40..44]),
+                        roll: f32le(&p[44..48]),
                     });
                     continue;
                 }
                 if *t2 == 8 && p.len() >= 22 {
-                    if u32le(&p[4..8]) != 0x08 { continue; }
+                    if u32le(&p[4..8]) != 0x08 {
+                        continue;
+                    }
                     let alen = u32le(&p[8..12]) as usize;
-                    if alen < 10 || 12 + alen > p.len() { continue; }
+                    if alen < 10 || 12 + alen > p.len() {
+                        continue;
+                    }
                     let a = &p[12..12 + alen];
-                    if a[8] != 0x01 { continue; }
+                    if a[8] != 0x01 {
+                        continue;
+                    }
                     let victim = u32le(&a[4..8]);
                     if let Some(s) = st10.get(&victim).and_then(|v| v.last()) {
                         hits.push((u32le(&a[0..4]), victim, *clock, s.pos));
                     }
                 }
             }
-            if hits.is_empty() { continue; }
+            if hits.is_empty() {
+                continue;
+            }
 
             // 惰性时间线
             let mut timelines: HashMap<u32, FilteredTimeline> = HashMap::new();
@@ -567,23 +618,32 @@ mod referee {
             let mut lat_file: Vec<f32> = Vec::new();
             let mut stat_file: Vec<f32> = Vec::new();
             for (_shooter, victim, t_hit, judgment) in &hits {
-                let Some(samples) = st10.get(victim) else { continue };
+                let Some(samples) = st10.get(victim) else {
+                    continue;
+                };
                 if !timelines.contains_key(victim) {
                     if let Some(tl) = FilteredTimeline::build(samples) {
                         timelines.insert(*victim, tl);
                     }
                 }
-                let Some(tl) = timelines.get(victim) else { continue };
-                let Some(pose) = tl.pose_at(*t_hit as f64, true) else { continue };
+                let Some(tl) = timelines.get(victim) else {
+                    continue;
+                };
+                let Some(pose) = tl.pose_at(*t_hit as f64, true) else {
+                    continue;
+                };
 
                 // 目标速度（锚点 ±0.15s 邻近采样）
                 let speed = {
                     let mut v: Option<f32> = None;
                     for w in samples.windows(2) {
                         let (a, b) = (&w[0], &w[1]);
-                        if a.clock >= *t_hit - 0.35 && b.clock <= *t_hit + 0.35 && b.clock > a.clock {
-                            let d = ((b.pos[0]-a.pos[0]).powi(2) + (b.pos[1]-a.pos[1]).powi(2)
-                                + (b.pos[2]-a.pos[2]).powi(2)).sqrt();
+                        if a.clock >= *t_hit - 0.35 && b.clock <= *t_hit + 0.35 && b.clock > a.clock
+                        {
+                            let d = ((b.pos[0] - a.pos[0]).powi(2)
+                                + (b.pos[1] - a.pos[1]).powi(2)
+                                + (b.pos[2] - a.pos[2]).powi(2))
+                            .sqrt();
                             v = Some(d / (b.clock - a.clock)).or(v);
                         }
                     }
@@ -599,7 +659,9 @@ mod referee {
                     let mut best: Option<(f32, f32)> = None;
                     for fr in &tl.frames {
                         let dt = (fr.time - *t_hit as f64) as f32;
-                        if !(-0.15..=0.6).contains(&dt) { continue; }
+                        if !(-0.15..=0.6).contains(&dt) {
+                            continue;
+                        }
                         let d = dist3(fr.pos, *judgment);
                         if best.map(|(bd, _)| d < bd).unwrap_or(true) {
                             best = Some((d, dt));
@@ -636,24 +698,35 @@ mod referee {
                         }
                     }
                     let Some(i) = best_i else { continue };
-                    if best_time_gap > 0.3 { continue; }
+                    if best_time_gap > 0.3 {
+                        continue;
+                    }
                     render_vs_raw_all.push(dist3(v[i].pos, fr.pos));
                     frames_checked += 1;
                 }
                 for w in tl.frames.windows(2) {
                     let dt = (w[1].time - w[0].time) as f32;
-                    if dt <= 0.0 { continue; }
-                    max_frame_speed_all = max_frame_speed_all.max(
-                        dist3(w[1].pos, w[0].pos) / dt);
+                    if dt <= 0.0 {
+                        continue;
+                    }
+                    max_frame_speed_all = max_frame_speed_all.max(dist3(w[1].pos, w[0].pos) / dt);
                 }
             }
             let name = file.file_name().unwrap().to_string_lossy().to_string();
-            eprintln!("--- {name}: 命中 {} 发，机动 {} / 静止 {}",
-                hits.len(), lag_file.len(), stat_file.len());
+            eprintln!(
+                "--- {name}: 命中 {} 发，机动 {} / 静止 {}",
+                hits.len(),
+                lag_file.len(),
+                stat_file.len()
+            );
             eprintln!("    latency@hit  med={:.3}s", median(&mut lat_file));
             if !lag_file.is_empty() {
-                eprintln!("    隐含滞后     p25={:+.3} med={:+.3} p75={:+.3}s",
-                    percentile(&mut lag_file, 25), median(&mut lag_file), percentile(&mut lag_file, 75));
+                eprintln!(
+                    "    隐含滞后     p25={:+.3} med={:+.3} p75={:+.3}s",
+                    percentile(&mut lag_file, 25),
+                    median(&mut lag_file),
+                    percentile(&mut lag_file, 75)
+                );
             }
             if !stat_file.is_empty() {
                 eprintln!("    静止偏差     med={:.3}m", median(&mut stat_file));
@@ -668,17 +741,26 @@ mod referee {
         // R1 隐含滞后
         let lag_med = median(&mut lag_all);
         let r1 = (0.0..=0.45).contains(&lag_med);
-        eprintln!("R1 隐含滞后 med={lag_med:+.3}s（预期 [0.00,0.45]，≈latency+采样滞后）→ {}", verdict(r1));
+        eprintln!(
+            "R1 隐含滞后 med={lag_med:+.3}s（预期 [0.00,0.45]，≈latency+采样滞后）→ {}",
+            verdict(r1)
+        );
         verdicts.push(r1);
         // R2 latency 状态
         let lat_med = median(&mut lat_all);
         let r2 = (0.02..=0.35).contains(&lat_med);
-        eprintln!("R2 latency@hit med={lat_med:.3}s（预期 [0.02,0.35]，随战斗时长收敛）→ {}", verdict(r2));
+        eprintln!(
+            "R2 latency@hit med={lat_med:.3}s（预期 [0.02,0.35]，随战斗时长收敛）→ {}",
+            verdict(r2)
+        );
         verdicts.push(r2);
         // R3 静止目标偏差
         let stat_med = median(&mut stat_dist_all);
         let r3 = stat_med <= 0.5;
-        eprintln!("R3 静止目标渲染-判定偏差 med={stat_med:.3}m（预期 ≤0.5）→ {}", verdict(r3));
+        eprintln!(
+            "R3 静止目标渲染-判定偏差 med={stat_med:.3}m（预期 ≤0.5）→ {}",
+            verdict(r3)
+        );
         verdicts.push(r3);
         // R4 物理收敛：渲染位 ≈ output_time 时刻的 raw 真值（全局采样）
         let r4_med = median(&mut render_vs_raw_all);
@@ -686,19 +768,31 @@ mod referee {
         let r4 = r4_med <= 2.0 && r4_p99 <= 15.0;
         eprintln!("R4 渲染-vs-raw@output_time（{} 帧采样）med={r4_med:.3}m p99={r4_p99:.3}m（预期 med≤2 / p99≤15）→ {}",
             frames_checked, verdict(r4));
-        eprintln!("    信息项：帧间最大速度 {:.1} m/s（含 AoI 进入追赶滑移/掉崖等保真高速，不作判定）",
-            max_frame_speed_all);
+        eprintln!(
+            "    信息项：帧间最大速度 {:.1} m/s（含 AoI 进入追赶滑移/掉崖等保真高速，不作判定）",
+            max_frame_speed_all
+        );
         verdicts.push(r4);
-        eprintln!("=== 总判定：{}/4 通过 ===", verdicts.iter().filter(|v| **v).count());
-        assert!(verdicts.iter().all(|v| *v), "裁判实验存在未通过项，见上方报告");
+        eprintln!(
+            "=== 总判定：{}/4 通过 ===",
+            verdicts.iter().filter(|v| **v).count()
+        );
+        assert!(
+            verdicts.iter().all(|v| *v),
+            "裁判实验存在未通过项，见上方报告"
+        );
     }
 
     fn verdict(ok: bool) -> &'static str {
-        if ok { "PASS" } else { "FAIL" }
+        if ok {
+            "PASS"
+        } else {
+            "FAIL"
+        }
     }
 
     fn dist3(a: [f32; 3], b: [f32; 3]) -> f32 {
-        ((a[0]-b[0]).powi(2) + (a[1]-b[1]).powi(2) + (a[2]-b[2]).powi(2)).sqrt()
+        ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
     }
 }
 
@@ -755,11 +849,17 @@ mod tests {
         let pose = tl.pose_at(60.05, true).unwrap();
         assert!(
             (0.15..=0.25).contains(&pose.latency),
-            "收敛段 latency 应 ≈0.2，实际 {}", pose.latency
+            "收敛段 latency 应 ≈0.2，实际 {}",
+            pose.latency
         );
         let truth_at_output_t = (5.0 * (pose.output_time - 20.0)) as f32;
         let err = (pose.pos[0] - (100.0 + truth_at_output_t)).abs();
-        assert!(err < 0.5, "渲染位置偏离 output_time 真值 {}m（latency={}）", err, pose.latency);
+        assert!(
+            err < 0.5,
+            "渲染位置偏离 output_time 真值 {}m（latency={}）",
+            err,
+            pose.latency
+        );
         assert!(
             (pose.velocity[0] - 5.0).abs() < 0.3,
             "速度估计 {:?} 偏离 5.0",
@@ -780,7 +880,11 @@ mod tests {
         ];
         let tl = FilteredTimeline::build(&samples).unwrap();
         let pose = tl.pose_at(10.3, true).unwrap();
-        assert!((pose.pos[0] - 1.0).abs() < 0.1, "乱序样本不得污染历史，pos={:?}", pose.pos);
+        assert!(
+            (pose.pos[0] - 1.0).abs() < 0.1,
+            "乱序样本不得污染历史，pos={:?}",
+            pose.pos
+        );
     }
 
     /// 误差盒钳位：巨大 posError 突跳（AoI 通道切换式跳变）被钳位吸收，渲染轨迹仍连续
@@ -804,6 +908,10 @@ mod tests {
             ];
             max_step = max_step.max(dot(d, d).sqrt());
         }
-        assert!(max_step < 10.0, "跳变应被吸收，帧间最大位移 {:.1}m", max_step);
+        assert!(
+            max_step < 10.0,
+            "跳变应被吸收，帧间最大位移 {:.1}m",
+            max_step
+        );
     }
 }

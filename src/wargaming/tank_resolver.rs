@@ -1,7 +1,7 @@
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use anyhow::{Result, Context};
-use serde::{Deserialize, Serialize};
 
 // =====================================================================
 //  坦克数据解析器：从本地数据文件（BlitzKit pb 解析结果 + 游戏提取数据）
@@ -17,8 +17,7 @@ pub struct TankInfo {
     pub tank_type: String,
     pub nation: String,
     pub is_premium: bool,
-    /// 收藏车（tanks.pb field13 == 2）。与 `is_premium`（== 1）互斥——同一字段的枚举，
-    /// 所以两者不会同时为真。百科据此给收藏车上蓝色边框，与金币车的警告色边框区分。
+    /// 收藏车（tanks.pb field13 == 2）。与 `is_premium`（== 1）互斥——同一枚举字段的两档。
     #[serde(default)]
     pub is_collector: bool,
     #[serde(default)]
@@ -70,12 +69,12 @@ pub struct ShellData {
     pub damage: u32,
     /// 模块伤害——仅命中履带/炮管等外部模块时的伤害
     pub module_damage: u32,
-    /// HE 爆炸半径（m）；旧缓存缺失时为 0。
+    /// HE 爆炸半径（m）；缓存缺失该字段时为 0。
     #[serde(default)]
     pub explosion_radius: f64,
 }
 
-/// 归一化名称索引项：坦克名预归一结果，避免每次模糊查询对全部坦克重新归一（逐辆 2 次 String 分配）。
+/// 归一化名称索引项：坦克名预归一结果，避免每次模糊查询对全部坦克重新归一。
 #[derive(Debug, Clone)]
 pub(crate) struct NameIndexEntry {
     /// 归一名（'-'/'·'/'.'/'_' → 空格 + 小写）
@@ -94,11 +93,20 @@ pub struct TankResolver {
 
 /// 名称归一：'-'/'·'/'.'/'_' 全部视为空格并转小写，使 "E 100" 与 "E-100"、"IS-7" 与 "IS 7" 等可互相命中。
 pub(crate) fn norm_name(s: &str) -> String {
-    s.chars().map(|c| if c=='-'||c=='·'||c=='.'||c=='_' {' '} else {c}).collect::<String>().to_lowercase()
+    s.chars()
+        .map(|c| {
+            if c == '-' || c == '·' || c == '.' || c == '_' {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect::<String>()
+        .to_lowercase()
 }
 
-/// 去空格形态：归一后再剥掉全部空白——"hori"↔"Ho-Ri"、"e100"↔"E 100"。
-/// 否则 "hori" 无法命中 "ho ri"（工具返回查不到 → LLM 用目标车数据幻觉补全）。
+/// 去空格形态：归一后再剥掉全部空白——"hori"↔"Ho-Ri"、"e100"↔"E 100"，
+/// 否则此类名无法命中。
 pub(crate) fn strip_ws(s: &str) -> String {
     s.chars().filter(|c| !c.is_whitespace()).collect()
 }
@@ -110,10 +118,12 @@ impl wotb_replay_core::replay::TankNames for TankResolver {
     }
 }
 
-
 impl TankResolver {
     pub fn new() -> Self {
-        Self { cache: HashMap::new(), name_index: Vec::new() }
+        Self {
+            cache: HashMap::new(),
+            name_index: Vec::new(),
+        }
     }
 
     pub fn resolve(&self, tank_id: u32) -> Option<String> {
@@ -125,7 +135,7 @@ impl TankResolver {
     }
 
     /// 昵称 → 炮管俯仰限制锚定表：prop2 frac 解码用（combat::decode_prop2_gun_pitch，
-    /// 扇区化——俯仰范围随炮塔朝向 front/back 分段，T95E6 旋转实验定案）。
+    /// 扇区化——俯仰范围随炮塔朝向 front/back 分段）。
     /// 数据源（优先级）：models.pb 按**实际搭载**（`comps` = ARENA_INFO comp blob 的
     /// 炮塔/主炮局部 id，`module_id>>8` 对号；多炮车非顶级主炮俯仰范围不同）>
     /// models.pb 顶级配置（最后炮塔×最后炮，comp 缺失或对号失败时回退）。
@@ -138,12 +148,15 @@ impl TankResolver {
     ) -> HashMap<String, crate::replay::combat::GunPitchRange> {
         let mut m: HashMap<String, crate::replay::combat::GunPitchRange> = HashMap::new();
         for p in &br.players {
-            let tank_id = br.player_results.iter()
+            let tank_id = br
+                .player_results
+                .iter()
                 .find(|pr| pr.info.account_id == p.account_id)
                 .map(|pr| pr.info.tank_id);
             let Some(tid) = tank_id else { continue };
             // 实际搭载（comp blob，确定性）：tank 低 16 位对号后取该炮塔/主炮局部 id
-            let comp = comps.get(p.info.nickname.as_str())
+            let comp = comps
+                .get(p.info.nickname.as_str())
                 .filter(|c| (c.tank_id & 0xFFFF) == (tid & 0xFFFF))
                 .map(|c| (c.turret_local, c.gun_local));
             if let Some(r) = Self::models_pitch_limits(tid, comp) {
@@ -161,26 +174,45 @@ impl TankResolver {
     ) -> Option<crate::replay::combat::GunPitchRange> {
         let mi = crate::wargaming::blitzkit::model_info(tank_id)?;
         let pitch_of = |turret_local: u32, gun_local: u32| {
-            mi.turrets.iter()
+            mi.turrets
+                .iter()
                 .find(|t| (t.module_id >> 8) == turret_local)
-                .and_then(|t| t.guns.iter().find(|gm| (gm.gun_module_id >> 8) == gun_local))
+                .and_then(|t| {
+                    t.guns
+                        .iter()
+                        .find(|gm| (gm.gun_module_id >> 8) == gun_local)
+                })
                 .and_then(|gm| gm.pitch_limits.clone())
         };
-        let pl = comp.and_then(|(tl, gl)| pitch_of(tl as u32, gl as u32))
+        let pl = comp
+            .and_then(|(tl, gl)| pitch_of(tl as u32, gl as u32))
             .or_else(|| {
-                let top_gun_module = crate::wargaming::blitzkit::tank_full(tank_id)
-                    .and_then(|tank| tank.turrets.last()
-                        .and_then(|t| t.guns.last())
-                        .map(|g| g.module_id))?;
-                mi.turrets.iter().flat_map(|t| t.guns.iter())
+                let top_gun_module =
+                    crate::wargaming::blitzkit::tank_full(tank_id).and_then(|tank| {
+                        tank.turrets
+                            .last()
+                            .and_then(|t| t.guns.last())
+                            .map(|g| g.module_id)
+                    })?;
+                mi.turrets
+                    .iter()
+                    .flat_map(|t| t.guns.iter())
                     .find(|gm| gm.gun_module_id == top_gun_module)
                     .and_then(|gm| gm.pitch_limits.clone())
             })?;
         Some(crate::replay::combat::GunPitchRange {
             dep: pl.max,
             ele: -pl.min,
-            front: pl.front.map(|f| crate::replay::combat::SectorLimits { min: f.min, max: f.max, range: f.range }),
-            back: pl.back.map(|b| crate::replay::combat::SectorLimits { min: b.min, max: b.max, range: b.range }),
+            front: pl.front.map(|f| crate::replay::combat::SectorLimits {
+                min: f.min,
+                max: f.max,
+                range: f.range,
+            }),
+            back: pl.back.map(|b| crate::replay::combat::SectorLimits {
+                min: b.min,
+                max: b.max,
+                range: b.range,
+            }),
             transition: pl.transition,
         })
     }
@@ -214,10 +246,17 @@ impl TankResolver {
             .with_context(|| format!("Failed to read tank cache: {}", path.display()))?;
         let cache: HashMap<u32, TankInfo> = serde_json::from_str(&content)?;
         // 预计算归一化名称索引（按 cache 迭代序构建，与直接遍历 cache 的顺序一致）
-        let name_index = cache.iter().map(|(id, info)| {
-            let norm = norm_name(&info.name);
-            NameIndexEntry { norm_ns: strip_ws(&norm), norm, id: *id }
-        }).collect();
+        let name_index = cache
+            .iter()
+            .map(|(id, info)| {
+                let norm = norm_name(&info.name);
+                NameIndexEntry {
+                    norm_ns: strip_ws(&norm),
+                    norm,
+                    id: *id,
+                }
+            })
+            .collect();
         Ok(Self { cache, name_index })
     }
 
@@ -239,7 +278,6 @@ impl TankResolver {
     pub fn from_blitzkit() -> Result<Self> {
         let mut resolver = Self::new();
 
-        // load_tanks 返回进程内共享缓存引用（零克隆），此处只读
         let tanks = crate::wargaming::blitzkit::load_tanks();
 
         for (id, tank) in tanks.iter() {
@@ -252,14 +290,20 @@ impl TankResolver {
             let hp = Some(tank.hp + tank.turrets.last().map(|t| t.health).unwrap_or(0));
             let is_premium = tank.is_premium;
             let is_collector = tank.is_collector;
-            let speed_forward = if tank.speed_forward > 0.0 { Some(tank.speed_forward as u32) } else { None };
-            let speed_reverse = if tank.speed_reverse > 0.0 { Some(tank.speed_reverse as u32) } else { None };
+            let speed_forward = if tank.speed_forward > 0.0 {
+                Some(tank.speed_forward as u32)
+            } else {
+                None
+            };
+            let speed_reverse = if tank.speed_reverse > 0.0 {
+                Some(tank.speed_reverse as u32)
+            } else {
+                None
+            };
             let hull_traverse = Some((tank.hull_traverse * 180.0 / std::f64::consts::PI) as f32);
 
             // 弹种：取**顶级炮塔的顶级主炮**的 shells——与详情页 `configs[]`（按炮逐项展开）
             // 和 models.pb 的 `turrets.last() × guns.last()` 同档。
-            // 此前取 `first().guns.first()`（初始炮），于是列表卡片与「穿深」排序显示的是
-            // **初始炮**的数据（T-34 实测 85，顶级 76mm S-54 是 125），与详情页自相矛盾。
             let mut shells = Vec::new();
             if let Some(gun) = tank.turrets.last().and_then(|t| t.guns.last()) {
                 for s in &gun.shells {
@@ -273,44 +317,45 @@ impl TankResolver {
                 }
             }
 
-            // 视野 / 炮塔旋转速度：同样取**顶级炮塔**（初始炮塔会低报——
-            // T-34 实测 200/40，顶级炮塔是 240/49）。
+            // 视野 / 炮塔旋转速度：同样取**顶级炮塔**。
             let top_turret = tank.turrets.last();
             let view_range = top_turret.map(|t| t.view_range as f32);
             let turret_traverse_speed = top_turret.map(|t| t.traverse_speed as f32);
 
-            // 俯仰角：models.pb 顶级配置全局极值（gun_angles.json 已退役）
+            // 俯仰角：models.pb 顶级配置全局极值
             let (gun_depression, gun_elevation) = Self::models_pitch_limits(*id, None)
                 .map(|r| (Some(r.dep), Some(r.ele)))
                 .unwrap_or((None, None));
 
             let armor = extract_armor_summary(*id);
 
-            resolver.add(*id, TankInfo {
-                name,
-                tier,
-                tank_type,
-                nation,
-                is_premium,
-                is_collector,
-                armor,
-                shells,
-                hp,
-                speed_forward,
-                speed_reverse,
-                hull_traverse,
-                view_range,
-                turret_traverse_speed,
-                gun_depression,
-                gun_elevation,
-                turret_traverse_left: None,
-                turret_traverse_right: None,
-            });
+            resolver.add(
+                *id,
+                TankInfo {
+                    name,
+                    tier,
+                    tank_type,
+                    nation,
+                    is_premium,
+                    is_collector,
+                    armor,
+                    shells,
+                    hp,
+                    speed_forward,
+                    speed_reverse,
+                    hull_traverse,
+                    view_range,
+                    turret_traverse_speed,
+                    gun_depression,
+                    gun_elevation,
+                    turret_traverse_left: None,
+                    turret_traverse_right: None,
+                },
+            );
         }
 
         Ok(resolver)
     }
-
 }
 
 impl Default for TankResolver {
@@ -336,7 +381,9 @@ fn extract_armor_summary(tank_id: u32) -> Option<ArmorData> {
         plates.values().fold(0.0f64, |a, b| a.max(*b as f64)) as u32
     };
     let hull_max = p(&mi.hull_plates);
-    let turret_max = mi.turrets.iter()
+    let turret_max = mi
+        .turrets
+        .iter()
         .map(|t| p(&t.turret_plates))
         .max()
         .unwrap_or(0);
@@ -361,9 +408,18 @@ fn armor_from_model(armor_model: &serde_json::Value) -> Option<ArmorData> {
         let plate_ref = primary.get(slot).and_then(|v| v.as_str());
         let key = plate_ref.and_then(|r| r.rsplit('_').next()).unwrap_or("1");
         let v = plates.get(key).and_then(|v| v.as_f64());
-        if let Some(v) = v { return Some(v.round() as u32); }
-        let maxth = plates.values().filter_map(|v| v.as_f64()).fold(0.0f64, f64::max);
-        if maxth > 0.0 { Some(maxth.round() as u32) } else { Some(0) }
+        if let Some(v) = v {
+            return Some(v.round() as u32);
+        }
+        let maxth = plates
+            .values()
+            .filter_map(|v| v.as_f64())
+            .fold(0.0f64, f64::max);
+        if maxth > 0.0 {
+            Some(maxth.round() as u32)
+        } else {
+            Some(0)
+        }
     };
 
     Some(ArmorData {
@@ -381,8 +437,8 @@ mod tests {
     use super::*;
 
     /// 俯仰锚定按实际搭载（comp blob 对号的炮）取，而非一律顶级配置。
-    /// 样本 769：顶级炮塔双炮俯仰不同（local 1014 → dep 8/ele 25，local 3 → dep 8/ele 15，
-    /// 后者为顶级主炮）。comp 缺失时回退顶级；comp 对号非顶级炮时锚定随之切换。
+    /// 样本 769：顶级炮塔双炮俯仰不同，后者为顶级主炮。
+    /// comp 缺失时回退顶级；comp 对号非顶级炮时锚定随之切换。
     #[test]
     fn pitch_limits_follow_comp_mounted_gun() {
         let tank_id = 769;
@@ -395,20 +451,27 @@ mod tests {
         let to_local = |module_id: u32| (module_id >> 8) as u16;
         let top = TankResolver::models_pitch_limits(tank_id, None).expect("顶级配置俯仰");
         let sub = TankResolver::models_pitch_limits(
-            tank_id, Some((to_local(top_turret.module_id), to_local(sub_gun.module_id))))
-            .expect("实际搭载（非顶级炮）俯仰");
+            tank_id,
+            Some((to_local(top_turret.module_id), to_local(sub_gun.module_id))),
+        )
+        .expect("实际搭载（非顶级炮）俯仰");
         // 两门炮俯仰范围确实不同（否则样本无判别力）
         assert_ne!(top.ele, sub.ele, "样本车两炮仰角应不同");
 
         // comp 对号顶级炮 → 与无 comp 的顶级回退一致
         let via_comp_top = TankResolver::models_pitch_limits(
-            tank_id, Some((to_local(top_turret.module_id), to_local(top_gun.module_id))))
-            .expect("comp 对号顶级炮");
+            tank_id,
+            Some((to_local(top_turret.module_id), to_local(top_gun.module_id))),
+        )
+        .expect("comp 对号顶级炮");
         assert_eq!(via_comp_top.dep, top.dep);
         assert_eq!(via_comp_top.ele, top.ele);
 
         // comp 对号失败（局部 id 不属于该车）→ 回退顶级
         let fallback = TankResolver::models_pitch_limits(tank_id, Some((999, 999)));
-        assert_eq!(fallback.as_ref().map(|r| (r.dep, r.ele)), Some((top.dep, top.ele)));
+        assert_eq!(
+            fallback.as_ref().map(|r| (r.dep, r.ele)),
+            Some((top.dep, top.ele))
+        );
     }
 }

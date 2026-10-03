@@ -30,10 +30,15 @@ pub struct RawPacket {
 
 /// 从 `.wotbreplay`（ZIP）原始字节读出 data.wotreplay 并分帧。
 pub fn read_raw_packets(replay_zip: &[u8]) -> Result<Vec<RawPacket>> {
-    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(replay_zip)).context("replay is not a zip archive")?;
-    let mut entry = zip.by_name("data.wotreplay").context("data.wotreplay missing")?;
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(replay_zip))
+        .context("replay is not a zip archive")?;
+    let mut entry = zip
+        .by_name("data.wotreplay")
+        .context("data.wotreplay missing")?;
     let mut data = Vec::with_capacity(entry.size() as usize);
-    entry.read_to_end(&mut data).context("failed to read data.wotreplay")?;
+    entry
+        .read_to_end(&mut data)
+        .context("failed to read data.wotreplay")?;
     frame_packets(&data)
 }
 
@@ -50,7 +55,11 @@ pub fn frame_packets(data: &[u8]) -> Result<Vec<RawPacket>> {
         let Some(end) = end else {
             bail!("truncated packet at offset {offset} (payload_len {payload_len})");
         };
-        packets.push(RawPacket { packet_type, clock_secs, payload: data[start..end].to_vec() });
+        packets.push(RawPacket {
+            packet_type,
+            clock_secs,
+            payload: data[start..end].to_vec(),
+        });
         offset = end;
         if packet_type == TERMINATOR_TYPE {
             break;
@@ -111,7 +120,14 @@ mod tests {
 
         let packets = frame_packets(&data).unwrap();
         assert_eq!(packets.len(), 3);
-        assert_eq!(packets[0], RawPacket { packet_type: 0, clock_secs: 0.0, payload: vec![0xde, 0xad] });
+        assert_eq!(
+            packets[0],
+            RawPacket {
+                packet_type: 0,
+                clock_secs: 0.0,
+                payload: vec![0xde, 0xad]
+            }
+        );
         assert_eq!(packets[1].packet_type, 8);
         assert_eq!(packets[1].clock_secs, 1.5);
         assert!(packets[1].payload.is_empty());

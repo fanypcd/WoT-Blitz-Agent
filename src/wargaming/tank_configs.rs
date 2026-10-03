@@ -1,5 +1,4 @@
-//! 坦克配置与装甲领域层（自 wargaming/viewer.rs 下沉——解析层此前反向依赖
-//! "查看器"模块，方向倒置，见架构债文档第 3 节）：
+//! 坦克配置与装甲领域层：
 //! - build_configs / resolve_config_index / shell_index_by_global_id：
 //!   tanks.pb × models.pb × GLB 节点的炮塔/主炮配置面与实际搭载三级证据链；
 //! - synth_armor_model：models.pb 逐板装甲合成；
@@ -25,43 +24,77 @@ use crate::wargaming::tank_resolver::TankResolver;
 pub(crate) fn synth_armor_model(tank_id: u32) -> Option<ArmorModel> {
     let mi = crate::wargaming::blitzkit::model_info(tank_id)?;
     let game_am = crate::wargaming::game_extract::load_game_data(
-        tank_id, &crate::data::data_dir().join("game_data"))
-        .and_then(|gd| gd.armor_model);
-    let section = |plates: &std::collections::BTreeMap<u32, f32>, spaced: &[u32],
+        tank_id,
+        &crate::data::data_dir().join("game_data"),
+    )
+    .and_then(|gd| gd.armor_model);
+    let section = |plates: &std::collections::BTreeMap<u32, f32>,
+                   spaced: &[u32],
                    primary: Option<&crate::wargaming::dvpl::PrimaryArmor>| {
         crate::wargaming::dvpl::SectionArmor {
             plates: plates.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
-            primary: primary.cloned().unwrap_or(crate::wargaming::dvpl::PrimaryArmor {
-                front: String::new(), sides: String::new(), rear: String::new(),
-            }),
+            primary: primary
+                .cloned()
+                .unwrap_or(crate::wargaming::dvpl::PrimaryArmor {
+                    front: String::new(),
+                    sides: String::new(),
+                    rear: String::new(),
+                }),
             spaced: spaced.iter().map(|s| s.to_string()).collect(),
         }
     };
     let top_module = crate::wargaming::blitzkit::tank_full(tank_id)
         .and_then(|t| t.turrets.last().map(|t2| t2.module_id));
-    let top_turret = mi.turrets.iter().find(|t| Some(t.module_id) == top_module)
+    let top_turret = mi
+        .turrets
+        .iter()
+        .find(|t| Some(t.module_id) == top_module)
         .or_else(|| mi.turrets.last());
     Some(ArmorModel {
-        hull: section(&mi.hull_plates, &mi.hull_spaced,
-            game_am.as_ref().map(|am| &am.hull.primary)),
-        turret: top_turret.map(|t| section(&t.turret_plates, &t.turret_spaced,
-            game_am.as_ref().and_then(|am| am.turret.as_ref()).map(|s| &s.primary))),
-        gun: top_turret.and_then(|t| t.guns.last()).map(|g| section(&g.gun_plates, &g.gun_spaced,
-            game_am.as_ref().and_then(|am| am.gun.as_ref()).map(|s| &s.primary))),
-        chassis: mi.track_thickness.map(|t| crate::wargaming::dvpl::ChassisArmor {
-            left_track: t, right_track: t,
+        hull: section(
+            &mi.hull_plates,
+            &mi.hull_spaced,
+            game_am.as_ref().map(|am| &am.hull.primary),
+        ),
+        turret: top_turret.map(|t| {
+            section(
+                &t.turret_plates,
+                &t.turret_spaced,
+                game_am
+                    .as_ref()
+                    .and_then(|am| am.turret.as_ref())
+                    .map(|s| &s.primary),
+            )
         }),
+        gun: top_turret.and_then(|t| t.guns.last()).map(|g| {
+            section(
+                &g.gun_plates,
+                &g.gun_spaced,
+                game_am
+                    .as_ref()
+                    .and_then(|am| am.gun.as_ref())
+                    .map(|s| &s.primary),
+            )
+        }),
+        chassis: mi
+            .track_thickness
+            .map(|t| crate::wargaming::dvpl::ChassisArmor {
+                left_track: t,
+                right_track: t,
+            }),
     })
 }
 
 static GLOBAL_RESOLVER: std::sync::OnceLock<Arc<TankResolver>> = std::sync::OnceLock::new();
 
 pub fn global_resolver() -> Arc<TankResolver> {
-    GLOBAL_RESOLVER.get_or_init(|| {
-        TankResolver::load_from_json_file(&crate::data::data_path("tank_cache.json"))
-            .map(Arc::new)
-            .unwrap_or_default()
-    }).clone()
+    GLOBAL_RESOLVER
+        .get_or_init(|| {
+            TankResolver::load_from_json_file(&crate::data::data_path("tank_cache.json"))
+                .map(Arc::new)
+                .unwrap_or_default()
+        })
+        .clone()
 }
 
 /// 导出全部 per-tank JSON（资产打包用）：初始化全局 resolver 后逐车物化。
@@ -83,7 +116,10 @@ pub fn export_tank_data(out: &std::path::Path) -> anyhow::Result<usize> {
             continue;
         };
         let value = tank_data_value(id);
-        std::fs::write(out.join(format!("{id}.json")), serde_json::to_vec_pretty(&value)?)?;
+        std::fs::write(
+            out.join(format!("{id}.json")),
+            serde_json::to_vec_pretty(&value)?,
+        )?;
         if (i + 1) % 100 == 0 {
             eprintln!("  {}/{total}", i + 1);
         }
@@ -97,7 +133,9 @@ pub(crate) fn set_global_resolver(resolver: TankResolver) {
 
 /// 单个 GLB 的缓存路径（data/cache/models/{tank_id}/{filename}），按需服务与 fetch-models 全量预热共用。
 pub(crate) fn model_cache_path(tank_id: u32, filename: &str) -> std::path::PathBuf {
-    crate::data::data_path(GLB_CACHE_DIR).join(tank_id.to_string()).join(filename)
+    crate::data::data_path(GLB_CACHE_DIR)
+        .join(tank_id.to_string())
+        .join(filename)
 }
 
 pub(crate) fn tank_data_value(tank_id: u32) -> Value {
@@ -110,7 +148,10 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
     let info = resolver.resolve_info(tank_id);
 
     // C 类数据：炮管/底盘碰撞盒仍取本机客户端提取（BlitzKit 无对应数据）
-    let game_data = crate::wargaming::game_extract::load_game_data(tank_id, &crate::data::data_dir().join("game_data"));
+    let game_data = crate::wargaming::game_extract::load_game_data(
+        tank_id,
+        &crate::data::data_dir().join("game_data"),
+    );
     // 逐板装甲：BlitzKit models.pb 唯一来源（primary 为 BlitzKit 缺项，合成时从 game_data 拷贝）
     let armor_model = synth_armor_model(tank_id);
 
@@ -133,20 +174,30 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
         .filter(|n| !n.is_empty() && n != "unknown")
         .unwrap_or_else(|| "unknown".to_string());
 
-    let armor = info.as_ref().and_then(|i| i.armor.as_ref()).map(|a| json!({
-        "turret": {"front": a.turret_front, "sides": a.turret_sides, "rear": a.turret_rear},
-        "hull": {"front": a.hull_front, "sides": a.hull_sides, "rear": a.hull_rear},
-    }));
+    let armor = info.as_ref().and_then(|i| i.armor.as_ref()).map(|a| {
+        json!({
+            "turret": {"front": a.turret_front, "sides": a.turret_sides, "rear": a.turret_rear},
+            "hull": {"front": a.hull_front, "sides": a.hull_sides, "rear": a.hull_rear},
+        })
+    });
 
-    let shells = info.as_ref().map(|i| {
-        i.shells.iter().map(|s| json!({
-            "type": s.shell_type,
-            "penetration": s.penetration,
-            "damage": s.damage,
-            "module_damage": s.module_damage,
-            "explosion_radius": s.explosion_radius,
-        })).collect::<Vec<_>>()
-    }).unwrap_or_default();
+    let shells = info
+        .as_ref()
+        .map(|i| {
+            i.shells
+                .iter()
+                .map(|s| {
+                    json!({
+                        "type": s.shell_type,
+                        "penetration": s.penetration,
+                        "damage": s.damage,
+                        "module_damage": s.module_damage,
+                        "explosion_radius": s.explosion_radius,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
 
     let armor_model_val = armor_model.as_ref().map(|m| {
         let mut v = serde_json::to_value(m).unwrap_or(json!(null));
@@ -154,19 +205,24 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
         // 只清洗 plates/track 厚度，hull_position 等坐标保持原精度）
         if let Some(obj) = v.as_object_mut() {
             for sec in ["hull", "turret", "gun"] {
-                if let Some(plates) = obj.get_mut(sec)
+                if let Some(plates) = obj
+                    .get_mut(sec)
                     .and_then(|s| s.get_mut("plates"))
                     .and_then(|p| p.as_object_mut())
                 {
                     for (_, n) in plates.iter_mut() {
-                        if let Some(f) = n.as_f64() { *n = json!((f * 10.0).round() / 10.0); }
+                        if let Some(f) = n.as_f64() {
+                            *n = json!((f * 10.0).round() / 10.0);
+                        }
                     }
                 }
             }
             if let Some(ch) = obj.get_mut("chassis").and_then(|c| c.as_object_mut()) {
                 for k in ["left_track", "right_track"] {
                     if let Some(n) = ch.get_mut(k) {
-                        if let Some(f) = n.as_f64() { *n = json!((f * 10.0).round() / 10.0); }
+                        if let Some(f) = n.as_f64() {
+                            *n = json!((f * 10.0).round() / 10.0);
+                        }
                     }
                 }
             }
@@ -175,40 +231,55 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
     });
 
     let configs = build_configs(tank_id);
-    let caliber = configs.first().and_then(|c| c.get("caliber")).and_then(|v| v.as_u64()).unwrap_or(120) as u32;
-    // models.pb 模型信息只解析一次，hull_spaced / 原点 / 初始炮塔旋转共用同一份
+    let caliber = configs
+        .first()
+        .and_then(|c| c.get("caliber"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(120) as u32;
     let m_info = crate::wargaming::blitzkit::model_info(tank_id);
-    let hull_spaced = m_info.as_ref().map(|m| m.hull_spaced.clone()).unwrap_or_default();
+    let hull_spaced = m_info
+        .as_ref()
+        .map(|m| m.hull_spaced.clone())
+        .unwrap_or_default();
     // 模型原点（models.pb，DAVA→GLB correctZY: (x,z,y)）——装甲节点定位基准，
     // 对齐 BlitzKit SpacedArmorScene 的 hullOrigin/turretOrigin 分组装配。
-    let model_origins = m_info.as_ref().and_then(|m| match (m.track_origin, m.turret_origin) {
-        (Some(tk), Some(tu)) => Some(json!({
-            "track": [tk[0], tk[2], tk[1]],
-            "turret": [tu[0], tu[2], tu[1]],
-        })),
-        _ => None,
-    });
-    let initial_turret_rotation = m_info.as_ref().and_then(|m| m.initial_turret_rotation.clone());
+    let model_origins = m_info
+        .as_ref()
+        .and_then(|m| match (m.track_origin, m.turret_origin) {
+            (Some(tk), Some(tu)) => Some(json!({
+                "track": [tk[0], tk[2], tk[1]],
+                "turret": [tu[0], tu[2], tu[1]],
+            })),
+            _ => None,
+        });
+    let initial_turret_rotation = m_info
+        .as_ref()
+        .and_then(|m| m.initial_turret_rotation.clone());
     // 炮管碰撞盒（game_data/{id}.json 的 collision.gun_bbox，564/723 车有数据）。
     // 坐标系与 GLB 内部一致（x=右 y=前 z=上），原点=炮管节点（枢轴）——
     // min[1]（后伸量）= 炮闩位置的文件标定。缺失时前端回退到枢轴本身。
-    let gun_collision = game_data.as_ref().and_then(|gd| gd.collision.as_ref())
+    let gun_collision = game_data
+        .as_ref()
+        .and_then(|gd| gd.collision.as_ref())
         .and_then(|c| c.gun_bbox.clone())
         .map(|b| json!({ "min": b.min, "max": b.max }));
     // 各部件原生碰撞盒（坐标系 = 各部件节点枢轴系 x右/y前/z上；chassis/hull 位于模型原点）。
     // 供 DecodeShotSegment 解码盒使用。hull/turret：models.pb（BlitzKit 唯一来源，炮塔取
     // 顶级配置）；gun/chassis：BlitzKit 无对应数据，仍取本机客户端提取（game_data）。
-    let mi = crate::wargaming::blitzkit::model_info(tank_id);
     let top_module = crate::wargaming::blitzkit::tank_full(tank_id)
         .and_then(|t| t.turrets.last().map(|t2| t2.module_id));
-    let hull_bbox = mi.as_ref().and_then(|mi| mi.hull_bbox.clone());
-    let turret_bbox = mi.as_ref().and_then(|mi| {
-        mi.turrets.iter().find(|t| Some(t.module_id) == top_module)
+    let hull_bbox = m_info.as_ref().and_then(|mi| mi.hull_bbox.clone());
+    let turret_bbox = m_info.as_ref().and_then(|mi| {
+        mi.turrets
+            .iter()
+            .find(|t| Some(t.module_id) == top_module)
             .or_else(|| mi.turrets.last())
             .and_then(|t| t.bbox.clone())
     });
     let gd_collision = game_data.as_ref().and_then(|gd| gd.collision.as_ref());
-    let bbox_json = |b: Option<crate::wargaming::dvpl::BoundingBox>| b.map(|b| json!({ "min": b.min, "max": b.max }));
+    let bbox_json = |b: Option<crate::wargaming::dvpl::BoundingBox>| {
+        b.map(|b| json!({ "min": b.min, "max": b.max }))
+    };
     let collision_boxes = json!({
         "chassis": bbox_json(gd_collision.and_then(|c| c.chassis_bbox.clone())),
         "hull": bbox_json(hull_bbox),
@@ -236,8 +307,7 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
         "configs": configs.as_ref(),
         "hp": info.as_ref().and_then(|i| i.hp),
         "speed": info.as_ref().and_then(|i| i.speed_forward),
-        // 顶层显式前后极速（形状对齐 /api/tank_detail；此前只有 `speed` 数字，
-        // 消费端按 tank_detail 形状读 speed_forward/speed_reverse 会全落空）
+        // 顶层显式前后极速（形状对齐 /api/tank_detail）
         "speed_forward": info.as_ref().and_then(|i| i.speed_forward),
         "speed_reverse": info.as_ref().and_then(|i| i.speed_reverse),
         "gun_depression": info.as_ref().and_then(|i| i.gun_depression).map(|v| v as f64),
@@ -250,14 +320,20 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
 fn model_config_nodes(tank_id: u32) -> (Vec<String>, Vec<String>) {
     let mut guns = Vec::new();
     let mut turrets = Vec::new();
-    let path = crate::data::data_path(GLB_CACHE_DIR).join(tank_id.to_string()).join("model.glb");
+    let path = crate::data::data_path(GLB_CACHE_DIR)
+        .join(tank_id.to_string())
+        .join("model.glb");
     if let Ok(bytes) = std::fs::read(&path) {
         if let Some(names) = parse_glb_top_nodes(&bytes) {
             for nm in names {
                 if let Some(g) = nm.strip_prefix("gun_") {
-                    if g.chars().all(|c| c.is_ascii_digit()) { guns.push(nm); }
+                    if g.chars().all(|c| c.is_ascii_digit()) {
+                        guns.push(nm);
+                    }
                 } else if let Some(t) = nm.strip_prefix("turret_") {
-                    if t.chars().all(|c| c.is_ascii_digit()) { turrets.push(nm); }
+                    if t.chars().all(|c| c.is_ascii_digit()) {
+                        turrets.push(nm);
+                    }
                 }
             }
             guns.reverse();
@@ -268,24 +344,40 @@ fn model_config_nodes(tank_id: u32) -> (Vec<String>, Vec<String>) {
 }
 
 fn parse_glb_top_nodes(bytes: &[u8]) -> Option<Vec<String>> {
-    if bytes.len() < 20 { return None; }
+    if bytes.len() < 20 {
+        return None;
+    }
     let json_len = u32::from_le_bytes(bytes[12..16].try_into().ok()?) as usize;
-    if 20 + json_len > bytes.len() { return None; }
+    if 20 + json_len > bytes.len() {
+        return None;
+    }
     let js: serde_json::Value = serde_json::from_slice(&bytes[20..20 + json_len]).ok()?;
     let nodes = js.get("nodes")?.as_array()?;
-    let scene = js.get("scenes")?.as_array()?.first()?.get("nodes")?.as_array()?;
+    let scene = js
+        .get("scenes")?
+        .as_array()?
+        .first()?
+        .get("nodes")?
+        .as_array()?;
     let root_idx = scene.first()?;
     let root = nodes.get(root_idx.as_u64()? as usize)?;
     let children = root.get("children").and_then(|c| c.as_array())?;
-    Some(children.iter()
-        .filter_map(|c| nodes.get(c.as_u64()? as usize)?.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
-        .collect())
+    Some(
+        children
+            .iter()
+            .filter_map(|c| {
+                nodes
+                    .get(c.as_u64()? as usize)?
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .map(|s| s.to_string())
+            })
+            .collect(),
+    )
 }
 
-/// build_configs 进程级缓存（tank_id → 配置表）：此前每次调用都重读整个 model.glb
-/// （数 MB）+ 解析 GLB JSON chunk + tank_full/model_info 深克隆——一场回放的富化
-/// 循环（逐玩家/逐发调 resolve_config_index / shell_index_by_global_id）会重复
-/// 60+ 次完整读盘解析。配置是 tanks.pb + models.pb + GLB 的纯函数，进程内不变。
+/// build_configs 进程级缓存（tank_id → 配置表）。配置是 tanks.pb + models.pb + GLB
+/// 的纯函数，进程内不变；一场回放的富化循环会逐玩家/逐发调用，必须缓存复用。
 static CONFIGS_CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<u32, Arc<Vec<Value>>>>> =
     std::sync::OnceLock::new();
 
@@ -300,7 +392,9 @@ pub(crate) fn build_configs(tank_id: u32) -> Arc<Vec<Value>> {
     // 仅在 model.glb 已就位时入缓存：未下载的车型保持逐次重建，下载完成后
     // 下一次调用自然构建完整配置（含 gun/turret 模型节点映射）
     let glb_ready = crate::data::data_path(GLB_CACHE_DIR)
-        .join(tank_id.to_string()).join("model.glb").exists();
+        .join(tank_id.to_string())
+        .join("model.glb")
+        .exists();
     if glb_ready {
         if let Ok(mut guard) = cache.lock() {
             guard.insert(tank_id, Arc::clone(&configs));
@@ -310,33 +404,53 @@ pub(crate) fn build_configs(tank_id: u32) -> Arc<Vec<Value>> {
 }
 
 fn build_configs_uncached(tank_id: u32) -> Vec<Value> {
-    let Some(tank) = crate::wargaming::blitzkit::tank_full(tank_id) else { return Vec::new() };
+    let Some(tank) = crate::wargaming::blitzkit::tank_full(tank_id) else {
+        return Vec::new();
+    };
 
     let (model_guns, model_turrets) = model_config_nodes(tank_id);
 
-    let mut gun_nums: Vec<u32> = model_guns.iter()
-        .filter_map(|g| g.strip_prefix("gun_")?.parse().ok()).collect();
-    gun_nums.sort(); gun_nums.dedup();
-    let gun_dense: std::collections::HashMap<u32, u32> =
-        gun_nums.iter().enumerate().map(|(i, n)| (*n, i as u32)).collect();
-    let mut turret_nums: Vec<u32> = model_turrets.iter()
-        .filter_map(|g| g.strip_prefix("turret_")?.parse().ok()).collect();
-    turret_nums.sort(); turret_nums.dedup();
-    let turret_dense: std::collections::HashMap<u32, u32> =
-        turret_nums.iter().enumerate().map(|(i, n)| (*n, i as u32)).collect();
+    let mut gun_nums: Vec<u32> = model_guns
+        .iter()
+        .filter_map(|g| g.strip_prefix("gun_")?.parse().ok())
+        .collect();
+    gun_nums.sort();
+    gun_nums.dedup();
+    let gun_dense: std::collections::HashMap<u32, u32> = gun_nums
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (*n, i as u32))
+        .collect();
+    let mut turret_nums: Vec<u32> = model_turrets
+        .iter()
+        .filter_map(|g| g.strip_prefix("turret_")?.parse().ok())
+        .collect();
+    turret_nums.sort();
+    turret_nums.dedup();
+    let turret_dense: std::collections::HashMap<u32, u32> = turret_nums
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (*n, i as u32))
+        .collect();
 
     let tmod_info = crate::wargaming::blitzkit::model_info(tank_id);
     // 炮塔模型信息按 module_id 建索引，避免循环内对 tmod_info.turrets 反复线性查找
-    let tmod_by_module: std::collections::HashMap<u32, &crate::wargaming::blitzkit::TurretModelInfo> =
-        tmod_info.as_ref().map(|mi| {
-            mi.turrets.iter().map(|t| (t.module_id, t)).collect()
-        }).unwrap_or_default();
+    let tmod_by_module: std::collections::HashMap<
+        u32,
+        &crate::wargaming::blitzkit::TurretModelInfo,
+    > = tmod_info
+        .as_ref()
+        .map(|mi| mi.turrets.iter().map(|t| (t.module_id, t)).collect())
+        .unwrap_or_default();
 
-    let mut gun_idx_by_module: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+    let mut gun_idx_by_module: std::collections::HashMap<u32, u32> =
+        std::collections::HashMap::new();
     let mut distinct_gun_modules = Vec::new();
     for tur in &tank.turrets {
         for gun in &tur.guns {
-            if let std::collections::hash_map::Entry::Vacant(e) = gun_idx_by_module.entry(gun.module_id) {
+            if let std::collections::hash_map::Entry::Vacant(e) =
+                gun_idx_by_module.entry(gun.module_id)
+            {
                 let idx = distinct_gun_modules.len() as u32;
                 e.insert(idx);
                 distinct_gun_modules.push(gun.module_id);
@@ -345,13 +459,16 @@ fn build_configs_uncached(tank_id: u32) -> Vec<Value> {
     }
 
     let turret_model_node = |ti: usize, tmod: u32| -> Option<u32> {
-        tmod_by_module.get(&tmod).map(|t| t.model_node)
+        tmod_by_module
+            .get(&tmod)
+            .map(|t| t.model_node)
             .or_else(|| Some((ti as u32) + 1))
     };
     // (model_node, gun_thickness, gun_mask, gun_spaced)
     type GunModelInfo = (u32, Option<f32>, Option<f32>, Vec<u32>);
     let gun_model_info = |tmod: u32, gmod: u32| -> Option<GunModelInfo> {
-        tmod_by_module.get(&tmod)
+        tmod_by_module
+            .get(&tmod)
             .and_then(|t| t.guns.iter().find(|g| g.gun_module_id == gmod))
             .map(|g| (g.model_node, g.thickness, g.mask, g.gun_spaced.clone()))
     };
@@ -359,7 +476,6 @@ fn build_configs_uncached(tank_id: u32) -> Vec<Value> {
     let mut configs = Vec::new();
     let mut count = 0u32;
     for (ti, tur) in tank.turrets.iter().enumerate() {
-        // 该炮塔的模型信息只查一次，供 turret_spaced / gun_origin / yaw_limits 共用
         let turret_def = tmod_by_module.get(&tur.module_id);
         let turret_name = tur.name.clone();
         let turret_weight = Some(tur.weight);
@@ -369,12 +485,17 @@ fn build_configs_uncached(tank_id: u32) -> Vec<Value> {
             .and_then(|n| turret_dense.get(&n).copied())
             .unwrap_or(ti as u32);
         for gun in &tur.guns {
-            let (gun_node, gun_thickness, gun_mask, gun_spaced) = gun_model_info(tur.module_id, gun.module_id)
-                .unwrap_or((u32::MAX, None, None, Vec::new()));
+            let (gun_node, gun_thickness, gun_mask, gun_spaced) = gun_model_info(
+                tur.module_id,
+                gun.module_id,
+            )
+            .unwrap_or((u32::MAX, None, None, Vec::new()));
             let gun_index = if gun_node != u32::MAX {
                 gun_dense.get(&gun_node).copied()
-            } else { None }
-                .unwrap_or_else(|| *gun_idx_by_module.get(&gun.module_id).unwrap_or(&0));
+            } else {
+                None
+            }
+            .unwrap_or_else(|| *gun_idx_by_module.get(&gun.module_id).unwrap_or(&0));
             let turret_spaced = turret_def
                 .map(|t| t.turret_spaced.clone())
                 .unwrap_or_default();
@@ -386,44 +507,74 @@ fn build_configs_uncached(tank_id: u32) -> Vec<Value> {
             let pitch_limits = turret_def
                 .and_then(|t| t.guns.iter().find(|g| g.gun_module_id == gun.module_id))
                 .and_then(|g| g.pitch_limits.clone());
-            let name = if gun.name.is_empty() { format!("gun_{}", gun_index) } else { gun.name.clone() };
-            let caliber = parse_gun_caliber(&name).map(|c| c.round() as u32).unwrap_or(120);
+            let name = if gun.name.is_empty() {
+                format!("gun_{}", gun_index)
+            } else {
+                gun.name.clone()
+            };
+            let caliber = parse_gun_caliber(&name)
+                .map(|c| c.round() as u32)
+                .unwrap_or(120);
             let aim_time = Some(gun.aim_time);
             let dispersion = Some(gun.dispersion);
             let gr = &gun.reload;
-            let reload_time = if gr.reload > 0.0 { Some(gr.reload) } else { None };
+            let reload_time = if gr.reload > 0.0 {
+                Some(gr.reload)
+            } else {
+                None
+            };
             let is_burst = gr.is_burst;
             let burst_size = gr.burst_size;
             let burst_interval = gr.burst_interval;
             let burst_reloads = gr.burst_reloads.clone();
             let is_drum = gr.is_drum;
-            let shells: Vec<Value> = gun.shells.iter().map(|s| json!({
-                "type": s.shell_type,
-                "penetration": s.penetration,
-                "penetration_far": s.penetration_far,
-                "damage": s.damage,
-                "module_damage": s.module_damage,
-                "explosion_radius": s.explosion_radius,
-                "velocity": s.velocity,
-                "range": s.range,
-                "caliber": s.caliber,
-                "normalization": s.normalization,
-                "ricochet": s.ricochet,
-            })).collect();
+            let shells: Vec<Value> = gun
+                .shells
+                .iter()
+                .map(|s| {
+                    json!({
+                        "type": s.shell_type,
+                        "penetration": s.penetration,
+                        "penetration_far": s.penetration_far,
+                        "damage": s.damage,
+                        "module_damage": s.module_damage,
+                        "explosion_radius": s.explosion_radius,
+                        "velocity": s.velocity,
+                        "range": s.range,
+                        "caliber": s.caliber,
+                        "normalization": s.normalization,
+                        "ricochet": s.ricochet,
+                    })
+                })
+                .collect();
             // 标准弹药单发伤害：优先 AP，其次任意非金币弹（金币变体 shell_type 含 premium 不计）；
             // DPM 与 Alpha 单发均基于此值
             let is_premium_shell = |t: &str| t.contains("premium");
-            let standard_damage = gun.shells.iter()
+            let standard_damage = gun
+                .shells
+                .iter()
                 .find(|s| s.shell_type == "ap")
                 .or_else(|| gun.shells.iter().find(|s| !is_premium_shell(&s.shell_type)))
                 .map(|s| s.damage)
                 .or_else(|| {
-                    let m = gun.shells.iter().map(|s| s.damage).fold(f64::NEG_INFINITY, f64::max);
-                    if m.is_finite() { Some(m) } else { None }
+                    let m = gun
+                        .shells
+                        .iter()
+                        .map(|s| s.damage)
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    if m.is_finite() {
+                        Some(m)
+                    } else {
+                        None
+                    }
                 })
                 .unwrap_or(0.0);
-            let dpm = if is_burst { None } else {
-                reload_time.filter(|r| *r > 0.0).map(|r| (standard_damage * 60.0 / r).round())
+            let dpm = if is_burst {
+                None
+            } else {
+                reload_time
+                    .filter(|r| *r > 0.0)
+                    .map(|r| (standard_damage * 60.0 / r).round())
             };
 
             configs.push(json!({
@@ -486,28 +637,31 @@ fn build_configs_uncached(tank_id: u32) -> Vec<Value> {
 
 /// 发射弹种 → 射手弹表下标（确定性弹种选择）：
 /// 按 shell_global_ids（= tanks.pb 弹种全局 id）匹配 build_configs 各配置的弹表，
-/// 返回首个包含该弹的配置中弹的下标。type=28 槽位快照存在切弹竞态（shot6 实测），
+/// 返回首个包含该弹的配置中弹的下标。type=28 槽位快照存在切弹竞态，
 /// shell_id 才是发射弹种的权威标识。
 pub fn shell_index_by_global_id(tank_id: u32, shell_id: u32) -> Option<usize> {
     resolve_shell_by_global_id(tank_id, shell_id, None).map(|(_, si, _)| si)
 }
 
 /// 发射弹种解析（配置内下标 + 完整弹数据）：shell_id → (配置下标, 配置内弹下标, 弹数据)。
-/// 优先实际搭载配置（cfg_hint = shooter_config_idx，多炮坦克各炮弹表不同，hint 域
-/// 必须钉死——IS 发射 D-25T APCR 217mm 若按 stock D10T 表反查会错成 235mm）；
-/// hint 未命中（数据不全/未解析）再全配置扫描（从后往前 = 顶级偏好）。
+/// 优先实际搭载配置（cfg_hint = shooter_config_idx；多炮坦克各炮弹表不同，hint 域
+/// 必须钉死）；hint 未命中（数据不全/未解析）再全配置扫描（从后往前 = 顶级偏好）。
 /// 弹数据取自匹配配置的 shells 数组（与 shell_global_ids 同源同序）。
 pub fn resolve_shell_by_global_id(
     tank_id: u32,
     shell_id: u32,
     cfg_hint: Option<usize>,
 ) -> Option<(usize, usize, Value)> {
-    if shell_id == 0 { return None; }
+    if shell_id == 0 {
+        return None;
+    }
     let configs = build_configs(tank_id);
     let pos_in = |c: &Value| -> Option<(usize, Value)> {
         let gids = c.get("shell_global_ids")?.as_array()?;
         let shells = c.get("shells")?.as_array()?;
-        let si = gids.iter().position(|g| g.as_u64() == Some(shell_id as u64))?;
+        let si = gids
+            .iter()
+            .position(|g| g.as_u64() == Some(shell_id as u64))?;
         Some((si, shells.get(si)?.clone()))
     };
     if let Some(ci) = cfg_hint {
@@ -517,8 +671,11 @@ pub fn resolve_shell_by_global_id(
             }
         }
     }
-    configs.iter().enumerate().rev().find_map(|(ci, c)|
-        pos_in(c).map(|(si, sh)| (ci, si, sh)))
+    configs
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(ci, c)| pos_in(c).map(|(si, sh)| (ci, si, sh)))
 }
 
 /// 实际搭载配置解析（共享证据链，射击复现与实时回放同步使用）：
@@ -534,7 +691,9 @@ pub fn resolve_config_index(
     hp: u16,
 ) -> Option<(usize, u32, u32)> {
     let configs = build_configs(tank_id);
-    if configs.len() <= 1 { return None; }
+    if configs.len() <= 1 {
+        return None;
+    }
     // 证据 0：comp blob 确定性对号
     if let Some((cl, gl)) = comp {
         let exact: Vec<usize> = (0..configs.len())
@@ -545,39 +704,59 @@ pub fn resolve_config_index(
             .collect();
         if !exact.is_empty() {
             let i = *exact.last().unwrap();
-            return Some((i,
+            return Some((
+                i,
                 configs[i]["turret_index"].as_u64().unwrap_or(0) as u32,
-                configs[i]["gun_index"].as_u64().unwrap_or(0) as u32));
+                configs[i]["gun_index"].as_u64().unwrap_or(0) as u32,
+            ));
         }
     }
     let fired: std::collections::HashSet<u32> = shell_ids.iter().copied().collect();
-    let gun_ok: Vec<bool> = configs.iter().map(|c| {
-        fired.is_empty() || {
-            match c["shell_global_ids"].as_array() {
-                Some(a) if !a.is_empty() => fired.iter().all(|id| {
-                    a.iter().any(|s| s.as_u64() == Some(*id as u64))
-                }),
-                _ => true,   // 弹表缺失（数据不全）→ 不以此排除
+    let gun_ok: Vec<bool> = configs
+        .iter()
+        .map(|c| {
+            fired.is_empty() || {
+                match c["shell_global_ids"].as_array() {
+                    Some(a) if !a.is_empty() => fired
+                        .iter()
+                        .all(|id| a.iter().any(|s| s.as_u64() == Some(*id as u64))),
+                    _ => true, // 弹表缺失（数据不全）→ 不以此排除
+                }
             }
-        }
-    }).collect();
+        })
+        .collect();
     let hp_val = hp as u32;
-    let hp_ok: Vec<bool> = configs.iter().map(|c| {
-        if hp_val == 0 { return true; }
-        let base = c["hull_hp"].as_u64().unwrap_or(0) as u32
-            + c["turret_health"].as_u64().unwrap_or(0) as u32;
-        if base == 0 { return true; }
-        let boosted = ((base as f64) * 1.125).round() as u32;
-        hp_val.abs_diff(base) <= 2 || hp_val.abs_diff(boosted) <= 2
-    }).collect();
-    let both: Vec<usize> = (0..configs.len()).filter(|&i| gun_ok[i] && hp_ok[i]).collect();
+    let hp_ok: Vec<bool> = configs
+        .iter()
+        .map(|c| {
+            if hp_val == 0 {
+                return true;
+            }
+            let base = c["hull_hp"].as_u64().unwrap_or(0) as u32
+                + c["turret_health"].as_u64().unwrap_or(0) as u32;
+            if base == 0 {
+                return true;
+            }
+            let boosted = ((base as f64) * 1.125).round() as u32;
+            hp_val.abs_diff(base) <= 2 || hp_val.abs_diff(boosted) <= 2
+        })
+        .collect();
+    let both: Vec<usize> = (0..configs.len())
+        .filter(|&i| gun_ok[i] && hp_ok[i])
+        .collect();
     let mut cands = both;
-    if cands.is_empty() { cands = (0..configs.len()).filter(|&i| gun_ok[i]).collect(); }
-    if cands.is_empty() { cands = (0..configs.len()).filter(|&i| hp_ok[i]).collect(); }
+    if cands.is_empty() {
+        cands = (0..configs.len()).filter(|&i| gun_ok[i]).collect();
+    }
+    if cands.is_empty() {
+        cands = (0..configs.len()).filter(|&i| hp_ok[i]).collect();
+    }
     let i = *cands.last()?;
-    Some((i,
+    Some((
+        i,
         configs[i]["turret_index"].as_u64().unwrap_or(0) as u32,
-        configs[i]["gun_index"].as_u64().unwrap_or(0) as u32))
+        configs[i]["gun_index"].as_u64().unwrap_or(0) as u32,
+    ))
 }
 
 pub(crate) fn parse_gun_caliber(name: &str) -> Option<f64> {
@@ -606,7 +785,7 @@ pub(crate) fn parse_gun_caliber(name: &str) -> Option<f64> {
 mod synth_tests {
     use super::*;
 
-    /// 装甲模型合成迁移锚点（IS-7）：逐板厚度/履带来自 models.pb（BlitzKit 唯一来源），
+    /// IS-7 合成锚点：逐板厚度/履带来自 models.pb（BlitzKit 唯一来源），
     /// primaryArmor 来自 game_data 拷贝；键格式（数值字符串）与前端 plateId 查找兼容。
     #[test]
     fn synth_armor_model_migrates_to_blitzkit() {
@@ -615,7 +794,14 @@ mod synth_tests {
         assert_eq!(am.hull.plates.get("1"), Some(&150.0));
         assert_eq!(am.hull.plates.get("5"), Some(&270.0));
         assert!(!am.hull.plates.contains_key("8"), "0 值板省略");
-        assert_eq!(am.hull.spaced.iter().map(String::as_str).collect::<Vec<_>>(), vec!["9"]);
+        assert_eq!(
+            am.hull
+                .spaced
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["9"]
+        );
         // primary：game_data 同节段拷贝
         assert_eq!(am.hull.primary.front, "armor_1");
         // 炮塔/主炮（顶级配置）

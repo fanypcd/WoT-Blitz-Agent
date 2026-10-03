@@ -23,17 +23,17 @@
 
 use std::collections::{BTreeMap, HashMap};
 /// serde skip_serializing_if 助手：`false` 按缺省处理（= 无已证实目标）
-fn is_false(b: &bool) -> bool { !*b }
-
+fn is_false(b: &bool) -> bool {
+    !*b
+}
 
 use anyhow::bail;
 use serde::Serialize;
 
 use super::combat::{
-    RawReloadDuration, RawReloadPhase,
-    AssaultBaseStateTransition, self, AoiPresence, GunPitchLimits, ShotReplayData, SupremacyBaseStateTransition, SupremacyPointsSample,
-    ConsumableTransition,
-    ModuleCrewStateEvent,
+    self, AoiPresence, AssaultBaseStateTransition, ConsumableTransition, GunPitchLimits,
+    ModuleCrewStateEvent, RawReloadDuration, RawReloadPhase, ShotReplayData,
+    SupremacyBaseStateTransition, SupremacyPointsSample,
 };
 use super::filter::FilteredTimeline;
 
@@ -73,8 +73,7 @@ pub struct PlaybackInput<'a> {
 
 /// 投影（渲染）入参：identity 一律来自 [`crate::replay::model::ReplayModel`] 实体并表
 /// （eid → 昵称/account_id/team/tank_id/is_author），本结构**不含花名册**——投影层从
-/// 类型上不可能重新 JOIN。此前 `from_model` 拿 `timeline.entity_names` + 花名册重联表，
-/// 与模型构成双事实源（昵称规则改动会出现"切面修好、投影又坏"的漂移）。
+/// 类型上不可能重新 JOIN（身份域单一事实源，防昵称规则漂移）。
 pub struct PlaybackRenderInput<'a> {
     /// 胜方队伍（1/2，0 = 平局/未知）
     pub winner_team: u8,
@@ -204,7 +203,7 @@ pub struct KillEvent {
     pub death_reason: Option<u32>,
 }
 
-/// 实际搭载配置描述符（updateArena subtype 1 ARENA_INFO 的 field 1.2 blob，2026-09-25 破译）：
+/// 实际搭载配置描述符（updateArena subtype 1 ARENA_INFO 的 field 1.2 blob）：
 /// 15B = `[tank_id u16][chassis_local u16][engine_local u16][204 u32][turret_local u16][gun_local u16][00]`，
 /// local = item_defs 模块局部 id（module_id >> 8，与 tanks.pb module_id 同基）。确定性搭载证据。
 #[derive(Debug, Clone)]
@@ -219,28 +218,45 @@ pub struct CompDescriptor {
 impl CompDescriptor {
     /// 从 ARENA_INFO args（去 [subtype][len] 头后的 protobuf）提取：field 1.2 = blob、field 1.3 = 昵称。
     /// 容错扫描：blob 以 tank_id u16le 开头且长度 15、前置标记 `12 0f`——对分组/前缀等
-    /// 编码变体稳健（J39 与训练房两种布局均已实测）。
+    /// 编码变体稳健。
     fn parse_args(args: &[u8], valid_tanks: &[u32]) -> Option<Self> {
         for i in 2..args.len().saturating_sub(14) {
-            if args[i - 2] != 0x12 || args[i - 1] != 0x0f { continue; }
+            if args[i - 2] != 0x12 || args[i - 1] != 0x0f {
+                continue;
+            }
             let blob = &args[i..i + 15];
             let tank_id = u16::from_le_bytes([blob[0], blob[1]]) as u32;
-            if !valid_tanks.contains(&tank_id) { continue; }
+            if !valid_tanks.contains(&tank_id) {
+                continue;
+            }
             let turret_local = u16::from_le_bytes([blob[10], blob[11]]);
             let gun_local = u16::from_le_bytes([blob[12], blob[13]]);
-            if turret_local == 0 || gun_local == 0 { continue; }
+            if turret_local == 0 || gun_local == 0 {
+                continue;
+            }
             // 昵称 = blob 之后首个 `1a <len> <可打印 UTF-8>`（3..30B）
             let mut nickname = String::new();
             for j in (i + 15)..args.len().min(i + 60) {
-                if args[j] != 0x1a { continue; }
+                if args[j] != 0x1a {
+                    continue;
+                }
                 let l = args[j + 1] as usize;
-                if !(3..=30).contains(&l) || j + 2 + l > args.len() { continue; }
+                if !(3..=30).contains(&l) || j + 2 + l > args.len() {
+                    continue;
+                }
                 if let Ok(s) = std::str::from_utf8(&args[j + 2..j + 2 + l]) {
-                    if s.chars().all(|c| !c.is_control()) { nickname = s.to_string(); }
+                    if s.chars().all(|c| !c.is_control()) {
+                        nickname = s.to_string();
+                    }
                 }
                 break;
             }
-            return Some(Self { nickname, tank_id, turret_local, gun_local });
+            return Some(Self {
+                nickname,
+                tank_id,
+                turret_local,
+                gun_local,
+            });
         }
         None
     }
@@ -253,7 +269,9 @@ pub fn collect_comp_descriptors(
     valid_tanks: &[u32],
 ) -> HashMap<String, CompDescriptor> {
     comp_descriptors_from_updates(
-        &combat::collect_arena_updates_filtered(packets, |s| s == 1), valid_tanks)
+        &combat::collect_arena_updates_filtered(packets, |s| s == 1),
+        valid_tanks,
+    )
 }
 
 /// [`collect_comp_descriptors`] 的共享扫描形态：从已收集的 ARENA_INFO（subtype=1）
@@ -265,7 +283,9 @@ pub fn comp_descriptors_from_updates(
     let mut out: HashMap<String, CompDescriptor> = HashMap::new();
     let valid: Vec<u32> = valid_tanks.to_vec();
     for u in updates {
-        if u.subtype != 1 || u.payload.len() < 15 { continue; }
+        if u.subtype != 1 || u.payload.len() < 15 {
+            continue;
+        }
         if let Some(d) = CompDescriptor::parse_args(&u.payload, &valid) {
             out.insert(d.nickname.clone(), d);
         }
@@ -339,25 +359,40 @@ pub struct PlaybackData {
 /// pitch/roll 的规则一致，避免跨 AoI 断段编造中间姿态）。`samples` 按时钟升序
 /// （`Timeline::poses` 的契约）。无采样返回 None（调用方落 0 = 水平）。
 fn roll_nearest(samples: &[combat::St10Sample], t: f32) -> Option<f32> {
-    if samples.is_empty() { return None; }
+    if samples.is_empty() {
+        return None;
+    }
     let i = samples.partition_point(|s| s.clock < t);
-    let pick = if i == 0 { 0 }
-        else if i >= samples.len() { samples.len() - 1 }
-        else if (t - samples[i - 1].clock) <= (samples[i].clock - t) { i - 1 }
-        else { i };
+    let pick = if i == 0 {
+        0
+    } else if i >= samples.len() {
+        samples.len() - 1
+    } else if (t - samples[i - 1].clock) <= (samples[i].clock - t) {
+        i - 1
+    } else {
+        i
+    };
     Some(samples[pick].roll)
 }
 
-fn r2(x: f32) -> f32 { (x * 100.0).round() / 100.0 }
-fn r3(x: f32) -> f32 { (x * 1000.0).round() / 1000.0 }
+fn r2(x: f32) -> f32 {
+    (x * 100.0).round() / 100.0
+}
+fn r3(x: f32) -> f32 {
+    (x * 1000.0).round() / 1000.0
+}
 
 /// 归一化到 [−π, π]（合成角规范化 + 解卷绕差值短弧化；落盘契约 = 解卷绕连续域，非短弧）
 fn wrap_pi(x: f32) -> f32 {
     const PI: f32 = std::f32::consts::PI;
     const TAU: f32 = std::f32::consts::TAU;
     let mut v = x;
-    while v > PI { v -= TAU; }
-    while v < -PI { v += TAU; }
+    while v > PI {
+        v -= TAU;
+    }
+    while v < -PI {
+        v += TAU;
+    }
     v
 }
 
@@ -376,7 +411,9 @@ fn build_coverage(clocks: &[f32]) -> Vec<f32> {
     let mut sorted: Vec<f32> = clocks.to_vec();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let mut out = Vec::new();
-    let Some(&first) = sorted.first() else { return out };
+    let Some(&first) = sorted.first() else {
+        return out;
+    };
     let mut start = first;
     let mut prev = first;
     for &c in &sorted[1..] {
@@ -395,23 +432,28 @@ fn build_coverage(clocks: &[f32]) -> Vec<f32> {
 /// coverage 区段内的时刻判定（前端同式）
 #[allow(dead_code)]
 fn coverage_contains(cov: &[f32], t: f32) -> bool {
-    cov.as_chunks::<2>().0.iter().any(|p| t >= p[0] && t <= p[1])
+    cov.as_chunks::<2>()
+        .0
+        .iter()
+        .any(|p| t >= p[0] && t <= p[1])
 }
 
 /// 弹道直线飞行时长（秒）：|to−from| / |launch_velocity|，速度不可信时 0.5s 兜底
 fn flight_secs(from: &[f32; 3], to: &[f32; 3], vel: &[f32; 3]) -> f32 {
     let speed = (vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]).sqrt();
-    let dist = ((to[0] - from[0]).powi(2)
-        + (to[1] - from[1]).powi(2)
-        + (to[2] - from[2]).powi(2))
-        .sqrt();
-    if speed > 1.0 { (dist / speed).clamp(0.02, 8.0) } else { 0.5 }
+    let dist =
+        ((to[0] - from[0]).powi(2) + (to[1] - from[1]).powi(2) + (to[2] - from[2]).powi(2)).sqrt();
+    if speed > 1.0 {
+        (dist / speed).clamp(0.02, 8.0)
+    } else {
+        0.5
+    }
 }
 
 /// 从射击复现数据映射回放弹道记录
 fn to_playback_shot(s: &ShotReplayData, _name_to_eid: &HashMap<String, u32>) -> PlaybackShot {
-    // 受击方身份 = 原始 eid 直传（method38/method8 服务器权威）。名字反查 eid 的
-    // 旧法在名字缺失/冲突时丢 hit——eid 是身份域，名字仅显示域。
+    // 受击方身份 = 原始 eid 直传（method38/method8 服务器权威）——
+    // eid 是身份域，名字仅显示域。
     let target_eid = s.target_eid;
     PlaybackShot {
         t_fire: r2(s.fire_time),
@@ -463,12 +505,14 @@ pub fn from_model(
 ) -> anyhow::Result<PlaybackData> {
     // 作者档案 = 模型实体并表产物（identity 唯一事实源，本函数不再触碰花名册）
     let author_rec = model.entities.iter().find(|e| e.is_author);
-    let author_nickname = author_rec.and_then(|e| e.nickname.clone()).unwrap_or_default();
+    let author_nickname = author_rec
+        .and_then(|e| e.nickname.clone())
+        .unwrap_or_default();
     let author_player_eid = model.timeline.author_eid;
 
     // 实体档案索引：eid → 模型并表记录（昵称/账号/队伍/tank_id 全部取此）
-    let ent_by_eid: HashMap<u32, &crate::replay::model::EntityRecord> = model.entities.iter()
-        .map(|e| (e.eid, e)).collect();
+    let ent_by_eid: HashMap<u32, &crate::replay::model::EntityRecord> =
+        model.entities.iter().map(|e| (e.eid, e)).collect();
 
     // 实体索引：模型原始流（type=10 + prop2，车辆筛选 = 双流交集）
     let st10 = &model.timeline.poses;
@@ -477,7 +521,7 @@ pub fn from_model(
 
     // 车辆实体 = st10 ∧ prop2 ∧ 采样数达标（BTreeMap 保证确定性顺序）
     let mut candidates: BTreeMap<u32, usize> = BTreeMap::new();
-        for (eid, samples) in st10.iter() {
+    for (eid, samples) in st10.iter() {
         if samples.len() >= MIN_ST10_SAMPLES && prop2.contains_key(eid) {
             candidates.insert(*eid, samples.len());
         }
@@ -545,8 +589,12 @@ pub fn from_model(
         let rec = ent_by_eid.get(eid).copied();
         let is_author = rec.map(|r| r.is_author).unwrap_or(false);
         // 俯仰极限锚定：本车昵称优先；作者无锚定时沿用其表项（与作者路径 prop9 兜底同级）
-        let limits = render.pitch_limits.get(nickname.as_str())
-            .or_else(|| render.pitch_limits.get(author_nickname.as_str()).filter(|_| is_author));
+        let limits = render.pitch_limits.get(nickname.as_str()).or_else(|| {
+            render
+                .pitch_limits
+                .get(author_nickname.as_str())
+                .filter(|_| is_author)
+        });
 
         // prop2 流在收录条件（st10 ∧ prop2 双流交集）下必然存在——缺流即内部不变量破坏
         let Some(prop2_series) = prop2.get(eid) else {
@@ -595,16 +643,21 @@ pub fn from_model(
 
         // HP 链：模型已按同值去重语义构建（含满血锚点，此处仅做落盘舍入）；
         // 击杀者/死因 = 死亡终态记录（hp==0 事件 + prop1 时刻合并）
-        let hp: Vec<(f32, u16)> = model.timeline.hp_series.get(eid).map(|s| {
-            s.iter().map(|(t, h)| (r2(*t), *h)).collect()
-        }).unwrap_or_default();
+        let hp: Vec<(f32, u16)> = model
+            .timeline
+            .hp_series
+            .get(eid)
+            .map(|s| s.iter().map(|(t, h)| (r2(*t), *h)).collect())
+            .unwrap_or_default();
         let death = model.timeline.deaths.get(eid);
         let killer_eid = death.map(|d| d.killer_eid).unwrap_or(0);
 
         // 发射弹种全局 id（配置推断证据；去重上限 16）
         let mut shell_ids: Vec<u32> = Vec::new();
         for s in shots_raw.iter() {
-            if s.shooter_eid != *eid || s.shell_id == 0 || shell_ids.len() >= 16 { continue; }
+            if s.shooter_eid != *eid || s.shell_id == 0 || shell_ids.len() >= 16 {
+                continue;
+            }
             if !shell_ids.contains(&s.shell_id) {
                 shell_ids.push(s.shell_id);
             }
@@ -615,8 +668,10 @@ pub fn from_model(
             account_id: rec.and_then(|r| r.account_id).unwrap_or(0),
             nickname,
             tank_id: rec.and_then(|r| r.tank_id).unwrap_or(0),
-            tank_name: rec.and_then(|r| r.tank_id)
-                .and_then(|tid| render.tank_names.get(&tid).cloned()).unwrap_or_default(),
+            tank_name: rec
+                .and_then(|r| r.tank_id)
+                .and_then(|tid| render.tank_names.get(&tid).cloned())
+                .unwrap_or_default(),
             team: rec.and_then(|r| r.team).unwrap_or(0),
             is_author,
             max_hp: initial_hp.get(eid).map(|(_, h)| *h).unwrap_or(0),
@@ -640,16 +695,20 @@ pub fn from_model(
 
     // 击杀事件：模型统一产出（击杀播报归属增强，|t − death_t| ≤ 5s 门控已在模型内），
     // 回放切面按候选车集过滤——与原逐车内联组装逐位等价
-    let kills: Vec<KillEvent> = model.kill_events().into_iter()
+    let kills: Vec<KillEvent> = model
+        .kill_events()
+        .into_iter()
         .filter(|k| candidates.contains_key(&k.victim_eid))
         .collect();
 
-    let mut shots: Vec<PlaybackShot> = shots_raw.iter()
+    let mut shots: Vec<PlaybackShot> = shots_raw
+        .iter()
         .map(|s| to_playback_shot(s, &name_to_eid))
         .collect();
     shots.sort_by(|a, b| a.t_fire.partial_cmp(&b.t_fire).unwrap());
 
-    let periods_out: Vec<PeriodPoint> = periods.iter()
+    let periods_out: Vec<PeriodPoint> = periods
+        .iter()
         .map(|p| PeriodPoint {
             clock: r2(p.clock),
             period: p.period,
@@ -659,7 +718,10 @@ pub fn from_model(
         .collect();
 
     // AoI 可见窗口（仅收录车辆实体；Type33/5 物化开段、Type4 关段，重入 = 多段）
-    let visibility: Vec<AoiPresence> = model.timeline.presence.iter()
+    let visibility: Vec<AoiPresence> = model
+        .timeline
+        .presence
+        .iter()
         .filter(|p| candidates.contains_key(&p.eid))
         .cloned()
         .collect();
@@ -672,25 +734,70 @@ pub fn from_model(
         kills,
         periods: periods_out,
         visibility,
-        supremacy_bases: model.timeline.supremacy_bases.iter()
-            .map(|t| SupremacyBaseStateTransition { clock: r2(t.clock), ..t.clone() }).collect(),
-        supremacy_points: model.timeline.supremacy_points.iter()
-            .map(|p| SupremacyPointsSample { clock: r2(p.clock), ..p.clone() }).collect(),
-            assault_objective_present: model.timeline.assault_objective_present,
-        assault_bases: model.timeline.assault_bases.iter()
-            .map(|t| AssaultBaseStateTransition { clock: r2(t.clock), ..t.clone() }).collect(),
-        consumables: model.timeline.consumables.iter()
-            .map(|c| ConsumableTransition { clock: r2(c.clock), ..*c }).collect(),
+        supremacy_bases: model
+            .timeline
+            .supremacy_bases
+            .iter()
+            .map(|t| SupremacyBaseStateTransition {
+                clock: r2(t.clock),
+                ..t.clone()
+            })
+            .collect(),
+        supremacy_points: model
+            .timeline
+            .supremacy_points
+            .iter()
+            .map(|p| SupremacyPointsSample {
+                clock: r2(p.clock),
+                ..p.clone()
+            })
+            .collect(),
+        assault_objective_present: model.timeline.assault_objective_present,
+        assault_bases: model
+            .timeline
+            .assault_bases
+            .iter()
+            .map(|t| AssaultBaseStateTransition {
+                clock: r2(t.clock),
+                ..t.clone()
+            })
+            .collect(),
+        consumables: model
+            .timeline
+            .consumables
+            .iter()
+            .map(|c| ConsumableTransition {
+                clock: r2(c.clock),
+                ..*c
+            })
+            .collect(),
         reload_effective: model
             .timeline
             .reload_effective
             .iter()
-            .map(|d| RawReloadDuration { clock: r2(d.clock), ..d.clone() })
+            .map(|d| RawReloadDuration {
+                clock: r2(d.clock),
+                ..d.clone()
+            })
             .collect(),
-        reloads: model.timeline.reloads.iter()
-            .map(|r| RawReloadPhase { clock: r2(r.clock), ..r.clone() }).collect(),
-        module_crew_states: model.timeline.module_crew_states.iter()
-            .map(|m| ModuleCrewStateEvent { clock: r2(m.clock), ..*m }).collect(),
+        reloads: model
+            .timeline
+            .reloads
+            .iter()
+            .map(|r| RawReloadPhase {
+                clock: r2(r.clock),
+                ..r.clone()
+            })
+            .collect(),
+        module_crew_states: model
+            .timeline
+            .module_crew_states
+            .iter()
+            .map(|m| ModuleCrewStateEvent {
+                clock: r2(m.clock),
+                ..*m
+            })
+            .collect(),
     })
 }
 
@@ -703,18 +810,34 @@ pub(crate) fn collect_all_shots(
     author_player_eid: u32,
     pitch_limits: &GunPitchLimits,
 ) -> anyhow::Result<Vec<ShotReplayData>> {
-    // 滤波时间线缓存跨两路共享（按实体确定；此前两路各建一遍，每场 ~百万帧冗余分配）
+    // 滤波时间线缓存跨两路共享（按实体确定）
     let mut render_cache: HashMap<u32, FilteredTimeline> = HashMap::new();
-    match combat::extract_shot_replays_from_shared(shared, author_player_eid, pitch_limits, &mut render_cache) {
+    match combat::extract_shot_replays_from_shared(
+        shared,
+        author_player_eid,
+        pitch_limits,
+        &mut render_cache,
+    ) {
         Ok(mut all) => {
-            let others = combat::extract_other_shot_replays_from_shared(shared, author_player_eid, pitch_limits, &mut render_cache);
+            let others = combat::extract_other_shot_replays_from_shared(
+                shared,
+                author_player_eid,
+                pitch_limits,
+                &mut render_cache,
+            );
             all.extend(others.shots);
             all.sort_by(|a, b| a.fire_time.partial_cmp(&b.fire_time).unwrap());
             Ok(all)
         }
         Err(strict_err) => {
             eprintln!("[playback] 作者严格路径提取失败（{strict_err:#}），降级宽松全路径");
-            let mut all = combat::extract_other_shot_replays_from_shared(shared, 0, pitch_limits, &mut render_cache).shots;
+            let mut all = combat::extract_other_shot_replays_from_shared(
+                shared,
+                0,
+                pitch_limits,
+                &mut render_cache,
+            )
+            .shots;
             for s in &mut all {
                 if author_player_eid != 0 && s.shooter_eid == author_player_eid {
                     s.is_author = true;
@@ -777,17 +900,19 @@ mod tests {
     //   P2 位姿一致性：开火时刻的网格采样位 ≈ ShotReplayData.shooter_render（同为滤波器输出，
     //      仅 0.1s 网格舍入差，≤0.6m）；
     //   P3 角度连续性/值域：解卷绕后 hull_yaw/turret_yaw 相邻网格 |Δ| ≤ π/2（0.1s 物理极限，
-//      wrap 跳变 ≈2π 在此拦截）、gun_pitch ∈ [-1.575, 1.575] rad；
+    //      wrap 跳变 ≈2π 在此拦截）、gun_pitch ∈ [-1.575, 1.575] rad；
     //   P4 血量链：max_hp>0、HP 单调不增、死亡车末值 0。
     #[test]
     #[ignore = "端到端探针：WOTB_PLAYBACK_PROBE=<path|dir> cargo test playback_probe -- --ignored --nocapture"]
     fn playback_probe() {
-        let root = std::env::var("WOTB_PLAYBACK_PROBE").unwrap_or_else(|_| "data/replay_samples".into());
+        let root =
+            std::env::var("WOTB_PLAYBACK_PROBE").unwrap_or_else(|_| "data/replay_samples".into());
         let path = std::path::Path::new(&root);
         let files: Vec<std::path::PathBuf> = if path.is_file() {
             vec![path.to_path_buf()]
         } else {
-            std::fs::read_dir(path).unwrap()
+            std::fs::read_dir(path)
+                .unwrap()
                 .flatten()
                 .map(|e| e.path())
                 .filter(|p| p.extension().map(|x| x == "wotbreplay").unwrap_or(false))
@@ -800,26 +925,47 @@ mod tests {
             let f = std::fs::File::open(file).unwrap();
             let mut replay = wotbreplay_parser::replay::Replay::open(f).unwrap();
             let data = replay.read_data().unwrap();
-            let packets: Vec<(u32, f32, &[u8])> = data.packets.iter().map(|pkt| {
-                let t = match &pkt.payload {
-                    wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate { .. } => 0,
-                    wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
-                    wotbreplay_parser::models::data::payload::Payload::Unknown { packet_type } => *packet_type,
-                };
-                (t, pkt.clock_secs, &pkt.raw_payload[..])
-            }).collect();
+            let packets: Vec<(u32, f32, &[u8])> = data
+                .packets
+                .iter()
+                .map(|pkt| {
+                    let t = match &pkt.payload {
+                        wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate {
+                            ..
+                        } => 0,
+                        wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
+                        wotbreplay_parser::models::data::payload::Payload::Unknown {
+                            packet_type,
+                        } => *packet_type,
+                    };
+                    (t, pkt.clock_secs, &pkt.raw_payload[..])
+                })
+                .collect();
             let br = replay.read_battle_results().ok();
-            let players: Vec<PlaybackPlayer> = br.as_ref().map(|br| {
-                br.player_results.iter().map(|pr| {
-                    let joined = br.players.iter().find(|p| p.account_id == pr.info.account_id);
-                    PlaybackPlayer {
-                        account_id: pr.info.account_id,
-                        nickname: joined.map(|p| p.info.nickname.clone()).unwrap_or_default(),
-                        team: joined.map(|p| if p.info.team == 1 { 1u8 } else { 2u8 }).unwrap_or(0),
-                        tank_id: pr.info.tank_id,
-                    }
-                }).collect()
-            }).unwrap_or_default();
+            let players: Vec<PlaybackPlayer> = br
+                .as_ref()
+                .map(|br| {
+                    br.player_results
+                        .iter()
+                        .map(|pr| {
+                            let joined = br
+                                .players
+                                .iter()
+                                .find(|p| p.account_id == pr.info.account_id);
+                            PlaybackPlayer {
+                                account_id: pr.info.account_id,
+                                nickname: joined
+                                    .map(|p| p.info.nickname.clone())
+                                    .unwrap_or_default(),
+                                team: joined
+                                    .map(|p| if p.info.team == 1 { 1u8 } else { 2u8 })
+                                    .unwrap_or(0),
+                                tank_id: pr.info.tank_id,
+                            }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
             let input = PlaybackInput {
                 packets: &packets,
                 players,
@@ -830,54 +976,80 @@ mod tests {
                 pitch_limits: &GunPitchLimits::new(),
                 tank_names: HashMap::new(),
             };
-            let pb = build_playback_data(&input)
-                .unwrap_or_else(|e| panic!("{name}: 构建失败 {e}"));
+            let pb = build_playback_data(&input).unwrap_or_else(|e| panic!("{name}: 构建失败 {e}"));
 
             // P1 车辆收录（仅完整战斗；退化样例（训练房/片段，时长短或车辆少）跳过断言）
             let nv = pb.vehicles.len();
             let named = pb.vehicles.iter().filter(|v| v.team != 0).count();
             eprintln!("--- {name}");
-            eprintln!("    P1 车辆 {nv}（具名 {named}），射击 {} 发，击杀 {}，时长 {:.1}s",
-                pb.shots.len(), pb.kills.len(), pb.meta.duration);
+            eprintln!(
+                "    P1 车辆 {nv}（具名 {named}），射击 {} 发，击杀 {}，时长 {:.1}s",
+                pb.shots.len(),
+                pb.kills.len(),
+                pb.meta.duration
+            );
             if nv < 10 || pb.meta.duration < 60.0 {
-                eprintln!("    ~~ 退化样例（车辆 {nv} / 时长 {:.1}s），跳过断言", pb.meta.duration);
+                eprintln!(
+                    "    ~~ 退化样例（车辆 {nv} / 时长 {:.1}s），跳过断言",
+                    pb.meta.duration
+                );
                 continue;
             }
             // 7v7/10v10 等模式车数不同（GB109=10v10 → 20 车）
             assert!((8..=28).contains(&nv), "P1 车辆数异常 {nv}");
-            assert_eq!(pb.vehicles.iter().filter(|v| v.is_author).count(), 1, "作者车应恰 1 辆");
+            assert_eq!(
+                pb.vehicles.iter().filter(|v| v.is_author).count(),
+                1,
+                "作者车应恰 1 辆"
+            );
 
             // P2 位姿一致性（开火时刻网格采样 vs 单发复现渲染锚点）
             // PlaybackShot 已精简掉锚点——探针在同模块直接调 collect_all_shots 取原始
             // ShotReplayData（含 shooter_render + fire_time）
             let author_eid = pb.meta.author_eid;
             let shared = combat::build_shot_scan_shared(&packets, author_eid);
-            let shots_raw = collect_all_shots(&shared, author_eid, &GunPitchLimits::new())
-                .unwrap_or_default();
+            let shots_raw =
+                collect_all_shots(&shared, author_eid, &GunPitchLimits::new()).unwrap_or_default();
             let mut checked = 0usize;
             let mut worst = 0.0f32;
-            let by_eid: HashMap<u32, &VehicleTrack> = pb.vehicles.iter().map(|v| (v.eid, v)).collect();
+            let by_eid: HashMap<u32, &VehicleTrack> =
+                pb.vehicles.iter().map(|v| (v.eid, v)).collect();
             for s in &shots_raw {
-                let Some(anchor) = &s.shooter_render else { continue };
-                let Some(sv) = by_eid.get(&s.shooter_eid) else { continue };
+                let Some(anchor) = &s.shooter_render else {
+                    continue;
+                };
+                let Some(sv) = by_eid.get(&s.shooter_eid) else {
+                    continue;
+                };
                 // 锚点 = 命中/开火事件帧（ceil）；网格是 0.1s 重采样，事件帧必落在相邻两格
                 // 之间——判据：锚点距较近端 ≤ 0.3m + 0.12×局部车速（重采样容差，非固定阈值）
                 let fi = (s.fire_time - pb.meta.t_start) / GRID_DT;
-                if fi < 0.0 { continue; }
+                if fi < 0.0 {
+                    continue;
+                }
                 let i0 = (fi.floor() as usize).min(pb.meta.samples - 1);
                 let i1 = (i0 + 1).min(pb.meta.samples - 1);
                 let gp = |i: usize, k: usize| sv.pos[i * 3 + k];
-                let d = |i: usize| ((gp(i, 0) - anchor.pos[0]).powi(2)
-                    + (gp(i, 1) - anchor.pos[1]).powi(2)
-                    + (gp(i, 2) - anchor.pos[2]).powi(2)).sqrt();
+                let d = |i: usize| {
+                    ((gp(i, 0) - anchor.pos[0]).powi(2)
+                        + (gp(i, 1) - anchor.pos[1]).powi(2)
+                        + (gp(i, 2) - anchor.pos[2]).powi(2))
+                    .sqrt()
+                };
                 let dmin = d(i0).min(d(i1));
                 let v = ((gp(i1, 0) - gp(i0, 0)).powi(2)
                     + (gp(i1, 1) - gp(i0, 1)).powi(2)
-                    + (gp(i1, 2) - gp(i0, 2)).powi(2)).sqrt() / GRID_DT;
+                    + (gp(i1, 2) - gp(i0, 2)).powi(2))
+                .sqrt()
+                    / GRID_DT;
                 worst = worst.max(dmin);
                 checked += 1;
-                assert!(dmin <= 0.3 + 0.12 * v,
-                    "P2 开火位姿偏差 {dmin:.3}m（局部车速 {v:.1}m/s）@ {} t={}", name, s.fire_time);
+                assert!(
+                    dmin <= 0.3 + 0.12 * v,
+                    "P2 开火位姿偏差 {dmin:.3}m（局部车速 {v:.1}m/s）@ {} t={}",
+                    name,
+                    s.fire_time
+                );
             }
             assert!(checked > 0, "P2 无可校验射击（无 shooter_render 锚点）");
             eprintln!("    P2 位姿一致性 {checked} 发，最大偏差 {worst:.3}m");
@@ -888,47 +1060,78 @@ mod tests {
                 assert_eq!(v.hull_yaw.len(), n, "{} 网格长度", v.eid);
                 for i in 0..n {
                     // 解卷绕契约哨兵：解卷绕后相邻网格差恒 = 短弧 ∈ [-π,π]（r3 舍入余量 0.01），
-                    // 修复前 ±π 边界 wrap 跳变的 rawΔ≈±2π 在此拦截（防落盘逻辑改动漏掉解卷绕）。
+                    // rawΔ≈±2π 的 wrap 跳变在此拦截（防落盘逻辑改动漏掉解卷绕）。
                     // |Δ|>π/2 的事件性跳变（AoI 断流重续朝向真实改变/死亡重置）为合法数据，
                     // 仅信息打印——它们或落在 coverage 空洞边界（前端不渲染），或本就是信息缺口。
                     if i + 1 < n {
                         let dh = v.hull_yaw[i + 1] - v.hull_yaw[i];
-                        assert!(dh.abs() <= std::f32::consts::PI + 0.01,
-                            "P3 hull_yaw 存在未解卷绕跳变 {} @{} Δ={dh:.3}", v.eid, i);
+                        assert!(
+                            dh.abs() <= std::f32::consts::PI + 0.01,
+                            "P3 hull_yaw 存在未解卷绕跳变 {} @{} Δ={dh:.3}",
+                            v.eid,
+                            i
+                        );
                         let d_tw = v.turret_yaw[i + 1] - v.turret_yaw[i];
-                        assert!(d_tw.abs() <= std::f32::consts::PI + 0.01,
-                            "P3 turret_yaw 存在未解卷绕跳变 {} @{} Δ={d_tw:.3}", v.eid, i);
+                        assert!(
+                            d_tw.abs() <= std::f32::consts::PI + 0.01,
+                            "P3 turret_yaw 存在未解卷绕跳变 {} @{} Δ={d_tw:.3}",
+                            v.eid,
+                            i
+                        );
                         let t = pb.meta.t_start + i as f32 * GRID_DT;
                         if dh.abs() > std::f32::consts::FRAC_PI_2
-                            || d_tw.abs() > std::f32::consts::FRAC_PI_2 {
+                            || d_tw.abs() > std::f32::consts::FRAC_PI_2
+                        {
                             eprintln!("    P3 大角变 {} t={t:.1} Δhull={dh:+.3} Δturret={d_tw:+.3}（death={:?}）",
                                 v.eid, v.death_t);
                         }
                     }
-                    assert!(v.gun_pitch[i] >= -1.575 && v.gun_pitch[i] <= 1.575,
+                    assert!(
+                        v.gun_pitch[i] >= -1.575 && v.gun_pitch[i] <= 1.575,
                         // 值域仅为量纲哨兵（度→弧度错开会到 ±57）：解码值域 = 车型俯仰极限
                         // （SPG 仰角 ~75°=1.31rad），兜底值 = 车体 pitch（跌落/翻滚可近 ±π/2）
-                        "P3 gun_pitch 越域 {} {}", v.eid, v.gun_pitch[i]);
+                        "P3 gun_pitch 越域 {} {}",
+                        v.eid,
+                        v.gun_pitch[i]
+                    );
                 }
                 if v.team != 0 {
                     assert!(v.max_hp > 0, "P4 具名车 max_hp=0 {}", v.nickname);
                 }
                 let mut hp_prev = v.max_hp;
                 for (_, h) in &v.hp {
-                    assert!(*h <= hp_prev, "P4 HP 回升 {} {}: {hp_prev}→{h}", v.eid, v.nickname);
+                    assert!(
+                        *h <= hp_prev,
+                        "P4 HP 回升 {} {}: {hp_prev}→{h}",
+                        v.eid,
+                        v.nickname
+                    );
                     hp_prev = *h;
                 }
                 if v.death_t.is_some() && !v.hp.is_empty() {
-                    assert_eq!(v.hp.last().unwrap().1, 0, "P4 死亡车末 HP 应为 0 {}", v.nickname);
+                    assert_eq!(
+                        v.hp.last().unwrap().1,
+                        0,
+                        "P4 死亡车末 HP 应为 0 {}",
+                        v.nickname
+                    );
                 }
             }
         }
     }
     /// 侧倾列（`roll_nearest`）：辅助构造按时钟升序的 type=10 采样
     fn roll_samples(clocks_rolls: &[(f32, f32)]) -> Vec<combat::St10Sample> {
-        clocks_rolls.iter().map(|(c, r)| combat::St10Sample {
-            clock: *c, pos: [0.0; 3], yaw: 0.0, pitch: 0.0, roll: *r, pos_error: [0.0; 3],
-        }).collect()
+        clocks_rolls
+            .iter()
+            .map(|(c, r)| combat::St10Sample {
+                clock: *c,
+                pos: [0.0; 3],
+                yaw: 0.0,
+                pitch: 0.0,
+                roll: *r,
+                pos_error: [0.0; 3],
+            })
+            .collect()
     }
 
     /// 侧倾取值 = 最近邻：段内不插值、边界保持最近已知（与 anchors 对 pitch/roll 同规则）
@@ -941,8 +1144,11 @@ mod tests {
         assert_eq!(roll_nearest(&s, 10.24), Some(0.1), "更近前样本");
         assert_eq!(roll_nearest(&s, 10.26), Some(0.2), "更近后样本");
         assert_eq!(roll_nearest(&s, 10.25), Some(0.1), "等距取前（确定性）");
-        assert_eq!(roll_nearest(&s, 15.0), Some(0.2), "跨断段只保持最近已知，不插值");
+        assert_eq!(
+            roll_nearest(&s, 15.0),
+            Some(0.2),
+            "跨断段只保持最近已知，不插值"
+        );
         assert_eq!(roll_nearest(&s, 99.0), Some(-0.3), "晚于末样本 → 末样本");
     }
-
 }

@@ -11,9 +11,9 @@
 use std::collections::{BTreeMap, HashMap};
 
 use super::combat::{
-    self, ArenaPeriod, AoiPresence, AssaultBaseStateTransition, CombatEventType,
-    CombatTimeline, ConsumableTransition, FeedbackCounterEvent, GunPitchLimits, HpEvent,
-    KillFeedEvent, ModuleCrewStateEvent, RawReloadDuration, RawReloadPhase, ShotReplayData, St10Sample,
+    self, AoiPresence, ArenaPeriod, AssaultBaseStateTransition, CombatEventType, CombatTimeline,
+    ConsumableTransition, FeedbackCounterEvent, GunPitchLimits, HpEvent, KillFeedEvent,
+    ModuleCrewStateEvent, RawReloadDuration, RawReloadPhase, ShotReplayData, St10Sample,
     SupremacyBaseStateTransition, SupremacyPointsSample,
 };
 use super::playback::{self, KillEvent, PlaybackPlayer};
@@ -102,7 +102,8 @@ pub struct Timeline {
     /// 消耗品生命周期事件（Type32 flag=0；含 wireCode/state/param 原样）
     pub consumables: Vec<ConsumableTransition>,
     /// 车辆模块/乘员状态事件（Avatar method16）
-    pub module_crew_states: Vec<ModuleCrewStateEvent>,    /// 实时装填相位（arena subtype 15/17，**仅本方全队**；相位码 f2 与计数 f4 原样透传）
+    pub module_crew_states: Vec<ModuleCrewStateEvent>,
+    /// 实时装填相位（arena subtype 15/17，**仅本方全队**；相位码 f2 与计数 f4 原样透传）
     pub reloads: Vec<RawReloadPhase>,
     /// 权威「当前生效完整装填时长」（方法 35；时间升序）
     pub reload_effective: Vec<RawReloadDuration>,
@@ -143,15 +144,16 @@ impl ReplayModel {
             *packet_histogram.entry(*t).or_insert(0) += 1;
         }
 
-        let author_nickname = input.roster.iter()
+        let author_nickname = input
+            .roster
+            .iter()
             .find(|p| p.account_id == input.author_account_id)
             .map(|p| p.nickname.clone())
             .unwrap_or_default();
         let author_eid = combat::resolve_author_player_eid_by_nick(packets, &author_nickname);
 
-        // —— 共享扫描（契约"包流只扫一遍"的落地）：位姿/炮塔/血量/名字/配件/发射等
+        // —— 共享扫描（契约"包流只扫一遍"）：位姿/炮塔/血量/名字/配件/发射等
         // 全部索引只建一份，弹道两路提取（collect_all_shots）与实体档案并表均从此取数。
-        // 此前 scan 自身 9 遍 + 两条射击路径各自重扫，全量 pass 合计 ~40 遍。
         let shared = combat::build_shot_scan_shared(packets, author_eid);
 
         let ct = CombatTimeline::parse_packets(packets);
@@ -161,20 +163,22 @@ impl ReplayModel {
         let counters = combat::collect_feedback_counters(packets);
         // arena 流一次收集 {1,3,6}（comps/periods/kill_feed 三个消费方合用；
         // 高频 RELOAD_TIME 等子类型在收集期即丢弃）
-        let arena_updates = combat::collect_arena_updates_filtered(
-            packets, |s| s == 1 || s == 3 || s == 6
+        let arena_updates = combat::collect_arena_updates_filtered(packets, |s| {
+            s == 1 || s == 3 || s == 6
             // 装填相位（subtype 15/17）也在此收集：本方全队的装填开始/就绪/弹夹内间隔
             || s == combat::ARENA_SUB_RELOAD_TIME
             || s == combat::ARENA_SUB_RELOAD_TIME_UPDATE
-            || s == combat::ARENA_SUB_RELOAD_TIME_LIST);
+            || s == combat::ARENA_SUB_RELOAD_TIME_LIST
+        });
         let kill_feed = combat::kill_feed_from_updates(&arena_updates);
         let periods = combat::parse_arena_periods(&arena_updates);
         // Supremacy 目标状态/点数（subtype48 wrapper12/13；非争霸场为空）——
         // WotbTools PROVEN 语义移植，sparse 重建见 arena 模块
         let supremacy_bases = combat::reconstruct_supremacy_base_states(
-            combat::collect_supremacy_base_updates(packets));
+            combat::collect_supremacy_base_updates(packets),
+        );
         let supremacy_points = combat::collect_supremacy_points(packets);
-        // 攻防战单基地（wrapper8/root8；与争霸 wrapper12 天然互斥——实测两者不共存）
+        // 攻防战单基地（wrapper8/root8；与争霸 wrapper12 天然互斥）
         let assault_updates = combat::collect_assault_base_updates(packets);
         // 目标存在性与进度分开：无占领活动的攻防/遭遇战场次 progress 为空但目标已在
         // 实时装填相位（原样透传；消费方只认已闭环子集 f2∈{3,4,7}、f4=1）
@@ -198,7 +202,11 @@ impl ReplayModel {
         }
         let mut deaths: BTreeMap<u32, DeathRecord> = BTreeMap::new();
         for (t, eid, _) in ct.death_events() {
-            deaths.entry(eid).or_insert(DeathRecord { t, killer_eid: 0, cause: 255 });
+            deaths.entry(eid).or_insert(DeathRecord {
+                t,
+                killer_eid: 0,
+                cause: 255,
+            });
         }
         for e in hp_events {
             // overkill 时服务器 HP 略负（int16 语义），按 u16 读出回绕 → 一律钳 0
@@ -209,8 +217,11 @@ impl ReplayModel {
             }
             series.push((e.clock, hp_v));
             if hp_v == 0 {
-                let d = deaths.entry(e.victim)
-                    .or_insert(DeathRecord { t: e.clock, killer_eid: 0, cause: 255 });
+                let d = deaths.entry(e.victim).or_insert(DeathRecord {
+                    t: e.clock,
+                    killer_eid: 0,
+                    cause: 255,
+                });
                 d.killer_eid = e.source;
                 d.cause = e.cause;
             }
@@ -220,7 +231,9 @@ impl ReplayModel {
         let mut damage_progress: BTreeMap<u32, Vec<(f32, u32)>> = BTreeMap::new();
         for e in &ct.events {
             if let CombatEventType::DamageCounter { cumulative_damage } = &e.event_type {
-                damage_progress.entry(e.entity_id).or_default()
+                damage_progress
+                    .entry(e.entity_id)
+                    .or_default()
                     .push((e.timestamp, *cumulative_damage));
             }
         }
@@ -231,7 +244,10 @@ impl ReplayModel {
         // —— 实体档案并表（eid 并集 = 位姿 ∪ 炮塔 ∪ 名字 ∪ 锚点 ∪ 配件 ∪ 在场） ——
         let valid_tanks: Vec<u32> = input.roster.iter().map(|p| p.tank_id).collect();
         let comps = playback::comp_descriptors_from_updates(&arena_updates, &valid_tanks);
-        let mut eids: Vec<u32> = shared.st10.keys().copied()
+        let mut eids: Vec<u32> = shared
+            .st10
+            .keys()
+            .copied()
             .chain(shared.prop2.keys().copied())
             .chain(ct.entity_names.keys().copied())
             .chain(initial_hp.keys().copied())
@@ -244,7 +260,8 @@ impl ReplayModel {
         let mut entities = Vec::with_capacity(eids.len());
         for eid in eids {
             let nickname = ct.entity_names.get(&eid).cloned();
-            let joined = nickname.as_ref()
+            let joined = nickname
+                .as_ref()
                 .and_then(|n| input.roster.iter().find(|p| &p.nickname == n));
             // 组成 blob 昵称是原始 UTF-8（不经 ascii 过滤），与 type=5 名字表对非 ascii
             // 昵称可能不交集——按昵称能联则联，联不上不猜
@@ -252,8 +269,7 @@ impl ReplayModel {
             let is_author = if author_eid != 0 {
                 eid == author_eid
             } else {
-                !author_nickname.is_empty()
-                    && nickname.as_deref() == Some(author_nickname.as_str())
+                !author_nickname.is_empty() && nickname.as_deref() == Some(author_nickname.as_str())
             };
             entities.push(EntityRecord {
                 eid,
@@ -263,7 +279,10 @@ impl ReplayModel {
                 tank_id: joined.map(|p| p.tank_id),
                 max_hp: initial_hp.get(&eid).map(|(_, h)| *h),
                 equipment: equipment.get(&eid).copied(),
-                loadout_items: loadouts.get(&eid).map(|l| l.items.clone()).unwrap_or_default(),
+                loadout_items: loadouts
+                    .get(&eid)
+                    .map(|l| l.items.clone())
+                    .unwrap_or_default(),
                 turret_local: comp.map(|c| c.turret_local),
                 gun_local: comp.map(|c| c.gun_local),
                 is_author,
@@ -305,10 +324,17 @@ impl ReplayModel {
     /// 击杀事件流：死亡终态 × 击杀播报归属增强（|Δt| ≤ 5s 门控隔离开局初始化记录）。
     /// 全场回放切面按候选车集过滤后取用；评审切面取全量。
     pub fn kill_events(&self) -> Vec<KillEvent> {
-        let feed: HashMap<u32, &KillFeedEvent> = self.timeline.kill_feed.iter()
-            .filter(|k| self.timeline.deaths.get(&k.victim_eid)
-                .map(|d| (d.t - k.clock).abs() <= 5.0)
-                .unwrap_or(false))
+        let feed: HashMap<u32, &KillFeedEvent> = self
+            .timeline
+            .kill_feed
+            .iter()
+            .filter(|k| {
+                self.timeline
+                    .deaths
+                    .get(&k.victim_eid)
+                    .map(|d| (d.t - k.clock).abs() <= 5.0)
+                    .unwrap_or(false)
+            })
             .map(|k| (k.victim_eid, k))
             .collect();
         let mut out = Vec::new();
@@ -316,10 +342,19 @@ impl ReplayModel {
             let wf = feed.get(eid);
             out.push(KillEvent {
                 t: r2(d.t),
-                killer_eid: if d.killer_eid != 0 { d.killer_eid }
-                    else { wf.map(|k| k.killer_eid).unwrap_or(0) },
+                killer_eid: if d.killer_eid != 0 {
+                    d.killer_eid
+                } else {
+                    wf.map(|k| k.killer_eid).unwrap_or(0)
+                },
                 victim_eid: *eid,
-                cause: if d.killer_eid != 0 { d.cause } else if wf.is_some() { 0 } else { 3 },
+                cause: if d.killer_eid != 0 {
+                    d.cause
+                } else if wf.is_some() {
+                    0
+                } else {
+                    3
+                },
                 assister_eid: wf.and_then(|k| k.assister_eid),
                 death_reason: wf.and_then(|k| k.death_reason),
             });
@@ -333,7 +368,7 @@ impl ReplayModel {
 mod tests {
     use super::*;
 
-    /// Unicode 昵称端到端 JOIN 回归（本仓库 2026-10 前 ASCII 过滤的主 bug）：
+    /// Unicode 昵称端到端 JOIN 回归：
     /// type5 中文昵称实体 × 中文昵称花名册 → account_id/team/tank_id 联上、
     /// 作者实体可解析（strict 射击路径的前提）。
     #[test]
@@ -361,7 +396,10 @@ mod tests {
             pitch_limits: &limits,
         })
         .unwrap();
-        assert_eq!(model.timeline.author_eid, 0x21, "中文昵称作者实体必须可解析");
+        assert_eq!(
+            model.timeline.author_eid, 0x21,
+            "中文昵称作者实体必须可解析"
+        );
         let e = model.entities.iter().find(|e| e.eid == 0x21).unwrap();
         assert_eq!(e.nickname.as_deref(), Some(nick));
         assert_eq!(e.account_id, Some(42), "昵称联表 account_id");
@@ -400,7 +438,10 @@ mod tests {
         let p_dup = mk_hp(victim, 0, 9, 1); // 同值 0 重复：去重，不改写击杀者
         let p_death = mk_death(victim);
         let packets: Vec<(u32, f32, &[u8])> = vec![
-            (8, 10.0, &p_anchored), (8, 20.0, &p_kill), (8, 21.0, &p_dup), (7, 21.5, &p_death),
+            (8, 10.0, &p_anchored),
+            (8, 20.0, &p_kill),
+            (8, 21.0, &p_dup),
+            (7, 21.5, &p_death),
         ];
         let roster: Vec<PlaybackPlayer> = Vec::new();
         let limits = GunPitchLimits::new();
@@ -413,7 +454,11 @@ mod tests {
         .unwrap();
 
         let series = &model.timeline.hp_series[&victim];
-        assert_eq!(series, &vec![(10.0, 1000), (20.0, 0)], "锚点缺失从首事件起链，同值去重");
+        assert_eq!(
+            series,
+            &vec![(10.0, 1000), (20.0, 0)],
+            "锚点缺失从首事件起链，同值去重"
+        );
         let d = &model.timeline.deaths[&victim];
         assert!((d.t - 21.5).abs() < 1e-6, "死亡时刻 = prop1 广播");
         assert_eq!(d.killer_eid, 7, "击杀者来自有效 hp==0 事件，重复事件不改写");

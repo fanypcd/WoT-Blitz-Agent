@@ -11,7 +11,9 @@ pub(crate) fn collect_refresh_clusters(packets: &[(u32, f32, &[u8])]) -> HashMap
     // 每实体 (clock, sub) 排序后滑窗：窗口内出现 ≥2 个不同 sub（<2ms）→ 簇时钟
     let mut seqs: HashMap<u32, Vec<(f32, u32)>> = HashMap::new();
     for (t, clock, p) in packets {
-        if *t != 7 || p.len() < 14 { continue; }
+        if *t != 7 || p.len() < 14 {
+            continue;
+        }
         seqs.entry(u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
             .or_default()
             .push((*clock, u32::from_le_bytes([p[4], p[5], p[6], p[7]])));
@@ -29,10 +31,14 @@ pub(crate) fn collect_refresh_clusters(packets: &[(u32, f32, &[u8])]) -> HashMap
                 subs.insert(seq[j].1);
                 j += 1;
             }
-            if subs.len() >= 2 { cluster_clocks.push(seq[i].0); }
+            if subs.len() >= 2 {
+                cluster_clocks.push(seq[i].0);
+            }
             i = j;
         }
-        if cluster_clocks.is_empty() { continue; }
+        if cluster_clocks.is_empty() {
+            continue;
+        }
         // 相邻簇时钟 <0.05s 合并取首（一次补发可能跨几毫秒的多条包）
         let mut merged: Vec<f32> = Vec::new();
         for c in cluster_clocks {
@@ -47,7 +53,11 @@ pub(crate) fn collect_refresh_clusters(packets: &[(u32, f32, &[u8])]) -> HashMap
 }
 
 /// 该实体在 (t, t+0.35] 内首个补发簇时钟相对 t 的偏移（无则 None）。
-pub(crate) fn refresh_cluster_after(clusters: &HashMap<u32, Vec<f32>>, eid: u32, t: f32) -> Option<f32> {
+pub(crate) fn refresh_cluster_after(
+    clusters: &HashMap<u32, Vec<f32>>,
+    eid: u32,
+    t: f32,
+) -> Option<f32> {
     let v = clusters.get(&eid)?;
     let &c = v.iter().find(|c| **c > t && **c <= t + 0.35)?;
     Some(c - t)
@@ -60,15 +70,35 @@ pub fn dump_replay_streams(packets: &[(u32, f32, &[u8])]) -> serde_json::Value {
     for v in st10.values_mut() {
         v.sort_by(|a, b| a.clock.partial_cmp(&b.clock).unwrap());
     }
-    let st10_json: serde_json::Map<String, serde_json::Value> = st10.into_iter()
-        .map(|(eid, v)| (format!("{eid:08x}"), serde_json::Value::Array(v.into_iter()
-            .map(|s| serde_json::json!([s.clock, s.pos[0], s.pos[1], s.pos[2], s.yaw, s.pitch, s.roll]))
-            .collect())))
+    let st10_json: serde_json::Map<String, serde_json::Value> = st10
+        .into_iter()
+        .map(|(eid, v)| {
+            (
+                format!("{eid:08x}"),
+                serde_json::Value::Array(
+                    v.into_iter()
+                        .map(|s| {
+                            serde_json::json!([
+                                s.clock, s.pos[0], s.pos[1], s.pos[2], s.yaw, s.pitch, s.roll
+                            ])
+                        })
+                        .collect(),
+                ),
+            )
+        })
         .collect();
-    let prop2_json: serde_json::Map<String, serde_json::Value> = prop2.into_iter()
-        .map(|(eid, v)| (format!("{eid:08x}"), serde_json::Value::Array(v.into_iter()
-            .map(|(c, r, fr)| serde_json::json!([c, r, fr]))
-            .collect())))
+    let prop2_json: serde_json::Map<String, serde_json::Value> = prop2
+        .into_iter()
+        .map(|(eid, v)| {
+            (
+                format!("{eid:08x}"),
+                serde_json::Value::Array(
+                    v.into_iter()
+                        .map(|(c, r, fr)| serde_json::json!([c, r, fr]))
+                        .collect(),
+                ),
+            )
+        })
         .collect();
     let (launches, _) = collect_launches(packets, |_| true);
     let endpoints = collect_endpoints(packets);
@@ -76,30 +106,60 @@ pub fn dump_replay_streams(packets: &[(u32, f32, &[u8])]) -> serde_json::Value {
     let mut seq: Vec<serde_json::Value> = Vec::new();
     for (t, clock, p) in packets {
         if *t == 10 && p.len() >= 48 {
-            let f = |o: usize| f32::from_le_bytes([p[o], p[o+1], p[o+2], p[o+3]]);
-            seq.push(json!(["v", clock, u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
-                f(12), f(16), f(20)]));
+            let f = |o: usize| f32::from_le_bytes([p[o], p[o + 1], p[o + 2], p[o + 3]]);
+            seq.push(json!([
+                "v",
+                clock,
+                u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
+                f(12),
+                f(16),
+                f(20)
+            ]));
             continue;
         }
-        if p.len() < 12 { continue; }
+        if p.len() < 12 {
+            continue;
+        }
         let m = u32::from_le_bytes([p[4], p[5], p[6], p[7]]);
         let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if p.len() < 12 + args_len { continue; }
+        if p.len() < 12 + args_len {
+            continue;
+        }
         let a = &p[12..12 + args_len];
-        let f = |o: usize| f32::from_le_bytes([a[o], a[o+1], a[o+2], a[o+3]]);
+        let f = |o: usize| f32::from_le_bytes([a[o], a[o + 1], a[o + 2], a[o + 3]]);
         if *t == 8 && m == 0x1d && args_len >= 37 {
-            seq.push(json!(["l", clock, u32::from_le_bytes([a[0], a[1], a[2], a[3]]),
+            seq.push(json!([
+                "l",
+                clock,
+                u32::from_le_bytes([a[0], a[1], a[2], a[3]]),
                 u32::from_le_bytes([a[4], a[5], a[6], a[7]]),
-                f(9), f(13), f(17)]));
+                f(9),
+                f(13),
+                f(17)
+            ]));
         } else if *t == 8 && m == 0x14 && args_len >= 16 {
-            seq.push(json!(["e", clock, u32::from_le_bytes([a[0], a[1], a[2], a[3]]),
-                f(4), f(8), f(12)]));
+            seq.push(json!([
+                "e",
+                clock,
+                u32::from_le_bytes([a[0], a[1], a[2], a[3]]),
+                f(4),
+                f(8),
+                f(12)
+            ]));
         } else if *t == 8 && m == 0x08 && args_len >= 10 && a[8] == 1 {
-            seq.push(json!(["h", clock, u32::from_le_bytes([a[0], a[1], a[2], a[3]]),
-                u32::from_le_bytes([a[4], a[5], a[6], a[7]])]));
+            seq.push(json!([
+                "h",
+                clock,
+                u32::from_le_bytes([a[0], a[1], a[2], a[3]]),
+                u32::from_le_bytes([a[4], a[5], a[6], a[7]])
+            ]));
         } else if *t == 8 && m == 0x00 {
             // method0x00 开火事件：envelope entityId = 射手车辆实体，args=[01]
-            seq.push(json!(["f", clock, u32::from_le_bytes([p[0], p[1], p[2], p[3]])]));
+            seq.push(json!([
+                "f",
+                clock,
+                u32::from_le_bytes([p[0], p[1], p[2], p[3]])
+            ]));
         }
     }
     use serde_json::json;
@@ -151,7 +211,10 @@ impl VehicleEquipment {
 /// 扫描契约（Java VehicleBattleLoadout 同款）：offset 可变，搜 `0A 06` + 6×14B 描述符 +
 /// `0B 09` + 9B；字节全部落在已知配件 ID 域 100..=123 才采纳（framing 误配不猜名）。
 pub fn collect_vehicle_equipment(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, [u8; 9]> {
-    collect_vehicle_loadout(packets).into_iter().map(|(k, v)| (k, v.equipment)).collect()
+    collect_vehicle_loadout(packets)
+        .into_iter()
+        .map(|(k, v)| (k, v.equipment))
+        .collect()
 }
 
 /// 采集每实体的完整开局 loadout（Type5 3+3+9；含 6 条 raw item 描述符）。
@@ -159,9 +222,13 @@ pub fn collect_vehicle_equipment(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, 
 pub fn collect_vehicle_loadout(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, VehicleLoadout> {
     let mut out: HashMap<u32, VehicleLoadout> = HashMap::new();
     for (ptype, _, p) in packets {
-        if *ptype != 5 { continue; }
+        if *ptype != 5 {
+            continue;
+        }
         let eid = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
-        if out.contains_key(&eid) { continue; }
+        if out.contains_key(&eid) {
+            continue;
+        }
         if let Some(l) = scan_loadout(p) {
             out.insert(eid, l);
         }
@@ -171,8 +238,8 @@ pub fn collect_vehicle_loadout(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, Ve
 
 /// 在单条 Type5 载荷内扫描 loadout 块：先定位 `0B 09` + 9B 配件串（字节域 100..=123 校验），
 /// 再回找计数标记 `0A KK`——要求 `0A KK` + KK×14B 描述符 + `0B 09` 严丝合缝且 KK≥6
-/// （6 条=标准 3 消耗品+3 给养；7 条=受控场变体，XM551 场作者实体实测多 1 条 14B 描述符、
-/// 配件串本身完好；4 条=观察者族，WotbTools 警告勿当战斗者搭载，拒收）。
+/// （6 条=标准 3 消耗品+3 给养；7 条=受控场变体，多 1 条 14B 描述符、
+/// 配件串本身完好；4 条=观察者族，勿当战斗者搭载，拒收）。
 /// Avatar method16：车辆模块/乘员状态事件（WotbTools PROVEN 移植）。
 ///
 /// 线格式（`VehicleModuleCrewStateDecoder`，恒定 22B）：
@@ -187,29 +254,56 @@ pub fn collect_vehicle_loadout(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, Ve
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModuleComponent {
-    Engine, AmmoRack, FuelTank, RightTrack, LeftTrack, Gun, TurretRotator,
-    ObservationDevice, Commander, Driver, Gunner, Loader, Unknown,
+    Engine,
+    AmmoRack,
+    FuelTank,
+    RightTrack,
+    LeftTrack,
+    Gun,
+    TurretRotator,
+    ObservationDevice,
+    Commander,
+    Driver,
+    Gunner,
+    Loader,
+    Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModuleState {
-    DamagedDegraded, CriticalDisabled, AutoRepairedToDamaged, FullRepairedClear,
-    CrewShellShocked, CrewHealed, Unknown,
+    DamagedDegraded,
+    CriticalDisabled,
+    AutoRepairedToDamaged,
+    FullRepairedClear,
+    CrewShellShocked,
+    CrewHealed,
+    Unknown,
 }
 
 impl ModuleComponent {
     fn from_code(code: u8) -> Self {
         match code {
-            31 => Self::Engine, 32 => Self::AmmoRack, 33 => Self::FuelTank,
-            34 => Self::RightTrack, 35 => Self::LeftTrack, 36 => Self::Gun,
-            37 => Self::TurretRotator, 38 => Self::ObservationDevice,
-            39 => Self::Commander, 40 => Self::Driver, 41 => Self::Gunner,
-            43 => Self::Loader, _ => Self::Unknown,
+            31 => Self::Engine,
+            32 => Self::AmmoRack,
+            33 => Self::FuelTank,
+            34 => Self::RightTrack,
+            35 => Self::LeftTrack,
+            36 => Self::Gun,
+            37 => Self::TurretRotator,
+            38 => Self::ObservationDevice,
+            39 => Self::Commander,
+            40 => Self::Driver,
+            41 => Self::Gunner,
+            43 => Self::Loader,
+            _ => Self::Unknown,
         }
     }
     fn is_crew(self) -> bool {
-        matches!(self, Self::Commander | Self::Driver | Self::Gunner | Self::Loader)
+        matches!(
+            self,
+            Self::Commander | Self::Driver | Self::Gunner | Self::Loader
+        )
     }
 }
 
@@ -231,9 +325,15 @@ pub struct ModuleCrewStateEvent {
 pub fn collect_module_crew_states(packets: &[(u32, f32, &[u8])]) -> Vec<ModuleCrewStateEvent> {
     let mut out = Vec::new();
     for (t, clock, p) in packets {
-        if *t != 8 || p.len() != 22 { continue; }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 16 { continue; }
-        if u32::from_le_bytes([p[8], p[9], p[10], p[11]]) != 10 { continue; }
+        if *t != 8 || p.len() != 22 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 16 {
+            continue;
+        }
+        if u32::from_le_bytes([p[8], p[9], p[10], p[11]]) != 10 {
+            continue;
+        }
         let vehicle_eid = u32::from_le_bytes([p[12], p[13], p[14], p[15]]);
         let state_code = p[16];
         let component_code = p[17];
@@ -263,7 +363,11 @@ pub fn collect_module_crew_states(packets: &[(u32, f32, &[u8])]) -> Vec<ModuleCr
             related_eid: u32::from_le_bytes([p[18], p[19], p[20], p[21]]),
         });
     }
-    out.sort_by(|a, b| a.clock.partial_cmp(&b.clock).unwrap_or(std::cmp::Ordering::Equal));
+    out.sort_by(|a, b| {
+        a.clock
+            .partial_cmp(&b.clock)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     out
 }
 
@@ -322,32 +426,29 @@ pub(crate) struct LaunchEntry {
     pub(crate) vel: [f32; 3],
     /// method29 包处理时刻（**流序**）射手的最后已知 prop2 原始 u16——WI 解析器同构快照。
     /// 与时钟序"≤t 最后采样"的差异仅在同 tick 内包序：method29 包之前到达的 prop2 才计入。
-    pub(crate) shooter_prop2: Option<(f32, u16)>,   // (采样钟, 原始 u16)
+    pub(crate) shooter_prop2: Option<(f32, u16)>, // (采样钟, 原始 u16)
 }
 
 /// method20 (0x14) 弹道终点（shotId 配对）。
 /// method8 直击通知（全局广播，envelope eid = 受击者）；
-/// args = [shooterEntityId u32][victimEntityId u32][01][result u8][extra u8][hash6][tail...]；result 枚举与 type=32 同域，hash6 与同事件 type=32 完全一致（86/86 实测）。
+/// args = [shooterEntityId u32][victimEntityId u32][01][result u8][extra u8][hash6][tail...]；result 枚举与 type=32 同域，hash6 与同事件 type=32 完全一致。
 /// victim_state = 该通知包处理时刻（文件序）受击者的最后已知 type=10 姿态——
-/// wotinspector distance 的精确取值基准（99/99 发 μ 级复现，逆向文档 4.0'），受击方锚点。
+/// wotinspector distance 的精确取值基准，受击方锚点。
 pub(crate) struct DirectHit8 {
     pub(crate) t: f32,
     pub(crate) shooter: u32,
     pub(crate) victim: u32,
     pub(crate) result: u8,
-    /// args[10] = **服务器下发的受击部件索引 cmpIndex**（2026-09 破译：showDamageFromShot
+    /// args[10] = **服务器下发的受击部件索引 cmpIndex**（showDamageFromShot
     /// 的 8 字节 segment 描述符元素 byte1，客户端 BWUtils::DecodeShotSegment 以 bboxes[4]/
-    /// partMatrixes[4] 按此部件放置着弹点——见《游戏回放数据处理分析报告.md》§4.7）。
-    /// 部件对应（命中离地高度统计实证，3 场 26 发）：**0=底盘/履带（med 0.70m，全为跳弹/间隙止）、
-    /// 1=车体（med 1.17m）、2=炮塔（med 2.84m）、3=炮管（直射弹未观测）**。
-    /// J39 实测分布 {0:22, 1:40, 2:34, 3:4}。
+    /// partMatrixes[4] 按此部件放置着弹点——见《回放与射击逆向总集》第三篇 §二）。
+    /// 部件对应（命中离地高度分层实证）：**0=底盘/履带、1=车体、2=炮塔、3=炮管（直射弹未观测）**。
     pub(crate) component_index: Option<u8>,
     pub(crate) hash6: [u8; 6],
-    pub(crate) victim_state: Option<([f32; 3], [f32; 3], f32)>,   // (pos, ang[yaw,pitch,roll], 状态采样时钟)
+    pub(crate) victim_state: Option<([f32; 3], [f32; 3], f32)>, // (pos, ang[yaw,pitch,roll], 状态采样时钟)
     /// method8 包处理时刻（**流序**）受击者的最后已知 prop2 原始 u16——WI 解析器同构快照
-    /// （battle.json turret_yaw/gun_pitch 的取样基准，2026-09-24 T110E5 回放 21/21 逐位验证：
-    /// 炮塔 coarse10 与流序快照精确相等，时钟序仅 8/21——同 tick 内 prop2 与 method8 的包序
-    /// 决定取值）。(采样钟, 原始 u16)
+    /// （battle.json turret_yaw/gun_pitch 的取样基准：炮塔 coarse10 与流序快照逐位相等——
+    /// 同 tick 内 prop2 与 method8 的包序决定取值）。(采样钟, 原始 u16)
     pub(crate) victim_prop2: Option<(f32, u16)>,
 }
 
@@ -355,10 +456,9 @@ pub(crate) struct DirectHit8 {
 /// 帧结构（WotbTools 16,850/16,850）：[eid u32][flag u8][bodyLength u32][body]，bodyLength == payloadLen − 9。
 /// len=26 (bodyLen=17): [eid u32][01][bodyLen u32][u16@9][flag@11][hash6@12..18][segment u64@18..26]
 /// len=27 (bodyLen=18): [eid u32][01][bodyLen u32][u16@9][flag@11][01@12][hash6@13..19][segment u64@19..27]
-/// hash6 6B = [shell u16][来向 yaw u16][抵达 pitch u16]（原始解码恢复，2026-09 复核）：
+/// hash6 6B = [shell u16][来向 yaw u16][抵达 pitch u16]：
 ///   yaw = (u16−32768)/32768×π = 受击者指向射手的方位角；pitch = (u16−32768)/32768×(π/2)
-///   = 抵达垂直角。原始交叉验证（ea2f8c6）：yaw shot1 +66.9° vs 位置推算 +68.8° ✓；
-///   pitch shot1 −2.43° ✓。非命中的路过炮弹警告会被 yaw 校验弃用（decoded_target_gun_pitch）。
+///   = 抵达垂直角。非命中的路过炮弹警告会被 yaw 校验弃用（decoded_target_gun_pitch）。
 #[derive(Clone)]
 pub(crate) struct ArenaWarning32 {
     pub(crate) t: f32,
@@ -371,7 +471,14 @@ pub(crate) struct ArenaWarning32 {
 }
 
 /// 血量链降幅区间（参考 WotbTools PlaybackCombatReconstruction.deriveLosses）。
-pub(crate) struct DmgLoss { pub(crate) victim: u32, pub(crate) source: u32, pub(crate) t_prev: f32, pub(crate) t_cur: f32, pub(crate) dmg: u32, pub(crate) hp_cur: u16 }
+pub(crate) struct DmgLoss {
+    pub(crate) victim: u32,
+    pub(crate) source: u32,
+    pub(crate) t_prev: f32,
+    pub(crate) t_cur: f32,
+    pub(crate) dmg: u32,
+    pub(crate) hp_cur: u16,
+}
 
 /// method29 (0x1d) 发射事件收集（作者/他人路径共用）：clock ≥5s，按 shooter 过滤 + shotId 去重。
 /// **Shot 身份 = unique shotId = 一次开火**：同一 shotId 后续再次出现 method29 仍属于同一发
@@ -389,25 +496,37 @@ pub(crate) fn collect_launches(
     // 流序当前 prop2（全实体维护——keep 过滤只作用于发射事件本身）
     let mut ang2: std::collections::HashMap<u32, (f32, u16)> = Default::default();
     for (t2, clock, p) in packets {
-        if *clock < 5.0 || p.len() < 12 { continue; }
-        if *t2 == 7 && p.len() >= 14 && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 2 {
-            ang2.insert(u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
-                (*clock, u16::from_le_bytes([p[12], p[13]])));
+        if *clock < 5.0 || p.len() < 12 {
             continue;
         }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x1d { continue; }
+        if *t2 == 7 && p.len() >= 14 && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 2 {
+            ang2.insert(
+                u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
+                (*clock, u16::from_le_bytes([p[12], p[13]])),
+            );
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x1d {
+            continue;
+        }
         let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if args_len < 4 || 12 + args_len > p.len() { continue; }   // 连 shooter 都读不出：无法归属，跳过
+        if args_len < 4 || 12 + args_len > p.len() {
+            continue;
+        } // 连 shooter 都读不出：无法归属，跳过
         let a = &p[12..12 + args_len];
         let shooter = u32::from_le_bytes([a[0], a[1], a[2], a[3]]);
-        if !keep(shooter) { continue; }
+        if !keep(shooter) {
+            continue;
+        }
         if args_len < 37 {
             short_args.entry(shooter).or_insert(args_len);
             continue;
         }
         let shot_id = u32::from_le_bytes([a[4], a[5], a[6], a[7]]);
-        if !seen_shots.insert(shot_id) { continue; }   // 同一 Shot 的后续 method29；Shot 级 primary launch 保留首条
-        let f = |o: usize| f32::from_le_bytes([a[o], a[o+1], a[o+2], a[o+3]]);
+        if !seen_shots.insert(shot_id) {
+            continue;
+        } // 同一 Shot 的后续 method29；Shot 级 primary launch 保留首条
+        let f = |o: usize| f32::from_le_bytes([a[o], a[o + 1], a[o + 2], a[o + 3]]);
         out.push(LaunchEntry {
             t: *clock,
             shooter,
@@ -425,10 +544,16 @@ pub(crate) fn collect_launches(
 pub(crate) fn collect_endpoints(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, (f32, [f32; 3])> {
     let mut endpoints: HashMap<u32, (f32, [f32; 3])> = HashMap::new();
     for (_, clock, p) in packets {
-        if p.len() < 28 { continue; }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x14 { continue; }
+        if p.len() < 28 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x14 {
+            continue;
+        }
         let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if args_len < 16 || 12 + args_len > p.len() { continue; }
+        if args_len < 16 || 12 + args_len > p.len() {
+            continue;
+        }
         let shot_id = u32::from_le_bytes([p[12], p[13], p[14], p[15]]);
         let a = &p[16..];
         endpoints.entry(shot_id).or_insert((
@@ -453,25 +578,37 @@ pub(crate) fn collect_direct_hits8(packets: &[(u32, f32, &[u8])]) -> Vec<DirectH
     let mut direct_hits8: Vec<DirectHit8> = Vec::new();
     for (t2, clock, p) in packets {
         if *t2 == 10 && p.len() >= 48 {
-            let f = |o: usize| f32::from_le_bytes([p[o], p[o+1], p[o+2], p[o+3]]);
-            pose.insert(u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
-                ([f(12), f(16), f(20)], [f(36), f(40), f(44)], *clock));
+            let f = |o: usize| f32::from_le_bytes([p[o], p[o + 1], p[o + 2], p[o + 3]]);
+            pose.insert(
+                u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
+                ([f(12), f(16), f(20)], [f(36), f(40), f(44)], *clock),
+            );
             continue;
         }
         if *t2 == 7 && p.len() >= 14 && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 2 {
-            ang2.insert(u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
-                (*clock, u16::from_le_bytes([p[12], p[13]])));
+            ang2.insert(
+                u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
+                (*clock, u16::from_le_bytes([p[12], p[13]])),
+            );
             continue;
         }
-        if p.len() < 12 + 10 { continue; }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x08 { continue; }
+        if p.len() < 12 + 10 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x08 {
+            continue;
+        }
         let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if args_len < 10 || 12 + args_len > p.len() { continue; }
+        if args_len < 10 || 12 + args_len > p.len() {
+            continue;
+        }
         let a = &p[12..12 + args_len];
-        if a[8] != 0x01 { continue; }
+        if a[8] != 0x01 {
+            continue;
+        }
         let victim = u32::from_le_bytes([a[4], a[5], a[6], a[7]]);
         // args = [shooter u32][victim u32][count u8][element 8B = result|cmpIndex|hash6 u48][tail 4B]
-        // a[10] = 服务器下发的受击部件索引 cmpIndex（showDamageFromShot/DecodeShotSegment，报告 §4.7）
+        // a[10] = 服务器下发的受击部件索引 cmpIndex（showDamageFromShot/DecodeShotSegment）
         let component_index = if args_len >= 11 { Some(a[10]) } else { None };
         direct_hits8.push(DirectHit8 {
             t: *clock,
@@ -512,10 +649,16 @@ pub struct HitNotice {
 pub fn collect_hit_notices(packets: &[(u32, f32, &[u8])]) -> Vec<HitNotice> {
     let mut out: Vec<HitNotice> = Vec::new();
     for (ptype, clock, p) in packets {
-        if *ptype != 8 || p.len() < 12 { continue; }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x08 { continue; }
+        if *ptype != 8 || p.len() < 12 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x08 {
+            continue;
+        }
         let a = &p[12..];
-        let u32_at = |o: usize| (a.len() >= o + 4).then(|| u32::from_le_bytes([a[o], a[o + 1], a[o + 2], a[o + 3]]));
+        let u32_at = |o: usize| {
+            (a.len() >= o + 4).then(|| u32::from_le_bytes([a[o], a[o + 1], a[o + 2], a[o + 3]]))
+        };
         out.push(HitNotice {
             clock: *clock,
             eid: u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
@@ -553,8 +696,8 @@ pub struct ConsumableTransition {
     pub wire_code: u8,
     /// body[3] 状态（1/2/3/255；其他值原样透传）
     pub state: u8,
-    /// body[4..12) 原始 f64（文档标注为内嵌 clock；实测与包时钟**不同源**——注册态恒 0、
-    /// 有事件时可达 10s 偏差，其精确语义未闭合 → 原样保留、不作时间轴依据，时间轴一律用 `clock`）
+    /// body[4..12) 原始 f64（与包时钟**不同源**——注册态恒 0、有事件时可达 10s 偏差，
+    /// 精确语义未闭合 → 原样保留、不作时间轴依据，时间轴一律用 `clock`）
     pub body_clock: f64,
     /// body[12..16)：state=2 为有效持续时长、state=3 为有效冷却（其余无定义）
     pub param: f32,
@@ -563,10 +706,16 @@ pub struct ConsumableTransition {
 pub fn collect_consumable_transitions(packets: &[(u32, f32, &[u8])]) -> Vec<ConsumableTransition> {
     let mut out = Vec::new();
     for (t, clock, p) in packets {
-        if *t != 32 || p.len() < 25 { continue; }
-        if p[4] != 0x00 { continue; }                       // flag=0 族（flag=1 为炮弹警告，另一解析器）
+        if *t != 32 || p.len() < 25 {
+            continue;
+        }
+        if p[4] != 0x00 {
+            continue;
+        } // flag=0 族（flag=1 为炮弹警告，另一解析器）
         let body_len = u32::from_le_bytes([p[5], p[6], p[7], p[8]]) as usize;
-        if body_len != 16 || 9 + body_len != p.len() { continue; }   // 该族恒 16B 体
+        if body_len != 16 || 9 + body_len != p.len() {
+            continue;
+        } // 该族恒 16B 体
         let body = &p[9..];
         out.push(ConsumableTransition {
             clock: *clock,
@@ -577,18 +726,28 @@ pub fn collect_consumable_transitions(packets: &[(u32, f32, &[u8])]) -> Vec<Cons
             param: f32::from_le_bytes(body[12..16].try_into().unwrap()),
         });
     }
-    out.sort_by(|a, b| a.clock.partial_cmp(&b.clock).unwrap_or(std::cmp::Ordering::Equal));
+    out.sort_by(|a, b| {
+        a.clock
+            .partial_cmp(&b.clock)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     out
 }
 
 pub(crate) fn collect_warnings32(packets: &[(u32, f32, &[u8])]) -> Vec<ArenaWarning32> {
     let mut warnings32: Vec<ArenaWarning32> = Vec::new();
     for (t, clock, p) in packets {
-        if *t != 32 || p.len() < 26 { continue; }
-        if p[4] != 0x01 { continue; }
+        if *t != 32 || p.len() < 26 {
+            continue;
+        }
+        if p[4] != 0x01 {
+            continue;
+        }
         // p[5..9] = bodyLength（WotbTools PROVEN：恒 == payloadLen−9，作帧完整性断言）
         let body_len = u32::from_le_bytes([p[5], p[6], p[7], p[8]]) as usize;
-        if body_len + 9 != p.len() { continue; }
+        if body_len + 9 != p.len() {
+            continue;
+        }
         // 尾段 6B = [shell u16][来向 yaw u16][抵达 pitch u16]（原始解码恢复）：
         // off = len≥27 ? 13 : 12（27B 在 hash6 前多一个 01 字节）；yaw@+2 pitch@+4
         let off = if p.len() >= 27 { 13 } else { 12 };
@@ -616,35 +775,43 @@ pub(crate) fn collect_warnings32(packets: &[(u32, f32, &[u8])]) -> Vec<ArenaWarn
 }
 
 /// Avatar method 0x1b 地形命中包（仅无坦克命中时广播）：shotId 配对，args(34) 布局见 TerrainImpactData。
-/// 全局广播含所有玩家脱靶弹（J39 实证 30 发他人命中）——作者/他人路径共用，args[4..8] 的
-/// shell_global_id 同时是弹种兜底链第三级的数据源。gid 掩码 & 0xFFFFFF（P1-B2 数据重裁）：
-/// byte3（bits24-31）为噪声——不掩码时 u32 值跳出 24 位弹种表键域（43% 查不中的元凶）；
-/// 但 bits16-23 承载局部 id 高位（IS-7 AP=0x8250a、T57=0x8532a 实测），旧 & 0xFFFF 掩码
-/// 把这类 id 截断成 0x250a 必然查不中。B2 样本（35 种去重 full=low24=low16）恰为局部
-/// id ≤0xFF 的车，掩盖了截断问题。
-/// 0x1b [21..33) = 末段速度方向向量（P1-B1 裁决）。
-pub(crate) fn collect_terrain_impacts(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, (u32, TerrainImpactData)> {
+/// 全局广播含所有玩家脱靶弹——作者/他人路径共用，args[4..8] 的
+/// shell_global_id 同时是弹种兜底链第三级的数据源。gid 掩码 & 0xFFFFFF：
+/// byte3（bits24-31）为噪声——不掩码时 u32 值跳出 24 位弹种表键域；
+/// 但 bits16-23 承载局部 id 高位（如 IS-7 AP=0x8250a），掩码窄于 24 位会把这类 id 截断成查不中。
+/// 0x1b [21..33) = 末段速度方向向量。
+pub(crate) fn collect_terrain_impacts(
+    packets: &[(u32, f32, &[u8])],
+) -> HashMap<u32, (u32, TerrainImpactData)> {
     let mut terrain_impacts: HashMap<u32, (u32, TerrainImpactData)> = HashMap::new();
     for (_, _, p) in packets {
-        if p.len() < 46 { continue; }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x1b { continue; }
+        if p.len() < 46 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x1b {
+            continue;
+        }
         let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if args_len < 34 || 12 + args_len > p.len() { continue; }
+        if args_len < 34 || 12 + args_len > p.len() {
+            continue;
+        }
         let a = &p[12..12 + args_len];
         let f = |o: usize| f32::from_le_bytes([a[o], a[o + 1], a[o + 2], a[o + 3]]);
-        terrain_impacts.entry(u32::from_le_bytes([a[0], a[1], a[2], a[3]])).or_insert((
-            u32::from_le_bytes([a[4], a[5], a[6], a[7]]) & 0xFFFFFF,
-            TerrainImpactData {
-                material: a[8],
-                impact_point: [f(9), f(13), f(17)],
-                terminal_dir: [f(21), f(25), f(29)],
-            },
-        ));
+        terrain_impacts
+            .entry(u32::from_le_bytes([a[0], a[1], a[2], a[3]]))
+            .or_insert((
+                u32::from_le_bytes([a[4], a[5], a[6], a[7]]) & 0xFFFFFF,
+                TerrainImpactData {
+                    material: a[8],
+                    impact_point: [f(9), f(13), f(17)],
+                    terminal_dir: [f(21), f(25), f(29)],
+                },
+            ));
     }
     terrain_impacts
 }
 
-/// type=32 警告包抵达成角解码与校验（原始实现恢复，ea2f8c6；逆向文档 §4.1 复核）：
+/// type=32 警告包抵达成角解码与校验：
 /// 候选 = 受击者 eid 的警告、命中 ±3s 窗口（来袭警告覆盖未命中弹，含路过炮弹）；
 /// 选取 = 解码来向方位角与位置推算方位角（受击者→射手）偏差最小者；偏差 >15° 弃用；
 /// |pitch|>30°（非直射抵达角）弃用。通过 = 该警告确属命中本车的炮弹，
@@ -658,19 +825,26 @@ pub(crate) fn decoded_target_gun_pitch(
     let bearing = bearing?;
     let mut best: Option<(f32, f32, f32)> = None; // (yaw 偏差, pitch, yaw)
     for w in warnings32 {
-        if w.eid != victim { continue; }
-        if w.t > end_time + 0.1 || w.t <= end_time - 3.0 { continue; }
-        let err = ((w.inc_yaw - bearing + std::f32::consts::PI)
-            .rem_euclid(std::f32::consts::TAU)
+        if w.eid != victim {
+            continue;
+        }
+        if w.t > end_time + 0.1 || w.t <= end_time - 3.0 {
+            continue;
+        }
+        let err = ((w.inc_yaw - bearing + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
             - std::f32::consts::PI)
             .abs();
-        if err > 0.262 { continue; }   // 15°
+        if err > 0.262 {
+            continue;
+        } // 15°
         if best.as_ref().map(|(be, _, _)| err < *be).unwrap_or(true) {
             best = Some((err, w.inc_pitch, w.inc_yaw));
         }
     }
     let (_, pitch, yaw) = best?;
-    if pitch.to_degrees().abs() > 30.0 { return None; }
+    if pitch.to_degrees().abs() > 30.0 {
+        return None;
+    }
     Some((pitch, yaw))
 }
 
@@ -685,8 +859,11 @@ pub(crate) fn derive_dmg_losses(
     initial_hp: &HashMap<u32, (f32, u16)>,
 ) -> Vec<DmgLoss> {
     let mut dmg_losses: Vec<DmgLoss> = Vec::new();
-    let mut by_victim: std::collections::HashMap<u32, Vec<&HpEvent>> = std::collections::HashMap::new();
-    for e in hp_events { by_victim.entry(e.victim).or_default().push(e); }
+    let mut by_victim: std::collections::HashMap<u32, Vec<&HpEvent>> =
+        std::collections::HashMap::new();
+    for e in hp_events {
+        by_victim.entry(e.victim).or_default().push(e);
+    }
     for (victim, evs) in &by_victim {
         let mut samples: Vec<(f32, u16, u32, u8)> = Vec::new();
         if let Some(&(ts, hp)) = initial_hp.get(victim) {
@@ -696,20 +873,33 @@ pub(crate) fn derive_dmg_losses(
         }
         let mut i = 0usize;
         while i < evs.len() {
-            let t = evs[i].clock; let hp = evs[i].hp;
-            let mut conflict = false; let mut j = i + 1;
+            let t = evs[i].clock;
+            let hp = evs[i].hp;
+            let mut conflict = false;
+            let mut j = i + 1;
             while j < evs.len() && (evs[j].clock - t).abs() <= 1e-6 {
-                if evs[j].hp != hp { conflict = true; }
+                if evs[j].hp != hp {
+                    conflict = true;
+                }
                 j += 1;
             }
-            if !conflict { samples.push((t, hp_terminal_normalized(hp), evs[i].source, evs[i].cause)); }
+            if !conflict {
+                samples.push((t, hp_terminal_normalized(hp), evs[i].source, evs[i].cause));
+            }
             i = j;
         }
         for w in 1..samples.len() {
             let (t_prev, hpp, _, _) = samples[w - 1];
             let (t_cur, hpc, srcc, causec) = samples[w];
             if hpc < hpp && causec == 0 && author_filter.is_none_or(|a| srcc == a) {
-                dmg_losses.push(DmgLoss { victim: *victim, source: srcc, t_prev, t_cur, dmg: (hpp - hpc) as u32, hp_cur: hpc });
+                dmg_losses.push(DmgLoss {
+                    victim: *victim,
+                    source: srcc,
+                    t_prev,
+                    t_cur,
+                    dmg: (hpp - hpc) as u32,
+                    hp_cur: hpc,
+                });
             }
         }
     }
@@ -717,25 +907,35 @@ pub(crate) fn derive_dmg_losses(
     dmg_losses
 }
 
-/// 血量降幅 → 发射的互斥归属（修复 1436 类错配）：每段降幅只归属一次，给区间
+/// 血量降幅 → 发射的互斥归属：每段降幅只归属一次，给区间
 /// (t_prev, t_cur] 内 (victim, shooter) 匹配且 end_time 最大的发射。血量事件与命中
-/// 同 tick（1436 实证 prop3/method1 时刻 == 命中时刻），降幅属于区间内最后一发命中；
+/// 同 tick（prop3/method1 时刻 == 命中时刻），降幅属于区间内最后一发命中；
 /// 更早命中的伤害会形成独立血量事件不共区间。未穿弹与降幅同区间时不抢归属
-/// （end_time 更小即让位：1436 中 44.865/53.972 未穿与 97.962 击穿共区间，正确归属后者）。
+/// （end_time 更小即让位）。
 /// 返回 发射序号 → (dmg, hp_cur)；无人认领的降幅丢弃（source 不符等）。
 pub(crate) fn assign_dmg_losses(
-    shots: &[Option<(f32, u32, u32)>],   // (end_time, shooter, victim)；None = 无终点/脱靶
+    shots: &[Option<(f32, u32, u32)>], // (end_time, shooter, victim)；None = 无终点/脱靶
     losses: &[DmgLoss],
 ) -> HashMap<usize, (u32, u16)> {
     let mut out: HashMap<usize, (u32, u16)> = HashMap::new();
     for lo in losses {
-        let mut best: Option<(f32, usize)> = None;   // (end_time, 发射序号)
+        let mut best: Option<(f32, usize)> = None; // (end_time, 发射序号)
         for (si, s) in shots.iter().enumerate() {
-            let Some((end_time, shooter, victim)) = *s else { continue };
-            if victim != lo.victim || shooter != lo.source { continue; }
-            if !(lo.t_prev < end_time && end_time <= lo.t_cur + 1e-6) { continue; }
-            if out.contains_key(&si) { continue; }
-            if best.is_none_or(|(t, _)| end_time > t) { best = Some((end_time, si)); }
+            let Some((end_time, shooter, victim)) = *s else {
+                continue;
+            };
+            if victim != lo.victim || shooter != lo.source {
+                continue;
+            }
+            if !(lo.t_prev < end_time && end_time <= lo.t_cur + 1e-6) {
+                continue;
+            }
+            if out.contains_key(&si) {
+                continue;
+            }
+            if best.is_none_or(|(t, _)| end_time > t) {
+                best = Some((end_time, si));
+            }
         }
         if let Some((_, si)) = best {
             out.insert(si, (lo.dmg, lo.hp_cur));
@@ -746,7 +946,8 @@ pub(crate) fn assign_dmg_losses(
 
 /// type=35 tick 时间线收集（作者/他人路径共用）。
 pub(crate) fn collect_tick_timeline(packets: &[(u32, f32, &[u8])]) -> Vec<(f32, u8)> {
-    packets.iter()
+    packets
+        .iter()
         .filter(|(t, _, p)| *t == 35 && !p.is_empty())
         .map(|(_, clock, p)| (*clock, p[0]))
         .collect()
@@ -765,11 +966,15 @@ pub(crate) fn tick_at(tick_timeline: &[(f32, u8)], t: f32) -> f32 {
     let i = j.max(1);
     let (t0, v0) = tick_timeline[i - 1];
     let (t1, v1) = tick_timeline[i];
-    if t1 <= t0 { return v0 as f32; }
+    if t1 <= t0 {
+        return v0 as f32;
+    }
     let dv = ((v1 as i32 - v0 as i32) & 0xFF) as f32;
     let dv = if dv > 128.0 { dv - 256.0 } else { dv };
     let dt = t1 - t0;
-    if dt <= 0.0 { return v0 as f32; }
+    if dt <= 0.0 {
+        return v0 as f32;
+    }
     v0 as f32 + dv * (t - t0) / dt
 }
 
@@ -786,7 +991,7 @@ mod consumable_tests {
         body[12..16].copy_from_slice(&param.to_le_bytes());
         let mut p = vec![0u8; 9];
         p[0..4].copy_from_slice(&eid.to_le_bytes());
-        p[4] = 0x00;                                  // flag=0（消耗品族）
+        p[4] = 0x00; // flag=0（消耗品族）
         p[5..9].copy_from_slice(&16u32.to_le_bytes());
         p.extend_from_slice(&body);
         p
@@ -794,12 +999,15 @@ mod consumable_tests {
 
     #[test]
     fn parses_flag0_consumable_family() {
-        let f1 = mk32(0x21, 0x08, 2, 42.5, 6.0);   // 激活（持续 6s）
-        let f2 = mk32(0x21, 0x08, 3, 48.5, 90.0);  // 冷却
+        let f1 = mk32(0x21, 0x08, 2, 42.5, 6.0); // 激活（持续 6s）
+        let f2 = mk32(0x21, 0x08, 3, 48.5, 90.0); // 冷却
         let packets: Vec<(u32, f32, &[u8])> = vec![(32, 48.5, &f2), (32, 42.5, &f1)];
         let t = collect_consumable_transitions(&packets);
         assert_eq!(t.len(), 2);
-        assert_eq!((t[0].clock, t[0].eid, t[0].wire_code, t[0].state), (42.5, 0x21, 0x08, 2));
+        assert_eq!(
+            (t[0].clock, t[0].eid, t[0].wire_code, t[0].state),
+            (42.5, 0x21, 0x08, 2)
+        );
         assert!((t[0].body_clock - 42.5).abs() < 1e-9);
         assert!((t[0].param - 6.0).abs() < 1e-6);
         assert_eq!((t[1].clock, t[1].state), (48.5, 3), "按包时钟升序");
@@ -810,9 +1018,9 @@ mod consumable_tests {
         // flag=1（炮弹警告族，26B）不得进消耗品集合；bodyLen 非 16 亦拒
         let mut warn = vec![0u8; 26];
         warn[4] = 0x01;
-        warn[5..9].copy_from_slice(&17u32.to_le_bytes());   // 26-9=17 ≠ 16
+        warn[5..9].copy_from_slice(&17u32.to_le_bytes()); // 26-9=17 ≠ 16
         let mut wrong_len = mk32(0x22, 0x08, 2, 1.0, 1.0);
-        wrong_len[5..9].copy_from_slice(&15u32.to_le_bytes());  // 声明 15 与实际 16 不符
+        wrong_len[5..9].copy_from_slice(&15u32.to_le_bytes()); // 声明 15 与实际 16 不符
         let packets: Vec<(u32, f32, &[u8])> = vec![(32, 1.0, &warn), (32, 2.0, &wrong_len)];
         assert!(collect_consumable_transitions(&packets).is_empty());
     }
@@ -830,11 +1038,11 @@ mod loadout_tests {
         p.extend_from_slice(&[0x0A, 0x06]);
         for i in 0..6u8 {
             let mut it = [0u8; 14];
-            it[0] = 0x80 + i;          // 可辨识的每槽字节
+            it[0] = 0x80 + i; // 可辨识的每槽字节
             p.extend_from_slice(&it);
         }
         p.extend_from_slice(&[0x0B, 0x09]);
-        p.extend_from_slice(&[100, 101, 102, 103, 104, 105, 106, 107, 108]);  // 装备串（ASCII 数值 ID 域）
+        p.extend_from_slice(&[100, 101, 102, 103, 104, 105, 106, 107, 108]); // 装备串（ASCII 数值 ID 域）
         p
     }
 
@@ -849,7 +1057,13 @@ mod loadout_tests {
         assert_eq!(v.items[0][0], 0x80, "描述符原样保留（不解析内部）");
         assert_eq!(v.items[5][0], 0x85);
         // 兼容入口取同一 9B 串
-        assert_eq!(collect_vehicle_equipment(&packets).get(&0x31).copied().unwrap(), v.equipment);
+        assert_eq!(
+            collect_vehicle_equipment(&packets)
+                .get(&0x31)
+                .copied()
+                .unwrap(),
+            v.equipment
+        );
     }
 }
 
@@ -872,18 +1086,25 @@ mod module_crew_tests {
 
     #[test]
     fn maps_module_and_crew_state_families() {
-        let engine_dmg = mk16(0xAA, 0x21, 4, 31, 0);       // 模块：引擎受损
-        let gun_clear = mk16(0xAA, 0x21, 19, 36, 0);       // 模块：主炮完全修复
-        let crew_shock = mk16(0xAA, 0x22, 10, 41, 0x21);   // 乘员：炮手震伤（related=攻击者）
-        let crew_heal = mk16(0xAA, 0x22, 22, 43, 0);       // 乘员：装填手治愈
-        let unknown_mod = mk16(0xAA, 0x23, 4, 42, 0);      // 42 未定义 → UNKNOWN 组件
+        let engine_dmg = mk16(0xAA, 0x21, 4, 31, 0); // 模块：引擎受损
+        let gun_clear = mk16(0xAA, 0x21, 19, 36, 0); // 模块：主炮完全修复
+        let crew_shock = mk16(0xAA, 0x22, 10, 41, 0x21); // 乘员：炮手震伤（related=攻击者）
+        let crew_heal = mk16(0xAA, 0x22, 22, 43, 0); // 乘员：装填手治愈
+        let unknown_mod = mk16(0xAA, 0x23, 4, 42, 0); // 42 未定义 → UNKNOWN 组件
         let packets: Vec<(u32, f32, &[u8])> = vec![
-            (8, 20.0, &gun_clear), (8, 10.0, &engine_dmg),
-            (8, 30.0, &crew_shock), (8, 40.0, &crew_heal), (8, 50.0, &unknown_mod),
+            (8, 20.0, &gun_clear),
+            (8, 10.0, &engine_dmg),
+            (8, 30.0, &crew_shock),
+            (8, 40.0, &crew_heal),
+            (8, 50.0, &unknown_mod),
         ];
         let ev = collect_module_crew_states(&packets);
         assert_eq!(ev.len(), 5);
-        assert_eq!((ev[0].clock, ev[0].vehicle_eid), (10.0, 0x21), "按 clock 升序");
+        assert_eq!(
+            (ev[0].clock, ev[0].vehicle_eid),
+            (10.0, 0x21),
+            "按 clock 升序"
+        );
         assert_eq!(ev[0].component, ModuleComponent::Engine);
         assert_eq!(ev[0].state, ModuleState::DamagedDegraded);
         assert_eq!(ev[1].component, ModuleComponent::Gun);
@@ -902,12 +1123,15 @@ mod module_crew_tests {
     #[test]
     fn rejects_non_method16_and_wrong_shape() {
         let mut other = mk16(0xAA, 0x21, 4, 31, 0);
-        other[4..8].copy_from_slice(&35u32.to_le_bytes());          // method=35 → 非 method16
+        other[4..8].copy_from_slice(&35u32.to_le_bytes()); // method=35 → 非 method16
         let mut bad_len = mk16(0xAA, 0x21, 4, 31, 0);
-        bad_len[8..12].copy_from_slice(&9u32.to_le_bytes());         // argLen != 10
-        let short = vec![0u8; 21];                                   // 非 22B
+        bad_len[8..12].copy_from_slice(&9u32.to_le_bytes()); // argLen != 10
+        let short = vec![0u8; 21]; // 非 22B
         let packets: Vec<(u32, f32, &[u8])> = vec![
-            (8, 1.0, &other), (8, 2.0, &bad_len), (8, 3.0, &short), (7, 4.0, &short),
+            (8, 1.0, &other),
+            (8, 2.0, &bad_len),
+            (8, 3.0, &short),
+            (7, 4.0, &short),
         ];
         assert!(collect_module_crew_states(&packets).is_empty());
     }
@@ -935,20 +1159,31 @@ mod launch_identity_tests {
 
     #[test]
     fn repeated_method29_with_same_shot_id_is_one_shoot_and_keeps_primary_launch() {
-        let first = method29(7, 45509301, [99.82513, 25.24507, 20.54626], [-616.206, -2.696, -287.546]);
-        let continuation = method29(7, 45509301, [-51.16804, 24.38959, -49.91319], [-668.906, -87.832, 85.235]);
-        let packets: Vec<(u32, f32, &[u8])> = vec![
-            (8, 110.26195, &first),
-            (8, 110.35225, &continuation),
-        ];
+        let first = method29(
+            7,
+            45509301,
+            [99.82513, 25.24507, 20.54626],
+            [-616.206, -2.696, -287.546],
+        );
+        let continuation = method29(
+            7,
+            45509301,
+            [-51.16804, 24.38959, -49.91319],
+            [-668.906, -87.832, 85.235],
+        );
+        let packets: Vec<(u32, f32, &[u8])> =
+            vec![(8, 110.26195, &first), (8, 110.35225, &continuation)];
 
         let (launches, short) = collect_launches(&packets, |_| true);
         assert!(short.is_empty());
-        assert_eq!(launches.len(), 1, "同一 shotId 的后续 method29 不得增加射击数");
+        assert_eq!(
+            launches.len(),
+            1,
+            "同一 shotId 的后续 method29 不得增加射击数"
+        );
         assert_eq!(launches[0].shot_id, 45509301);
         assert!((launches[0].t - 110.26195).abs() < 1e-5);
         assert_eq!(launches[0].point, [99.82513, 25.24507, 20.54626]);
         assert_eq!(launches[0].vel, [-616.206, -2.696, -287.546]);
     }
 }
-

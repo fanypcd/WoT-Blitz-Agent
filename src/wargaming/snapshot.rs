@@ -1,7 +1,7 @@
 use anyhow::Result;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use chrono::Utc;
 
 use crate::wargaming::api_client::PlayerStats;
 
@@ -68,7 +68,9 @@ pub struct SnapshotStore {
 
 impl SnapshotStore {
     pub fn new(dir: &Path) -> Self {
-        Self { dir: dir.to_path_buf() }
+        Self {
+            dir: dir.to_path_buf(),
+        }
     }
 
     pub fn save(&self, snapshot: &Snapshot) -> Result<std::path::PathBuf> {
@@ -91,7 +93,12 @@ impl SnapshotStore {
             if path.extension().and_then(|e| e.to_str()) != Some("json") {
                 continue;
             }
-            if !path.file_name().and_then(|n| n.to_str()).map(|n| n.starts_with("snapshot_")).unwrap_or(false) {
+            if !path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.starts_with("snapshot_"))
+                .unwrap_or(false)
+            {
                 continue;
             }
             if let Ok(content) = std::fs::read_to_string(&path) {
@@ -133,10 +140,14 @@ impl SnapshotStore {
 
         let hit_rate_from = if from_p.rating_shots > 0 {
             from_p.rating_hits as f64 / from_p.rating_shots as f64 * 100.0
-        } else { 0.0 };
+        } else {
+            0.0
+        };
         let hit_rate_to = if to_p.rating_shots > 0 {
             to_p.rating_hits as f64 / to_p.rating_shots as f64 * 100.0
-        } else { 0.0 };
+        } else {
+            0.0
+        };
 
         let rating_delta = match (to_p.rating_mm_rating, from_p.rating_mm_rating) {
             (Some(t), Some(f)) => Some(t - f),
@@ -179,8 +190,10 @@ impl SnapshotStore {
         }
         println!();
         println!("  Snapshots ({} total):", snapshots.len());
-        println!("  {:<22} {:>8} {:>8} {:>8} {:>8} {:>10} {:>8}",
-            "Time", "Bat", "Win%", "Dmg%", "Frag%", "Rating", "mmRat");
+        println!(
+            "  {:<22} {:>8} {:>8} {:>8} {:>8} {:>10} {:>8}",
+            "Time", "Bat", "Win%", "Dmg%", "Frag%", "Rating", "mmRat"
+        );
         println!("  {}", "-".repeat(80));
         for s in snapshots {
             let p = &s.player;
@@ -188,10 +201,16 @@ impl SnapshotStore {
             let wr = p.rating_wins as f64 / n * 100.0;
             let avg_dmg = p.rating_damage_dealt as f64 / n;
             let avg_frags = p.rating_frags as f64 / n;
-            println!("  {:<22} {:>8} {:>7.1}% {:>7.0} {:>7.2} {:>10} {:>8.2}",
-                s.datetime, p.rating_battles, wr, avg_dmg, avg_frags,
+            println!(
+                "  {:<22} {:>8} {:>7.1}% {:>7.0} {:>7.2} {:>10} {:>8.2}",
+                s.datetime,
+                p.rating_battles,
+                wr,
+                avg_dmg,
+                avg_frags,
                 p.rating_display_rating.unwrap_or(0),
-                p.rating_mm_rating.unwrap_or(0.0));
+                p.rating_mm_rating.unwrap_or(0.0)
+            );
         }
     }
 
@@ -202,9 +221,15 @@ impl SnapshotStore {
         println!("========================================================");
         println!();
         println!("  Battles played:    {}", diff.battles_played);
-        println!("  Wins/Losses:        {}/{}", diff.wins_diff, diff.losses_diff);
+        println!(
+            "  Wins/Losses:        {}/{}",
+            diff.wins_diff, diff.losses_diff
+        );
         println!();
-        println!("  {:<20} {:>12} {:>12} {:>10}", "Metric", "From", "To", "Change");
+        println!(
+            "  {:<20} {:>12} {:>12} {:>10}",
+            "Metric", "From", "To", "Change"
+        );
         println!("  {}", "-".repeat(58));
 
         let wr_change = diff.win_rate_to - diff.win_rate_from;
@@ -212,21 +237,43 @@ impl SnapshotStore {
         let avg_frags_change = diff.avg_frags_to - diff.avg_frags_from;
         let hit_rate_change = diff.hit_rate_to - diff.hit_rate_from;
 
-        println!("  {:<20} {:>12.1}% {:>12.1}% {:>+9.1}%", "Win rate", diff.win_rate_from, diff.win_rate_to, wr_change);
-        println!("  {:<20} {:>12.0} {:>12.0} {:>+9.0}", "Avg damage", diff.avg_damage_from, diff.avg_damage_to, avg_dmg_change);
-        println!("  {:<20} {:>12.2} {:>12.2} {:>+9.2}", "Avg frags", diff.avg_frags_from, diff.avg_frags_to, avg_frags_change);
-        println!("  {:<20} {:>12.1}% {:>12.1}% {:>+9.1}%", "Hit rate", diff.hit_rate_from, diff.hit_rate_to, hit_rate_change);
-        println!("  {:<20} {:>12} {:>12} {:>+9}", "Total damage", diff.from_damage, diff.to_damage, diff.damage_diff);
+        println!(
+            "  {:<20} {:>12.1}% {:>12.1}% {:>+9.1}%",
+            "Win rate", diff.win_rate_from, diff.win_rate_to, wr_change
+        );
+        println!(
+            "  {:<20} {:>12.0} {:>12.0} {:>+9.0}",
+            "Avg damage", diff.avg_damage_from, diff.avg_damage_to, avg_dmg_change
+        );
+        println!(
+            "  {:<20} {:>12.2} {:>12.2} {:>+9.2}",
+            "Avg frags", diff.avg_frags_from, diff.avg_frags_to, avg_frags_change
+        );
+        println!(
+            "  {:<20} {:>12.1}% {:>12.1}% {:>+9.1}%",
+            "Hit rate", diff.hit_rate_from, diff.hit_rate_to, hit_rate_change
+        );
+        println!(
+            "  {:<20} {:>12} {:>12} {:>+9}",
+            "Total damage", diff.from_damage, diff.to_damage, diff.damage_diff
+        );
 
         if let Some(delta) = diff.rating_delta {
             println!();
-            println!("  mm_rating:         {:.2} -> {:.2} ({:+.2})", 
+            println!(
+                "  mm_rating:         {:.2} -> {:.2} ({:+.2})",
                 diff.mm_rating_from.unwrap_or(0.0),
                 diff.mm_rating_to.unwrap_or(0.0),
-                delta);
+                delta
+            );
             let dr_from = 3000.0 + diff.mm_rating_from.unwrap_or(0.0) * 10.0;
             let dr_to = 3000.0 + diff.mm_rating_to.unwrap_or(0.0) * 10.0;
-            println!("  Display rating:    {:.0} -> {:.0} ({:+.0})", dr_from, dr_to, dr_to - dr_from);
+            println!(
+                "  Display rating:    {:.0} -> {:.0} ({:+.0})",
+                dr_from,
+                dr_to,
+                dr_to - dr_from
+            );
         }
 
         println!();

@@ -1,12 +1,12 @@
 // 回放批量扫描：遍历目录下所有 `.wotbreplay`，逐个解析并按条件过滤，
 // 返回一场场的 BattleSummary 列表（由上层聚合成报告）。
 
-use std::path::Path;
 use anyhow::Result;
+use std::path::Path;
 
-use crate::models::battle::BattleSummary;
 use super::TankNames;
-use crate::replay::parser::{ReplayParser, list_replays_in_dir};
+use crate::models::battle::BattleSummary;
+use crate::replay::parser::{list_replays_in_dir, ReplayParser};
 
 /// 批量扫描器：内部持有 ReplayParser，按目录逐个解析回放。
 pub struct ReplayScanner<'a> {
@@ -23,7 +23,6 @@ pub struct ScanFilter {
     /// 只保留指定对局模式的战斗（如 Rating / Regular）
     pub room_type: Option<String>,
 }
-
 
 impl ScanFilter {
     pub fn last_n_days(days: i64) -> Self {
@@ -50,7 +49,11 @@ impl ScanFilter {
                 until: None,
                 room_type: Some(r.to_string()),
             },
-            (Some(r), None) => Self { since: None, until: None, room_type: Some(r.to_string()) },
+            (Some(r), None) => Self {
+                since: None,
+                until: None,
+                room_type: Some(r.to_string()),
+            },
             (None, Some(d)) => Self::last_n_days(d),
             (None, None) => Self::default(),
         }
@@ -90,11 +93,15 @@ pub struct ScanProgress {
 
 impl<'a> ReplayScanner<'a> {
     pub fn new() -> Self {
-        Self { parser: ReplayParser::new() }
+        Self {
+            parser: ReplayParser::new(),
+        }
     }
 
     pub fn with_resolver<R: TankNames>(resolver: &'a R) -> Self {
-        Self { parser: ReplayParser::with_resolver(resolver) }
+        Self {
+            parser: ReplayParser::with_resolver(resolver),
+        }
     }
 
     /// 扫描目录，逐个解析回放并按 `filter` 过滤，返回命中场次（按时间排序）。
@@ -200,4 +207,3 @@ impl<'a> Default for ReplayScanner<'a> {
         Self::new()
     }
 }
-

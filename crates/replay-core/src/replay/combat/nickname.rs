@@ -2,12 +2,10 @@
 //!
 //! type=5 车辆全量状态包在载荷偏移 57 携带 1 字节长度前缀的玩家昵称
 //! （`[len u8][bytes]`）。昵称域是**原始 UTF-8**（结算侧 battle_results 与
-//! ARENA_INFO 组成 blob 昵称同域可证），此前三处内联解析（事件名字表 / 作者
-//! eid 匹配 / 开局配置联表）各自为政且两处带 `is_ascii_graphic()` 过滤，
-//! 非 ASCII（中文等）昵称被整体丢弃 → 实体档案 nickname=None → 身份联表
-//! （account_id/team/tank_id）全断。本模块收口后全库只有这一套解码语义：
+//! ARENA_INFO 组成 blob 昵称同域可证）——非 ASCII（中文等）昵称合法，
+//! 字符过滤会断开身份联表（account_id/team/tank_id）。本模块为全库唯一解码语义（SSOT）：
 //!
-//! - 长度域 `1..=30`（此前 3..=30 与 1..=30 并存，短昵称被误杀）；
+//! - 长度域 `1..=30`；
 //! - 合法 UTF-8（拒绝 `from_utf8_lossy`—— replacement char 会把损坏伪装成
 //!   普通 mismatch）；
 //! - 拒绝控制字符（与组成 blob 昵称解析同规则）；**不限制 ASCII**。
@@ -60,7 +58,10 @@ mod tests {
         assert_eq!(nick_of(&mk_type5(7, b"Anonyme")), "Anonyme");
         // 中文（本 bug 的主角样本）
         assert_eq!(nick_of(&mk_type5(1, "兰亭公子苏".as_bytes())), "兰亭公子苏");
-        assert_eq!(nick_of(&mk_type5(2, "他们都叫我袁弟呀".as_bytes())), "他们都叫我袁弟呀");
+        assert_eq!(
+            nick_of(&mk_type5(2, "他们都叫我袁弟呀".as_bytes())),
+            "他们都叫我袁弟呀"
+        );
         // 合法西里尔
         assert_eq!(nick_of(&mk_type5(3, "Кирилл".as_bytes())), "Кирилл");
         // 空格合法（昵称域非 ascii_graphic 子集；控制字符才拒绝）

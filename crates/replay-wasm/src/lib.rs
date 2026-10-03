@@ -3,8 +3,7 @@
 //! 能力边界（契约 v2）：Agent Rust Core 只暴露**结果解释**与**时序解释**两个维度，
 //! 消费方（WotBTools）按需取用——只要结果时不得被迫物化全场时序（~10MB 级），
 //! 时序消费也不依赖结果通道。名人堂（HoF）是消费方产品域：由消费方从结果能力
-//! 自行投影，Agent 公开面不感知（此前 giant envelope `{playback,ai,hof}` 已拆除，
-//! breaking，不做双 API 兼容）。
+//! 自行投影，Agent 公开面不感知。
 //!
 //! JS 入口（wasm32，`js` 模块）：
 //! - `parseResult(bytes)`    → 结算 JSON（BattleSummary：花名册/胜负/地图/全员统计）；
@@ -32,12 +31,16 @@ use wotb_replay_core::replay::playback::{PlaybackPlayer, PlaybackRenderInput};
 
 /// 包流分帧（三能力共用）：只切出 (type, clock, payload)，不反序列化 payload——
 /// 单个包的 pickle 形状偏差（如 type 0 的 bool 字段为整数）不再让整场回放失败。
-fn decode_packets(bytes: &[u8]) -> anyhow::Result<Vec<wotb_replay_core::replay::packets::RawPacket>> {
+fn decode_packets(
+    bytes: &[u8],
+) -> anyhow::Result<Vec<wotb_replay_core::replay::packets::RawPacket>> {
     wotb_replay_core::replay::packets::read_raw_packets(bytes)
 }
 
 fn roster_of(summary: &wotb_replay_core::models::battle::BattleSummary) -> Vec<PlaybackPlayer> {
-    summary.players.iter()
+    summary
+        .players
+        .iter()
         .map(|p| PlaybackPlayer {
             account_id: p.account_id,
             nickname: p.nickname.clone(),
@@ -52,7 +55,11 @@ fn roster_of(summary: &wotb_replay_core::models::battle::BattleSummary) -> Vec<P
 fn parse_tank_names(json: Option<&str>) -> HashMap<u32, String> {
     json.filter(|s| !s.trim().is_empty())
         .and_then(|s| serde_json::from_str::<HashMap<String, String>>(s).ok())
-        .map(|m| m.into_iter().filter_map(|(k, v)| k.parse::<u32>().ok().map(|id| (id, v))).collect())
+        .map(|m| {
+            m.into_iter()
+                .filter_map(|(k, v)| k.parse::<u32>().ok().map(|id| (id, v)))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -62,7 +69,7 @@ fn parse_tank_names(json: Option<&str>) -> HashMap<u32, String> {
 ///
 /// `tank_names_json`：可选的车型名表（`{tank_id: name}`，`wotb-agent dump-tank-data`
 /// 或资产面 `tank/{id}.json` 可组装）。客户端路径无 tank_cache，缺省时 `tank_name`
-/// 为 `tank_{id}`（**不是空串**——文档与实现此前不一致，此处统一为实测行为）。
+/// 为 `tank_{id}`（**不是空串**）。
 pub fn result_json(bytes: &[u8], tank_names_json: Option<&str>) -> anyhow::Result<String> {
     let mut replay = wotbreplay_parser::replay::Replay::open(Cursor::new(bytes))?;
     let mut summary = ReplayParser::new().parse_replay(&mut replay, "client.wotbreplay")?;
@@ -93,7 +100,8 @@ pub fn playback_json(bytes: &[u8], tank_names_json: Option<&str>) -> anyhow::Res
     let mut replay = wotbreplay_parser::replay::Replay::open(Cursor::new(bytes))?;
     let summary = ReplayParser::new().parse_replay(&mut replay, "client.wotbreplay")?;
     let packets = decode_packets(bytes)?;
-    let packets: Vec<(u32, f32, &[u8])> = packets.iter()
+    let packets: Vec<(u32, f32, &[u8])> = packets
+        .iter()
         .map(|p| (p.packet_type, p.clock_secs, p.payload.as_slice()))
         .collect();
 
@@ -127,7 +135,8 @@ pub fn ai_review_json(bytes: &[u8]) -> anyhow::Result<String> {
     let mut replay = wotbreplay_parser::replay::Replay::open(Cursor::new(bytes))?;
     let summary = ReplayParser::new().parse_replay(&mut replay, "client.wotbreplay")?;
     let packets = decode_packets(bytes)?;
-    let packets: Vec<(u32, f32, &[u8])> = packets.iter()
+    let packets: Vec<(u32, f32, &[u8])> = packets
+        .iter()
         .map(|p| (p.packet_type, p.clock_secs, p.payload.as_slice()))
         .collect();
 
@@ -138,7 +147,9 @@ pub fn ai_review_json(bytes: &[u8]) -> anyhow::Result<String> {
         author_account_id: summary.author_account_id,
         pitch_limits: &limits,
     })?;
-    let facet = wotb_replay_core::facets::ai_review::AiReviewFacet::from_model_with_packets(&model, &summary, &packets);
+    let facet = wotb_replay_core::facets::ai_review::AiReviewFacet::from_model_with_packets(
+        &model, &summary, &packets,
+    );
     Ok(serde_json::to_string(&facet)?)
 }
 
@@ -165,19 +176,27 @@ pub fn ai_review_json(bytes: &[u8]) -> anyhow::Result<String> {
 /// 注入后每发输出补齐 `shell_kind`（与上游 annotate 同源）与 `shell`（完整弹
 /// 数据，徽标/判定直接消费）——消费方渲染侧不再需要自带弹种表或槽位兜底；
 /// 缺省时 shell_kind 保持空串、无 shell 字段（数据可得性边界，非错误）。
-pub fn shot_replays_json(bytes: &[u8], limits_json: Option<&str>, shells_json: Option<&str>) -> anyhow::Result<String> {
+pub fn shot_replays_json(
+    bytes: &[u8],
+    limits_json: Option<&str>,
+    shells_json: Option<&str>,
+) -> anyhow::Result<String> {
     let mut replay = wotbreplay_parser::replay::Replay::open(Cursor::new(bytes))?;
     let summary = ReplayParser::new().parse_replay(&mut replay, "client.wotbreplay")?;
     let packets = decode_packets(bytes)?;
-    let packets: Vec<(u32, f32, &[u8])> = packets.iter()
+    let packets: Vec<(u32, f32, &[u8])> = packets
+        .iter()
         .map(|p| (p.packet_type, p.clock_secs, p.payload.as_slice()))
         .collect();
 
-    let author_nick = summary.players.iter()
+    let author_nick = summary
+        .players
+        .iter()
         .find(|p| p.account_id == summary.author_account_id)
         .map(|p| p.nickname.clone())
         .unwrap_or_default();
-    let author_eid = wotb_replay_core::replay::combat::resolve_author_player_eid_by_nick(&packets, &author_nick);
+    let author_eid =
+        wotb_replay_core::replay::combat::resolve_author_player_eid_by_nick(&packets, &author_nick);
     let limits: GunPitchLimits = match limits_json {
         Some(s) if !s.is_empty() => serde_json::from_str(s).unwrap_or_default(),
         _ => GunPitchLimits::new(),
@@ -185,14 +204,18 @@ pub fn shot_replays_json(bytes: &[u8], limits_json: Option<&str>, shells_json: O
 
     // 作者严格路径 + 他人宽松路径合并。strict 失败不再静默降级为空——诊断上抛，
     // shots 仍含他人宽松路径全量（fail-visible，整场射击复现不因单路径失败不可用）
-    let (author_shots, author_error) = match wotb_replay_core::replay::combat::extract_shot_replays_auto_with_limits(
-        &packets, &author_nick, &limits,
-    ) {
-        Ok(s) => (s, None),
-        Err(e) => (Vec::new(), Some(format!("{e:#}"))),
-    };
+    let (author_shots, author_error) =
+        match wotb_replay_core::replay::combat::extract_shot_replays_auto_with_limits(
+            &packets,
+            &author_nick,
+            &limits,
+        ) {
+            Ok(s) => (s, None),
+            Err(e) => (Vec::new(), Some(format!("{e:#}"))),
+        };
     let others = wotb_replay_core::replay::combat::extract_other_shot_replays_with_limits(
-        &packets, author_eid, &limits);
+        &packets, author_eid, &limits,
+    );
     let mut shots = author_shots;
     shots.extend(others.shots);
     shots.sort_by(|a, b| a.fire_time.partial_cmp(&b.fire_time).unwrap());
@@ -200,15 +223,24 @@ pub fn shot_replays_json(bytes: &[u8], limits_json: Option<&str>, shells_json: O
     // 弹种反解注入（服务端 annotate + shell 字段注入的客户端等价）：表缺失时
     // 原样输出（消费方按缺数据处理）
     let mut shots_val = serde_json::to_value(&shots)?;
-    if let Some(table) = shells_json.filter(|s| !s.is_empty())
+    if let Some(table) = shells_json
+        .filter(|s| !s.is_empty())
         .and_then(|s| serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(s).ok())
     {
         if let Some(arr) = shots_val.as_array_mut() {
             for v in arr.iter_mut() {
                 let shell_id = v.get("shell_id").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
-                if shell_id == 0 { continue; }
-                let Some(entry) = table.get(&shell_id.to_string()) else { continue };
-                if v.get("shell_kind").and_then(|x| x.as_str()).map(str::is_empty).unwrap_or(true) {
+                if shell_id == 0 {
+                    continue;
+                }
+                let Some(entry) = table.get(&shell_id.to_string()) else {
+                    continue;
+                };
+                if v.get("shell_kind")
+                    .and_then(|x| x.as_str())
+                    .map(str::is_empty)
+                    .unwrap_or(true)
+                {
                     if let Some(t) = entry.get("type").and_then(|x| x.as_str()) {
                         v["shell_kind"] = serde_json::Value::String(t.to_string());
                     }
@@ -219,18 +251,27 @@ pub fn shot_replays_json(bytes: &[u8], limits_json: Option<&str>, shells_json: O
     }
     let mut outcome = serde_json::Map::new();
     outcome.insert("shots".into(), shots_val);
-    outcome.insert("author_path".into(), serde_json::Value::String(
-        if author_error.is_some() { "error".into() } else { "ok".into() }));
+    outcome.insert(
+        "author_path".into(),
+        serde_json::Value::String(if author_error.is_some() {
+            "error".into()
+        } else {
+            "ok".into()
+        }),
+    );
     if let Some(err) = author_error {
         outcome.insert("author_error".into(), serde_json::Value::String(err));
     }
     outcome.insert("author_eid".into(), serde_json::json!(author_eid));
-    outcome.insert("others".into(), serde_json::json!({
-        "total_launches": others.total_launches,
-        "skipped_no_endpoint": others.skipped_no_endpoint,
-        "skipped_no_target_state": others.skipped_no_target_state,
-        "muzzle_fallback": others.muzzle_fallback,
-    }));
+    outcome.insert(
+        "others".into(),
+        serde_json::json!({
+            "total_launches": others.total_launches,
+            "skipped_no_endpoint": others.skipped_no_endpoint,
+            "skipped_no_target_state": others.skipped_no_target_state,
+            "muzzle_fallback": others.muzzle_fallback,
+        }),
+    );
     Ok(serde_json::Value::Object(outcome).to_string())
 }
 
@@ -278,7 +319,11 @@ mod js {
     /// {全局弹种 id: {type, penetration, damage, module_damage, explosion_radius}}）——
     /// 注入后每发补齐 `shell_kind` 与 `shell`（完整弹数据）；缺省时无弹种反解。
     #[wasm_bindgen(js_name = parseShotReplays)]
-    pub fn parse_shot_replays(bytes: &[u8], limits: Option<String>, shells: Option<String>) -> Result<String, JsValue> {
+    pub fn parse_shot_replays(
+        bytes: &[u8],
+        limits: Option<String>,
+        shells: Option<String>,
+    ) -> Result<String, JsValue> {
         super::shot_replays_json(bytes, limits.as_deref(), shells.as_deref())
             .map_err(|e| JsValue::from_str(&format!("shot replay parse failed: {e:#}")))
     }

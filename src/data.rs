@@ -1,11 +1,10 @@
-// 数据路径层：全部运行时数据统一放项目根 `data/` 目录，经 data_path()/cache_path() 访问，
+// 数据路径层：全部运行时数据统一放 `{base_dir}/data/`，经 data_path()/cache_path() 访问，
 // 避免散落硬编码路径。关键数据源：tanks.pb + models.pb（BlitzKit 坦克数据库/模型定义，
-// 运行时直接解析）、tank_cache.json / models.pb / game_data/（便携装甲模型/碰撞盒）、
+// 运行时直接解析）、tank_cache.json、game_data/（便携装甲模型/碰撞盒）、
 // cache/（运行时缓存：坦克 GLB、地图资产、封面图、地形高度场、截图）。
 //
-// 运行根目录（base_dir）：不设置 = 当前目录（CLI/Web 的默认语义）；
-// 宿主可在启动最早期 set_base_dir(应用私有目录)，此后所有相对路径
-// （data/ 下的静态库/缓存/会话）自动落到私有目录。
+// base_dir：不设置 = 当前目录（CLI/Web 默认语义）；宿主须在任何文件访问发生前
+// set_base_dir(私有目录)，此后 data/ 下所有相对路径自动落到私有目录。
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -23,7 +22,10 @@ pub fn set_base_dir(dir: PathBuf) -> bool {
 
 /// 运行根目录（未设置时为当前目录 `.`，桌面/CLI 语义不变）。
 pub fn base_dir() -> &'static Path {
-    BASE_DIR.get().map(|p| p.as_path()).unwrap_or(Path::new("."))
+    BASE_DIR
+        .get()
+        .map(|p| p.as_path())
+        .unwrap_or(Path::new("."))
 }
 
 /// 返回 `{base}/data/{name}` 的路径（`name` 可含子路径，如 `game_data/7169.json`）。
@@ -36,8 +38,7 @@ pub fn data_dir() -> PathBuf {
     base_dir().join(DATA_DIR)
 }
 
-/// 返回运行根目录下的非 data 资产路径（
-/// 不随数据目录收敛；此出口仅剩该用途）。
+/// 返回运行根目录下不落在 data/ 内的资产路径（如快照目录等宿主级位置）。
 pub fn app_path(rel: &str) -> PathBuf {
     base_dir().join(rel)
 }
@@ -67,5 +68,7 @@ pub fn read_embedded(rel: &str) -> Option<Vec<u8>> {
 
 /// 共享资产读取：磁盘优先，APK 内置资产兜底（用于只读大资产，如 data/cache/maps 地图资产/地形）。
 pub fn read_shareable(rel: &str) -> Option<Vec<u8>> {
-    std::fs::read(app_path(rel)).ok().or_else(|| read_embedded(rel))
+    std::fs::read(app_path(rel))
+        .ok()
+        .or_else(|| read_embedded(rel))
 }

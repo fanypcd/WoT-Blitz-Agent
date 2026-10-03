@@ -1,9 +1,8 @@
 //! 会话管理：actor-per-session。
 //!
 //! 每个活跃会话一个常驻 tokio 任务（actor）独占 `Agent`，HTTP 层经 mpsc 命令通道
-//! 投递指令——消除 `Option<Agent>` take/归还式共享在删除会话后把旧 Agent 塞回
-//! 新会话导致"历史复活"的竞态。设计要点：
-//! - 同会话对话串行执行（actor 逐条处理命令），忙时新对话返回 409
+//! 投递指令（避免共享/归还式访问把旧 Agent 塞回新会话的"历史复活"竞态）。设计要点：
+//! - 同会话对话串行执行，忙时新对话返回 409
 //! - 每轮换新取消令牌（取消/删除精确到会话与当前轮）；轮结束即落盘
 //!   `data/sessions/{id}.json`（复用 CLI 的 SavedSession），非活跃会话从磁盘
 //!   懒加载、不实例化 Agent
@@ -110,18 +109,28 @@ impl SessionShared {
             .is_ok()
     }
 
-    /// 历史快照：锁内直接序列化为 JSON，消除中间的整段 Vec<ChatMessage> 深拷贝。
+    /// 历史快照：锁内直接序列化为 JSON。
     fn history_snapshot(&self) -> Vec<Value> {
-        self.history.lock().map(|v| {
-            v.iter().map(|m| serde_json::to_value(m).unwrap_or(Value::Null)).collect()
-        }).unwrap_or_default()
+        self.history
+            .lock()
+            .map(|v| {
+                v.iter()
+                    .map(|m| serde_json::to_value(m).unwrap_or(Value::Null))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
-    /// 事件快照：锁内直接序列化为 JSON，消除中间的整段 Vec<AgentEvent> 深拷贝。
+    /// 事件快照：锁内直接序列化为 JSON。
     fn events_snapshot(&self) -> Vec<Value> {
-        self.events.lock().map(|v| {
-            v.iter().map(|e| serde_json::to_value(e).unwrap_or(Value::Null)).collect()
-        }).unwrap_or_default()
+        self.events
+            .lock()
+            .map(|v| {
+                v.iter()
+                    .map(|e| serde_json::to_value(e).unwrap_or(Value::Null))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 }
 
@@ -153,7 +162,9 @@ impl SessionManager {
     pub fn valid_id(id: &str) -> bool {
         !id.is_empty()
             && id.len() <= 64
-            && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     }
 
     fn file_for(&self, id: &str) -> PathBuf {
@@ -161,8 +172,7 @@ impl SessionManager {
     }
 
     pub async fn list_ids(&self) -> Vec<String> {
-        let mut set: HashSet<String> =
-            self.sessions.lock().await.keys().cloned().collect();
+        let mut set: HashSet<String> = self.sessions.lock().await.keys().cloned().collect();
         if let Ok(rd) = std::fs::read_dir(&self.dir) {
             for e in rd.flatten() {
                 let p = e.path();
@@ -183,8 +193,7 @@ impl SessionManager {
             return Err(ChatError::InvalidId);
         }
         let handle = self.get_or_create(id).await;
-        // 原子占位忙标志：检查与占位一步完成，并发的第二个请求直接收到 Busy（HTTP 409），
-        // 而不是都通过检查后被静默排队。actor 每轮结束时 set_busy(false) 释放。
+        // 原子占位忙标志：并发第二个请求直接 Busy（HTTP 409），actor 每轮结束释放。
         if !handle.shared.try_acquire_busy() {
             return Err(ChatError::Busy);
         }
@@ -216,7 +225,7 @@ impl SessionManager {
     }
 
     /// 读取对话历史（不含系统提示）：活跃会话读镜像，非活跃读磁盘，都无则空。
-    /// 返回锁内直接序列化好的 JSON 值（避免先整段克隆再逐条序列化）。
+    /// 返回锁内直接序列化好的 JSON 值。
     pub async fn history_of(&self, id: &str) -> Vec<Value> {
         if let Some(h) = self.sessions.lock().await.get(id) {
             return h.shared.history_snapshot();
@@ -306,7 +315,9 @@ async fn session_actor(
                         a.set_cancel_token(run_token);
                         let on_event = shared.push_event_fn();
                         if let Err(e) = a.chat_async(&text, on_event).await {
-                            shared.push_event(AgentEvent::Error { message: e.to_string() });
+                            shared.push_event(AgentEvent::Error {
+                                message: e.to_string(),
+                            });
                         }
                         if let Err(e) = a.save_session(&path) {
                             eprintln!("[session:{id}] persist failed: {e}");
@@ -328,29 +339,31 @@ async fn session_actor(
 /// 构建 Agent 并尝试从磁盘恢复历史（失败以 Error 事件反馈，不 panic）。
 /// Agent::new 构造 reqwest::blocking::Client，其内部 runtime 不能在 async worker 上
 /// 创建/销毁（tokio panic "Cannot drop a runtime..."），因此整体放 blocking 线程执行。
-async fn restore_agent(config_path: &std::path::Path, path: &std::path::Path, shared: &SessionShared) -> Option<Agent> {
+async fn restore_agent(
+    config_path: &std::path::Path,
+    path: &std::path::Path,
+    shared: &SessionShared,
+) -> Option<Agent> {
     let config_path = config_path.to_path_buf();
     let path = path.to_path_buf();
     let shared = shared.clone();
-    tokio::task::spawn_blocking(move || {
-        match Agent::new(&config_path) {
-            Ok(mut a) => {
-                if path.exists() {
-                    match a.load_session(&path) {
-                        Ok(()) => shared.set_history(a.history()),
-                        Err(e) => shared.push_event(AgentEvent::Error {
-                            message: format!("Failed to restore session: {e}"),
-                        }),
-                    }
+    tokio::task::spawn_blocking(move || match Agent::new(&config_path) {
+        Ok(mut a) => {
+            if path.exists() {
+                match a.load_session(&path) {
+                    Ok(()) => shared.set_history(a.history()),
+                    Err(e) => shared.push_event(AgentEvent::Error {
+                        message: format!("Failed to restore session: {e}"),
+                    }),
                 }
-                Some(a)
             }
-            Err(e) => {
-                shared.push_event(AgentEvent::Error {
-                    message: format!("Failed to init agent: {e}"),
-                });
-                None
-            }
+            Some(a)
+        }
+        Err(e) => {
+            shared.push_event(AgentEvent::Error {
+                message: format!("Failed to init agent: {e}"),
+            });
+            None
         }
     })
     .await

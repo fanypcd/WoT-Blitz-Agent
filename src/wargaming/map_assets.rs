@@ -11,16 +11,15 @@
 //!   全图已导出，缺失即 404）；
 //! - 地形：`3d/Maps/<space>/landscape/*heightmap*.dvpl`（8 字节头 + 512² u16）；
 //!   高度尺度 zmax 来自 `data/cache/maps/<space>.json` sidecar 的 Landscape 世界
-//!   包围盒（tools/export_map_glb.py 按客户端数据写出），sidecar 缺失则不伺服
-//!   ——不再维护硬编码 zmax 表；
+//!   包围盒（tools/export_map_glb.py 按客户端数据写出），sidecar 缺失则不伺服；
 //! - 场景 GLB：`data/cache/maps/<space>.glb`，同由导出器预生成。
 //!
 //! 对齐：底图覆盖世界 [-300,+300]²（600×600 米、原点居中、图上边=+z、图右边=+x）。
 //! 个别地图可用 `data/maps/<key>.json`（`{"size_m":..,"x":..,"z":..,"rot90":..}`）微调。
 
+use crate::data::{cache_path, data_path};
 use crate::wargaming::dvpl::DvplFile;
 use crate::wargaming::game_extract::resolve_game_dir;
-use crate::data::{cache_path, data_path};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
@@ -50,7 +49,10 @@ impl MapEntry {
     fn is_safe(&self) -> bool {
         !self.space.is_empty()
             && self.space.len() <= 40
-            && self.space.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+            && self
+                .space
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
     }
 }
 
@@ -62,7 +64,10 @@ fn parse_maps_yaml(text: &str) -> Vec<(u32, String, String)> {
     let mut key: Option<&str> = None;
     let mut id: Option<u32> = None;
     let mut local: Option<String> = None;
-    let flush = |key: &mut Option<&str>, id: &mut Option<u32>, local: &mut Option<String>, out: &mut Vec<(u32, String, String)>| {
+    let flush = |key: &mut Option<&str>,
+                 id: &mut Option<u32>,
+                 local: &mut Option<String>,
+                 out: &mut Vec<(u32, String, String)>| {
         if let (Some(k), Some(i), Some(l)) = (*key, *id, local.take()) {
             out.push((i, k.to_string(), l));
         }
@@ -72,8 +77,11 @@ fn parse_maps_yaml(text: &str) -> Vec<(u32, String, String)> {
         if let Some(rest) = line.strip_suffix(':') {
             let trimmed = rest.trim_start();
             let indent = rest.len() - trimmed.len();
-            if indent == 4 && !trimmed.is_empty()
-                && trimmed.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            if indent == 4
+                && !trimmed.is_empty()
+                && trimmed
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_')
             {
                 flush(&mut key, &mut id, &mut local, &mut out);
                 key = Some(trimmed);
@@ -102,11 +110,17 @@ fn parse_en_yaml_maps(text: &str) -> Vec<(String, String, String)> {
     let mut rest = text;
     while let Some(pos) = rest.find("\"#maps:") {
         let after = &rest[pos + 1..];
-        let Some(key_end) = after.find("\":") else { break };
+        let Some(key_end) = after.find("\":") else {
+            break;
+        };
         let key = &after[..key_end]; // "#maps:<dir>:<path>"
-        let Some(value_start) = after[key_end..].find(": \"") else { break };
+        let Some(value_start) = after[key_end..].find(": \"") else {
+            break;
+        };
         let value = &after[key_end + value_start + 3..];
-        let Some(value_end) = value.find('"') else { break };
+        let Some(value_end) = value.find('"') else {
+            break;
+        };
         let mut parts = key.splitn(3, ':');
         let dir = parts.nth(1).unwrap_or_default().to_string();
         let path = parts.next().unwrap_or_default().to_string();
@@ -117,9 +131,15 @@ fn parse_en_yaml_maps(text: &str) -> Vec<(String, String, String)> {
 }
 
 fn load_registry() -> Vec<MapEntry> {
-    let Ok(game) = resolve_game_dir(None) else { return Vec::new() };
-    let Ok(maps_dvpl) = DvplFile::read(&game.join("maps.yaml.dvpl")) else { return Vec::new() };
-    let Ok(en_dvpl) = DvplFile::read(&game.join("Strings").join("en.yaml.dvpl")) else { return Vec::new() };
+    let Ok(game) = resolve_game_dir(None) else {
+        return Vec::new();
+    };
+    let Ok(maps_dvpl) = DvplFile::read(&game.join("maps.yaml.dvpl")) else {
+        return Vec::new();
+    };
+    let Ok(en_dvpl) = DvplFile::read(&game.join("Strings").join("en.yaml.dvpl")) else {
+        return Vec::new();
+    };
     let maps_text = String::from_utf8_lossy(&maps_dvpl.data);
     let en_text = String::from_utf8_lossy(&en_dvpl.data);
     let en_entries = parse_en_yaml_maps(&en_text);
@@ -176,13 +196,15 @@ pub fn dump_map_index() -> serde_json::Value {
     serde_json::Value::Array(
         registry()
             .iter()
-            .map(|e| serde_json::json!({
-                "map_id": e.map_id,
-                "key": e.key,
-                "space": e.space,
-                "display": e.display,
-                "minimap_dir": e.minimap_dir,
-            }))
+            .map(|e| {
+                serde_json::json!({
+                    "map_id": e.map_id,
+                    "key": e.key,
+                    "space": e.space,
+                    "display": e.display,
+                    "minimap_dir": e.minimap_dir,
+                })
+            })
             .collect(),
     )
 }
@@ -198,16 +220,23 @@ pub fn resolve_map(param: &str) -> Option<&'static MapEntry> {
         return reg.iter().find(|e| e.map_id == id);
     }
     let norm = |x: &str| -> String {
-        x.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_lowercase()
+        x.chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .collect::<String>()
+            .to_lowercase()
     };
     let want = norm(s);
-    reg.iter().find(|e| norm(&e.display) == want)
+    reg.iter()
+        .find(|e| norm(&e.display) == want)
         .or_else(|| reg.iter().find(|e| norm(&e.key) == want))
 }
 
 /// 回放数字 id → 客户端显示名（用于界面展示，修正解析器枚举名与客户端的不一致）。
 pub fn display_name(map_id: u32) -> Option<&'static str> {
-    registry().iter().find(|e| e.map_id == map_id).map(|e| e.display.as_str())
+    registry()
+        .iter()
+        .find(|e| e.map_id == map_id)
+        .map(|e| e.display.as_str())
 }
 
 /// 底图铺设参数（前端按此放置平面；data/maps/<key>.json 缺省全默认）。
@@ -250,14 +279,24 @@ pub struct PlayableBounds {
 
 impl Default for MapMeta {
     fn default() -> Self {
-        Self { size_m: DEFAULT_SIZE_M, x: 0.0, z: 0.0, rot90: 0, flip_x: false, zmax_m: None, playable_bounds: None }
+        Self {
+            size_m: DEFAULT_SIZE_M,
+            x: 0.0,
+            z: 0.0,
+            rot90: 0,
+            flip_x: false,
+            zmax_m: None,
+            playable_bounds: None,
+        }
     }
 }
 
 fn meta_path(map_name: &str) -> Option<std::path::PathBuf> {
     let ok = !map_name.is_empty()
         && map_name.len() <= 40
-        && map_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        && map_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_');
     ok.then(|| data_path(&format!("maps/{map_name}.json")))
 }
 
@@ -284,7 +323,12 @@ pub fn map_image_response(map_param: &str) -> Response {
         override_stems.push(e.key.clone());
     }
     for stem in &override_stems {
-        for (ext, ct) in [("webp", "image/webp"), ("png", "image/png"), ("jpg", "image/jpeg"), ("jpeg", "image/jpeg")] {
+        for (ext, ct) in [
+            ("webp", "image/webp"),
+            ("png", "image/png"),
+            ("jpg", "image/jpeg"),
+            ("jpeg", "image/jpeg"),
+        ] {
             if let Some(path) = meta_path(stem).map(|p| p.with_extension(ext)) {
                 if let Ok(bytes) = std::fs::read(&path) {
                     return map_response(bytes, ct, entry);
@@ -298,7 +342,9 @@ pub fn map_image_response(map_param: &str) -> Response {
     };
 
     // 2) 高清地面贴图（客户端 colormap 离线导出，2048²，分辨率约为小地图 4 倍）
-    if let Some(bytes) = crate::data::read_shareable(&format!("data/cache/maps/{}.ground.webp", entry.space)) {
+    if let Some(bytes) =
+        crate::data::read_shareable(&format!("data/cache/maps/{}.ground.webp", entry.space))
+    {
         return map_response(bytes, "image/webp", Some(entry));
     }
 
@@ -311,10 +357,12 @@ pub fn map_image_response(map_param: &str) -> Response {
 // DVPL 载荷原样即 webp 文件；与高清底图同覆盖（600m 方框、原点居中，共用 X-Map-Meta）。
 
 /// 小地图 DVPL 候选（优先 @2x 高清版，退普通版）。
-const MINIMAP_DVPL: [&str; 2] = ["MiniMapSmall@2x.packed.webp.dvpl", "MiniMapSmall.packed.webp.dvpl"];
+const MINIMAP_DVPL: [&str; 2] = [
+    "MiniMapSmall@2x.packed.webp.dvpl",
+    "MiniMapSmall.packed.webp.dvpl",
+];
 
 /// 低画质档小地图底图：提取缓存 → 客户端随取随解 → 高清底图兜底。
-/// （此前的「仓库随包图 `mobile_assets/maps/`」一档随移动端一同移除，2026-10。）
 pub fn map_minimap_response(map_param: &str) -> Response {
     let name = map_param.trim();
     if name.is_empty() {
@@ -348,7 +396,7 @@ pub fn map_minimap_response(map_param: &str) -> Response {
 }
 
 /// 从游戏目录解出小地图 webp。目录候选：en.yaml 解析的 minimap 目录 → maps.yaml 键名
-/// （en.yaml 无 `#maps:` 条目的新图如 lagoon，其目录与键名同名）；目录名限
+/// （en.yaml 无 `#maps:` 条目的新图，其目录与键名同名）；目录名限
 /// 小写字母/数字/下划线（路径安全，与 [`MapEntry::is_safe`] 同规）。
 fn extract_minimap(entry: &MapEntry) -> Option<Vec<u8>> {
     let game = resolve_game_dir(None).ok()?;
@@ -356,7 +404,9 @@ fn extract_minimap(entry: &MapEntry) -> Option<Vec<u8>> {
     for dir in candidates {
         if dir.is_empty()
             || dir.len() > 40
-            || !dir.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+            || !dir
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
         {
             continue;
         }
@@ -380,18 +430,20 @@ fn extract_minimap(entry: &MapEntry) -> Option<Vec<u8>> {
 /// 响应附带 X-Map-Meta（铺设参数 JSON），前端据此放置底图平面。
 /// 地图资源一律 no-cache：导出器重跑后同 URL 内容会变，禁止浏览器拿旧 GLB/旧贴图。
 fn map_response(bytes: Vec<u8>, content_type: &str, entry: Option<&MapEntry>) -> Response {
-    let meta = entry
-        .map(map_meta)
-        .unwrap_or_default();
+    let meta = entry.map(map_meta).unwrap_or_default();
     let meta = serde_json::to_string(&meta).unwrap_or_default();
     (
         [
             (axum::http::header::CONTENT_TYPE, content_type.to_string()),
-            (axum::http::header::HeaderName::from_static("x-map-meta"), meta),
+            (
+                axum::http::header::HeaderName::from_static("x-map-meta"),
+                meta,
+            ),
             (axum::http::header::CACHE_CONTROL, "no-cache".to_string()),
         ],
         bytes,
-    ).into_response()
+    )
+        .into_response()
 }
 
 // ---------- 高度场地形（GET /api/playback/terrain） ----------
@@ -400,7 +452,7 @@ fn map_response(bytes: Vec<u8>, content_type: &str, entry: Option<&MapEntry>) ->
 //   8 字节头（u32 size=512、u32 tile=16）+ size²×2 字节 u16，按 tile×tile 块存储
 //   （块行主序），块内行主序；存储行 0=南、列 0=东；高度 z = u16 * zMax / 65535；
 //   覆盖世界 [-300,+300]²。输出统一列翻转（列 0=西），行序不变（行 0=南）。
-// zMax 来自导出器 sidecar（Landscape 世界包围盒），不再维护硬编码表。
+// zMax 来自导出器 sidecar（Landscape 世界包围盒）。
 
 /// 一张图解码后的高度场：行 0=南、列 0=西（行主序 u16，米制换算系数见响应头 zmax）。
 pub struct TerrainGrid {
@@ -437,10 +489,19 @@ fn terrain_scale(entry: &MapEntry) -> Option<TerrainScale> {
     // 游戏内实际战场边界（同一 sidecar；export_map_glb 从场景 MapBorderComponent 提取）
     let playable = v.get("playableBounds").and_then(|pb| {
         let g = |k: &str| pb.get(k).and_then(|x| x.as_f64()).map(|x| x as f32);
-        Some(PlayableBounds { x_min: g("xMin")?, y_min: g("yMin")?,
-                              x_max: g("xMax")?, y_max: g("yMax")? })
+        Some(PlayableBounds {
+            x_min: g("xMin")?,
+            y_min: g("yMin")?,
+            x_max: g("xMax")?,
+            y_max: g("yMax")?,
+        })
     });
-    Some(TerrainScale { zmax, zmin, span, playable })
+    Some(TerrainScale {
+        zmax,
+        zmin,
+        span,
+        playable,
+    })
 }
 
 /// 解析标准契约高度图，返回行 0=南、列 0=西 的 u16 网格；size/tile 非预期值（老图）一律拒绝。
@@ -455,7 +516,9 @@ fn parse_heightmap(raw: &[u8]) -> Option<TerrainGrid> {
         return None;
     }
     let src: Vec<u16> = raw[8..]
-        .as_chunks::<2>().0.iter()
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| u16::from_le_bytes(*c))
         .collect();
     // tile 块重排（块行主序 → 行主序）
@@ -591,21 +654,32 @@ pub fn terrain_response(map_param: &str) -> Response {
                     "[map-assets] {} 缺少地形尺度（data/cache/maps/{}.json），请运行 tools/export_map_glb.py",
                     entry.space, entry.space
                 );
-                return (axum::http::StatusCode::NOT_FOUND, "terrain not available").into_response();
+                return (axum::http::StatusCode::NOT_FOUND, "terrain not available")
+                    .into_response();
             }
         },
     };
     terrain_serve(entry, zmax, zmin, span, playable)
 }
 
-fn terrain_serve(entry: &MapEntry, zmax: f32, zmin: f32, span: f32, playable: Option<PlayableBounds>) -> Response {
+fn terrain_serve(
+    entry: &MapEntry,
+    zmax: f32,
+    zmin: f32,
+    span: f32,
+    playable: Option<PlayableBounds>,
+) -> Response {
     // 1) 手动覆盖：data/maps/<key>.heightmap.u16.bin（512×512 LE，行 0=南）
     let override_path = data_path(&format!("maps/{}.heightmap.u16.bin", entry.key));
     if let Ok(bytes) = std::fs::read(&override_path) {
         if bytes.len() == 512 * 512 * 2 {
             return terrain_response_bytes(bytes, zmax, zmin, span, playable);
         }
-        eprintln!("[map-assets] 高度覆盖尺寸不符（应为 {} 字节）：{}", 512 * 512 * 2, override_path.display());
+        eprintln!(
+            "[map-assets] 高度覆盖尺寸不符（应为 {} 字节）：{}",
+            512 * 512 * 2,
+            override_path.display()
+        );
     }
 
     // 2) 提取缓存
@@ -625,28 +699,46 @@ fn terrain_serve(entry: &MapEntry, zmax: f32, zmin: f32, span: f32, playable: Op
         let _ = std::fs::create_dir_all(parent);
     }
     let _ = std::fs::write(&cache, &bytes);
-    eprintln!("[map-assets] extracted heightmap {} -> {}", entry.space, cache.display());
+    eprintln!(
+        "[map-assets] extracted heightmap {} -> {}",
+        entry.space,
+        cache.display()
+    );
     terrain_response_bytes(bytes, zmax, zmin, span, playable)
 }
 
 /// 响应附带 X-Terrain-Meta（高度场解释参数）。
-fn terrain_response_bytes(bytes: Vec<u8>, zmax: f32, zmin: f32, span: f32,
-                          playable: Option<PlayableBounds>) -> Response {
+fn terrain_response_bytes(
+    bytes: Vec<u8>,
+    zmax: f32,
+    zmin: f32,
+    span: f32,
+    playable: Option<PlayableBounds>,
+) -> Response {
     // playableBounds 透传（游戏内实际战场边界；缺失则不发该键，前端回退 worldBounds）
     let pb = match playable {
-        Some(b) => format!(r#","playableBounds":{{"xMin":{:.3},"yMin":{:.3},"xMax":{:.3},"yMax":{:.3}}}"#,
-                           b.x_min, b.y_min, b.x_max, b.y_max),
+        Some(b) => format!(
+            r#","playableBounds":{{"xMin":{:.3},"yMin":{:.3},"xMax":{:.3},"yMax":{:.3}}}"#,
+            b.x_min, b.y_min, b.x_max, b.y_max
+        ),
         None => String::new(),
     };
     let meta = format!(r#"{{"size":512,"zmax":{zmax:.1},"zmin":{zmin:.1},"span":{span:.1}{pb}}}"#);
     (
         [
-            (axum::http::header::CONTENT_TYPE, "application/octet-stream".to_string()),
-            (axum::http::header::HeaderName::from_static("x-terrain-meta"), meta),
+            (
+                axum::http::header::CONTENT_TYPE,
+                "application/octet-stream".to_string(),
+            ),
+            (
+                axum::http::header::HeaderName::from_static("x-terrain-meta"),
+                meta,
+            ),
             (axum::http::header::CACHE_CONTROL, "no-cache".to_string()),
         ],
         bytes,
-    ).into_response()
+    )
+        .into_response()
 }
 
 /// GET /api/playback/scenery：伺服离线导出的静态场景 GLB
@@ -660,11 +752,15 @@ pub fn scenery_response(map_param: &str) -> Response {
     match crate::data::read_shareable(&format!("data/cache/maps/{}.glb", entry.space)) {
         Some(bytes) => (
             [
-                (axum::http::header::CONTENT_TYPE, "model/gltf-binary".to_string()),
+                (
+                    axum::http::header::CONTENT_TYPE,
+                    "model/gltf-binary".to_string(),
+                ),
                 (axum::http::header::CACHE_CONTROL, "no-cache".to_string()),
             ],
             bytes,
-        ).into_response(),
+        )
+            .into_response(),
         None => (axum::http::StatusCode::NOT_FOUND, "scenery not available").into_response(),
     }
 }
@@ -674,17 +770,32 @@ pub fn scenery_response(map_param: &str) -> Response {
 /// 前端按客户端 tilemask-fp.sl 实时合成）。缺失 404，前端回退整图烘焙。
 pub fn ground_layers_meta_response(map_param: &str) -> Response {
     let Some(entry) = resolve_map(map_param.trim()) else {
-        return (axum::http::StatusCode::NOT_FOUND, "ground layers not available").into_response();
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            "ground layers not available",
+        )
+            .into_response();
     };
-    match crate::data::read_shareable(&format!("data/cache/maps/{}.ground.layers.json", entry.space)) {
+    match crate::data::read_shareable(&format!(
+        "data/cache/maps/{}.ground.layers.json",
+        entry.space
+    )) {
         Some(bytes) => (
             [
-                (axum::http::header::CONTENT_TYPE, "application/json".to_string()),
+                (
+                    axum::http::header::CONTENT_TYPE,
+                    "application/json".to_string(),
+                ),
                 (axum::http::header::CACHE_CONTROL, "no-cache".to_string()),
             ],
             bytes,
-        ).into_response(),
-        None => (axum::http::StatusCode::NOT_FOUND, "ground layers not available").into_response(),
+        )
+            .into_response(),
+        None => (
+            axum::http::StatusCode::NOT_FOUND,
+            "ground layers not available",
+        )
+            .into_response(),
     }
 }
 
@@ -693,23 +804,37 @@ pub fn ground_layers_meta_response(map_param: &str) -> Response {
 /// alpha 的 webp 解码为预乘 RGB，GPU 侧权重会被压暗近黑；行序为 colormap
 /// 原始空间）。
 pub fn ground_layer_response(map_param: &str, layer: &str) -> Response {
-    let ok = matches!(layer, "cm" | "lm" | "tile0" | "tile1" | "mask0" | "mask1"
-        | "hmap0" | "hmap1");
+    let ok = matches!(
+        layer,
+        "cm" | "lm" | "tile0" | "tile1" | "mask0" | "mask1" | "hmap0" | "hmap1"
+    );
     if !ok {
         return (axum::http::StatusCode::BAD_REQUEST, "bad layer").into_response();
     }
     let Some(entry) = resolve_map(map_param.trim()) else {
-        return (axum::http::StatusCode::NOT_FOUND, "ground layer not available").into_response();
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            "ground layer not available",
+        )
+            .into_response();
     };
-    match crate::data::read_shareable(&format!("data/cache/maps/{}.ground.{layer}.webp", entry.space)) {
+    match crate::data::read_shareable(&format!(
+        "data/cache/maps/{}.ground.{layer}.webp",
+        entry.space
+    )) {
         Some(bytes) => (
             [
                 (axum::http::header::CONTENT_TYPE, "image/webp".to_string()),
                 (axum::http::header::CACHE_CONTROL, "no-cache".to_string()),
             ],
             bytes,
-        ).into_response(),
-        None => (axum::http::StatusCode::NOT_FOUND, "ground layer not available").into_response(),
+        )
+            .into_response(),
+        None => (
+            axum::http::StatusCode::NOT_FOUND,
+            "ground layer not available",
+        )
+            .into_response(),
     }
 }
 
@@ -725,7 +850,11 @@ mod tests {
             eprintln!("[skip] 游戏目录不可用，跳过注册表测试");
             return;
         }
-        assert!(reg.len() >= 26, "注册表应至少覆盖现役 26 图，实际 {}", reg.len());
+        assert!(
+            reg.len() >= 26,
+            "注册表应至少覆盖现役 26 图，实际 {}",
+            reg.len()
+        );
         for e in reg {
             assert!(e.is_safe(), "unsafe space: {}", e.space);
             assert!(!e.key.is_empty());
@@ -736,7 +865,10 @@ mod tests {
         ids.dedup();
         assert_eq!(ids.len(), reg.len(), "地图 id 应唯一");
         // 现役图（wotbreplay-parser MapId 判别值）必须全部可解析
-        for id in [2u32, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 19, 20, 21, 23, 25, 27, 30, 31, 35, 38, 40, 42, 71] {
+        for id in [
+            2u32, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 19, 20, 21, 23, 25, 27, 30, 31, 35, 38,
+            40, 42, 71,
+        ] {
             let e = resolve_map(&id.to_string());
             assert!(e.is_some(), "现役图 id={id} 未解析到");
             assert!(!e.unwrap().display.is_empty(), "id={id} 缺显示名");
@@ -824,7 +956,14 @@ mod tests {
     fn parse_maps_yaml_pairs_id_and_local_name() {
         let text = "maps:\n    malinovka:\n        id: 19\n        tags: \"mn1\"\n        localName: \"12_malinovka_ma/12_malinovka_ma.sc2\"\n        extra:\n            nested: 1\n";
         let parsed = parse_maps_yaml(text);
-        assert_eq!(parsed, vec![(19u32, "malinovka".to_string(), "12_malinovka_ma/12_malinovka_ma.sc2".to_string())]);
+        assert_eq!(
+            parsed,
+            vec![(
+                19u32,
+                "malinovka".to_string(),
+                "12_malinovka_ma/12_malinovka_ma.sc2".to_string()
+            )]
+        );
     }
 
     /// en.yaml #maps: 行解析：同路径多变体全部收集。
@@ -833,8 +972,22 @@ mod tests {
         let text = "\"a\": \"b\"\r\n\"#maps:rudniki:06_rudniki_rd/06_rudniki_rd.sc2\": \"Mines\"\r\n\"#maps:rudniki_01:06_rudniki_rd/06_rudniki_rd.sc2\": \"Mines - Hill\"\r\n";
         let parsed = parse_en_yaml_maps(text);
         assert_eq!(parsed.len(), 2);
-        assert_eq!(parsed[0], ("06_rudniki_rd/06_rudniki_rd.sc2".to_string(), "rudniki".to_string(), "Mines".to_string()));
-        assert_eq!(parsed[1], ("06_rudniki_rd/06_rudniki_rd.sc2".to_string(), "rudniki_01".to_string(), "Mines - Hill".to_string()));
+        assert_eq!(
+            parsed[0],
+            (
+                "06_rudniki_rd/06_rudniki_rd.sc2".to_string(),
+                "rudniki".to_string(),
+                "Mines".to_string()
+            )
+        );
+        assert_eq!(
+            parsed[1],
+            (
+                "06_rudniki_rd/06_rudniki_rd.sc2".to_string(),
+                "rudniki_01".to_string(),
+                "Mines - Hill".to_string()
+            )
+        );
     }
 
     /// 端到端（需游戏目录 + 导出产物）：数字 id 走通底图/地形/场景/草地四端点。

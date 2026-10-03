@@ -14,7 +14,9 @@ fn ready_set() -> &'static Mutex<HashSet<String>> {
 
 /// 页面（3D 查看器）在热力图渲染完成后调用：标记会话就绪。
 pub fn mark_session_ready(sess: &str) {
-    if sess.is_empty() { return; }
+    if sess.is_empty() {
+        return;
+    }
     ready_set().lock().unwrap().insert(sess.to_string());
 }
 

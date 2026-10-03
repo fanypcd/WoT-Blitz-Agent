@@ -22,7 +22,7 @@ pub const DEFAULT_GAME_DIRS: &[&str] = &[
 struct PbTankEntry {
     tank_id: u32,
     /// 游戏模型名（tanks.pb field32，如 "Sherman_Jumbo"）——定位源文件的唯一依据。
-    /// 现行 BlitzKit 的 field2 是 slug（如 "m4a3e2"），与游戏文件名对不上。
+    /// BlitzKit 的 field2 是 slug（如 "m4a3e2"），与游戏文件名对不上。
     #[serde(default)]
     model_name: Option<String>,
     /// BlitzKit slug（tanks.pb field2）——只写进产物供人工比对，不参与文件定位。
@@ -65,7 +65,11 @@ fn parse_hull_position(xml: &str) -> Option<[f32; 3]> {
         .split_whitespace()
         .filter_map(|t| t.parse().ok())
         .collect();
-    if nums.len() == 3 { Some([nums[0], nums[1], nums[2]]) } else { None }
+    if nums.len() == 3 {
+        Some([nums[0], nums[1], nums[2]])
+    } else {
+        None
+    }
 }
 
 /// 确定游戏数据目录：优先用显式路径，否则在常见目录里自动探测。
@@ -87,7 +91,10 @@ pub fn resolve_game_dir(explicit: Option<&Path>) -> Result<PathBuf> {
 
 /// 归一化用于文件名比较：去掉所有非字母数字并转小写（如 "GB91_Super_Conqueror" → "gb91superconqueror"）。
 fn norm_file_name(s: &str) -> String {
-    s.chars().filter(|c| c.is_ascii_alphanumeric()).flat_map(|c| c.to_lowercase()).collect()
+    s.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
 }
 /// 在民族目录内解析某坦克的车辆 DVPL 文件。tanks.pb 的 dev_name 与游戏文件名常
 /// 不一致（如 "super-conqueror" → "GB91_Super_Conqueror"），匹配优先级：
@@ -108,14 +115,18 @@ fn resolve_vehicle_file(
         return Some(exact);
     }
     let target = norm_file_name(dev_name);
-    if target.is_empty() { return None; }
+    if target.is_empty() {
+        return None;
+    }
     let entries = std::fs::read_dir(&dir).ok()?;
     // (rank, tie, path)：rank 越小越优先；tie 在 rank 内部决定次序
     let mut cands: Vec<(u8, usize, PathBuf)> = Vec::new();
     for e in entries.flatten() {
         let name = e.file_name();
         let Some(name) = name.to_str() else { continue };
-        if !name.ends_with(ext) { continue; }
+        if !name.ends_with(ext) {
+            continue;
+        }
         let base = &name[..name.len() - ext.len()];
         // 排除 tutorial/bot 等衍生变体
         let base_lower = base.to_lowercase();
@@ -126,7 +137,7 @@ fn resolve_vehicle_file(
         let (rank, tie) = if norm == target {
             (0u8, 0usize)
         } else if norm.contains(&target) {
-            (1, base.len())              // 正向：最短（最接近 dev_name）优先
+            (1, base.len()) // 正向：最短（最接近 dev_name）优先
         } else if target.starts_with(&norm) || target.ends_with(&norm) {
             (2, usize::MAX - norm.len()) // 反向：最长（最具体）优先
         } else {
@@ -146,21 +157,38 @@ pub fn extract_all(
 ) -> Result<ExtractStats> {
     let game_dir = resolve_game_dir(game_dir)?;
     let tanks: Vec<PbTankEntry> = crate::wargaming::blitzkit::load_tanks()
-        .values().map(|t| {
+        .values()
+        .map(|t| {
             let top_turret = t.turrets.last();
             PbTankEntry {
                 tank_id: t.tank_id,
                 model_name: {
-                    // 文件定位取 field32 游戏模型名；旧版 pb 该字段缺失时回退 field2。
-                    let n = if !t.model_name.is_empty() { &t.model_name } else { &t.dev_name };
-                    if n.is_empty() { None } else { Some(n.clone()) }
+                    // 文件定位取 field32 游戏模型名；缺失时回退 field2。
+                    let n = if !t.model_name.is_empty() {
+                        &t.model_name
+                    } else {
+                        &t.dev_name
+                    };
+                    if n.is_empty() {
+                        None
+                    } else {
+                        Some(n.clone())
+                    }
                 },
                 dev_name: t.dev_name.clone(),
-                nation: if t.nation.is_empty() { None } else { Some(t.nation.clone()) },
+                nation: if t.nation.is_empty() {
+                    None
+                } else {
+                    Some(t.nation.clone())
+                },
                 top_turret_module: top_turret.map(|x| x.module_id).unwrap_or(0),
-                top_gun_module: top_turret.and_then(|x| x.guns.last()).map(|g| g.module_id).unwrap_or(0),
+                top_gun_module: top_turret
+                    .and_then(|x| x.guns.last())
+                    .map(|g| g.module_id)
+                    .unwrap_or(0),
             }
-        }).collect();
+        })
+        .collect();
 
     std::fs::create_dir_all(output_dir)?;
 
@@ -182,8 +210,20 @@ pub fn extract_all(
 
         // model_name 已是游戏模型名（tanks.pb field32），通常与文件名逐字相等；
         // 模糊匹配仅处理大小写/前缀差异（如 "T-34" ↔ "T-34.xml.dvpl" 的扩展名前缀情形）。
-        let xml_path = resolve_vehicle_file(&game_dir, "XML/item_defs/vehicles", nation, model_name, ".xml.dvpl");
-        let yaml_path = resolve_vehicle_file(&game_dir, "3d/Tanks/Parameters", nation, model_name, ".yaml.dvpl");
+        let xml_path = resolve_vehicle_file(
+            &game_dir,
+            "XML/item_defs/vehicles",
+            nation,
+            model_name,
+            ".xml.dvpl",
+        );
+        let yaml_path = resolve_vehicle_file(
+            &game_dir,
+            "3d/Tanks/Parameters",
+            nation,
+            model_name,
+            ".yaml.dvpl",
+        );
 
         if xml_path.is_none() || yaml_path.is_none() {
             stats.missing_files += 1;
@@ -196,7 +236,9 @@ pub fn extract_all(
         let xml_text = DvplFile::read(&xml_path)
             .ok()
             .map(|d| String::from_utf8_lossy(&d.data).into_owned());
-        let armor_model = xml_text.as_ref().and_then(|t| ArmorModel::parse_from_xml(t));
+        let armor_model = xml_text
+            .as_ref()
+            .and_then(|t| ArmorModel::parse_from_xml(t));
         // hullPosition 在 item_defs XML 里（车体相对底盘的权威位置），补进 collision 数据。
         let mut collision = DvplFile::read(&yaml_path)
             .ok()
@@ -206,23 +248,27 @@ pub fn extract_all(
         }
         // 顶级配置的炮塔/炮管碰撞盒：YAML 段名带模型节点号（turret_02/gun_06…），
         // 经 models.pb 的 模块id→节点号 映射挑出本车顶级配置对应的段。
-        // （turret_bbox 旧字段只认 turret_01:，多炮塔节段名的车全为 null。）
         if let Some(ref mut c) = collision {
             let mi = crate::wargaming::blitzkit::model_info(tank.tank_id);
             // 顶级炮塔：models.pb 内按模块 id 匹配，缺失时取末位（BlitzKit 库存→顶级序）
             let top_turret = mi.as_ref().and_then(|m| {
-                m.turrets.iter().find(|t| t.module_id == tank.top_turret_module)
+                m.turrets
+                    .iter()
+                    .find(|t| t.module_id == tank.top_turret_module)
                     .or_else(|| m.turrets.last())
             });
             if let Some(tur) = top_turret {
                 // 节点号对号段**覆盖**直解值：直解（首次字面量 + 400 字符窗口）会被
                 // averageThickness 厚度引用行（turret_01: 186.08）带偏，抓到后续段
-                // （常为 chassis）的包围盒——曾有 178 辆车的炮塔 bbox 因此污染
+                // （常为 chassis）的包围盒
                 if let Some(n) = c.turret_bboxes.iter().find(|n| n.node == tur.model_node) {
                     c.turret_bbox = Some(n.bbox.clone());
                 }
                 // 顶级主炮：同炮塔下按模块 id 匹配，缺失取末位
-                let top_gun = tur.guns.iter().find(|g| g.gun_module_id == tank.top_gun_module)
+                let top_gun = tur
+                    .guns
+                    .iter()
+                    .find(|g| g.gun_module_id == tank.top_gun_module)
                     .or_else(|| tur.guns.last());
                 if let Some(g) = top_gun {
                     if let Some(n) = c.gun_bboxes.iter().find(|n| n.node == g.model_node) {
@@ -259,8 +305,15 @@ pub fn extract_all(
         }
 
         if (i + 1) % 50 == 0 || i + 1 == total {
-            print!("\r  [{}/{}] extracted={} cached={} missing={} failed={}",
-                i + 1, total, stats.extracted, stats.cached, stats.missing_files, stats.parse_failed + stats.write_failed);
+            print!(
+                "\r  [{}/{}] extracted={} cached={} missing={} failed={}",
+                i + 1,
+                total,
+                stats.extracted,
+                stats.cached,
+                stats.missing_files,
+                stats.parse_failed + stats.write_failed
+            );
             let _ = std::io::stdout().flush();
         }
     }
@@ -306,8 +359,15 @@ pub fn orphan_game_data_ids(output_dir: &Path) -> Vec<u32> {
     };
     for e in entries.flatten() {
         let file_name = e.file_name();
-        let Some(name) = file_name.to_str() else { continue };
-        let Some(id) = name.strip_suffix(".json").and_then(|s| s.parse::<u32>().ok()) else { continue };
+        let Some(name) = file_name.to_str() else {
+            continue;
+        };
+        let Some(id) = name
+            .strip_suffix(".json")
+            .and_then(|s| s.parse::<u32>().ok())
+        else {
+            continue;
+        };
         if !tanks.contains_key(&id) {
             orphans.push(id);
         }
@@ -320,17 +380,25 @@ pub fn orphan_game_data_ids(output_dir: &Path) -> Vec<u32> {
 /// version.txt.dvpl 的修改时间晚于 game_data/ 里最新的 json → 视为已更新。
 /// game_data 为空/不可读时返回 false（增量提取本来就会补齐全部缺失文件）。
 pub fn game_dir_newer_than_data(game_dir: &Path, game_data_dir: &Path) -> bool {
-    let Ok(vt_mtime) = game_dir.join("version.txt.dvpl").metadata().and_then(|m| m.modified())
+    let Ok(vt_mtime) = game_dir
+        .join("version.txt.dvpl")
+        .metadata()
+        .and_then(|m| m.modified())
     else {
         return false;
     };
     let mut newest_data: Option<std::time::SystemTime> = None;
-    for e in std::fs::read_dir(game_data_dir).into_iter().flatten().flatten() {
-        let Ok(m) = e.metadata().and_then(|m| m.modified()) else { continue };
+    for e in std::fs::read_dir(game_data_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        let Ok(m) = e.metadata().and_then(|m| m.modified()) else {
+            continue;
+        };
         if newest_data.map(|n| m > n).unwrap_or(true) {
             newest_data = Some(m);
         }
     }
     newest_data.is_some_and(|n| vt_mtime > n)
 }
-

@@ -24,30 +24,38 @@ pub(crate) type Prop2Index = HashMap<u32, Vec<(f32, f32, u16)>>;
 
 /// per-entity 索引（作者/他人路径共用）：type=10 状态采样 + type=7 prop2 打包角。
 /// prop2 u16 = (炮塔偏航 coarse10 << 6) | 炮管俯仰比例 frac6（T110 1617 受控实验 +
-/// J39 实战复核，主文档 §2.2）：偏航只取高 10 位（低 6 位是俯仰，混入会引入
+/// J39 实战复核，《回放与射击逆向总集》第一篇 §2.2）：偏航只取高 10 位（低 6 位是俯仰，混入会引入
 /// ±0.3° 假跳变），frac 保留供俯仰解码。各实体 Vec 保持包序（未排序）；作者路径
 /// 用前需按 clock 排序（锚点选择依赖时序），他人路径沿用包序。
-pub(crate) fn build_entity_indexes(
-    packets: &[(u32, f32, &[u8])],
-) -> (St10Index, Prop2Index) {
+pub(crate) fn build_entity_indexes(packets: &[(u32, f32, &[u8])]) -> (St10Index, Prop2Index) {
     let mut st10: HashMap<u32, Vec<St10Sample>> = HashMap::new();
     let mut prop2: HashMap<u32, Vec<(f32, f32, u16)>> = HashMap::new();
     for (t2, clock, p) in packets {
         if *t2 == 10 && p.len() >= 48 {
-            let f = |o: usize| f32::from_le_bytes([p[o], p[o+1], p[o+2], p[o+3]]);
-            st10.entry(u32::from_le_bytes([p[0], p[1], p[2], p[3]])).or_default().push(St10Sample {
-                clock: *clock,
-                pos: [f(12), f(16), f(20)],
-                yaw: f(36), pitch: f(40), roll: f(44),
-                pos_error: [f(24), f(28), f(32)],
-            });
+            let f = |o: usize| f32::from_le_bytes([p[o], p[o + 1], p[o + 2], p[o + 3]]);
+            st10.entry(u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
+                .or_default()
+                .push(St10Sample {
+                    clock: *clock,
+                    pos: [f(12), f(16), f(20)],
+                    yaw: f(36),
+                    pitch: f(40),
+                    roll: f(44),
+                    pos_error: [f(24), f(28), f(32)],
+                });
         }
-        if *t2 == 7 && p.len() >= 14
-            && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 2 {
+        if *t2 == 7 && p.len() >= 14 && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 2 {
             let v = u16::from_le_bytes([p[12], p[13]]);
             let rel = (v >> 6) as f32 / 1024.0 * std::f32::consts::TAU - std::f32::consts::PI;
-            let rel = if rel > std::f32::consts::PI { rel - std::f32::consts::TAU } else { rel };
-            prop2.entry(u32::from_le_bytes([p[0], p[1], p[2], p[3]])).or_default().push((*clock, rel, v & 63));
+            let rel = if rel > std::f32::consts::PI {
+                rel - std::f32::consts::TAU
+            } else {
+                rel
+            };
+            prop2
+                .entry(u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
+                .or_default()
+                .push((*clock, rel, v & 63));
         }
     }
     (st10, prop2)
@@ -58,7 +66,11 @@ pub(crate) fn build_entity_indexes(
 /// （[`DirectHit8::victim_prop2`] / [`LaunchEntry::shooter_prop2`]）消费。
 pub(crate) fn decode_prop2_u16(v: u16) -> (f32, f32) {
     let rel = (v >> 6) as f32 / 1024.0 * std::f32::consts::TAU - std::f32::consts::PI;
-    let rel = if rel > std::f32::consts::PI { rel - std::f32::consts::TAU } else { rel };
+    let rel = if rel > std::f32::consts::PI {
+        rel - std::f32::consts::TAU
+    } else {
+        rel
+    };
     (rel, (v & 63) as f32)
 }
 
@@ -74,7 +86,9 @@ pub(crate) fn timeline_prop2_client(
     to: f32,
     limits: Option<&GunPitchRange>,
 ) -> Vec<(f32, f32)> {
-    if series.is_none() { return Vec::new(); }
+    if series.is_none() {
+        return Vec::new();
+    }
     let mut out = Vec::new();
     let mut dt = from;
     while dt <= to + 1e-4 {
@@ -97,17 +111,14 @@ pub(crate) fn timeline_prop2_client(
 /// - 夹逼 [最后到达 ≤ q, 首个到达 ∈ (q, t]]：yaw 短弧插值（0x1441e00 同款）、
 ///   frac 线性插值——右括号用的是查询前 0.1s 内到达的最新帧（不丢弃）；
 /// - q 超出末关键帧（无 (q, t] 内到达）：**保持末帧**——0x1440C70 的 0.9 限步
-///   外推属实时逐帧渲染语义（每帧 ≤0.9×速度×dt），离线任意时刻查询按第五轮补 3
-///   "clamp 不外推"执行（曾实现为无界外推致 2056 静止段炮塔角错 72°，2026-09-24 修复）；
+///   外推属实时逐帧渲染语义（每帧 ≤0.9×速度×dt），离线任意时刻查询按
+///   "clamp 不外推"执行；
 /// - q 早于首帧：保持首帧；t 前完全无采样（AoI 新进）回退双侧最近初值包。
 ///
 /// 被击时刻姿态不被命中后反应包污染的保证：反应首包到达 > t，永远不进任何括号。
 /// 注意：此为**渲染层**（滑块时间线）语义；判定锚点（炮塔朝向/俯仰取样）用
 /// [`prop2_at_arrived`](...)（最后到达采样，与 WI turret_yaw 同域）。
-pub(crate) fn prop2_at(
-    series: Option<&Vec<(f32, f32, u16)>>,
-    t: f32,
-) -> Option<(f32, f32)> {
+pub(crate) fn prop2_at(series: Option<&Vec<(f32, f32, u16)>>, t: f32) -> Option<(f32, f32)> {
     let list = series?;
     // 序列已按 clock 稳定排序（build_shot_scan_shared 统一排序；协议包序=时钟序，排序后
     // 语义不变）；n = 已到达帧数，m = 到达 ≤ q 的帧数——二分取代线性计数（网格构建
@@ -115,18 +126,27 @@ pub(crate) fn prop2_at(
     let n = list.partition_point(|(c, _, _)| *c <= t);
     if n == 0 {
         // AoI 边界：t 前无采样，回退最近初值包
-        let (_c, y, fr) = list.iter()
-            .min_by(|a, b| (a.0 - t).abs().partial_cmp(&(b.0 - t).abs()).unwrap_or(std::cmp::Ordering::Equal))?;
+        let (_c, y, fr) = list.iter().min_by(|a, b| {
+            (a.0 - t)
+                .abs()
+                .partial_cmp(&(b.0 - t).abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })?;
         return Some((*y, *fr as f32));
     }
     let q = t - 0.1;
     let m = list.partition_point(|(c, _, _)| *c <= q);
-    let lerp = |(_ca, ya, fa): (f32, f32, u16), (_cb, yb, fb): (f32, f32, u16), f: f32| -> (f32, f32) {
-        let mut dy = yb - ya;
-        while dy > std::f32::consts::PI { dy -= std::f32::consts::TAU; }
-        while dy < -std::f32::consts::PI { dy += std::f32::consts::TAU; }
-        (ya + dy * f, fa as f32 + (fb as f32 - fa as f32) * f)
-    };
+    let lerp =
+        |(_ca, ya, fa): (f32, f32, u16), (_cb, yb, fb): (f32, f32, u16), f: f32| -> (f32, f32) {
+            let mut dy = yb - ya;
+            while dy > std::f32::consts::PI {
+                dy -= std::f32::consts::TAU;
+            }
+            while dy < -std::f32::consts::PI {
+                dy += std::f32::consts::TAU;
+            }
+            (ya + dy * f, fa as f32 + (fb as f32 - fa as f32) * f)
+        };
     if m == 0 {
         // q 早于首帧：保持首帧（首帧可能在 (q, t] 内到达——尚未起效）
         let (_, y, fr) = list[0];
@@ -140,16 +160,13 @@ pub(crate) fn prop2_at(
         return Some(lerp(list[m - 1], list[m], f));
     }
     // q 超出末关键帧：保持末帧。离线任意时刻查询不做前瞻外推——0x1440C70 的
-    // 0.9 限步外推属实时逐帧渲染语义（每帧 ≤0.9×速度×dt），离线按第五轮补 3
-    // "滑块模式 clamp 不外推"。曾实现为无界外推 f=0.9×(q−c0)/(c0−cp)：炮塔静止段
-    // 被停止前末两帧角速度外推数十秒（2056 回放命中时刻离末帧 46s，外推系数 ~414，
-    // 炮塔角错 72°，2026-09-24 修复）。
+    // 0.9 限步外推属实时逐帧渲染语义（每帧 ≤0.9×速度×dt），离线按"clamp 不外推"。
     let (_, y, fr) = list[n - 1];
     Some((y, fr as f32))
 }
 
-/// 判定锚点采样（受击方/射手炮塔朝向与炮管俯仰取样，与 WI turret_yaw 同域的
-/// 旧语义）：取 t 时刻**最后已到达**采样，不做客户端渲染滞后的 q 插值——命中
+/// 判定锚点采样（受击方/射手炮塔朝向与炮管俯仰取样，与 WI turret_yaw 同域）：
+/// 取 t 时刻**最后已到达**采样，不做客户端渲染滞后的 q 插值——命中
 /// 判定用服务器广播的最新已知值；t 前无采样（AoI 新进）回退最近初值包。
 pub(crate) fn prop2_at_arrived(
     series: Option<&Vec<(f32, f32, u16)>>,
@@ -161,8 +178,12 @@ pub(crate) fn prop2_at_arrived(
         let (_, y, fr) = list[n - 1];
         return Some((y, fr as f32));
     }
-    let (_c, y, fr) = list.iter()
-        .min_by(|a, b| (a.0 - t).abs().partial_cmp(&(b.0 - t).abs()).unwrap_or(std::cmp::Ordering::Equal))?;
+    let (_c, y, fr) = list.iter().min_by(|a, b| {
+        (a.0 - t)
+            .abs()
+            .partial_cmp(&(b.0 - t).abs())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    })?;
     Some((*y, *fr as f32))
 }
 

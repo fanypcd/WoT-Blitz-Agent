@@ -45,7 +45,7 @@ impl ShellType {
         matches!(self, ShellType::HEAT | ShellType::HE)
     }
     /// 从字符串解析弹种（tanks.pb 原始串：hc/hc_premium=HEAT、ap_cr*/apcr=APCR、ap_premium=AP、he_premium=HE）。
-    #[allow(clippy::should_implement_trait)]   // 语义即 FromStr，但改名会牵动全库调用点，留待后续
+    #[allow(clippy::should_implement_trait)] // 语义即 FromStr，但改名会牵动全库调用点
     pub fn from_str(s: &str) -> Self {
         let s = s.to_lowercase();
         match s.as_str() {
@@ -65,7 +65,10 @@ impl ArmorSection {
     }
     /// 主装甲 Primary（hull/turret/炮盾板）：收集阶段 push 后立即停止。
     pub fn is_primary(&self) -> bool {
-        matches!(self, ArmorSection::Hull | ArmorSection::Turret | ArmorSection::Gun)
+        matches!(
+            self,
+            ArmorSection::Hull | ArmorSection::Turret | ArmorSection::Gun
+        )
     }
     /// BlitzKit 外部模块按 variant 去重（"gun" | "track"），而非逐板 ID；spaced/primary 不参与。
     pub fn module_variant(&self) -> Option<&'static str> {
@@ -170,7 +173,11 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
     let caliber = req.caliber;
     // 装备修正（对齐 BlitzKit resolvePenetrationCoefficient）：Calibrated 穿深 +6%(动能)/+7%，Enhanced Armor 装甲 +4%
     let calib_coeff = if req.calibrated_shells {
-        if shell.is_kinetic() { 1.06 } else { 1.07 }
+        if shell.is_kinetic() {
+            1.06
+        } else {
+            1.07
+        }
     } else {
         1.0
     };
@@ -200,7 +207,8 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
 
     // —— 收集阶段（对齐 blitzkit noDuplicateIntersections）：外部模块按 variant 去重；
     // 非外部逐个 push，push 首个 Primary 后立即 break（其后所有命中都不收集）。
-    let mut seen_variants: std::collections::HashSet<&'static str> = std::collections::HashSet::new();
+    let mut seen_variants: std::collections::HashSet<&'static str> =
+        std::collections::HashSet::new();
     let mut filtered_hits: Vec<&ArmorHit> = Vec::new();
     for ah in &req.hits {
         if ah.section.is_module() {
@@ -230,9 +238,9 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
         };
     }
 
-    let mut remaining_pen = pen; // 剩余穿深
-    let mut total_effective = 0.0f32; // 累计等效厚度
-    let mut layers = Vec::new(); // 每层结果
+    let mut remaining_pen = pen;
+    let mut total_effective = 0.0f32;
+    let mut layers = Vec::new();
     let mut first_armor_angle_deg = -1.0f32;
     let mut first_armor_norm_deg = -1.0f32;
     let mut ricochet = false;
@@ -269,9 +277,8 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
         if ah.section.is_module() {
             eff = thickness;
             if is_he {
-                // HE 弹遇外部模块：永远 blocked，但消耗穿深并继续（算溅射）。
-                // 走公共路径：layer_penetrated=false 时公共路径同样 push（overmatch 本分支恒 false）、
-                // total_effective 累加、HE 的 blocked 层消耗穿深且不 break，输出与专用分支完全一致。
+                // HE 弹遇外部模块：永远 blocked，但消耗穿深并继续（算溅射）；
+                // 走公共路径（push / 累加 / 消耗穿深且不 break），输出与专用分支一致。
                 layer_penetrated = false;
             } else {
                 // blitzkit：减去厚度后 remaining <= 0 即 blocked（严格大于才穿透）
@@ -349,7 +356,6 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
         } else {
             remaining_pen -= eff; // HE 的 blocked 层同样消耗穿深
         }
-
     }
 
     // —— HE 判定 & 溅射伤害（对齐 BlitzKit）—— totalSpaced = 非 Primary 层（外部 flat + 间隙角度等效）等效厚度和；
@@ -364,9 +370,9 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
             .filter(|(h, _)| !h.section.is_primary())
             .map(|(_, l)| l.effective)
             .sum();
-        // blitzkit：lastLayer.thicknessAngled 对 external 层不存在 → NaN → 永不 splash，
-        // 导致 HE 打履带/外部模块时永远 BLOCKED(0 伤害)，与游戏不符(GB109 shot2: HE 打履带掉血 126)。
-        // 修正：外部模块末层按 flat 厚度参与溅射衰减（伤害数值可能仍偏大，游戏对履带吞噬溅射有额外衰减）。
+        // blitzkit 对 external 末层无 thicknessAngled（NaN → 永不 splash，与游戏不符）：
+        // 修正为外部模块末层按 flat 厚度参与溅射衰减（数值可能仍偏大，游戏对履带吞噬
+        // 溅射有额外衰减）。
         let last_eff = layers[layers.len() - 1].effective;
         let dist = dist3(
             filtered_hits[filtered_hits.len() - 1].point,
@@ -456,7 +462,12 @@ mod tests {
     #[test]
     fn track_only_penetration_gives_full_damage() {
         // blitzkit：末层穿透即 penetration + 全额 armor_damage
-        let r = calculate(&req("ap", 100.0, 100.0, vec![hit(ArmorSection::Chassis, 20.0, [0.0; 3])]));
+        let r = calculate(&req(
+            "ap",
+            100.0,
+            100.0,
+            vec![hit(ArmorSection::Chassis, 20.0, [0.0; 3])],
+        ));
         assert_eq!(r.result, "PENETRATION");
         assert_eq!(r.damage, 400.0);
     }
@@ -468,8 +479,17 @@ mod tests {
         h.normal = [0.0, (60f32).to_radians().cos(), (60f32).to_radians().sin()];
         let r = calculate(&req("ap", 35.0, 60.0, vec![h]));
         assert_eq!(r.result, "BLOCKED");
-        assert!((r.layers[0].effective - 40.0).abs() < 0.1, "{}", r.layers[0].effective);
-        let r2 = calculate(&req("ap", 35.0, 60.0, vec![hit(ArmorSection::Gun, 20.0, [0.0; 3])]));
+        assert!(
+            (r.layers[0].effective - 40.0).abs() < 0.1,
+            "{}",
+            r.layers[0].effective
+        );
+        let r2 = calculate(&req(
+            "ap",
+            35.0,
+            60.0,
+            vec![hit(ArmorSection::Gun, 20.0, [0.0; 3])],
+        ));
         assert_eq!(r2.result, "PENETRATION");
     }
 
@@ -487,9 +507,19 @@ mod tests {
     #[test]
     fn boundary_equal_thickness_is_blocked() {
         // blitzkit：remaining_after <= 0 即 blocked（等厚不穿透）
-        let r = calculate(&req("ap", 100.0, 50.0, vec![hit(ArmorSection::Hull, 100.0, [0.0; 3])]));
+        let r = calculate(&req(
+            "ap",
+            100.0,
+            50.0,
+            vec![hit(ArmorSection::Hull, 100.0, [0.0; 3])],
+        ));
         assert_eq!(r.result, "BLOCKED");
-        let r2 = calculate(&req("ap", 100.01, 50.0, vec![hit(ArmorSection::Hull, 100.0, [0.0; 3])]));
+        let r2 = calculate(&req(
+            "ap",
+            100.01,
+            50.0,
+            vec![hit(ArmorSection::Hull, 100.0, [0.0; 3])],
+        ));
         assert_eq!(r2.result, "PENETRATION");
     }
 
@@ -515,11 +545,19 @@ mod tests {
         let mut rq = req("ap", 80.0, 150.0, vec![h.clone()]);
         rq.normalization_deg = Some(5.0);
         let r = calculate(&rq);
-        assert!((r.layers[0].effective - 76.97).abs() < 0.1, "{}", r.layers[0].effective);
+        assert!(
+            (r.layers[0].effective - 76.97).abs() < 0.1,
+            "{}",
+            r.layers[0].effective
+        );
         let mut rq2 = req("ap", 80.0, 60.0, vec![h]);
         rq2.normalization_deg = Some(5.0);
         let r2 = calculate(&rq2);
-        assert!((r2.layers[0].effective - 87.18).abs() < 0.1, "{}", r2.layers[0].effective);
+        assert!(
+            (r2.layers[0].effective - 87.18).abs() < 0.1,
+            "{}",
+            r2.layers[0].effective
+        );
     }
 
     #[test]
@@ -537,9 +575,14 @@ mod tests {
 
     #[test]
     fn he_track_only_splashes_like_game() {
-        // HE 仅命中履带：游戏判有伤害(GB109 shot2 实测掉血 126)。履带 flat 20mm 参与衰减:
+        // HE 仅命中履带：游戏判有伤害。履带 flat 20mm 参与衰减:
         // final = 0.5·100·(1-0/5) - 1.1·(20+min(100,20)) = 50 - 44 = +6 → SPLASH
-        let mut rq = req("he", 100.0, 150.0, vec![hit(ArmorSection::Chassis, 20.0, [0.0; 3])]);
+        let mut rq = req(
+            "he",
+            100.0,
+            150.0,
+            vec![hit(ArmorSection::Chassis, 20.0, [0.0; 3])],
+        );
         rq.explosion_radius = 5.0;
         let r = calculate(&rq);
         assert_eq!(r.result, "SPLASH");
@@ -550,20 +593,35 @@ mod tests {
     fn he_splash_formula_matches_blitzkit() {
         // HE：履带(20mm flat) → 主装甲(100mm, 0°)。
         // totalSpaced = 20；dist = d；final = 0.5·400·(1-d/5) - 1.1·(100 + 20)
-        let mut rq = req("he", 250.0, 150.0, vec![
-            hit(ArmorSection::Chassis, 20.0, [0.0, 0.0, 0.0]),
-            hit(ArmorSection::Hull, 100.0, [0.0, 0.0, 1.0]),
-        ]);
+        let mut rq = req(
+            "he",
+            250.0,
+            150.0,
+            vec![
+                hit(ArmorSection::Chassis, 20.0, [0.0, 0.0, 0.0]),
+                hit(ArmorSection::Hull, 100.0, [0.0, 0.0, 1.0]),
+            ],
+        );
         rq.explosion_radius = 5.0;
         let r = calculate(&rq);
         let expect = 0.5 * 400.0 * (1.0 - 1.0 / 5.0) - 1.1 * (100.0 + 20.0);
         assert_eq!(r.result, "SPLASH");
-        assert!((r.damage - expect).abs() < 1e-3, "{} vs {}", r.damage, expect);
+        assert!(
+            (r.damage - expect).abs() < 1e-3,
+            "{} vs {}",
+            r.damage,
+            expect
+        );
     }
 
     #[test]
     fn he_single_primary_penetration_full_damage() {
-        let mut rq = req("he", 300.0, 150.0, vec![hit(ArmorSection::Hull, 100.0, [0.0; 3])]);
+        let mut rq = req(
+            "he",
+            300.0,
+            150.0,
+            vec![hit(ArmorSection::Hull, 100.0, [0.0; 3])],
+        );
         rq.explosion_radius = 5.0;
         let r = calculate(&rq);
         assert_eq!(r.result, "PENETRATION");
@@ -572,7 +630,12 @@ mod tests {
 
     #[test]
     fn out_ray_without_primary_returns_no_shot() {
-        let mut rq = req("ap", 300.0, 100.0, vec![hit(ArmorSection::Chassis, 20.0, [0.0; 3])]);
+        let mut rq = req(
+            "ap",
+            300.0,
+            100.0,
+            vec![hit(ArmorSection::Chassis, 20.0, [0.0; 3])],
+        );
         rq.allow_ricochet = false;
         let r = calculate(&rq);
         assert_eq!(r.result, "-");
@@ -591,13 +654,28 @@ mod tests {
 
     #[test]
     fn calibrated_shells_coefficient() {
-        let mut rq = req("ap", 100.0, 100.0, vec![hit(ArmorSection::Hull, 105.0, [0.0; 3])]);
+        let mut rq = req(
+            "ap",
+            100.0,
+            100.0,
+            vec![hit(ArmorSection::Hull, 105.0, [0.0; 3])],
+        );
         rq.calibrated_shells = true;
         assert_eq!(r_result(&rq), "PENETRATION"); // 100×1.06 = 106 > 105
-        let mut rq2 = req("heat", 100.0, 100.0, vec![hit(ArmorSection::Hull, 105.0, [0.0; 3])]);
+        let mut rq2 = req(
+            "heat",
+            100.0,
+            100.0,
+            vec![hit(ArmorSection::Hull, 105.0, [0.0; 3])],
+        );
         rq2.calibrated_shells = true;
         assert_eq!(r_result(&rq2), "PENETRATION"); // 100×1.07 = 107 > 105
-        let mut rq3 = req("heat", 100.0, 100.0, vec![hit(ArmorSection::Hull, 108.0, [0.0; 3])]);
+        let mut rq3 = req(
+            "heat",
+            100.0,
+            100.0,
+            vec![hit(ArmorSection::Hull, 108.0, [0.0; 3])],
+        );
         rq3.calibrated_shells = true;
         assert_eq!(r_result(&rq3), "BLOCKED"); // 107 < 108
     }

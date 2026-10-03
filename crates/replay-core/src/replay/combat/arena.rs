@@ -10,25 +10,42 @@ pub const ARENA_UPDATE_METHOD: u32 = 48;
 /// 子类型名（二进制名字表逐项导出；10=former_teamkills 为原表小写原名）
 pub fn arena_subtype_name(id: u32) -> &'static str {
     match id {
-        1 => "VEHICLE_LIST", 2 => "VEHICLE_ADDED", 3 => "PERIOD",
-        4 => "STATISTICS", 5 => "VEHICLE_STATISTICS", 6 => "VEHICLE_KILLED",
-        7 => "AVATAR_READY", 8 => "BASE_POINTS", 9 => "BASE_CAPTURED",
-        10 => "former_teamkills", 11 => "VEHICLE_UPDATED", 12 => "STRATEGIC_POINT_STATUS",
-        13 => "WIN_POINTS", 14 => "PLAYER_NAME", 15 => "RELOAD_TIME",
-        16 => "OBSERVED_STATUS", 17 => "RELOAD_TIME_LIST", 18 => "GAME_MODE_DATA",
-        19 => "VEHICLE_WAIT_RESPAWN", 20 => "VEHICLE_RESURRECT", 21 => "TEAM_RESPAWNS_LEFT",
-        22 => "VAMPIRIC_CURSE", 23 => "BATTLE_HINTS_INFO", 24 => "BOSSMODE_INFO",
-        25 => "TOTAL_GAME_MODE_INFO", 26 => "TIER_EQUALIZER_DATA", 27 => "UNKNOWN_TYPE",
+        1 => "VEHICLE_LIST",
+        2 => "VEHICLE_ADDED",
+        3 => "PERIOD",
+        4 => "STATISTICS",
+        5 => "VEHICLE_STATISTICS",
+        6 => "VEHICLE_KILLED",
+        7 => "AVATAR_READY",
+        8 => "BASE_POINTS",
+        9 => "BASE_CAPTURED",
+        10 => "former_teamkills",
+        11 => "VEHICLE_UPDATED",
+        12 => "STRATEGIC_POINT_STATUS",
+        13 => "WIN_POINTS",
+        14 => "PLAYER_NAME",
+        15 => "RELOAD_TIME",
+        16 => "OBSERVED_STATUS",
+        17 => "RELOAD_TIME_LIST",
+        18 => "GAME_MODE_DATA",
+        19 => "VEHICLE_WAIT_RESPAWN",
+        20 => "VEHICLE_RESURRECT",
+        21 => "TEAM_RESPAWNS_LEFT",
+        22 => "VAMPIRIC_CURSE",
+        23 => "BATTLE_HINTS_INFO",
+        24 => "BOSSMODE_INFO",
+        25 => "TOTAL_GAME_MODE_INFO",
+        26 => "TIER_EQUALIZER_DATA",
+        27 => "UNKNOWN_TYPE",
         _ => "UNKNOWN",
     }
 }
 
 /// 一条 updateArena 更新（子类型 + 原始消息体；字段级解码按子类型另行解析）。
-/// args 布局 = [subtype u8][len u8][protobuf]（len = 其后字节数，实测逐条吻合）。
+/// args 布局 = [subtype u8][len u8][protobuf]（len = 其后字节数）。
 ///
-/// 载荷以原始字节存储（收集零转换，消费方 kill_feed/periods/comps 直接读字节，
-/// 不再"编码 hex 再解码回字节"往返）；JSON 契约保持旧 `payload_hex` hex 字符串字段
-/// （序列化时惰性编码，仅诊断导出付一次 hex 成本）。
+/// 载荷以原始字节存储（收集零转换，消费方 kill_feed/periods/comps 直接读字节）；
+/// JSON 契约的 `payload_hex` hex 字符串字段在序列化时惰性编码。
 #[derive(Debug, Clone)]
 pub struct ArenaUpdate {
     pub clock: f32,
@@ -86,12 +103,20 @@ pub fn collect_arena_updates_filtered(
 ) -> Vec<ArenaUpdate> {
     let mut out = Vec::new();
     for (_t, clock, p) in packets {
-        if p.len() < 15 { continue; }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != ARENA_UPDATE_METHOD { continue; }
+        if p.len() < 15 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != ARENA_UPDATE_METHOD {
+            continue;
+        }
         let alen = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if 12 + alen > p.len() || alen < 2 { continue; }
+        if 12 + alen > p.len() || alen < 2 {
+            continue;
+        }
         let subtype = p[12] as u32;
-        if !keep_subtype(subtype) { continue; }
+        if !keep_subtype(subtype) {
+            continue;
+        }
         out.push(ArenaUpdate {
             clock: *clock,
             subtype,
@@ -130,9 +155,16 @@ const MATERIALIZATION_HP_OFFSET: usize = 51;
 
 /// Type5 物化快照的原始 HP（仅战斗车辆且载荷足长）
 fn materialization_hp_raw(p: &[u8]) -> Option<u16> {
-    if p.len() < MATERIALIZATION_HP_OFFSET + 2 { return None; }
-    if u16::from_le_bytes([p[4], p[5]]) != ENTITY_TYPE_COMBAT_VEHICLE { return None; }
-    Some(u16::from_le_bytes([p[MATERIALIZATION_HP_OFFSET], p[MATERIALIZATION_HP_OFFSET + 1]]))
+    if p.len() < MATERIALIZATION_HP_OFFSET + 2 {
+        return None;
+    }
+    if u16::from_le_bytes([p[4], p[5]]) != ENTITY_TYPE_COMBAT_VEHICLE {
+        return None;
+    }
+    Some(u16::from_le_bytes([
+        p[MATERIALIZATION_HP_OFFSET],
+        p[MATERIALIZATION_HP_OFFSET + 1],
+    ]))
 }
 
 /// 收集 AoI 在场区段：Type33 与 Type5 一一配对（3,869:3,869，间隔 0.046~1.207s）取 Type5
@@ -143,10 +175,14 @@ pub fn collect_aoi_lifecycle(packets: &[(u32, f32, &[u8])]) -> Vec<AoiPresence> 
     let mut open: std::collections::HashMap<u32, (f32, Option<u16>)> = Default::default();
     let mut out: Vec<AoiPresence> = Vec::new();
     for (ptype, clock, p) in packets {
-        if p.len() < 4 { continue; }   // Type17 等零长/短包无 eid 头（payloadLen==0 合法）
+        if p.len() < 4 {
+            continue;
+        } // Type17 等零长/短包无 eid 头（payloadLen==0 合法）
         let eid = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
         match *ptype {
-            33 => { pending33.insert(eid); }
+            33 => {
+                pending33.insert(eid);
+            }
             5 => {
                 if pending33.remove(&eid) && !open.contains_key(&eid) {
                     open.insert(eid, (*clock, materialization_hp_raw(p)));
@@ -154,7 +190,12 @@ pub fn collect_aoi_lifecycle(packets: &[(u32, f32, &[u8])]) -> Vec<AoiPresence> 
             }
             4 => {
                 if let Some((t_in, hp_raw)) = open.remove(&eid) {
-                    out.push(AoiPresence { eid, t_in, t_out: Some(*clock), hp_raw });
+                    out.push(AoiPresence {
+                        eid,
+                        t_in,
+                        t_out: Some(*clock),
+                        hp_raw,
+                    });
                 }
                 pending33.remove(&eid);
             }
@@ -162,7 +203,12 @@ pub fn collect_aoi_lifecycle(packets: &[(u32, f32, &[u8])]) -> Vec<AoiPresence> 
         }
     }
     for (eid, (t_in, hp_raw)) in open {
-        out.push(AoiPresence { eid, t_in, t_out: None, hp_raw });
+        out.push(AoiPresence {
+            eid,
+            t_in,
+            t_out: None,
+            hp_raw,
+        });
     }
     out.sort_by(|a, b| a.eid.cmp(&b.eid).then(a.t_in.partial_cmp(&b.t_in).unwrap()));
     out
@@ -216,7 +262,9 @@ pub mod hit_flags_mod {
 pub fn collect_type39_frames(packets: &[(u32, f32, &[u8])]) -> Vec<Type39Frame> {
     let mut out = Vec::new();
     for (_t, clock, p) in packets {
-        if *_t != 39 || p.len() < 28 { continue; }
+        if *_t != 39 || p.len() < 28 {
+            continue;
+        }
         let f = |o: usize| f32::from_le_bytes([p[o], p[o + 1], p[o + 2], p[o + 3]]);
         out.push(Type39Frame {
             clock: *clock,
@@ -261,18 +309,28 @@ pub fn collect_kill_feed(packets: &[(u32, f32, &[u8])]) -> Vec<KillFeedEvent> {
 pub fn kill_feed_from_updates(updates: &[ArenaUpdate]) -> Vec<KillFeedEvent> {
     let mut out = Vec::new();
     for u in updates {
-        if u.subtype != 6 { continue; }
+        if u.subtype != 6 {
+            continue;
+        }
         let bytes = &u.payload;
-        let Some(record) = find_field(bytes, 6) else { continue };
+        let Some(record) = find_field(bytes, 6) else {
+            continue;
+        };
         let mut o = 0usize;
         let (mut victim, mut killer) = (0u32, 0u32);
         let (mut assister, mut reason) = (None, None);
         let mut ok = true;
         while o < record.len() {
-            let Some(key) = pb_varint(record, &mut o) else { ok = false; break };
+            let Some(key) = pb_varint(record, &mut o) else {
+                ok = false;
+                break;
+            };
             let (field, wt) = (key >> 3, key & 7);
             if wt == 0 {
-                let Some(v) = pb_varint(record, &mut o) else { ok = false; break };
+                let Some(v) = pb_varint(record, &mut o) else {
+                    ok = false;
+                    break;
+                };
                 match field {
                     1 => victim = v as u32,
                     2 => killer = v as u32,
@@ -289,18 +347,27 @@ pub fn kill_feed_from_updates(updates: &[ArenaUpdate]) -> Vec<KillFeedEvent> {
                 };
                 match skip {
                     Some(n) if o + n <= record.len() => o += n,
-                    _ => { ok = false; break }
+                    _ => {
+                        ok = false;
+                        break;
+                    }
                 }
             }
         }
         if ok && victim != 0 {
-            out.push(KillFeedEvent { clock: u.clock, victim_eid: victim, killer_eid: killer, assister_eid: assister, death_reason: reason });
+            out.push(KillFeedEvent {
+                clock: u.clock,
+                victim_eid: victim,
+                killer_eid: killer,
+                assister_eid: assister,
+                death_reason: reason,
+            });
         }
     }
     out
 }
 
-// ---------- 0x0c 战斗反馈计数（作者 Avatar method12；主文档 §3.10【已破解→使用中】） ----------
+// ---------- 0x0c 战斗反馈计数（作者 Avatar method12；《回放与射击逆向总集》第一篇 §3.10【使用中】） ----------
 
 /// 0x0c 事件码（baseType，WotbTools PROVEN）；未列出的码原样透传，不猜语义。
 pub mod feedback_code {
@@ -315,10 +382,9 @@ pub mod feedback_code {
 /// 一条战斗反馈计数事件：作者个人过程计数的带时标广播。
 /// args 6B = [eventCode u16][count u16][value u16]（envelope = 作者 Avatar 实体）。
 /// eventCode 为复合编码：低字节 = 事件基类型（1=累计伤害 2=点亮 3=击杀 5=挡伤
-/// 15=毁灭协助 17=总助攻），高字节 = 同类型内序号——2026-09-29 Canal 场互验确认
-/// （4 击杀事件 seq 0..3 与结算 n_enemies_destroyed=4 全对账；此前整 u16 直判
-/// 导致 seq≠0 的事件漏计，已修）。
-/// count/value 的逐项口径仍以互验报告为准，对不上保持原样透传，不猜语义。
+/// 15=毁灭协助 17=总助攻），高字节 = 同类型内序号（同类型多事件靠 seq 区分，
+/// 不可整 u16 直判事件类型）。
+/// count/value 的逐项口径以 facets 结算互验为准，对不上保持原样透传，不猜语义。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedbackCounterEvent {
     pub clock: f32,
@@ -337,10 +403,16 @@ pub struct FeedbackCounterEvent {
 pub fn collect_feedback_counters(packets: &[(u32, f32, &[u8])]) -> Vec<FeedbackCounterEvent> {
     let mut out = Vec::new();
     for (_, clock, p) in packets {
-        if p.len() < 12 + 6 { continue; }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x0C { continue; }
+        if p.len() < 12 + 6 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x0C {
+            continue;
+        }
         let alen = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if alen < 6 || 12 + alen > p.len() { continue; }
+        if alen < 6 || 12 + alen > p.len() {
+            continue;
+        }
         let a = &p[12..12 + alen];
         let raw_code = u16::from_le_bytes([a[0], a[1]]);
         out.push(FeedbackCounterEvent {
@@ -357,8 +429,7 @@ pub fn collect_feedback_counters(packets: &[(u32, f32, &[u8])]) -> Vec<FeedbackC
 
 /// PERIOD (subtype=3) 解析结果：战局阶段时间线
 /// 消息体 = protobuf field3 嵌套 { field1 varint: period, field2 fixed64: 阶段剩余秒, field3 varint: 阶段时长 }
-/// 实测 J39：period 1=准备(60s) → 2=倒计时(7s) → 3=战斗(duration=420s)；
-/// 剩余秒与包时刻互洽（t=0.17 时准备期剩 59.4s）
+/// 实测 J39：period 1=准备 → 2=倒计时 → 3=战斗；剩余秒与包时刻互洽
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArenaPeriod {
     pub clock: f32,
@@ -372,15 +443,25 @@ pub struct ArenaPeriod {
 pub fn parse_arena_periods(updates: &[ArenaUpdate]) -> Vec<ArenaPeriod> {
     let mut out = Vec::new();
     for u in updates {
-        if u.subtype != 3 { continue; }
+        if u.subtype != 3 {
+            continue;
+        }
         let b = &u.payload[..];
         // 顶层 field3 (tag 0x1a) 长度前缀嵌套
-        let nested = match find_field(b, 3) { Some(n) => n, None => continue };
+        let nested = match find_field(b, 3) {
+            Some(n) => n,
+            None => continue,
+        };
         let period = read_varint(nested, 1);
         let remaining = read_fixed64(nested, 2);
         let duration = read_varint(nested, 3);
         if let (Some(period), Some(remaining)) = (period, remaining) {
-            out.push(ArenaPeriod { clock: u.clock, period, remaining_s: remaining, duration_s: duration.unwrap_or(0) });
+            out.push(ArenaPeriod {
+                clock: u.clock,
+                period,
+                remaining_s: remaining,
+                duration_s: duration.unwrap_or(0),
+            });
         }
     }
     out
@@ -403,7 +484,11 @@ mod arena_tests {
         assert_eq!(periods.len(), 1);
         let p = &periods[0];
         assert_eq!(p.period, 3);
-        assert!((p.remaining_s - 420.0).abs() < 1e-9, "remaining={}", p.remaining_s);
+        assert!(
+            (p.remaining_s - 420.0).abs() < 1e-9,
+            "remaining={}",
+            p.remaining_s
+        );
         assert_eq!(p.duration_s, 420);
     }
 
@@ -434,9 +519,8 @@ mod arena_tests {
         let ok = mk(0x0C, &[2, 0, 5, 0, 3, 0]);
         let other = mk(0x01, &[1, 0, 2, 0, 3, 0, 0]);
         let truncated = mk(0x0C, &[2, 0, 5]);
-        let packets: Vec<(u32, f32, &[u8])> = vec![
-            (8, 10.0, &ok), (8, 11.0, &other), (8, 12.0, &truncated),
-        ];
+        let packets: Vec<(u32, f32, &[u8])> =
+            vec![(8, 10.0, &ok), (8, 11.0, &other), (8, 12.0, &truncated)];
         let ev = collect_feedback_counters(&packets);
         assert_eq!(ev.len(), 1, "只应收录合法 0x0c 包");
         assert_eq!(ev[0].avatar_eid, 0x5A);
@@ -450,14 +534,14 @@ mod arena_tests {
 // ---------- Supremacy（争霸）目标状态：subtype48 wrapper12/root11（WotbTools PROVEN 移植） ----------
 //
 // 来源与 provenance：WotbTools `EntityMethodDecoder.parseRawSupremacyBaseUpdates` +
-// `SupremacyBaseStateReconstructor`（5 场真实回放交叉验证；docs/research/replay/supremacy-base-state.md）。
+// `SupremacyBaseStateReconstructor`（docs/research/replay/supremacy-base-state.md）。
 // 数据链：Type 8 EntityMethod → subtype 48（updateArena2）→ wrapper field 12 → root field 11
 // → repeated base 块；嵌套字段 field1=base index(0..3=A..D)、field2=owner team、field3=capturing
 // team、field4=capture progress、field5/6=UNKNOWN 原样透传（禁命名）。
 // 语义红线：wire 块是 SPARSE UPDATE——absent 字段=维持前值；显式 0=清空；不推断、不外推。
 
 pub const WRAPPER_SUPREMACY_BASE: u32 = 12;
-/// 实时点数广播（WotbTools PROVEN：5 场 185/161/69/204/201 事件交叉验证；仅二次校验用，
+/// 实时点数广播（WotbTools PROVEN；仅二次校验用，
 /// 不得由点数反推基地归属）
 pub const WRAPPER_SUPREMACY_POINTS: u32 = 13;
 
@@ -474,7 +558,10 @@ fn decode_update_arena2(args: &[u8]) -> Option<(u32, &[u8])> {
         if off + 4 > args.len() {
             return None;
         }
-        (u16::from_le_bytes([args[off + 1], args[off + 2]]) as usize, off + 4)
+        (
+            u16::from_le_bytes([args[off + 1], args[off + 2]]) as usize,
+            off + 4,
+        )
     } else {
         (first, off + 1)
     };
@@ -507,11 +594,11 @@ impl RawSupremacyBaseUpdate {
     /// 全缺省行（除 base_index 外**没有任何**字段）= 显式清空该基地。
     ///
     /// 服务端按 proto3 语义**省略零值字段**：整个基地状态回到全零（无主/无占领方/进度 0）
-    /// 时，wire 上就是一条只带 base_index 的块。实测该形态只出现在两类时刻——开局的状态
+    /// 时，wire 上就是一条只带 base_index 的块。该形态只出现在两类时刻——开局的状态
     /// 广播，与**占领中断**（占领车辆出圈/被击毁，进度作废）；进度进行中从不出现。
     /// 详见 `reconstruct_supremacy_base_states` 的注释与契约文档。
     ///
-    /// 未知字段（f5/f6）带值时**不**判为清空：其语义未证实，缺省语义保持旧的"维持前值"
+    /// 未知字段（f5/f6）带值时**不**判为清空：其语义未证实，缺省语义 = "维持前值"
     /// （fail-closed，不拿未证实证据改状态）。
     fn is_blank(&self) -> bool {
         self.owner_team.is_none()
@@ -537,28 +624,57 @@ pub struct SupremacyBaseStateTransition {
 
 /// 收集 wrapper12/root11 sparse 基地更新。校验（Java 同式）：base_index 0..=3、
 /// owner/capturing ∈ {0,1,2}、progress 0..=99；不合法块整体跳过，绝不产出部分状态。
-pub fn collect_supremacy_base_updates(packets: &[(u32, f32, &[u8])]) -> Vec<RawSupremacyBaseUpdate> {
+pub fn collect_supremacy_base_updates(
+    packets: &[(u32, f32, &[u8])],
+) -> Vec<RawSupremacyBaseUpdate> {
     let mut out = Vec::new();
     for (_t, clock, p) in packets {
-        if p.len() < 15 { continue; }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != ARENA_UPDATE_METHOD { continue; }
+        if p.len() < 15 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != ARENA_UPDATE_METHOD {
+            continue;
+        }
         let alen = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if 12 + alen > p.len() || alen < 2 { continue; }
-        let Some((wrapper, root)) = decode_update_arena2(&p[12..12 + alen]) else { continue };
-        if wrapper != WRAPPER_SUPREMACY_BASE { continue; }
-        let Some(fields) = proto_fields(root) else { continue };
+        if 12 + alen > p.len() || alen < 2 {
+            continue;
+        }
+        let Some((wrapper, root)) = decode_update_arena2(&p[12..12 + alen]) else {
+            continue;
+        };
+        if wrapper != WRAPPER_SUPREMACY_BASE {
+            continue;
+        }
+        let Some(fields) = proto_fields(root) else {
+            continue;
+        };
         for (f, wire, s, len) in fields {
-            if f != 11 || wire != 2 { continue; }
+            if f != 11 || wire != 2 {
+                continue;
+            }
             let block = &root[s..s + len];
-            let Some(bf) = proto_fields(block) else { continue };
+            let Some(bf) = proto_fields(block) else {
+                continue;
+            };
             let mut u = RawSupremacyBaseUpdate {
-                clock: *clock, base_index: None, owner_team: None,
-                capturing_team: None, capture_progress: None, raw_field5: None, raw_field6: None,
+                clock: *clock,
+                base_index: None,
+                owner_team: None,
+                capturing_team: None,
+                capture_progress: None,
+                raw_field5: None,
+                raw_field6: None,
             };
             for (n, w, vs, _vl) in bf {
-                if w != 0 { continue; }
-                let Some(mut vo) = (vs <= block.len()).then_some(vs) else { continue };
-                let Some(v) = pb_varint(block, &mut vo) else { continue };
+                if w != 0 {
+                    continue;
+                }
+                let Some(mut vo) = (vs <= block.len()).then_some(vs) else {
+                    continue;
+                };
+                let Some(v) = pb_varint(block, &mut vo) else {
+                    continue;
+                };
                 match n {
                     1 => u.base_index = Some(v as u8),
                     2 => u.owner_team = Some(v as u8),
@@ -572,7 +688,11 @@ pub fn collect_supremacy_base_updates(packets: &[(u32, f32, &[u8])]) -> Vec<RawS
             let valid_base = u.base_index.is_none_or(|b| b <= 3);
             let valid_team = |t: Option<u8>| t.is_none_or(|x| x <= 2);
             let valid_progress = u.capture_progress.is_none_or(|x| x <= 99);
-            if !valid_base || !valid_team(u.owner_team) || !valid_team(u.capturing_team) || !valid_progress {
+            if !valid_base
+                || !valid_team(u.owner_team)
+                || !valid_team(u.capturing_team)
+                || !valid_progress
+            {
                 continue;
             }
             out.push(u);
@@ -584,19 +704,22 @@ pub fn collect_supremacy_base_updates(packets: &[(u32, f32, &[u8])]) -> Vec<RawS
 /// sparse 更新 → canonical 状态时间线（Java `SupremacyBaseStateReconstructor` 逐行移植）：
 /// absent = 维持前值；显式 0 = 清空（owner/capturing）；显式 capturing 清空连带清 progress；
 /// 占领中 owner 变更 = 完成/作废该次占领（capturing 与 progress 一并清空）。
-/// **全缺省行 = 清空整个基地状态**（2026-10-03 契约补正，见下）。
+/// **全缺省行 = 清空整个基地状态**（契约见下）。
 /// 排序 = clock 升序稳定排序（同 clock 保包序 = Java 的 sequence 序，同源包流）。
 ///
 /// **全缺省行为何是"清空"**：服务端按 proto3 省略零值字段，故"占领中断（车辆出圈/被击毁，
-/// 进度作废）"落在 wire 上是一条只带 base_index、其余字段全缺省的块。移植版把"字段缺省"
-/// 一律当"维持前值"，于是这条块成了空操作 → 旧进度与旧占领方**永久**挂在基地上（前端
-/// 表现为：车辆出圈后进度条不归零，直到下一次占领把它覆盖）。
-/// 实测（20260930_2127 争霸样本，134 行）：全缺省行共 7 条 = 开局广播 3+3 条（状态本就是
-/// 全空，与清空同义）+ 基地 C 在 t=107.01 的**出圈中断**（17% 起算，4.5s 后重新从 0 开始，
-/// 中断时刻恰是该行）；进度进行中零出现。带未知字段（f5/f6）的块不按清空处理，见
+/// 进度作废）"落在 wire 上是一条只带 base_index、其余字段全缺省的块——若把"字段缺省"
+/// 一律当"维持前值"，该块即空操作，旧进度与旧占领方**永久**挂在基地上。
+/// 带未知字段（f5/f6）的块不按清空处理，见
 /// [`RawSupremacyBaseUpdate::is_blank`]。
-pub fn reconstruct_supremacy_base_states(mut raw: Vec<RawSupremacyBaseUpdate>) -> Vec<SupremacyBaseStateTransition> {
-    raw.sort_by(|a, b| a.clock.partial_cmp(&b.clock).unwrap_or(std::cmp::Ordering::Equal));
+pub fn reconstruct_supremacy_base_states(
+    mut raw: Vec<RawSupremacyBaseUpdate>,
+) -> Vec<SupremacyBaseStateTransition> {
+    raw.sort_by(|a, b| {
+        a.clock
+            .partial_cmp(&b.clock)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     #[derive(Clone, Copy, Default)]
     struct State {
         owner: Option<u8>,
@@ -608,7 +731,9 @@ pub fn reconstruct_supremacy_base_states(mut raw: Vec<RawSupremacyBaseUpdate>) -
     for u in raw {
         // canonical 边界唯一补缺省处：absent field1 → wire default 0 = A（Java 同式）
         let idx = u.base_index.unwrap_or(0) as usize;
-        if idx >= 4 { continue; }
+        if idx >= 4 {
+            continue;
+        }
         let st = &mut states[idx];
         if u.is_blank() {
             // 全零状态的整体广播：三个字段一起回到零值语义，不保留任何前值
@@ -649,9 +774,8 @@ pub fn reconstruct_supremacy_base_states(mut raw: Vec<RawSupremacyBaseUpdate>) -
 // ---------- 攻防战单基地实时状态：subtype48 wrapper8/root8（WotbTools PROVEN 移植） ----------
 //
 // 来源与 provenance：WotbTools `docs/research/replay/assault-base-state.md` +
-// `AssaultBaseStateReconstructor`（11.20 国服两场受控回放：Neptune 完整占领 / Malinovka 未占领）。
-// **Assault 不复用 Supremacy 的 wrapper12**（受控回放实测 wrapper8=296、wrapper12=0），
-// 故两种模式的承载天然互斥。
+// `AssaultBaseStateReconstructor`。
+// **Assault 不复用 Supremacy 的 wrapper12**——两种模式的承载天然互斥。
 //
 // 数据链：Type 8 EntityMethod → subtype 48（updateArena2）→ wrapper field 8 → root field 8
 // → repeated 单基地更新；嵌套 field1/field2 为**原始判别子（语义 UNKNOWN）**、
@@ -686,25 +810,50 @@ pub struct AssaultBaseStateTransition {
 pub fn collect_assault_base_updates(packets: &[(u32, f32, &[u8])]) -> Vec<RawAssaultBaseUpdate> {
     let mut out = Vec::new();
     for (_t, clock, p) in packets {
-        if p.len() < 15 { continue; }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != ARENA_UPDATE_METHOD { continue; }
+        if p.len() < 15 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != ARENA_UPDATE_METHOD {
+            continue;
+        }
         let alen = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if 12 + alen > p.len() || alen < 2 { continue; }
-        let Some((wrapper, root)) = decode_update_arena2(&p[12..12 + alen]) else { continue };
-        if wrapper != WRAPPER_ASSAULT_BASE { continue; }
-        let Some(fields) = proto_fields(root) else { continue };
+        if 12 + alen > p.len() || alen < 2 {
+            continue;
+        }
+        let Some((wrapper, root)) = decode_update_arena2(&p[12..12 + alen]) else {
+            continue;
+        };
+        if wrapper != WRAPPER_ASSAULT_BASE {
+            continue;
+        }
+        let Some(fields) = proto_fields(root) else {
+            continue;
+        };
         for (f, wire, st, len) in fields {
-            if f != 8 || wire != 2 { continue; }
+            if f != 8 || wire != 2 {
+                continue;
+            }
             let block = &root[st..st + len];
-            let Some(bf) = proto_fields(block) else { continue };
+            let Some(bf) = proto_fields(block) else {
+                continue;
+            };
             let mut u = RawAssaultBaseUpdate {
-                clock: *clock, raw_field1: None, raw_field2: None,
-                raw_field3: None, raw_field4: None,
+                clock: *clock,
+                raw_field1: None,
+                raw_field2: None,
+                raw_field3: None,
+                raw_field4: None,
             };
             for (n, w, vs, _vl) in bf {
-                if w != 0 { continue; }
-                let Some(mut vo) = (vs <= block.len()).then_some(vs) else { continue };
-                let Some(v) = pb_varint(block, &mut vo) else { continue };
+                if w != 0 {
+                    continue;
+                }
+                let Some(mut vo) = (vs <= block.len()).then_some(vs) else {
+                    continue;
+                };
+                let Some(v) = pb_varint(block, &mut vo) else {
+                    continue;
+                };
                 match n {
                     1 => u.raw_field1 = Some(v),
                     2 => u.raw_field2 = Some(v),
@@ -726,44 +875,44 @@ pub fn collect_assault_base_updates(packets: &[(u32, f32, &[u8])]) -> Vec<RawAss
 /// - `field3`/`field4` **双缺省** → 进度归零（见下）；
 /// - 仅携带 `field4`（标志流，占领进行中与进度块同包成对）→ 非进度样本，跳过。
 ///
-/// **双缺省块 = 进度归零（2026-10-03 契约补正）。** 服务端按 proto3 省略零值字段，
-/// 故"占领中断（车辆出圈/被击毁，进度作废）"落在 wire 上是一对只带 field1/field2 的块。
-/// 旧实现要求 `field3` 存在 → 整块丢弃 → 时间线停在最后一个正值，前端进度条**永久卡住**
-/// （车辆出圈不重置，与争霸侧同源缺陷）。
-/// 实测四份真实回放：进度序列 `1,2,3…` 之后，中断时刻**必然**跟一对双缺省块
-/// （XM551 三处 / J20 四处 / J39 一处 / 争霸样本 7 条全缺省行），进度进行中零出现。
+/// **双缺省块 = 进度归零。** 服务端按 proto3 省略零值字段，"占领中断（车辆出圈/被击毁，
+/// 进度作废）"落在 wire 上是一对只带 field1/field2 的块；进度进行中从不出现该形态。
+/// 若要求 `field3` 存在会把中断块整块丢弃，时间线停在最后一个正值（进度条永久卡住）。
 ///
 /// **只在"确有进度被清掉"时产出归零行**（上一条已产出行进度 > 0）：普通对局也发的裸
-/// 初始化对同样是双缺省块，若一律合成 0 事件，会让 `assault_bases` 恒非空 → 旧产物
-/// （无 `assault_objective_present`）的存在性回退判据误判成"有目标"（见
-/// [`has_assault_objective`]）。同一时刻的重复块由该条件天然去重（清空后进度已为 0）。
+/// 初始化对同样是双缺省块，若一律合成 0 事件，会让 `assault_bases` 恒非空 → 存在性
+/// 回退判据误判成"有目标"（见 [`has_assault_objective`]）。
+/// 同一时刻的重复块由该条件天然去重（清空后进度已为 0）。
 ///
-/// **`field1` 不做族过滤（契约修正，2026-10-01）。** WotbTools 早期受控样本
-/// （Neptune，11.20 国服）里进度恰好全部由 `field1=2` 承载，故 `assault-base-state.md`
-/// 把 `field1==2` 当作进度族判别子。三份独立真实回放证明那是采样假象——携带
-/// `field3` 的族会在 `field1=1`/`field1=2` 之间切换：
-///
-/// | 样本 | 携带 field3 的族 | `field1==2` 门槛后果 |
-/// |---|---|---|
-/// | Yukon（重力模式） | 1 与 2 交替 | 丢 16/24（67%）事件 |
-/// | Winter Malinovka（重力模式） | 仅 2 | 无害 |
-/// | Naval Frontier（遭遇战） | **仅 1** | **丢全部 → 时间线为空** |
-///
-/// 故 `field1` 是"哪一方的进度"（owner/占领方；精确语义仍未闭合，保持 raw 不命名），
+/// **`field1` 不做族过滤。** 携带 `field3` 的族会在 `field1=1`/`field1=2` 之间切换
+/// （按模式不同可能仅 1、仅 2 或交替）——以 `field1==2` 为进度族判别子会整段丢事件。
+/// `field1` 是"哪一方的进度"（owner/占领方；精确语义仍未闭合，保持 raw 不命名），
 /// 不是"是否进度族"。同一时刻恰有一族携带 `field3`、另一族携带常量 `field4=1`。
 /// 遭遇战（Encounter）与攻防战共用该载体：遭遇战无 wrapper12，进度同样走 wrapper8。
-pub fn reconstruct_assault_base_states(mut raw: Vec<RawAssaultBaseUpdate>) -> Vec<AssaultBaseStateTransition> {
+pub fn reconstruct_assault_base_states(
+    mut raw: Vec<RawAssaultBaseUpdate>,
+) -> Vec<AssaultBaseStateTransition> {
     raw.retain(|u| matches!(u.raw_field1, Some(1) | Some(2)) && u.raw_field2 == Some(1));
-    raw.sort_by(|a, b| a.clock.partial_cmp(&b.clock).unwrap_or(std::cmp::Ordering::Equal));
+    raw.sort_by(|a, b| {
+        a.clock
+            .partial_cmp(&b.clock)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let mut out: Vec<AssaultBaseStateTransition> = Vec::with_capacity(raw.len());
     for u in raw {
         match u.raw_field3 {
-            // 进度样本：0..=100 入选；越界（>100）剔除（原有行为）
-            Some(v) if v <= 100 => out.push(AssaultBaseStateTransition { clock: u.clock, progress: v as u8 }),
+            // 进度样本：0..=100 入选；越界（>100）剔除
+            Some(v) if v <= 100 => out.push(AssaultBaseStateTransition {
+                clock: u.clock,
+                progress: v as u8,
+            }),
             Some(_) => {}
             // 双缺省块 = 归零；只在"确有进度被清掉"时产出行（见上文）
             None if u.raw_field4.is_none() && out.last().is_some_and(|s| s.progress > 0) => {
-                out.push(AssaultBaseStateTransition { clock: u.clock, progress: 0 });
+                out.push(AssaultBaseStateTransition {
+                    clock: u.clock,
+                    progress: 0,
+                });
             }
             // 其余：仅 field4 标志流（非进度样本），或无可清之物的双缺省块
             None => {}
@@ -772,39 +921,25 @@ pub fn reconstruct_assault_base_states(mut raw: Vec<RawAssaultBaseUpdate>) -> Ve
     out
 }
 
-/// 单基地目标存在性（与"是否已有占领进度"无关）：目标族（`field2==1`）发出过
-/// **目标族**（`field2==1`、`field1 ∈ {1,2}`）在回放里出现过即真——**不要求有进度**。
-/// 用途：让"攻防战/遭遇战但全程无人占领"的场次仍能画出目标圈，而不是只能等第一条进度广播。
-/// 与争霸互斥由调用侧保证。
+/// 单基地目标存在性（与"是否已有占领进度"无关）：目标族（`field2==1`、
+/// `field1 ∈ {1,2}`）在回放里出现过即真——**不要求有进度**，裸初始化对（双方各一条
+/// 目标记录、无其它字段）也算目标存在。用途：让"攻防战/遭遇战但全程无人占领"的
+/// 场次仍能画出目标圈。与争霸互斥由调用侧保证。
 ///
-/// **2026-10-03 判定修正（实现对齐契约）。** 此前实现额外要求"出现过 `field3` 或 `field4`"
-/// （即比裸初始化对多一个字段），依据是 62 份样本里 8 份只发裸初始化对（Regular 的 Canal、
-/// TrainingRoom 的 Copperfield/Himmelsdorf、Any 的 Mayan Ruins 等），当时把这 8 份读成
-/// "普通对局也发这一对"→ 判存在会过判。**该读法被证伪**：
-/// - `PlaybackData.assault_objective_present` 的字段契约自始写的是"目标族出现即真，
-///   不要求有进度"——实现比契约更严，属实现偏差；
-/// - 用户侧实测（10v10、`arena_bonus_type=45`、Mayan Ruins）：该模式**有目标**，但全场
-///   只发那一对裸初始化包（`f1=1,f2=1` + `f1=2,f2=1`，无 `f3`/`f4`）——即"目标系统已建立、
-///   全程未发生占领"的形态，被旧判据整场压掉、目标圈完全不画；
-/// - 一并修正对那 8 份的读法：`f1=1,f2=1` + `f1=2,f2=1` 是**双方各自的目标记录初始化**
-///   （两方各一条、无其它字段），更自然的解释是"该场存在目标系统、当前无人占领"，
-///   而不是"通用广播"。判存在后它们会显示一个 idle 目标圈（无水位），
-///   与"确有目标但未占领"的呈现一致。
-///
-/// 代价与回归口子：若将来证明确有**无目标**的场次也发这一对，phantom 圈会出现在那些场次上——
-/// 届时应改回"需超出初始化对的证据"，并以该反例样本为准（见
+/// 代价与回归口子：若将来证明确有**无目标**的场次也发这一对，phantom 圈会出现在
+/// 那些场次上——届时应改回"需超出初始化对的证据"（见
 /// `docs/replay-contract-v2-supremacy-type39.md`）。
 ///
 /// 与 WotbTools Java `hasObjective`（`field1==2 && field2==1`）的差异：本判据覆盖两族
-/// （`field1 ∈ {1,2}`），因为携带目标记录的族会在 1/2 之间切换（三份真实回放实测）。
+/// （`field1 ∈ {1,2}`），因为携带目标记录的族会在 1/2 之间切换。
 pub fn has_assault_objective(raw: &[RawAssaultBaseUpdate]) -> bool {
-    raw.iter().any(|u| matches!(u.raw_field1, Some(1) | Some(2)) && u.raw_field2 == Some(1))
+    raw.iter()
+        .any(|u| matches!(u.raw_field1, Some(1) | Some(2)) && u.raw_field2 == Some(1))
 }
 
 // ---------- 实时装填相位（subtype 15 RELOAD_TIME / 17 RELOAD_TIME_LIST）----------
 //
-// 线格式（探针 `src/bin/probe_arena_reload.rs` 实测，与作者专属 0x0d/0x23 逐位同构交叉验证）：
-// args = [subtype u8][len u8][protobuf]；protobuf 里 wrapper field14（sub15）/ field16（sub17）
+// 线格式：args = [subtype u8][len u8][protobuf]；protobuf 里 wrapper field14（sub15）/ field16（sub17）
 // → repeated field1 → 条目 { f1=eid varint, f2=相位码 varint, f3=fixed32 f32 秒, f4=计数 varint }。
 //
 // 语义边界（只消费已验证者）：f2=3 装填开始（f3 = 本次相位时长）、f2=4 装填中途时长变更
@@ -812,16 +947,15 @@ pub fn has_assault_objective(raw: &[RawAssaultBaseUpdate]) -> bool {
 // f2 其余取值、f4 其余计数**语义未闭环**（研究只闭环 f4=1）→ 原样透传、不赋语义。
 //
 // 覆盖范围（协议广播范围，非实现缺口）：**仅本方全队**，敌方无该流。
-// 可行性：`起点 + 时长` 预测就绪 n=409、误差中位 −0.012s；本方 325 发中 317 发（97.5%）在
-// ±0.5s 内有相位起点。推送是**相位转移驱动**（非固定采样）→ 天然适合驱动进度条。
+// 推送是**相位转移驱动**（非固定采样）→ 天然适合驱动进度条。
 pub const ARENA_SUB_RELOAD_TIME: u32 = 15;
-/// 装填**时长更新**（= 引擎里的 `ReloadTimeUpdate`；实测 140 包 vs 我们 v2=4 相位 145 条）
+/// 装填**时长更新**（= 引擎里的 `ReloadTimeUpdate`；与装填相位流无关）
 pub const ARENA_SUB_RELOAD_TIME_UPDATE: u32 = 16;
 pub const ARENA_SUB_RELOAD_TIME_LIST: u32 = 17;
 
 /// 权威"当前生效完整装填时长"（方法 0x23/35 的实体字段流；载荷 = [.. ][eid u32][f32 秒]）。
-/// 实测值 8.805 / 7.526 / 7.867 / 8.189 秒 —— 与文档 B4「method35 float1 = 当前生效完整装填
-/// 配置时长（肾上腺素/弹药架/装填手联动，非倒计时）」一致，可用于校准/替换相位推断。
+/// 语义 = method35 float1 当前生效完整装填配置时长（肾上腺素/弹药架/装填手联动，非倒计时），
+/// 可用于校准/替换相位推断。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawReloadDuration {
     pub clock: f32,
@@ -845,32 +979,38 @@ pub fn reload_durations_from_packets(packets: &[(u32, f32, &[u8])]) -> Vec<RawRe
         if !dur.is_finite() || dur <= 0.0 || dur > 600.0 {
             continue;
         }
-        out.push(RawReloadDuration { clock: *clock, eid, duration_s: dur });
+        out.push(RawReloadDuration {
+            clock: *clock,
+            eid,
+            duration_s: dur,
+        });
     }
-    out.sort_by(|a, b| a.clock.partial_cmp(&b.clock).unwrap_or(std::cmp::Ordering::Equal));
+    out.sort_by(|a, b| {
+        a.clock
+            .partial_cmp(&b.clock)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     out
 }
-/// 装填相位码（f2）全表——2026-10-02 定稿（真值来源：真实回放 + 客户端 item_defs/UI 交叉验证）。
+/// 装填相位码（f2）全表（真值来源：真实回放 + 客户端 item_defs/UI 交叉验证）。
 ///
 /// | f2 | 语义 | f3 | f4 |
 /// |----|------|----|----|
-/// | 1 | 剩余弹数更新（与同车开火同刻，16/16 对齐） | 无 | 剩余发数 |
+/// | 1 | 剩余弹数更新（与同车开火同刻） | 无 | 剩余发数 |
 /// | 3 | 整夹重装开始 | 整夹时长 | 剩余发数快照（0） |
 /// | 4 | 中途时长变更（肾上腺素/弹药架）——**f3 = 新的完整有效时长**，不是倒计时 | 新完整时长 | 剩余发数快照 |
 /// | 5 | 就绪 / 取消 | 无 | **1 = 就绪标志，不是剩余发数** |
 /// | 6 | 弹鼓逐发补槽（真装填一发） | 该槽位时长 | 剩余发数快照 |
 /// | 7 | 夹内推弹上膛（**不补弹**，只是下一发进膛的间隔） | 该间隔时长 | 剩余发数快照 |
-/// | 8 | **语义未定**（禁猜）：样本 11 条，**全部来自 tank 21793「Sheridan Missile」**（单发炮，`burst_size=0`），
-///     无 f3/f4，且 11/11 紧随其后 0.5~3.2 s 出现该车 f2=3 整炮重装 | 无 | 无 |
+/// | 8 | **语义未定**（禁猜）：仅见 tank 21793「Sheridan Missile」（单发炮，`burst_size=0`），
+///     无 f3/f4，紧随其后出现该车 f2=3 整炮重装 | 无 | 无 |
 ///
-/// **除 f2=5 外，f4 = 该事件时刻的服务器剩余弹数快照**（63 车三方互验：与客户端
-/// item_defs `<clip><count>`、BlitzKit `burst_size` 一致）。样本实测相位码分布（9 场 527 条）：
-/// `{1:16, 3:251, 4:74, 5:77, 6:47, 7:62, 8:11}`——**2 未出现**；8 见上（渲染侧不解释，
-/// 现实现因 `isUsablePhase` 不含 8、且其 count 为空，天然被忽略）。
-/// subtype 16 是引擎 `ReloadTimeUpdate`（与装填完成/开火零相关），原样透传、不赋语义。
+/// **除 f2=5 外，f4 = 该事件时刻的服务器剩余弹数快照**（与客户端
+/// item_defs `<clip><count>`、BlitzKit `burst_size` 三方一致）。**f2=2 未观测**；8 见上
+/// （渲染侧不解释）。subtype 16 是引擎 `ReloadTimeUpdate`（与装填完成/开火零相关），
+/// 原样透传、不赋语义。
 ///
-/// f2=**剩余弹数更新**（无时长；f4 = 弹夹/弹鼓剩余发数。实测 16/16 条与同车开火同刻，
-/// 且 max(f4)+1 == 客户端 burst_size）
+/// f2=**剩余弹数更新**（无时长；f4 = 弹夹/弹鼓剩余发数，与同车开火同刻）
 pub const RELOAD_PHASE_AMMO_COUNT: u8 = 1;
 /// f2=装填开始（f3 = 本次相位时长）
 pub const RELOAD_PHASE_START: u8 = 3;
@@ -907,40 +1047,80 @@ pub fn reload_phases_from_updates(updates: &[ArenaUpdate]) -> Vec<RawReloadPhase
         {
             continue;
         }
-        // 包装层字段号 = subtype − 1（sub15→field14、sub17→field16 实测；sub16→field15 由同族推得，
-        // 解析结果在真实样本上自洽）。与 subtype 同值的 updateArena2 族不同。
+        // 包装层字段号 = subtype − 1（sub15→field14、sub17→field16；sub16→field15 由同族推得）。
+        // 与 subtype 同值的 updateArena2 族不同。
         let wrap_no: u32 = u.subtype - 1;
-        let Some(fields) = proto_fields(&u.payload) else { continue };
+        let Some(fields) = proto_fields(&u.payload) else {
+            continue;
+        };
         for (f, wire, st, len) in fields {
-            if f != wrap_no || wire != 2 { continue; }
-            let Some(end) = st.checked_add(len).filter(|e| *e <= u.payload.len()) else { continue };
+            if f != wrap_no || wire != 2 {
+                continue;
+            }
+            let Some(end) = st.checked_add(len).filter(|e| *e <= u.payload.len()) else {
+                continue;
+            };
             let wrap = &u.payload[st..end];
-            let Some(blocks) = proto_fields(wrap) else { continue };
+            let Some(blocks) = proto_fields(wrap) else {
+                continue;
+            };
             for (bf, bwire, bst, blen) in blocks {
-                if bf != 1 || bwire != 2 { continue; }
-                let Some(bend) = bst.checked_add(blen).filter(|e| *e <= wrap.len()) else { continue };
+                if bf != 1 || bwire != 2 {
+                    continue;
+                }
+                let Some(bend) = bst.checked_add(blen).filter(|e| *e <= wrap.len()) else {
+                    continue;
+                };
                 let sub = &wrap[bst..bend];
-                let Some(ef) = proto_fields(sub) else { continue };
+                let Some(ef) = proto_fields(sub) else {
+                    continue;
+                };
                 let (mut eid, mut phase, mut dur, mut count) = (None, None, None, None);
                 for (n, w, vs, _vl) in ef {
                     match (n, w) {
-                        (1, 0) => { let mut o = vs; eid = pb_varint(sub, &mut o).map(|v| v as u32); }
-                        (2, 0) => { let mut o = vs; phase = pb_varint(sub, &mut o).map(|v| v as u8); }
+                        (1, 0) => {
+                            let mut o = vs;
+                            eid = pb_varint(sub, &mut o).map(|v| v as u32);
+                        }
+                        (2, 0) => {
+                            let mut o = vs;
+                            phase = pb_varint(sub, &mut o).map(|v| v as u8);
+                        }
                         (3, 5) => {
                             if vs + 4 <= sub.len() {
-                                dur = Some(f32::from_le_bytes([sub[vs], sub[vs + 1], sub[vs + 2], sub[vs + 3]]));
+                                dur = Some(f32::from_le_bytes([
+                                    sub[vs],
+                                    sub[vs + 1],
+                                    sub[vs + 2],
+                                    sub[vs + 3],
+                                ]));
                             }
                         }
-                        (4, 0) => { let mut o = vs; count = pb_varint(sub, &mut o); }
+                        (4, 0) => {
+                            let mut o = vs;
+                            count = pb_varint(sub, &mut o);
+                        }
                         _ => {}
                     }
                 }
-                let (Some(eid), Some(phase)) = (eid, phase) else { continue };
-                out.push(RawReloadPhase { clock: u.clock, eid, phase, duration_s: dur, count });
+                let (Some(eid), Some(phase)) = (eid, phase) else {
+                    continue;
+                };
+                out.push(RawReloadPhase {
+                    clock: u.clock,
+                    eid,
+                    phase,
+                    duration_s: dur,
+                    count,
+                });
             }
         }
     }
-    out.sort_by(|a, b| a.clock.partial_cmp(&b.clock).unwrap_or(std::cmp::Ordering::Equal));
+    out.sort_by(|a, b| {
+        a.clock
+            .partial_cmp(&b.clock)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     out
 }
 
@@ -957,33 +1137,65 @@ pub struct SupremacyPointsSample {
 pub fn collect_supremacy_points(packets: &[(u32, f32, &[u8])]) -> Vec<SupremacyPointsSample> {
     let mut out = Vec::new();
     for (_t, clock, p) in packets {
-        if p.len() < 15 { continue; }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != ARENA_UPDATE_METHOD { continue; }
+        if p.len() < 15 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != ARENA_UPDATE_METHOD {
+            continue;
+        }
         let alen = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if 12 + alen > p.len() || alen < 2 { continue; }
-        let Some((wrapper, root)) = decode_update_arena2(&p[12..12 + alen]) else { continue };
-        if wrapper != WRAPPER_SUPREMACY_POINTS { continue; }
-        let Some(fields) = proto_fields(root) else { continue };
+        if 12 + alen > p.len() || alen < 2 {
+            continue;
+        }
+        let Some((wrapper, root)) = decode_update_arena2(&p[12..12 + alen]) else {
+            continue;
+        };
+        if wrapper != WRAPPER_SUPREMACY_POINTS {
+            continue;
+        }
+        let Some(fields) = proto_fields(root) else {
+            continue;
+        };
         for (f, wire, s, len) in fields {
-            if f != 12 || wire != 2 { continue; }
+            if f != 12 || wire != 2 {
+                continue;
+            }
             let block = &root[s..s + len];
-            let Some(bf) = proto_fields(block) else { continue };
+            let Some(bf) = proto_fields(block) else {
+                continue;
+            };
             let mut team = None;
             let mut points = None;
             for (n, w, vs, _vl) in bf {
-                if w != 0 { continue; }
-                let Some(mut vo) = (vs <= block.len()).then_some(vs) else { continue };
-                let Some(v) = pb_varint(block, &mut vo) else { continue };
+                if w != 0 {
+                    continue;
+                }
+                let Some(mut vo) = (vs <= block.len()).then_some(vs) else {
+                    continue;
+                };
+                let Some(v) = pb_varint(block, &mut vo) else {
+                    continue;
+                };
                 match n {
                     1 => team = Some(v as u8),
                     2 => points = Some(v as u32),
                     _ => {}
                 }
             }
-            let (Some(team), Some(points)) = (team, points) else { continue };
-            if team != 1 && team != 2 { continue; }
-            if points > 100_000 { continue; }
-            out.push(SupremacyPointsSample { clock: *clock, team, points });
+            let (Some(team), Some(points)) = (team, points) else {
+                continue;
+            };
+            if team != 1 && team != 2 {
+                continue;
+            }
+            if points > 100_000 {
+                continue;
+            }
+            out.push(SupremacyPointsSample {
+                clock: *clock,
+                team,
+                points,
+            });
         }
     }
     out
@@ -999,7 +1211,10 @@ mod supremacy_tests {
         loop {
             let b = (v & 0x7f) as u8;
             v >>= 7;
-            if v == 0 { out.push(b); break; }
+            if v == 0 {
+                out.push(b);
+                break;
+            }
             out.push(b | 0x80);
         }
         out
@@ -1039,10 +1254,16 @@ mod supremacy_tests {
 
     #[test]
     fn base_sparse_updates_reconstruct_with_java_semantics() {
-        let k1 = mk48(12, &root_blocks(11, &[varint_block(&[(1, 0), (2, 1), (3, 2), (4, 40)])]));
+        let k1 = mk48(
+            12,
+            &root_blocks(11, &[varint_block(&[(1, 0), (2, 1), (3, 2), (4, 40)])]),
+        );
         let k2 = mk48(12, &root_blocks(11, &[varint_block(&[(1, 1), (2, 2)])]));
         let k3 = mk48(12, &root_blocks(11, &[varint_block(&[(1, 0), (3, 0)])]));
-        let k4 = mk48(12, &root_blocks(11, &[varint_block(&[(1, 0), (2, 2), (3, 1), (4, 10)])]));
+        let k4 = mk48(
+            12,
+            &root_blocks(11, &[varint_block(&[(1, 0), (2, 2), (3, 1), (4, 10)])]),
+        );
         let k5 = mk48(12, &root_blocks(11, &[varint_block(&[(1, 0), (2, 1)])]));
         let packets: Vec<(u32, f32, &[u8])> = vec![
             // A：满字段 owner=1 capturing=2 progress=40
@@ -1060,17 +1281,30 @@ mod supremacy_tests {
         assert_eq!(raw.len(), 5, "5 条 sparse 更新全部收集");
         let t = reconstruct_supremacy_base_states(raw);
         assert_eq!(t.len(), 5);
-        assert_eq!((t[0].base_id, t[0].owner_team, t[0].capturing_team, t[0].capture_progress),
-                   (0, Some(1), Some(2), Some(40)));
+        assert_eq!(
+            (
+                t[0].base_id,
+                t[0].owner_team,
+                t[0].capturing_team,
+                t[0].capture_progress
+            ),
+            (0, Some(1), Some(2), Some(40))
+        );
         assert_eq!((t[1].base_id, t[1].owner_team), (1, Some(2)));
         // capturing 显式清空 → progress 连带清空
-        assert_eq!((t[2].owner_team, t[2].capturing_team, t[2].capture_progress),
-                   (Some(1), None, None));
-        assert_eq!((t[3].owner_team, t[3].capturing_team, t[3].capture_progress),
-                   (Some(2), Some(1), Some(10)));
+        assert_eq!(
+            (t[2].owner_team, t[2].capturing_team, t[2].capture_progress),
+            (Some(1), None, None)
+        );
+        assert_eq!(
+            (t[3].owner_team, t[3].capturing_team, t[3].capture_progress),
+            (Some(2), Some(1), Some(10))
+        );
         // owner 再变更且占领中 → capturing/progress 清空
-        assert_eq!((t[4].owner_team, t[4].capturing_team, t[4].capture_progress),
-                   (Some(1), None, None));
+        assert_eq!(
+            (t[4].owner_team, t[4].capturing_team, t[4].capture_progress),
+            (Some(1), None, None)
+        );
     }
 
     #[test]
@@ -1092,27 +1326,42 @@ mod supremacy_tests {
     #[test]
     fn blank_row_clears_base_on_capture_abort() {
         // 车辆出圈（占领中断）：服务端发只有 base_index 的全缺省行——owner/capturing/progress
-        // 同为 0 → proto3 省略全部字段。旧语义（缺省=维持前值）让它成为空操作，
-        // 17% 与占领方永久挂在基地上（真样本 20260930_2127 基地 C t=107.01 即此形态）。
-        let cap = mk48(12, &root_blocks(11, &[varint_block(&[(1, 0), (3, 2), (4, 17)])]));
+        // 同为 0 → proto3 省略全部字段；若按"缺省=维持前值"即空操作，
+        // 进度与占领方永久挂在基地上。
+        let cap = mk48(
+            12,
+            &root_blocks(11, &[varint_block(&[(1, 0), (3, 2), (4, 17)])]),
+        );
         let blank = mk48(12, &root_blocks(11, &[varint_block(&[(1, 0)])]));
         let packets: Vec<(u32, f32, &[u8])> = vec![(8, 10.0, &cap), (8, 20.0, &blank)];
         let t = reconstruct_supremacy_base_states(collect_supremacy_base_updates(&packets));
         assert_eq!(t.len(), 2);
-        assert_eq!((t[0].capturing_team, t[0].capture_progress), (Some(2), Some(17)));
-        assert_eq!((t[1].owner_team, t[1].capturing_team, t[1].capture_progress), (None, None, None),
-                   "全缺省行必须清空占领方与进度（出圈重置）");
+        assert_eq!(
+            (t[0].capturing_team, t[0].capture_progress),
+            (Some(2), Some(17))
+        );
+        assert_eq!(
+            (t[1].owner_team, t[1].capturing_team, t[1].capture_progress),
+            (None, None, None),
+            "全缺省行必须清空占领方与进度（出圈重置）"
+        );
     }
 
     #[test]
     fn blank_row_with_unknown_fields_keeps_previous_state() {
         // 带未知字段（f5）的块语义未证实 → 不按清空处理（fail-closed：不拿未证实证据改状态）
-        let cap = mk48(12, &root_blocks(11, &[varint_block(&[(1, 0), (3, 2), (4, 17)])]));
+        let cap = mk48(
+            12,
+            &root_blocks(11, &[varint_block(&[(1, 0), (3, 2), (4, 17)])]),
+        );
         let with_f5 = mk48(12, &root_blocks(11, &[varint_block(&[(1, 0), (5, 7)])]));
         let packets: Vec<(u32, f32, &[u8])> = vec![(8, 10.0, &cap), (8, 20.0, &with_f5)];
         let t = reconstruct_supremacy_base_states(collect_supremacy_base_updates(&packets));
-        assert_eq!((t[1].capturing_team, t[1].capture_progress), (Some(2), Some(17)),
-                   "未知字段在场：维持前值");
+        assert_eq!(
+            (t[1].capturing_team, t[1].capture_progress),
+            (Some(2), Some(17)),
+            "未知字段在场：维持前值"
+        );
     }
 
     #[test]
@@ -1123,22 +1372,37 @@ mod supremacy_tests {
         assert!(collect_supremacy_base_updates(&roster_shaped).is_empty());
         assert!(collect_supremacy_points(&roster_shaped).is_empty());
         // 不合法块整体跳过：progress=100 越界、team=3 非法
-        let badp = mk48(12, &root_blocks(11, &[
-            varint_block(&[(1, 0), (4, 100)]),
-            varint_block(&[(1, 1), (2, 3)]),
-        ]));
+        let badp = mk48(
+            12,
+            &root_blocks(
+                11,
+                &[
+                    varint_block(&[(1, 0), (4, 100)]),
+                    varint_block(&[(1, 1), (2, 3)]),
+                ],
+            ),
+        );
         let bad: Vec<(u32, f32, &[u8])> = vec![(8, 10.0, &badp)];
-        assert!(collect_supremacy_base_updates(&bad).is_empty(), "不合法块绝不产出部分状态");
+        assert!(
+            collect_supremacy_base_updates(&bad).is_empty(),
+            "不合法块绝不产出部分状态"
+        );
     }
 
     #[test]
     fn points_samples_with_gate_and_multi_byte_varint() {
         // points=300 需要多字节 varint；team=3 拒绝；wrapper 门禁
-        let pt = mk48(13, &root_blocks(12, &[
-            varint_block(&[(1, 1), (2, 300)]),
-            varint_block(&[(1, 2), (2, 95)]),
-            varint_block(&[(1, 3), (2, 10)]),
-        ]));
+        let pt = mk48(
+            13,
+            &root_blocks(
+                12,
+                &[
+                    varint_block(&[(1, 1), (2, 300)]),
+                    varint_block(&[(1, 2), (2, 95)]),
+                    varint_block(&[(1, 3), (2, 10)]),
+                ],
+            ),
+        );
         let pw = mk48(12, &root_blocks(12, &[varint_block(&[(1, 1), (2, 50)])]));
         let packets: Vec<(u32, f32, &[u8])> = vec![
             (8, 10.0, &pt),
@@ -1161,7 +1425,10 @@ mod assault_tests {
         loop {
             let b = (v & 0x7f) as u8;
             v >>= 7;
-            if v == 0 { out.push(b); break; }
+            if v == 0 {
+                out.push(b);
+                break;
+            }
             out.push(b | 0x80);
         }
         out
@@ -1198,38 +1465,78 @@ mod assault_tests {
     #[test]
     fn assault_progress_family_filtered_and_ordered() {
         // field1=2 族（PROVEN）：progress 递增
-        let k1 = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (3, 5)])]));
-        let k2 = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (3, 42)])]));
-        // field1=1 族**携带 field3**：也是进度（三份真实回放证明载体在两族间切换）——
+        let k1 = mk48a(
+            8,
+            &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (3, 5)])]),
+        );
+        let k2 = mk48a(
+            8,
+            &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (3, 42)])]),
+        );
+        // field1=1 族**携带 field3**：也是进度（载体在两族间切换）——
         // 只有裸 field4 的兄弟族才是"非进度"
-        let f1 = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 1), (2, 1), (3, 9)])]));
-        let other = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 1), (2, 1), (4, 7)])]));
+        let f1 = mk48a(
+            8,
+            &root_blocks(8, &[varint_block(&[(1, 1), (2, 1), (3, 9)])]),
+        );
+        let other = mk48a(
+            8,
+            &root_blocks(8, &[varint_block(&[(1, 1), (2, 1), (4, 7)])]),
+        );
         // 越界进度（101）：剔除
-        let bad = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (3, 101)])]));
+        let bad = mk48a(
+            8,
+            &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (3, 101)])]),
+        );
         let packets: Vec<(u32, f32, &[u8])> = vec![
-            (8, 20.0, &k2), (8, 10.0, &k1), (8, 12.0, &f1), (8, 15.0, &other), (8, 30.0, &bad),
+            (8, 20.0, &k2),
+            (8, 10.0, &k1),
+            (8, 12.0, &f1),
+            (8, 15.0, &other),
+            (8, 30.0, &bad),
         ];
         let raw = collect_assault_base_updates(&packets);
         assert_eq!(raw.len(), 5, "五块全部收集（含非判定族）");
         let tl = reconstruct_assault_base_states(raw);
-        assert_eq!(tl.len(), 3, "两族带 field3 者 + 越界剔除 + 裸 field4 族不计");
+        assert_eq!(
+            tl.len(),
+            3,
+            "两族带 field3 者 + 越界剔除 + 裸 field4 族不计"
+        );
         assert_eq!((tl[0].clock, tl[0].progress), (10.0, 5), "按 clock 升序");
-        assert_eq!((tl[1].clock, tl[1].progress), (12.0, 9), "field1=1 携带的进度同样入选");
+        assert_eq!(
+            (tl[1].clock, tl[1].progress),
+            (12.0, 9),
+            "field1=1 携带的进度同样入选"
+        );
         assert_eq!((tl[2].clock, tl[2].progress), (20.0, 42));
     }
 
     #[test]
     fn assault_progress_under_field1_one_only() {
-        // 遭遇战回归（Naval Frontier 真实样本）：进度**只**由 field1=1 族承载，
-        // field1=2 族只有常量 field4=1。旧判据 field1==2 会得到空时间线 → 前端无环可画。
+        // 遭遇战回归：进度**只**由 field1=1 族承载，
+        // field1=2 族只有常量 field4=1——按 field1==2 判族会得到空时间线。
         let init_a = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1)])]));
         let init_b = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 1), (2, 1)])]));
-        let flag = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (4, 1)])]));
-        let p1 = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 1), (2, 1), (3, 1)])]));
-        let p2 = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 1), (2, 1), (3, 19)])]));
+        let flag = mk48a(
+            8,
+            &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (4, 1)])]),
+        );
+        let p1 = mk48a(
+            8,
+            &root_blocks(8, &[varint_block(&[(1, 1), (2, 1), (3, 1)])]),
+        );
+        let p2 = mk48a(
+            8,
+            &root_blocks(8, &[varint_block(&[(1, 1), (2, 1), (3, 19)])]),
+        );
         let packets: Vec<(u32, f32, &[u8])> = vec![
-            (8, 1.0, &init_a), (8, 1.0, &init_b), (8, 2.0, &flag),
-            (8, 3.0, &p1), (8, 4.0, &p2), (8, 5.0, &flag),
+            (8, 1.0, &init_a),
+            (8, 1.0, &init_b),
+            (8, 2.0, &flag),
+            (8, 3.0, &p1),
+            (8, 4.0, &p2),
+            (8, 5.0, &flag),
         ];
         let tl = reconstruct_assault_base_states(collect_assault_base_updates(&packets));
         assert_eq!(tl.len(), 2, "只由 field1=1 承载时仍须产出进度");
@@ -1239,9 +1546,8 @@ mod assault_tests {
 
     #[test]
     fn assault_blank_pair_resets_progress_on_capture_abort() {
-        // 占领中断（车辆出圈）：进度序列后必然跟一对双缺省块（f3/f4 同为零 → proto3 省略）。
-        // 旧实现按"f3 存在"过滤 → 整块丢弃 → 时间线停在最后一个正值，前端进度条永久卡住。
-        // 形态取自 J39 真样本：252.15(1) 253.17(2) 254.18(3) 255.15(4) → 255.65 双缺省对。
+        // 占领中断（车辆出圈）：进度序列后必然跟一对双缺省块（f3/f4 同为零 → proto3 省略）；
+        // 若按"f3 存在"过滤会整块丢弃，时间线停在最后一个正值。
         let mk = |t: &[(u32, u64)]| mk48a(8, &root_blocks(8, &[varint_block(t)]));
         let p1 = mk(&[(1, 2), (2, 1), (3, 3)]);
         let p2 = mk(&[(1, 2), (2, 1), (3, 4)]);
@@ -1249,8 +1555,10 @@ mod assault_tests {
         let clr_b = mk(&[(1, 1), (2, 1)]);
         let restart = mk(&[(1, 2), (2, 1), (3, 1)]);
         let packets: Vec<(u32, f32, &[u8])> = vec![
-            (8, 10.0, &p1), (8, 11.0, &p2),
-            (8, 12.0, &clr_a), (8, 12.0, &clr_b),   // 同刻一对：只产出一条归零
+            (8, 10.0, &p1),
+            (8, 11.0, &p2),
+            (8, 12.0, &clr_a),
+            (8, 12.0, &clr_b), // 同刻一对：只产出一条归零
             (8, 20.0, &restart),
         ];
         let tl = reconstruct_assault_base_states(collect_assault_base_updates(&packets));
@@ -1264,9 +1572,18 @@ mod assault_tests {
     #[test]
     fn assault_flag_only_row_is_not_a_reset() {
         // 只有 field4 标志流的块（占领进行中与进度块同包成对的兄弟族）不得当重置
-        let flag = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 1), (2, 1), (4, 1)])]));
-        let p1 = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (3, 6)])]));
-        let p2 = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (3, 19)])]));
+        let flag = mk48a(
+            8,
+            &root_blocks(8, &[varint_block(&[(1, 1), (2, 1), (4, 1)])]),
+        );
+        let p1 = mk48a(
+            8,
+            &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (3, 6)])]),
+        );
+        let p2 = mk48a(
+            8,
+            &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (3, 19)])]),
+        );
         let packets: Vec<(u32, f32, &[u8])> = vec![(8, 1.0, &p1), (8, 2.0, &flag), (8, 3.0, &p2)];
         let tl = reconstruct_assault_base_states(collect_assault_base_updates(&packets));
         assert_eq!(
@@ -1279,42 +1596,65 @@ mod assault_tests {
     #[test]
     fn assault_blank_row_without_prior_progress_emits_nothing() {
         // 开局全缺省块（裸初始化对）**只清"确有进度"者**：普通对局也发这一对，
-        // 若合成 0 事件会让 assault_bases 恒非空 → 旧产物存在性回退判据误判成有目标。
+        // 若合成 0 事件会让 assault_bases 恒非空 → 存在性回退判据误判成有目标。
         let blank_a = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1)])]));
         let blank_b = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 1), (2, 1)])]));
-        let only_init: Vec<(u32, f32, &[u8])> = vec![(8, 1.0, &blank_a), (8, 1.0, &blank_b), (8, 9.0, &blank_a)];
-        assert!(reconstruct_assault_base_states(collect_assault_base_updates(&only_init)).is_empty(),
-                "无进度在先：全缺省块不产出任何行");
+        let only_init: Vec<(u32, f32, &[u8])> =
+            vec![(8, 1.0, &blank_a), (8, 1.0, &blank_b), (8, 9.0, &blank_a)];
+        assert!(
+            reconstruct_assault_base_states(collect_assault_base_updates(&only_init)).is_empty(),
+            "无进度在先：全缺省块不产出任何行"
+        );
         // 进度归零后再来全缺省块：不重复产出 0
-        let p = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (3, 2)])]));
-        let packets: Vec<(u32, f32, &[u8])> = vec![(8, 1.0, &p), (8, 2.0, &blank_a), (8, 3.0, &blank_b)];
+        let p = mk48a(
+            8,
+            &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (3, 2)])]),
+        );
+        let packets: Vec<(u32, f32, &[u8])> =
+            vec![(8, 1.0, &p), (8, 2.0, &blank_a), (8, 3.0, &blank_b)];
         let tl = reconstruct_assault_base_states(collect_assault_base_updates(&packets));
-        assert_eq!(tl.iter().map(|s| (s.clock, s.progress)).collect::<Vec<_>>(), vec![(1.0, 2), (2.0, 0)],
-                   "归零只产出一条（第二块见进度已为 0 不再产出行）");
+        assert_eq!(
+            tl.iter().map(|s| (s.clock, s.progress)).collect::<Vec<_>>(),
+            vec![(1.0, 2), (2.0, 0)],
+            "归零只产出一条（第二块见进度已为 0 不再产出行）"
+        );
     }
 
     #[test]
     fn assault_objective_present_at_family_init() {
-        // 裸初始化对（双方各一条目标记录）→ **即算目标存在**（2026-10-03 判定修正：
-        // 实现对齐字段契约「目标族出现即真，不要求有进度」；真实反例＝10v10 的 Mayan Ruins
-        // 有目标但全场只发这一对，旧判据把整个目标圈压掉）
+        // 裸初始化对（双方各一条目标记录）→ **即算目标存在**（字段契约「目标族出现即真，
+        // 不要求有进度」——有目标但全场只发这一对的场次，按进度判存在会把目标圈整场压掉）
         let init_a = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1)])]));
         let init_b = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 1), (2, 1)])]));
         let p0: Vec<(u32, f32, &[u8])> = vec![(8, 1.0, &init_a), (8, 2.0, &init_b)];
         let raw0 = collect_assault_base_updates(&p0);
-        assert!(has_assault_objective(&raw0), "目标族出现过即目标存在（无进度要求）");
-        assert!(reconstruct_assault_base_states(raw0).is_empty(),
-                "存在性不合成进度事件：时间线仍空 → 显示层画 idle 目标圈（无水位）");
+        assert!(
+            has_assault_objective(&raw0),
+            "目标族出现过即目标存在（无进度要求）"
+        );
+        assert!(
+            reconstruct_assault_base_states(raw0).is_empty(),
+            "存在性不合成进度事件：时间线仍空 → 显示层画 idle 目标圈（无水位）"
+        );
 
         // 出现 field4 标志流（目标系统活跃）但尚无进度 → 目标存在、时间线仍空
-        let flag = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (4, 1)])]));
+        let flag = mk48a(
+            8,
+            &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (4, 1)])]),
+        );
         let p1: Vec<(u32, f32, &[u8])> = vec![(8, 1.0, &init_a), (8, 2.0, &flag)];
         let raw1 = collect_assault_base_updates(&p1);
         assert!(has_assault_objective(&raw1), "有 field4 标志流即目标存在");
-        assert!(reconstruct_assault_base_states(raw1).is_empty(), "但仍无进度事件");
+        assert!(
+            reconstruct_assault_base_states(raw1).is_empty(),
+            "但仍无进度事件"
+        );
 
         // 有进度 → 目标存在
-        let prog = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 1), (2, 1), (3, 7)])]));
+        let prog = mk48a(
+            8,
+            &root_blocks(8, &[varint_block(&[(1, 1), (2, 1), (3, 7)])]),
+        );
         let p2: Vec<(u32, f32, &[u8])> = vec![(8, 1.0, &prog)];
         assert!(has_assault_objective(&collect_assault_base_updates(&p2)));
 
@@ -1324,7 +1664,10 @@ mod assault_tests {
         assert!(!has_assault_objective(&collect_assault_base_updates(&p3)));
 
         // field2 不是 1 的族：不认
-        let other = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 9), (4, 1)])]));
+        let other = mk48a(
+            8,
+            &root_blocks(8, &[varint_block(&[(1, 2), (2, 9), (4, 1)])]),
+        );
         let p4: Vec<(u32, f32, &[u8])> = vec![(8, 1.0, &other)];
         assert!(!has_assault_objective(&collect_assault_base_updates(&p4)));
     }
@@ -1334,10 +1677,16 @@ mod assault_tests {
     /// 条目：f1=eid(0)、f2=phase(0)、f3=f32(5)、f4=count(0, 可选)
     fn reload_entry(eid: u64, phase: u64, dur: f32, count: Option<u64>) -> Vec<u8> {
         let mut b = Vec::new();
-        b.extend(varint((1 << 3) as u64)); b.extend(varint(eid));
-        b.extend(varint((2 << 3) as u64)); b.extend(varint(phase));
-        b.extend(varint(((3 << 3) | 5) as u64)); b.extend_from_slice(&dur.to_le_bytes());
-        if let Some(c) = count { b.extend(varint((4 << 3) as u64)); b.extend(varint(c)); }
+        b.extend(varint((1 << 3) as u64));
+        b.extend(varint(eid));
+        b.extend(varint((2 << 3) as u64));
+        b.extend(varint(phase));
+        b.extend(varint(((3 << 3) | 5) as u64));
+        b.extend_from_slice(&dur.to_le_bytes());
+        if let Some(c) = count {
+            b.extend(varint((4 << 3) as u64));
+            b.extend(varint(c));
+        }
         b
     }
     /// protobuf：field{wrap_no}(wire2) → repeated field1(wire2) → 条目
@@ -1358,11 +1707,11 @@ mod assault_tests {
     #[test]
     fn reload_phases_from_sub15_and_sub17() {
         // sub15 → wrapper field14；sub17 → wrapper field16（两者字段号不同，必须分别取）
-        let e_start = reload_entry(500, 3, 12.39, None);          // 装填开始 + 时长
-        let e_ready = reload_entry(500, 0, 12.49, Some(1));       // f4=1 就绪
+        let e_start = reload_entry(500, 3, 12.39, None); // 装填开始 + 时长
+        let e_ready = reload_entry(500, 0, 12.49, Some(1)); // f4=1 就绪
         let p15 = mk48a(15, &reload_root(14, &[e_start, e_ready]));
-        let p17 = mk48a(17, &reload_root(16, &[reload_entry(700, 7, 2.5, None)]));  // 弹夹内单发
-        // 非装填 subtype（sub1）即使字段结构相同也不产出
+        let p17 = mk48a(17, &reload_root(16, &[reload_entry(700, 7, 2.5, None)])); // 弹夹内单发
+                                                                                   // 非装填 subtype（sub1）即使字段结构相同也不产出
         let p1 = mk48a(1, &reload_root(14, &[reload_entry(999, 3, 9.0, None)]));
         let packets: Vec<(u32, f32, &[u8])> = vec![(8, 5.0, &p15), (8, 1.0, &p17), (8, 2.0, &p1)];
         let updates = collect_arena_updates_filtered(&packets, |s| {
@@ -1371,11 +1720,21 @@ mod assault_tests {
         assert_eq!(updates.len(), 2, "只有 sub15/sub17 被收集（sub1 过滤掉）");
         let r = reload_phases_from_updates(&updates);
         assert_eq!(r.len(), 3, "sub15 两条 + sub17 一条");
-        assert_eq!((r[0].clock, r[0].eid, r[0].phase), (1.0, 700, RELOAD_PHASE_MAG_INTERVAL));
+        assert_eq!(
+            (r[0].clock, r[0].eid, r[0].phase),
+            (1.0, 700, RELOAD_PHASE_MAG_INTERVAL)
+        );
         assert_eq!(r[0].duration_s, Some(2.5));
-        assert_eq!((r[1].clock, r[1].eid, r[1].phase), (5.0, 500, RELOAD_PHASE_START));
+        assert_eq!(
+            (r[1].clock, r[1].eid, r[1].phase),
+            (5.0, 500, RELOAD_PHASE_START)
+        );
         assert_eq!(r[1].duration_s, Some(12.39));
-        assert_eq!(r[2].count, Some(RELOAD_READY_COUNT), "f4=1 原样透传（就绪）");
+        assert_eq!(
+            r[2].count,
+            Some(RELOAD_READY_COUNT),
+            "f4=1 原样透传（就绪）"
+        );
         assert_eq!(r[2].phase, 0);
     }
 
@@ -1385,9 +1744,13 @@ mod assault_tests {
         let p_a = mk48a(15, &reload_root(14, &[reload_entry(11, 3, 8.0, None)]));
         let p_b = mk48a(15, &reload_root(14, &[reload_entry(22, 7, 3.0, None)]));
         let packets: Vec<(u32, f32, &[u8])> = vec![(8, 9.0, &p_a), (8, 2.0, &p_b)];
-        let r = reload_phases_from_updates(&collect_arena_updates_filtered(
-            &packets, |s| s == ARENA_SUB_RELOAD_TIME));
-        assert_eq!(r.iter().map(|x| (x.clock, x.eid)).collect::<Vec<_>>(), vec![(2.0, 22), (9.0, 11)]);
+        let r = reload_phases_from_updates(&collect_arena_updates_filtered(&packets, |s| {
+            s == ARENA_SUB_RELOAD_TIME
+        }));
+        assert_eq!(
+            r.iter().map(|x| (x.clock, x.eid)).collect::<Vec<_>>(),
+            vec![(2.0, 22), (9.0, 11)]
+        );
     }
 
     #[test]
