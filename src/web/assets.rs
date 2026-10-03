@@ -268,8 +268,11 @@ pub(crate) async fn tank_filter_handler() -> Json<Value> {
 }
 
 pub(crate) async fn shells_handler(axum::extract::Path(tank_id): axum::extract::Path<u32>) -> Json<Value> {
+    // 取**顶级炮塔 × 顶级主炮**，与 models.pb 的装甲/俯仰档位、`configs[]`、以及
+    // 列表 `shells` 一致。此前取 `first().guns.first()`（初始炮），会让查看器的弹种
+    // 选择器列出初始炮弹种，与同屏渲染的顶级炮塔装甲对不上。
     let result: Value = crate::wargaming::blitzkit::tank_full(tank_id)
-        .and_then(|t| t.turrets.first().and_then(|tur| tur.guns.first()).map(|g| {
+        .and_then(|t| t.turrets.last().and_then(|tur| tur.guns.last()).map(|g| {
             let caliber_mm = parse_gun_caliber(&g.name).map(|c| c.round() as u32).unwrap_or(120);
             let shells: Vec<Value> = g.shells.iter().map(|s| json!({
                 "type": s.shell_type,

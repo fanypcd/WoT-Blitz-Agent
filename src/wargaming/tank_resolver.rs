@@ -251,9 +251,12 @@ impl TankResolver {
             let speed_reverse = if tank.speed_reverse > 0.0 { Some(tank.speed_reverse as u32) } else { None };
             let hull_traverse = Some((tank.hull_traverse * 180.0 / std::f64::consts::PI) as f32);
 
-            // 弹种：取第一个炮塔的第一个主炮的 shells
+            // 弹种：取**顶级炮塔的顶级主炮**的 shells——与详情页 `configs[]`（按炮逐项展开）
+            // 和 models.pb 的 `turrets.last() × guns.last()` 同档。
+            // 此前取 `first().guns.first()`（初始炮），于是列表卡片与「穿深」排序显示的是
+            // **初始炮**的数据（T-34 实测 85，顶级 76mm S-54 是 125），与详情页自相矛盾。
             let mut shells = Vec::new();
-            if let Some(gun) = tank.turrets.first().and_then(|t| t.guns.first()) {
+            if let Some(gun) = tank.turrets.last().and_then(|t| t.guns.last()) {
                 for s in &gun.shells {
                     shells.push(ShellData {
                         shell_type: s.shell_type.clone(),
@@ -265,11 +268,11 @@ impl TankResolver {
                 }
             }
 
-            // 视野 / 炮塔旋转速度（取自第一个炮塔）
-            // 视野 / 炮塔旋转速度（取自第一个炮塔）
-            let first_turret = tank.turrets.first();
-            let view_range = first_turret.map(|t| t.view_range as f32);
-            let turret_traverse_speed = first_turret.map(|t| t.traverse_speed as f32);
+            // 视野 / 炮塔旋转速度：同样取**顶级炮塔**（初始炮塔会低报——
+            // T-34 实测 200/40，顶级炮塔是 240/49）。
+            let top_turret = tank.turrets.last();
+            let view_range = top_turret.map(|t| t.view_range as f32);
+            let turret_traverse_speed = top_turret.map(|t| t.traverse_speed as f32);
 
             // 俯仰角：models.pb 顶级配置全局极值（gun_angles.json 已退役）
             let (gun_depression, gun_elevation) = Self::models_pitch_limits(*id, None)

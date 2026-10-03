@@ -702,11 +702,13 @@ impl AgentTools {
         let target_name = resolver.resolve(target).unwrap_or_else(|| format!("tank_{}", target));
         let shooter_name = resolver.resolve(shooter_id).unwrap_or_else(|| format!("tank_{}", shooter_id));
 
-        // 弹种索引（查看器弹种选择器 = 射手首配弹种列表，按正式名过滤）
+        // 弹种索引（查看器弹种选择器 = 射手**顶级炮塔 × 顶级主炮**的弹种列表，按正式名过滤）。
+        // 必须与 `/api/shells/{tank_id}`（shells_handler）取同一档炮——两处一起才是自洽的；
+        // 取初始炮会与同屏渲染的顶级炮塔装甲、以及列表/详情的穿深对不上。
         let shell_filter = args["shell"].as_str().map(|s| s.trim().to_string());
         let shooter_tank = blitzkit::tank_full(shooter_id);
         let shell_idx = shell_filter.as_ref().and_then(|f| {
-            shooter_tank.as_ref().and_then(|t| t.turrets.first().and_then(|tu| tu.guns.first()).and_then(|g| {
+            shooter_tank.as_ref().and_then(|t| t.turrets.last().and_then(|tu| tu.guns.last()).and_then(|g| {
                 g.shells.iter().position(|s| {
                     Self::shell_label(&s.shell_type).eq_ignore_ascii_case(f) || s.shell_type.eq_ignore_ascii_case(f)
                 })
@@ -715,7 +717,7 @@ impl AgentTools {
         if let Some(f) = &shell_filter {
             if shell_idx.is_none() {
                 let avail = shooter_tank.as_ref()
-                    .and_then(|t| t.turrets.first().and_then(|tu| tu.guns.first()).map(|g|
+                    .and_then(|t| t.turrets.last().and_then(|tu| tu.guns.last()).map(|g|
                         g.shells.iter().map(|s| Self::shell_label(&s.shell_type)).collect::<Vec<_>>().join("/")))
                     .unwrap_or_default();
                 return Ok(format!("Shell '{}' not found for {}. Available: {}", f, shooter_name, avail));
