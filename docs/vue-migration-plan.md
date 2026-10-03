@@ -1,7 +1,7 @@
 # Vue 3 全量迁移方案 ✅ 已完成（2026-09-28）
 
 > **2026-10-03 注记（读本文前先看）**：本仓前端已**冻结**——桌面便携包与 Android
-> 分发形态整体移除，后续前端开发在 WotbTools 仓库进行（见 [README §分发形态](../README.md)）。
+> 分发形态整体移除，后续前端开发在 WotbTools 仓库进行（见 [README §与 WotbTools 的关系](../README.md)）。
 > 因此本文提到的 `scripts/package.ps1`、`scripts/build-all.ps1`、`mobile/`（Tauri 壳）、
 > `sync-android-assets.sh`、`prepare-assets.py` **均已删除**，相关段落只作历史记录；
 > 现今本仓前端仅用于本机调试（`cd frontend && npm ci && npm run build` +

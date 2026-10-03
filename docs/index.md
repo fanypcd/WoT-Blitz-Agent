@@ -6,7 +6,7 @@
 
 | 文档 | 定位 |
 |---|---|
-| [README.md](../README.md) | 项目总入口：功能总览、快速开始、Web UI/CLI/分发形态、仓库结构 |
+| [README.md](../README.md) | 项目总入口：项目定位、能力总览、与 WotbTools 的关系（分发形态）、仓库结构 |
 | [docs/回放与射击逆向总集.md](回放与射击逆向总集.md) | 射击/回放逆向**唯一权威参考**：第一篇=协议层数据段（字节布局/语义/使用状态/死路清单/消费地图）、第二篇=客户端处理架构、第三篇=客户端弹道与命中表现（含 DecodeShotSegment 权威定义）、第四篇=WI 对照与射击复现实现、第五篇=遗留未定项 |
 | [docs/replay-contract-v2-supremacy-type39.md](replay-contract-v2-supremacy-type39.md) | **回放契约 v2**：争霸基地状态（sparse 重建 + 零值省略/占领中断归零补正）+ 实时点数 + type39 原始帧用途与 `aim_frames` 删除记录、门禁与版本护栏 |
 | [docs/wotbtools-cross-reference.md](wotbtools-cross-reference.md) | 与 WotbTools 逆向结论的逐条裁决记录（采纳/驳回/互证），防止误采或回退已定案；**文末附面向消费方切面的最新进展** |
@@ -21,7 +21,7 @@
 | [docs/vue-migration-plan.md](vue-migration-plan.md) | ✅ 已完成（2026-09-28）：前端四页全部切流 Vue 3 SPA，嵌入 HTML 与 web/vendor 已退役 |
 
 > `docs/mobile_plan.md` 及移动端（`mobile/` Tauri 壳、`mobile_assets/` 随包资产）已于
-> **2026-10 随 Android 分发形态一同移除**（详见 [README §分发形态](../README.md)）；
+> **2026-10 随 Android 分发形态一同移除**（详见 [README §与 WotbTools 的关系](../README.md)）；
 > 其文内提及的 `scripts/{asset_manifest,export_mobile_maps}.py` 同步删除。
 > [docs/vue-migration-plan.md](vue-migration-plan.md) 里提到的 `scripts/package.ps1` /
 > `build-all.ps1` 同样只作历史记录——桌面便携包打包链已删除，前端仅本机调试用。
@@ -58,7 +58,7 @@
 `hp_raw` 覆盖。
 
 **前端面收敛（2026-10-03）**：本项目不再维护自己的前端与桌面/移动端分发——
-Windows 便携包打包链与 Android（Tauri）形态已整体删除（见 [README §分发形态](../README.md)），
+Windows 便携包打包链与 Android（Tauri）形态已整体删除（见 [README §与 WotbTools 的关系](../README.md)），
 `frontend/` 冻结留档（目录级护栏见 [frontend/AGENTS.md](../frontend/AGENTS.md)）；
 **后续前端开发与前端测试一律在 WotbTools 仓库进行**，本项目只出 Rust 核心与
 v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证由用户执行**：Agent 侧只交

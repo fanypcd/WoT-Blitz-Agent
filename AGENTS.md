@@ -35,7 +35,7 @@ testing** happen in the WotbTools repository (https://github.com/A158Coke/WotbTo
   Leave it read-only; do not add features, fixes, or tests to it.
 - Cross-repo consequence: UI fixes may still need parser-side support here (e.g. a data field
   the UI consumes). Land the parser part here first, then the UI change in WotbTools.
-- Background: [README §分发形态](README.md), [docs/index.md](docs/index.md) §前端面收敛,
+- Background: [README §与 WotbTools 的关系](README.md), [docs/index.md](docs/index.md) §前端面收敛,
   [docs/architecture-debt.md](docs/architecture-debt.md).
 
 ## Visual verification belongs to the user
