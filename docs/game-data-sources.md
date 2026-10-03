@@ -200,6 +200,22 @@ B 为主、A 为辅：映射表为唯一事实源，新车用 WG API + 名称模
 六面装甲摘要不再低报——改前 210 辆车的摘要与 `armor_model` 自相矛盾，其中 T29 炮塔正面
 低报 254mm（25 vs 279）。
 
+**同一档位口径还漏了三处（2026-10-03 一并修）**：`tank_resolver` 的**弹种**取自
+`turrets.first().guns.first()`（初始炮）、**视野/炮塔转速**取自 `first_turret`。于是
+`tank_cache.json`（列表卡片与「穿深」排序的数据源）显示的是**初始模块**，而详情页
+（`configs[]` 按炮逐项展开、默认选中末项）显示**顶级模块**——同一页面两套数字。
+实测 T-34：列表 穿深 85 / 视野 200 / 转速 40 → 顶级 **125 / 240 / 49**。
+
+⚠️ **这条链有三处必须同档改**，只改一处会让它们互相矛盾：
+
+| 位置 | 作用 |
+|---|---|
+| `tank_resolver.rs` | `tank_cache.json`（→ 列表卡片、`pen_max`、穿深排序、`author_shells`） |
+| `web/assets.rs::shells_handler` | `/api/shells/{tank_id}`（装甲查看器的弹种选择器） |
+| `agent/tools.rs`（热力图工具） | 传给查看器的 `shell` 索引，须与上一行同源 |
+
+改完 grep `turrets\.first|guns\.first` 应为空（测试夹具除外）——本轮就是这样发现另两处的。
+
 ---
 
 ## 四、间隙甲（spaced）判定规则（权威）

@@ -25,11 +25,26 @@
 | 10 | `data/cache/maps/`、`data/cache/terrain/` | **客户端解包** `3d/Maps/<space>/`（`.sc2`/`.scg`、landscape heightmap、colormap） | 生成：`tools/export_map_glb.py`（离线）；读取：`wargaming/map_assets.rs` | COS `map/` |
 | 11 | `data/data_version.json` | **本机自产**（各项时间戳汇总；`game_version` 取自客户端 `Data/version.txt.dvpl`） | `wargaming/data_version.rs::save` | COS `data/data_version.json` |
 
-来源分布：BlitzKit 4 项（#1/#2/#8/#9）、客户端解包 3 项（#4/#5/#10）、本机自产 3 项
-（#3/#7/#11）、混合 1 项（#6）。
+来源分布：BlitzKit 4 项（#1/#2/#8/#9）、客户端解包 3 项（#4/#5/#10）、本机自产 3 项（#3/#7/#11）、混合 1 项（#6）。
 
 附注：**WG API**（`api.wotblitz.{asia,eu,com}`，`wargaming/api_client.rs`）只用于玩家战绩，
 不落 `data/`、不进任何分发。
+
+### 1a. 消费方从 `tank_cache.json` 读的字段
+
+资产包里的 `data/tank_cache.json` 是百科的**列表/概要**数据源。消费方当前读取：
+
+| 字段 | 说明 |
+|---|---|
+| `name` / `tier` / `nation` / `type` / `hp` | 行展示与筛选、排序 |
+| `is_premium` / `is_collector` | 车型标记。**两者是 `tanks.pb` field13 的同一枚举**（1=金币 `is_premium`、2=收藏 `is_collector`），故互斥——实测 735 辆：金币 91 / 收藏 338 / 同时为真 0。WotbTools 据此给卡片上不同颜色的边框（金币=警告色、收藏=`--color-info` 蓝） |
+| `shells` | 弹种表（`penetration`/`damage`/…）。**取顶级炮塔 × 顶级主炮**（§3.5 口径），消费方由此派生 `pen_max` |
+| `armor` | 六面装甲摘要（**顶级**炮塔档位，见 [game-data-sources.md](game-data-sources.md) §3.5） |
+| `view_range` / `turret_traverse_speed` | 视野 / 炮塔转速，**顶级**炮塔 |
+| `speed_forward` / `speed_reverse` / `hull_traverse` / `gun_depression` / `gun_elevation` | 机动与俯仰 |
+
+> 派生字段（`pen_max`）由消费方自行聚合，**不在本仓生产**：前端 `tankopediaQuery.js`
+> 取 `shells[].penetration` 的最大值。所以弹种取哪一档炮会直接影响列表卡片的穿深与排序。
 
 ## 二、分发渠道
 
