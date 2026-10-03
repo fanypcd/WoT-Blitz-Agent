@@ -343,7 +343,7 @@ dump-entity    # 逆向工具：转储指定实体时间窗口内全部包
 | `src/wargaming/` | WG API、坦克/模型/地图资产、3D 装甲查看器与实时回放前端 |
 | `src/web/` | Web GUI（axum 路由 + 内嵌前端 + 离线 Three.js vendor） |
 | `src/models/`、`src/data.rs` | 服务端数据模型（report/config）；运行时路径层（数据目录可重定向） |
-| `docs/` | 项目文档：[索引](docs/index.md)、[数据来源与 BlitzKit 依赖评估](docs/game-data-sources.md)、解耦进度总览（[decoupling-status](docs/decoupling-status.md)）、本地模型自产（[local-model-export](docs/local-model-export.md)）、回放契约 v2（[replay-contract-v2](replay-contract-v2-supremacy-type39.md)）、Vue 迁移方案（已完成留档）、WotbTools 交叉引用裁决 |
+| `docs/` | 项目文档：[索引](docs/index.md)、[数据来源与 BlitzKit 依赖评估](docs/game-data-sources.md)、[数据面清单](docs/data-inventory.md)、解耦进度总览（[decoupling-status](docs/decoupling-status.md)）、本地模型自产（[local-model-export](docs/local-model-export.md)）、回放契约 v2（[replay-contract-v2](replay-contract-v2-supremacy-type39.md)）、Vue 迁移方案（已完成留档）、WotbTools 交叉引用裁决 |
 | `tools/export_map_glb.py` | 回放 3D 场景/地表离线导出器（DAVA 解析库在 `tools/wotbtools/`） |
 | `tools/export_tank_glb.py` | 坦克 GLB 的**本机客户端**自产管线（并行于 BlitzKit 缓存，见上） |
 | `tools/compare_tank_glb.py` | 两来源坦克模型的对照器：数值等价回归 + 并排渲染差异图 |
