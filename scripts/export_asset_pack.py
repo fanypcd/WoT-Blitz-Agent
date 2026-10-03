@@ -31,6 +31,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -54,6 +55,23 @@ def copy_first(srcs: list[Path], dst: Path) -> bool:
             shutil.copy2(s, dst)
             return True
     return False
+
+
+def git_provenance() -> dict:
+    """包的来源：生成它的 upstream commit，以及生成时工作区是否干净。
+
+    `worktree_dirty=True` 的包**不等于**该 commit——消费方据此判断能否用包内的
+    sha256 去对照某个 commit 复现。取不到 git（非仓库/无 git）时返回空 dict，
+    不因此中断打包（旧行为）。
+    """
+    try:
+        sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=PROJECT_ROOT,
+                             capture_output=True, text=True, check=True).stdout.strip()
+        dirty = bool(subprocess.run(["git", "status", "--porcelain"], cwd=PROJECT_ROOT,
+                                    capture_output=True, text=True, check=True).stdout.strip())
+    except Exception:
+        return {}
+    return {"upstream_commit": sha, "worktree_dirty": dirty}
 
 
 def main() -> None:
@@ -213,10 +231,22 @@ def main() -> None:
             map_n += 1
             files.extend(p for p in mdir.rglob("*") if p.is_file())
 
+    # ---- 包的来源（upstream commit + 生成时的数据版本清单） ----
+    provenance = git_provenance()
+    data_version = None
+    dv_path = data / "data_version.json"
+    if dv_path.is_file():
+        try:
+            data_version = json.loads(dv_path.read_text(encoding="utf-8"))
+        except Exception:
+            data_version = None
+
     # ---- index.json（前端一次性装载：数字 id → key） ----
+    generated = datetime.now(timezone.utc).isoformat(timespec="seconds")
     index = {
         "version": 1,
-        "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "generated": generated,
+        **provenance,
         "maps": {str(e["map_id"]): {"key": seen_spaces.get(e["space"], e["key"]), "display": e["display"]} for e in maps},
     }
     (out / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=1),
@@ -230,7 +260,13 @@ def main() -> None:
         rel = str(f.relative_to(out)).replace("\\", "/")
         uniq.setdefault(rel, {"path": rel, "bytes": f.stat().st_size, "sha256": sha256(f)})
     manifest_files = [uniq[k] for k in sorted(uniq)]
-    manifest = {"version": 1, "generated": index["generated"], "files": manifest_files}
+    manifest = {
+        "version": 1,
+        "generated": generated,
+        **provenance,
+        "data_version": data_version,
+        "files": manifest_files,
+    }
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1),
                                        encoding="utf-8")
 
