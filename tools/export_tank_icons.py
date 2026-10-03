@@ -64,6 +64,47 @@ STEM_PREFIX_NODIGIT_RE = re.compile(r"^[A-Za-z]{1,3}_")
 EXTRA_PREFIX_RE = re.compile(r"^WH_")
 NOISE_INFIX = ("WH_",)
 
+# 人工核对过的别名：models.pb 的模型名（field32）→ 客户端图标**文件名**。
+#
+# 客户端图标名有时用内部代号/缩写/另一套拼法，`candidate_keys` 的单侧拼接拼不出来。
+# 这张表**只收实测确认是同一辆车的**，宁可缺失也不猜——错挂别的车的图标比缺图更糟
+# （例：`M2_med` 的近期候选只有 `usa-M7_med`、`T1_hvy` 只有 `usa-T1`，两者都是别的车，
+# 故都不收）。每条依据写在行尾，便于复核。
+ICON_ALIAS = {
+    # uk：客户端用 Medium_N / Cruiser_N / Churchill_GC 等短名，模型名走 GB 编号
+    "GB01_Medium_Mark_I": "britsh-Medium_I.packed.webp.dvpl",
+    "GB05_Vickers_Medium_Mk_II": "britsh-Medium_II.packed.webp.dvpl",
+    "GB06_Vickers_Medium_Mk_III": "britsh-Medium_III.packed.webp.dvpl",
+    "GB58_Cruiser_Mk_III": "britsh-Cruiser_III.packed.webp.dvpl",
+    "GB59_Cruiser_Mk_IV": "britsh-Cruiser_IV.packed.webp.dvpl",
+    "GB40_Gun_Carrier_Churchill": "britsh-Churchill_GC.packed.webp.dvpl",     # GC = Gun Carrier
+    "GB68_Matilda_Black_Prince": "britsh-MatildaBP.packed.webp.dvpl",         # BP = Black Prince
+    "GB24_Centurion_Mk3": "britsh-Centurion_7-1.packed.webp.dvpl",            # 显示名即 Centurion Mk. 7/1
+    "GB116_Harry_Hopkins": "british-GB116_Harry_Hopkins_I.packed.webp.dvpl",  # 仅多尾部 "I"
+    # usa
+    "T1_Cunningham": "usa-T1.packed.webp.dvpl",
+    "M2_med": "usa-M2_MT.packed.webp.dvpl",                                   # MT = Medium Tank
+    "T2_med": "usa-T2_MT.packed.webp.dvpl",
+    "T7_Combat_Car": "usa-T7-cc.packed.webp.dvpl",                            # cc = combat car
+    # ussr
+    "ST_I": "ussr-R63_ST_IBD.packed.webp.dvpl",                               # R63 = ST-I 内部代号
+    "R132_T100LT": "ussr-R132_VNII_100LT.packed.webp.dvpl",
+    "R116_ISU122C_Berlin": "ussr-ISU122_Berlin.packed.webp.dvpl",
+    # germany
+    "E50_Ausf_M": "germany-E-50M.packed.webp.dvpl",
+    "Pro_Ag_A": "germany-Leopard_PT_A.packed.webp.dvpl",                      # Leopard Prototyp A
+    "G114_Rheinmetall_Scorpion": "germany-Skorpion.packed.webp.dvpl",
+    "G_VK3502_BP": "germany-G_VK3502H_BP.packed.webp.dvpl",
+    "H39_captured": "germany-PzKpfw38H_735.packed.webp.dvpl",                 # 显示名 Pz.Kpfw. 38H 735 (f)
+    "JagdTiger_SdKfz_185": "germany-JagdTiger8_8.packed.webp.dvpl",           # 8,8 cm Pak 43 Jagdtiger
+    "JagdTiger_SdKfz_185_Snowstorm": "germany-JagdTiger8_8_Snowstorm.packed.webp.dvpl",
+    "S01_Frankentank": "Frankentank_event.packed.webp.dvpl",                  # 万圣节 Tankenstein；文件名无国家标签
+    # france
+    "D1": "france-Renault_D1.packed.webp.dvpl",
+    "F73_M4A1_Revalorise": "france-Revalorise.packed.webp.dvpl",
+    "AMX_M4_1945": "france-AMX_M4-45.packed.webp.dvpl",                       # AMX M4 mle. 45
+}
+
 
 def default_game_data() -> pathlib.Path:
     for c in GAME_DIR_CANDIDATES:
@@ -127,6 +168,9 @@ def pick_icon(index: dict, stem: str, display: str, use_2x: bool, allow_small: b
     got = []
     for k in candidate_keys(stem, display):
         got += index.get(k, [])
+    if not got and stem in ICON_ALIAS:
+        # 候选键拼不出的（客户端用了内部代号/缩写/别名），回退到人工别名表。
+        got = list(index.get(icon_key(ICON_ALIAS[stem]), []))
     if not got:
         return None
     prio = {"BigTankIcons": 0, "BattleScreenHUD/SmallTankIcons": 1}
@@ -308,6 +352,13 @@ def main() -> int:
         return 2
     table = read_tank_table(args.pb)
     index = build_index(ui)
+    # 别名表自检：目标必须在客户端索引里真的存在。写错文件名要立刻炸——
+    # 否则别名会静默退化成"缺图"，而缺图本来就是这张表想解决的问题。
+    bad_alias = [(s, f) for s, f in ICON_ALIAS.items() if icon_key(f) not in index]
+    if bad_alias:
+        for s, f in bad_alias:
+            print(f"!! ICON_ALIAS 目标不存在于客户端: {s} -> {f}", file=sys.stderr)
+        return 2
     disp_map = load_display_names(game_data, args.lang)
     def display_for(nat: str, stem: str) -> str:
         # en.yaml 的段名**就是 pb 的国家名**（uk 也是 `uk_vehicles`，实测；报告 A 说 uk 用
