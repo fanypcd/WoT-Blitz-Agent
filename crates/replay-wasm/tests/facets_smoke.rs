@@ -55,9 +55,11 @@ fn playback_smoke() {
     let pb: serde_json::Value = serde_json::from_str(&playback_str).unwrap();
     assert_eq!(pb["version"], 2, "contract v2（版本门禁；消费端拒绝错版）");
     // contract v2 新键：非争霸场为空数组也必须安全序列化在场（skip_serializing_if 语义）
-    for key in ["supremacy_bases", "supremacy_points", "aim_frames"] {
+    for key in ["supremacy_bases", "supremacy_points"] {
         assert!(pb.get(key).is_none_or(|v| v.is_array()), "v2 键 {key} 须为数组或缺省");
     }
+    // 2026-10-03 起 aim_frames 不再产出（无消费方、零使用；见契约文档 §3）
+    assert!(pb.get("aim_frames").is_none(), "aim_frames 已从契约移除，不得再序列化");
     let nv = pb["vehicles"].as_array().unwrap().len();
     assert!((8..=28).contains(&nv), "车辆数 {nv}");
     assert!(pb["meta"]["samples"].as_u64().unwrap() > 600, "整场网格过短");

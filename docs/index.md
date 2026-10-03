@@ -9,7 +9,7 @@
 | [README.md](../README.md) | 项目总入口：功能总览、快速开始、Web UI/CLI/分发形态、仓库结构 |
 | [回放射击事件逆向分析.md](../回放射击事件逆向分析.md) | 回放数据段**权威参考**：每个数据段的字节布局、已破解语义、本项目使用状态（使用中/辅助/未使用） |
 | [回放未解析数据清单.md](../回放未解析数据清单.md) | 主文档配套速查表：全部数据段使用状态一页总览 + 回退链/质量标记 + 死路清单（2026-10-02 已按主文档校正 method8 hash6 与 method0x1b 掩码两处） |
-| [docs/replay-contract-v2-supremacy-type39.md](replay-contract-v2-supremacy-type39.md) | **回放契约 v2**：争霸基地状态（sparse 重建）+ 实时点数 + type39 瞄准帧的字段语义、门禁与版本护栏 |
+| [docs/replay-contract-v2-supremacy-type39.md](replay-contract-v2-supremacy-type39.md) | **回放契约 v2**：争霸基地状态（sparse 重建 + 零值省略/占领中断归零补正）+ 实时点数 + type39 原始帧用途与 `aim_frames` 删除记录、门禁与版本护栏 |
 | [docs/wotbtools-cross-reference.md](wotbtools-cross-reference.md) | 与 WotbTools 逆向结论的逐条裁决记录（采纳/驳回/互证），防止误采或回退已定案；**文末附面向消费方切面的最新进展** |
 | [docs/architecture-debt.md](architecture-debt.md) | 架构债与长期改动方案：已完成项（combat.rs 拆分、双路径合并）与仍留存的 tankViewer 目录拆分 |
 | [docs/game-data-sources.md](game-data-sources.md) | **数据来源权威表**：每份数据取自 BlitzKit / 本机客户端 / WG API / 自产；本地提取可行性评估；间隙甲 spaced 判定规则；提取链与 COS 资产面发布流程；2026-10 game_data 冻结故障复盘 |
@@ -59,10 +59,13 @@
 
 **前端面收敛（2026-10-03）**：本项目不再维护自己的前端与桌面/移动端分发——
 Windows 便携包打包链与 Android（Tauri）形态已整体删除（见 [README §分发形态](../README.md)），
-`frontend/` 冻结留档；**后续前端开发一律在 WotbTools 仓库进行**，本项目只出 Rust 核心与
-v* tag 的 WASM 发行产物。装填条渲染（本轮与客户端逐状态对齐：整夹一条不分割、夹内推弹不补弹、
-弹鼓逐发补槽、开火取消、服务器 f4 快照重锚）落在 WotbTools `scene/reloadBar.js`（42 条单测），
-本仓同构副本见 `frontend/src/scene/reloadBar.js`。
+`frontend/` 冻结留档（目录级护栏见 [frontend/AGENTS.md](../frontend/AGENTS.md)）；
+**后续前端开发与前端测试一律在 WotbTools 仓库进行**，本项目只出 Rust 核心与
+v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证由用户执行**：Agent 侧只交
+锁定不变量的测试（纯函数单测、场景接线守卫、仓库自动化浏览器门禁），不自行截图充当验收
+（见 [AGENTS.md §Visual verification](../AGENTS.md)）。装填条渲染（本轮与客户端逐状态对齐：
+整夹一条不分割、夹内推弹不补弹、弹鼓逐发补槽、开火取消、服务器 f4 快照重锚）落在 WotbTools
+`scene/reloadBar.js`（42 条单测），本仓同构副本见 `frontend/src/scene/reloadBar.js`。
 
 详见 [docs/wotbtools-cross-reference.md](wotbtools-cross-reference.md) §五。
 

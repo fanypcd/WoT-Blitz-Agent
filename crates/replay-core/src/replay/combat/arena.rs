@@ -503,6 +503,25 @@ pub struct RawSupremacyBaseUpdate {
     pub raw_field6: Option<u64>,
 }
 
+impl RawSupremacyBaseUpdate {
+    /// 全缺省行（除 base_index 外**没有任何**字段）= 显式清空该基地。
+    ///
+    /// 服务端按 proto3 语义**省略零值字段**：整个基地状态回到全零（无主/无占领方/进度 0）
+    /// 时，wire 上就是一条只带 base_index 的块。实测该形态只出现在两类时刻——开局的状态
+    /// 广播，与**占领中断**（占领车辆出圈/被击毁，进度作废）；进度进行中从不出现。
+    /// 详见 `reconstruct_supremacy_base_states` 的注释与契约文档。
+    ///
+    /// 未知字段（f5/f6）带值时**不**判为清空：其语义未证实，缺省语义保持旧的"维持前值"
+    /// （fail-closed，不拿未证实证据改状态）。
+    fn is_blank(&self) -> bool {
+        self.owner_team.is_none()
+            && self.capturing_team.is_none()
+            && self.capture_progress.is_none()
+            && self.raw_field5.is_none()
+            && self.raw_field6.is_none()
+    }
+}
+
 /// 重建后的 canonical 基地状态迁移：每条 raw 更新一条，携带该基地更新后的完整状态。
 /// 消费（seek 语义）= 取 ≤t 的每基地最后一条逐字段折叠。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -565,7 +584,17 @@ pub fn collect_supremacy_base_updates(packets: &[(u32, f32, &[u8])]) -> Vec<RawS
 /// sparse 更新 → canonical 状态时间线（Java `SupremacyBaseStateReconstructor` 逐行移植）：
 /// absent = 维持前值；显式 0 = 清空（owner/capturing）；显式 capturing 清空连带清 progress；
 /// 占领中 owner 变更 = 完成/作废该次占领（capturing 与 progress 一并清空）。
+/// **全缺省行 = 清空整个基地状态**（2026-10-03 契约补正，见下）。
 /// 排序 = clock 升序稳定排序（同 clock 保包序 = Java 的 sequence 序，同源包流）。
+///
+/// **全缺省行为何是"清空"**：服务端按 proto3 省略零值字段，故"占领中断（车辆出圈/被击毁，
+/// 进度作废）"落在 wire 上是一条只带 base_index、其余字段全缺省的块。移植版把"字段缺省"
+/// 一律当"维持前值"，于是这条块成了空操作 → 旧进度与旧占领方**永久**挂在基地上（前端
+/// 表现为：车辆出圈后进度条不归零，直到下一次占领把它覆盖）。
+/// 实测（20260930_2127 争霸样本，134 行）：全缺省行共 7 条 = 开局广播 3+3 条（状态本就是
+/// 全空，与清空同义）+ 基地 C 在 t=107.01 的**出圈中断**（17% 起算，4.5s 后重新从 0 开始，
+/// 中断时刻恰是该行）；进度进行中零出现。带未知字段（f5/f6）的块不按清空处理，见
+/// [`RawSupremacyBaseUpdate::is_blank`]。
 pub fn reconstruct_supremacy_base_states(mut raw: Vec<RawSupremacyBaseUpdate>) -> Vec<SupremacyBaseStateTransition> {
     raw.sort_by(|a, b| a.clock.partial_cmp(&b.clock).unwrap_or(std::cmp::Ordering::Equal));
     #[derive(Clone, Copy, Default)]
@@ -581,23 +610,30 @@ pub fn reconstruct_supremacy_base_states(mut raw: Vec<RawSupremacyBaseUpdate>) -
         let idx = u.base_index.unwrap_or(0) as usize;
         if idx >= 4 { continue; }
         let st = &mut states[idx];
-        let prev_owner = st.owner;
-        let prev_capturing = st.capturing;
-        if let Some(o) = u.owner_team {
-            st.owner = if o == 0 { None } else { Some(o) };
-        }
-        if let Some(c) = u.capturing_team {
-            st.capturing = if c == 0 { None } else { Some(c) };
-        }
-        if let Some(p) = u.capture_progress {
-            st.progress = Some(p);
-        }
-        if u.capturing_team.is_some() && st.capturing.is_none() {
-            st.progress = None;
-        }
-        if u.owner_team.is_some() && prev_capturing.is_some() && st.owner != prev_owner {
+        if u.is_blank() {
+            // 全零状态的整体广播：三个字段一起回到零值语义，不保留任何前值
+            st.owner = None;
             st.capturing = None;
             st.progress = None;
+        } else {
+            let prev_owner = st.owner;
+            let prev_capturing = st.capturing;
+            if let Some(o) = u.owner_team {
+                st.owner = if o == 0 { None } else { Some(o) };
+            }
+            if let Some(c) = u.capturing_team {
+                st.capturing = if c == 0 { None } else { Some(c) };
+            }
+            if let Some(p) = u.capture_progress {
+                st.progress = Some(p);
+            }
+            if u.capturing_team.is_some() && st.capturing.is_none() {
+                st.progress = None;
+            }
+            if u.owner_team.is_some() && prev_capturing.is_some() && st.owner != prev_owner {
+                st.capturing = None;
+                st.progress = None;
+            }
         }
         out.push(SupremacyBaseStateTransition {
             clock: u.clock,
@@ -683,8 +719,24 @@ pub fn collect_assault_base_updates(packets: &[(u32, f32, &[u8])]) -> Vec<RawAss
     out
 }
 
-/// 原始更新 → 占领进度时间线：取 `field2==1`、`field3` 存在且 ∈ 0..=100 的条目，
-/// 按 clock 升序（不施加单调性——回落/重置原样保留）。无该族则返回空。
+/// 原始更新 → 占领进度时间线：取 `field2==1` 的条目，按 clock 升序（不施加单调性——
+/// 回落/重置原样保留）。无该族则返回空。三类块：
+/// - 携带 `field3`（∈ 0..=100）→ 该时刻进度；
+/// - 越界 `field3`（>100）→ 剔除；
+/// - `field3`/`field4` **双缺省** → 进度归零（见下）；
+/// - 仅携带 `field4`（标志流，占领进行中与进度块同包成对）→ 非进度样本，跳过。
+///
+/// **双缺省块 = 进度归零（2026-10-03 契约补正）。** 服务端按 proto3 省略零值字段，
+/// 故"占领中断（车辆出圈/被击毁，进度作废）"落在 wire 上是一对只带 field1/field2 的块。
+/// 旧实现要求 `field3` 存在 → 整块丢弃 → 时间线停在最后一个正值，前端进度条**永久卡住**
+/// （车辆出圈不重置，与争霸侧同源缺陷）。
+/// 实测四份真实回放：进度序列 `1,2,3…` 之后，中断时刻**必然**跟一对双缺省块
+/// （XM551 三处 / J20 四处 / J39 一处 / 争霸样本 7 条全缺省行），进度进行中零出现。
+///
+/// **只在"确有进度被清掉"时产出归零行**（上一条已产出行进度 > 0）：普通对局也发的裸
+/// 初始化对同样是双缺省块，若一律合成 0 事件，会让 `assault_bases` 恒非空 → 旧产物
+/// （无 `assault_objective_present`）的存在性回退判据误判成"有目标"（见
+/// [`has_assault_objective`]）。同一时刻的重复块由该条件天然去重（清空后进度已为 0）。
 ///
 /// **`field1` 不做族过滤（契约修正，2026-10-01）。** WotbTools 早期受控样本
 /// （Neptune，11.20 国服）里进度恰好全部由 `field1=2` 承载，故 `assault-base-state.md`
@@ -702,31 +754,51 @@ pub fn collect_assault_base_updates(packets: &[(u32, f32, &[u8])]) -> Vec<RawAss
 /// 遭遇战（Encounter）与攻防战共用该载体：遭遇战无 wrapper12，进度同样走 wrapper8。
 pub fn reconstruct_assault_base_states(mut raw: Vec<RawAssaultBaseUpdate>) -> Vec<AssaultBaseStateTransition> {
     raw.retain(|u| matches!(u.raw_field1, Some(1) | Some(2)) && u.raw_field2 == Some(1));
-    raw.retain(|u| u.raw_field3.is_some_and(|v| v <= 100));
     raw.sort_by(|a, b| a.clock.partial_cmp(&b.clock).unwrap_or(std::cmp::Ordering::Equal));
-    raw.into_iter()
-        .map(|u| AssaultBaseStateTransition { clock: u.clock, progress: u.raw_field3.unwrap_or(0) as u8 })
-        .collect()
+    let mut out: Vec<AssaultBaseStateTransition> = Vec::with_capacity(raw.len());
+    for u in raw {
+        match u.raw_field3 {
+            // 进度样本：0..=100 入选；越界（>100）剔除（原有行为）
+            Some(v) if v <= 100 => out.push(AssaultBaseStateTransition { clock: u.clock, progress: v as u8 }),
+            Some(_) => {}
+            // 双缺省块 = 归零；只在"确有进度被清掉"时产出行（见上文）
+            None if u.raw_field4.is_none() && out.last().is_some_and(|s| s.progress > 0) => {
+                out.push(AssaultBaseStateTransition { clock: u.clock, progress: 0 });
+            }
+            // 其余：仅 field4 标志流（非进度样本），或无可清之物的双缺省块
+            None => {}
+        }
+    }
+    out
 }
 
 /// 单基地目标存在性（与"是否已有占领进度"无关）：目标族（`field2==1`）发出过
-/// **除裸初始化对 `{field1,field2}` 之外的任何字段**（即出现 `field3` 或 `field4`）。
+/// **目标族**（`field2==1`、`field1 ∈ {1,2}`）在回放里出现过即真——**不要求有进度**。
+/// 用途：让"攻防战/遭遇战但全程无人占领"的场次仍能画出目标圈，而不是只能等第一条进度广播。
+/// 与争霸互斥由调用侧保证。
 ///
-/// **为什么不能只看"目标族出现过"**：裸初始化对 `1=1,2=1` + `1=2,2=1` 是**通用广播**，
-/// 普通对局同样会发。62 份真实样本实测：Regular 的 Canal、TrainingRoom 的
-/// Copperfield/Himmelsdorf、Any 的 Mayan Ruins 等 8 份**只**发这一对（各 2 个 subtype8
-/// 包、无任何其它字段），而真实单基地场次发 182 个包（116 次 `4=1` 标志流 + `3=N` 进度）。
-/// 若按"族出现过"判存在，这 8 份（含 Regular 随机战）会被误判成有目标。
+/// **2026-10-03 判定修正（实现对齐契约）。** 此前实现额外要求"出现过 `field3` 或 `field4`"
+/// （即比裸初始化对多一个字段），依据是 62 份样本里 8 份只发裸初始化对（Regular 的 Canal、
+/// TrainingRoom 的 Copperfield/Himmelsdorf、Any 的 Mayan Ruins 等），当时把这 8 份读成
+/// "普通对局也发这一对"→ 判存在会过判。**该读法被证伪**：
+/// - `PlaybackData.assault_objective_present` 的字段契约自始写的是"目标族出现即真，
+///   不要求有进度"——实现比契约更严，属实现偏差；
+/// - 用户侧实测（10v10、`arena_bonus_type=45`、Mayan Ruins）：该模式**有目标**，但全场
+///   只发那一对裸初始化包（`f1=1,f2=1` + `f1=2,f2=1`，无 `f3`/`f4`）——即"目标系统已建立、
+///   全程未发生占领"的形态，被旧判据整场压掉、目标圈完全不画；
+/// - 一并修正对那 8 份的读法：`f1=1,f2=1` + `f1=2,f2=1` 是**双方各自的目标记录初始化**
+///   （两方各一条、无其它字段），更自然的解释是"该场存在目标系统、当前无人占领"，
+///   而不是"通用广播"。判存在后它们会显示一个 idle 目标圈（无水位），
+///   与"确有目标但未占领"的呈现一致。
 ///
-/// 与 WotbTools Java `hasObjective` 的差异即在此：Java 版只查 `field1==2 && field2==1`，
-/// 属上述过判——同步时须改用本判据。用途：让"攻防战/遭遇战但全程无人占领"的场次
-/// 仍能画出目标圈，而不是只能等第一条进度广播。与争霸互斥由调用侧保证。
+/// 代价与回归口子：若将来证明确有**无目标**的场次也发这一对，phantom 圈会出现在那些场次上——
+/// 届时应改回"需超出初始化对的证据"，并以该反例样本为准（见
+/// `docs/replay-contract-v2-supremacy-type39.md`）。
+///
+/// 与 WotbTools Java `hasObjective`（`field1==2 && field2==1`）的差异：本判据覆盖两族
+/// （`field1 ∈ {1,2}`），因为携带目标记录的族会在 1/2 之间切换（三份真实回放实测）。
 pub fn has_assault_objective(raw: &[RawAssaultBaseUpdate]) -> bool {
-    raw.iter().any(|u| {
-        matches!(u.raw_field1, Some(1) | Some(2))
-            && u.raw_field2 == Some(1)
-            && (u.raw_field3.is_some() || u.raw_field4.is_some())
-    })
+    raw.iter().any(|u| matches!(u.raw_field1, Some(1) | Some(2)) && u.raw_field2 == Some(1))
 }
 
 // ---------- 实时装填相位（subtype 15 RELOAD_TIME / 17 RELOAD_TIME_LIST）----------
@@ -917,26 +989,6 @@ pub fn collect_supremacy_points(packets: &[(u32, f32, &[u8])]) -> Vec<SupremacyP
     out
 }
 
-/// Type39 瞄准帧的 contract 投影（recorder-only）：只暴露已证明字段（世界系炮线
-/// yaw/pitch + 射线点）；f5（PARTIAL，死亡/观战后失效）不入 contract。
-/// 缺帧 = 缺帧，不外推、不把 stale 当当前真实 aim（消费端按 death_events 门控存活期）。
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct AimFrame {
-    pub time_sec: f32,
-    /// f0 世界系炮线 yaw（rad）
-    pub world_yaw: f32,
-    /// f1 世界系炮线 pitch（已按项目约定取负）
-    pub world_pitch: f32,
-    /// f2..4 世界系瞄准射线一点
-    pub ray_point: [f32; 3],
-}
-
-impl From<&Type39Frame> for AimFrame {
-    fn from(f: &Type39Frame) -> Self {
-        Self { time_sec: f.clock, world_yaw: f.gun_yaw, world_pitch: f.gun_pitch_world, ray_point: f.ray_point }
-    }
-}
-
 #[cfg(test)]
 mod supremacy_tests {
     use super::*;
@@ -1035,6 +1087,32 @@ mod supremacy_tests {
         assert_eq!(t[0].base_id, 0);
         assert_eq!(t[0].owner_team, Some(1));
         assert_eq!(t[1].owner_team, None, "显式 0 = 清空归属（无主）");
+    }
+
+    #[test]
+    fn blank_row_clears_base_on_capture_abort() {
+        // 车辆出圈（占领中断）：服务端发只有 base_index 的全缺省行——owner/capturing/progress
+        // 同为 0 → proto3 省略全部字段。旧语义（缺省=维持前值）让它成为空操作，
+        // 17% 与占领方永久挂在基地上（真样本 20260930_2127 基地 C t=107.01 即此形态）。
+        let cap = mk48(12, &root_blocks(11, &[varint_block(&[(1, 0), (3, 2), (4, 17)])]));
+        let blank = mk48(12, &root_blocks(11, &[varint_block(&[(1, 0)])]));
+        let packets: Vec<(u32, f32, &[u8])> = vec![(8, 10.0, &cap), (8, 20.0, &blank)];
+        let t = reconstruct_supremacy_base_states(collect_supremacy_base_updates(&packets));
+        assert_eq!(t.len(), 2);
+        assert_eq!((t[0].capturing_team, t[0].capture_progress), (Some(2), Some(17)));
+        assert_eq!((t[1].owner_team, t[1].capturing_team, t[1].capture_progress), (None, None, None),
+                   "全缺省行必须清空占领方与进度（出圈重置）");
+    }
+
+    #[test]
+    fn blank_row_with_unknown_fields_keeps_previous_state() {
+        // 带未知字段（f5）的块语义未证实 → 不按清空处理（fail-closed：不拿未证实证据改状态）
+        let cap = mk48(12, &root_blocks(11, &[varint_block(&[(1, 0), (3, 2), (4, 17)])]));
+        let with_f5 = mk48(12, &root_blocks(11, &[varint_block(&[(1, 0), (5, 7)])]));
+        let packets: Vec<(u32, f32, &[u8])> = vec![(8, 10.0, &cap), (8, 20.0, &with_f5)];
+        let t = reconstruct_supremacy_base_states(collect_supremacy_base_updates(&packets));
+        assert_eq!((t[1].capturing_team, t[1].capture_progress), (Some(2), Some(17)),
+                   "未知字段在场：维持前值");
     }
 
     #[test]
@@ -1160,14 +1238,73 @@ mod assault_tests {
     }
 
     #[test]
-    fn assault_objective_present_only_beyond_bare_init() {
-        // 裸初始化对（普通对局也发）→ **不**算目标存在
+    fn assault_blank_pair_resets_progress_on_capture_abort() {
+        // 占领中断（车辆出圈）：进度序列后必然跟一对双缺省块（f3/f4 同为零 → proto3 省略）。
+        // 旧实现按"f3 存在"过滤 → 整块丢弃 → 时间线停在最后一个正值，前端进度条永久卡住。
+        // 形态取自 J39 真样本：252.15(1) 253.17(2) 254.18(3) 255.15(4) → 255.65 双缺省对。
+        let mk = |t: &[(u32, u64)]| mk48a(8, &root_blocks(8, &[varint_block(t)]));
+        let p1 = mk(&[(1, 2), (2, 1), (3, 3)]);
+        let p2 = mk(&[(1, 2), (2, 1), (3, 4)]);
+        let clr_a = mk(&[(1, 2), (2, 1)]);
+        let clr_b = mk(&[(1, 1), (2, 1)]);
+        let restart = mk(&[(1, 2), (2, 1), (3, 1)]);
+        let packets: Vec<(u32, f32, &[u8])> = vec![
+            (8, 10.0, &p1), (8, 11.0, &p2),
+            (8, 12.0, &clr_a), (8, 12.0, &clr_b),   // 同刻一对：只产出一条归零
+            (8, 20.0, &restart),
+        ];
+        let tl = reconstruct_assault_base_states(collect_assault_base_updates(&packets));
+        assert_eq!(
+            tl.iter().map(|s| (s.clock, s.progress)).collect::<Vec<_>>(),
+            vec![(10.0, 3), (11.0, 4), (12.0, 0), (20.0, 1)],
+            "双缺省对必须产出归零行；同刻重复块去重；其后重新起算"
+        );
+    }
+
+    #[test]
+    fn assault_flag_only_row_is_not_a_reset() {
+        // 只有 field4 标志流的块（占领进行中与进度块同包成对的兄弟族）不得当重置
+        let flag = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 1), (2, 1), (4, 1)])]));
+        let p1 = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (3, 6)])]));
+        let p2 = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (3, 19)])]));
+        let packets: Vec<(u32, f32, &[u8])> = vec![(8, 1.0, &p1), (8, 2.0, &flag), (8, 3.0, &p2)];
+        let tl = reconstruct_assault_base_states(collect_assault_base_updates(&packets));
+        assert_eq!(
+            tl.iter().map(|s| (s.clock, s.progress)).collect::<Vec<_>>(),
+            vec![(1.0, 6), (3.0, 19)],
+            "仅 field4 的块既不产出行、也不归零"
+        );
+    }
+
+    #[test]
+    fn assault_blank_row_without_prior_progress_emits_nothing() {
+        // 开局全缺省块（裸初始化对）**只清"确有进度"者**：普通对局也发这一对，
+        // 若合成 0 事件会让 assault_bases 恒非空 → 旧产物存在性回退判据误判成有目标。
+        let blank_a = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1)])]));
+        let blank_b = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 1), (2, 1)])]));
+        let only_init: Vec<(u32, f32, &[u8])> = vec![(8, 1.0, &blank_a), (8, 1.0, &blank_b), (8, 9.0, &blank_a)];
+        assert!(reconstruct_assault_base_states(collect_assault_base_updates(&only_init)).is_empty(),
+                "无进度在先：全缺省块不产出任何行");
+        // 进度归零后再来全缺省块：不重复产出 0
+        let p = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (3, 2)])]));
+        let packets: Vec<(u32, f32, &[u8])> = vec![(8, 1.0, &p), (8, 2.0, &blank_a), (8, 3.0, &blank_b)];
+        let tl = reconstruct_assault_base_states(collect_assault_base_updates(&packets));
+        assert_eq!(tl.iter().map(|s| (s.clock, s.progress)).collect::<Vec<_>>(), vec![(1.0, 2), (2.0, 0)],
+                   "归零只产出一条（第二块见进度已为 0 不再产出行）");
+    }
+
+    #[test]
+    fn assault_objective_present_at_family_init() {
+        // 裸初始化对（双方各一条目标记录）→ **即算目标存在**（2026-10-03 判定修正：
+        // 实现对齐字段契约「目标族出现即真，不要求有进度」；真实反例＝10v10 的 Mayan Ruins
+        // 有目标但全场只发这一对，旧判据把整个目标圈压掉）
         let init_a = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1)])]));
         let init_b = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 1), (2, 1)])]));
         let p0: Vec<(u32, f32, &[u8])> = vec![(8, 1.0, &init_a), (8, 2.0, &init_b)];
         let raw0 = collect_assault_base_updates(&p0);
-        assert!(!has_assault_objective(&raw0), "只有裸初始化对：普通对局同样如此，不得判为目标");
-        assert!(reconstruct_assault_base_states(raw0).is_empty(), "也不得合成 0 进度事件");
+        assert!(has_assault_objective(&raw0), "目标族出现过即目标存在（无进度要求）");
+        assert!(reconstruct_assault_base_states(raw0).is_empty(),
+                "存在性不合成进度事件：时间线仍空 → 显示层画 idle 目标圈（无水位）");
 
         // 出现 field4 标志流（目标系统活跃）但尚无进度 → 目标存在、时间线仍空
         let flag = mk48a(8, &root_blocks(8, &[varint_block(&[(1, 2), (2, 1), (4, 1)])]));

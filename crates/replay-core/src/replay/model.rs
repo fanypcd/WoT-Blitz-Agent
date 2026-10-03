@@ -11,7 +11,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use super::combat::{
-    self, AimFrame, ArenaPeriod, AoiPresence, AssaultBaseStateTransition, CombatEventType,
+    self, ArenaPeriod, AoiPresence, AssaultBaseStateTransition, CombatEventType,
     CombatTimeline, ConsumableTransition, FeedbackCounterEvent, GunPitchLimits, HpEvent,
     KillFeedEvent, ModuleCrewStateEvent, RawReloadDuration, RawReloadPhase, ShotReplayData, St10Sample,
     SupremacyBaseStateTransition, SupremacyPointsSample,
@@ -94,8 +94,6 @@ pub struct Timeline {
     pub supremacy_bases: Vec<SupremacyBaseStateTransition>,
     /// Supremacy 实时点数采样（wrapper13/root12；仅真实广播，不推算）
     pub supremacy_points: Vec<SupremacyPointsSample>,
-    /// 作者瞄准帧（Type39 投影，recorder-only；缺帧不外推，存活期由 deaths 门控）
-    pub aim_frames: Vec<AimFrame>,
     /// 攻防战/遭遇战单基地目标存在性（wrapper8/root8 目标族出现即真；与是否有
     /// 占领进度无关）——供前端在"全程无人占领"时仍能画出目标圈
     pub assault_objective_present: bool,
@@ -293,7 +291,6 @@ impl ReplayModel {
                 author_eid,
                 supremacy_bases,
                 supremacy_points,
-                aim_frames: shared.type39_frames.iter().map(combat::AimFrame::from).collect(),
                 assault_objective_present,
                 assault_bases,
                 consumables,
