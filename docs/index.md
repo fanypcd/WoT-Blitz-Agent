@@ -41,12 +41,13 @@
 | v0.3.7 | AI 切面透出**原始未滤波**位姿（type=10）与炮塔观测（prop2）——切面 0.1s 网格是渲染滤波输出，不能当位置证据 |
 | v0.3.8 | 结算阵容完整性 `roster_complete` 与录像者车辆代号 `author_vehicle_codename` |
 | v0.3.9 | **装填数据补齐**：`PlaybackData.reloads` 相位语义定稿（m0x30 subtype 15/16/17：f2=1/3/4/5/6/7 与 f4 = 服务器剩余弹数快照）+ 新增 additive 字段 `reload_effective`（方法 0x23 = 当前生效完整装填配置时长）；上游同步对方 `baseStatus` 攻防基地 canonical 0 → idle |
+| v0.3.11 | **基地占领中断归零 + 单基地存在性补正 + 删 `aim_frames` + 渲染网格加 `hull_roll`**：①争霸（wrapper12）全缺省行 = 显式清空、单基地（wrapper8）双缺省块 = 进度归零——wire 按 proto3 省略零值字段，中断（车辆出圈/被击毁）此前被「缺省=维持前值」吞掉，进度与占领方永久挂在基地上；②`assault_objective_present` 按字段契约放宽为「目标族出现即真」（实现此前多要求 `f3\|\|f4`，把"有目标但全程未占领"的场次整场压掉）；③删除 `aim_frames`（零消费方，实测占回放 JSON 57.6%，20 车样本 6.92MB → 2.93MB；原始 type39 帧保留给射击复现），`PlaybackData.version` 保持 2；④`vehicles[].hull_roll`（additive）取原始 type=10 最近邻——滤波层不输出侧倾 |
 | v0.3.10 | **射击复现多 interaction 关联修复**：`unique shotId = 一次开火 = 一个 Shot`；作者严格路径在同 victim / 同钟出现多个 type=32 segment 时，优先用 `method8.hash6 ↔ type32.hash6` 确定关联；重复 method8 广播按 hash 去重，证据不足时继续 fail-fast，不猜选 |
 
 切面字段均为**附加**（`AiReviewFacet` v1 / `PlaybackData` v2 版本不变）。
 
-**对方侧状态（2026-10-03 核对）**：`deploy/agent/source.json` 已 pin **`v0.3.9` / `b4e50e1`**
-（v0.3.4–v0.3.9 的切面增量已在生产链路上）；此前对方完成**客户端解析迁移**（A158Coke/WotbTools#447
+**对方侧状态（2026-10-03 核对）**：`deploy/agent/source.json` 当前 pin **`v0.3.10` / `5029e103`**
+（v0.3.4–v0.3.10 的切面增量已在生产链路上；v0.3.11 发布后由其更新 pin 取用）；此前对方完成**客户端解析迁移**（A158Coke/WotbTools#447
 「服务器没有 parser」）——服务端解析器模块整体删除，浏览器/Android 跑本项目的 WASM，**本项目由此成为
 该仓唯一的回放解析器**；AI 复盘走 WASM → canonical facts → `ClientAiReviewProjection`，parity 由
 `ClientAiProjectionParityTest` 进 required CI 常驻看护。
