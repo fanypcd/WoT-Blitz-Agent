@@ -14,10 +14,19 @@
 - Release artifacts must be named `wotb-replay-wasm-v<version>.zip`, and `fingerprint.json` must record the exact release tag and upstream commit.
 - If a release job fails after tag creation, rerun the same workflow/commit instead of creating another tag.
 
+## Getting CI results (no sleep polling)
+
+Wait for CI with blocking watches that stream progress and exit non-zero on failure; never `sleep N` and then poll:
+
+- Whole PR: `gh pr checks <pr-number> --watch`
+- One run: `gh run watch <run-id> --exit-status --compact`
+- Run id: `gh run list --branch <branch> --limit 1 --json databaseId,headSha` (a run is bound to its head SHA and immutable — re-inspect it instead of re-running).
+
+When the wait is long, run the watch in the background and read its output when it finishes; keep working in the meantime. A push cancels in-flight runs for the same ref (workflow concurrency) — if you need the CI evidence for a specific head, let its watch finish before pushing the next commit.
+
 ## Parser and contract changes
 
-- Preserve the repository's fail-closed behavior for ambiguous replay evidence; do not guess protocol semantics from a single sample.
-- Public replay/facet contract changes must be documented together with the implementation.
+- Preserve the repository's fail-closed behavior for ambiguous replay evidence; do not guess protocol semantics from a single sample.- Public replay/facet contract changes must be documented together with the implementation.
 - WotbTools consumes this repository as the upstream replay parser. Parser fixes belong here first, then WotbTools updates its pinned Agent release.
 
 ## Frontend ownership (read before touching `frontend/`)
