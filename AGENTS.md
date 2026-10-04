@@ -16,13 +16,15 @@
 
 ## Getting CI results (no sleep polling)
 
-Wait for CI with blocking watches that stream progress and exit non-zero on failure; never `sleep N` and then poll:
+Wait for CI with blocking watches instead of `sleep N` + polling:
 
-- Whole PR: `gh pr checks <pr-number> --watch`
-- One run: `gh run watch <run-id> --exit-status --compact`
+- Live PR status: `gh pr checks <pr-number> --watch` (prints one line per check as its state changes; works in non-TTY/background).
+- One run's verdict: `gh run watch <run-id> --exit-status --compact` (blocks to the end; when piped/backgrounded it prints the summary only at completion — don't expect incremental progress).
 - Run id: `gh run list --branch <branch> --limit 1 --json databaseId,headSha` (a run is bound to its head SHA and immutable — re-inspect it instead of re-running).
 
-When the wait is long, run the watch in the background and read its output when it finishes; keep working in the meantime. A push cancels in-flight runs for the same ref (workflow concurrency) — if you need the CI evidence for a specific head, let its watch finish before pushing the next commit.
+Exit status: with `--exit-status` the verdict *is* the process exit code — never pipe a watch through `tail` (the pipeline then reports the last command's status and swallows failures); drop the pipe or use `set -o pipefail`.
+
+Run the watch in the background and read its output when it finishes; keep working in the meantime. A push cancels in-flight runs for the same ref (workflow concurrency) — if you need the CI evidence for a specific head, let its watch finish before pushing the next commit.
 
 ## Parser and contract changes
 
