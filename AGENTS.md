@@ -26,7 +26,8 @@ When the wait is long, run the watch in the background and read its output when 
 
 ## Parser and contract changes
 
-- Preserve the repository's fail-closed behavior for ambiguous replay evidence; do not guess protocol semantics from a single sample.- Public replay/facet contract changes must be documented together with the implementation.
+- Preserve the repository's fail-closed behavior for ambiguous replay evidence; do not guess protocol semantics from a single sample.
+- Public replay/facet contract changes must be documented together with the implementation.
 - WotbTools consumes this repository as the upstream replay parser. Parser fixes belong here first, then WotbTools updates its pinned Agent release.
 
 ## Frontend ownership (read before touching `frontend/`)
