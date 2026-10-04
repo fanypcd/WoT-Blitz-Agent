@@ -77,14 +77,14 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 
 | 文档 | 结论摘要 | 状态 |
 |---|---|---|
-| [docs/feasibility-pb-local-extraction.md](feasibility-pb-local-extraction.md) | `tanks.pb`/`models.pb` 可替代；735/735 覆盖、零实质分歧；唯一缺口 `tank_id`（有两条替代路径） | ⬜ 待决策（约 3–5 人日） |
-| [docs/feasibility-glb-local-export.md](feasibility-glb-local-export.md) | 客户端自行导出 `model.glb`/`collision.glb`：全量 735 辆验收——collision **735/735 完全等价**、model **700/735 等价**（余 35 辆已归为 4 类规则缺口）；贴图槽位已完整逆向，**待决策验收口径** | ⬜ 待决策（约 4–7 人日） |
+| [docs/feasibility-pb-local-extraction.md](feasibility-pb-local-extraction.md) | `tanks.pb`/`models.pb` 可替代；735/735 覆盖、零实质分歧；唯一缺口 `tank_id`（有两条替代路径）。⚠️ 个别结论有 2026-10-03 注记修正（uk 段名 / 显示名缺失数），见文首 | ⬜ 提取器待实施（约 3–5 人日，见 [data-inventory.md](data-inventory.md) §四） |
+| [docs/feasibility-glb-local-export.md](feasibility-glb-local-export.md) | 历史评估留档：实施结果见"实现记录" [local-model-export.md](local-model-export.md)；其 §3.3 槽位指派结论已被逐通道实测修正，见文首注记 | ✅ 已实施（2026-10-01） |
 
 ## 实现记录（已落地）
 
 | 文档 | 状态 |
 |---|---|
-| [docs/decoupling-status.md](decoupling-status.md) | **解耦进度总览与剩余清单**（2026-10-02）：换源本体未动（运行期 0 引用、33 处消费点、资产面仍是 BlitzKit）；已落地 GLB 与封面两条自产管线；含待决策口径（数据模型塌缩 / 25 辆无显示名 / `is_collector` 快照 / `hull_traverse`）与"不再算待办"的 BlitzKit 侧差异 |
+| [docs/decoupling-status.md](decoupling-status.md) | **解耦的剩余决策与已定案差异**（2026-10-03 收敛）：已完成时间线；待决策口径（数据模型塌缩 / 25 辆无显示名 / `hull_traverse` 非同量）；封面图命名域与"换素材 ≠ 等价替换"（NCC 0.21）；已定案的 BlitzKit 侧差异清单；对外沟通材料。进度/接线/分发现状见 [data-inventory.md](data-inventory.md) |
 | [docs/local-model-export.md](local-model-export.md) | ✅ 已实施（2026-10-01，2026-10-02 补 §4 贴图实测）：报告 B 的几何替代做成 `tools/export_tank_glb.py`，验收口径从"按可达节点求和"收紧到**逐字节 + 节点顺序**——`collision.glb` **735/735**、`model.glb` **733/735** 等价（余 2 辆为 BlitzKit 侧行为，见该文 §5）；贴图槽位与 BlitzKit 完全对齐（731/735 图片数相同、无缺槽位）。§4 逐通道实测推翻了报告 B §3.3 的图源判断，并定下 `baseRMMap` 的**通道搬迁**（ch0→G 粗糙度、ch1→B 金属度）。**不替换运行期数据源**（产物落 `data/cache/local_models/`） |
 
 ## 约定

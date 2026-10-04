@@ -1,0 +1,3677 @@
+{
+ "1": {
+  "nation": "ussr",
+  "slug": "t-34",
+  "stem": "T-34"
+ },
+ "10001": {
+  "nation": "germany",
+  "slug": "vk-28-01",
+  "stem": "VK2801"
+ },
+ "10017": {
+  "nation": "usa",
+  "slug": "m4a3e2",
+  "stem": "Sherman_Jumbo"
+ },
+ "10033": {
+  "nation": "china",
+  "slug": "wz-132a",
+  "stem": "Ch28_WZ_132A"
+ },
+ "10049": {
+  "nation": "france",
+  "slug": "s35-ca",
+  "stem": "S_35CA"
+ },
+ "10065": {
+  "nation": "uk",
+  "slug": "at-7",
+  "stem": "GB75_AT7"
+ },
+ "10081": {
+  "nation": "japan",
+  "slug": "o-i",
+  "stem": "J24_Mi_To_130_tons"
+ },
+ "10097": {
+  "nation": "other",
+  "slug": "medjay",
+  "stem": "Oth35_PanzerMejai"
+ },
+ "10113": {
+  "nation": "european",
+  "slug": "carro-45t",
+  "stem": "It20_Car_Comb_45t"
+ },
+ "10241": {
+  "nation": "ussr",
+  "slug": "su-100m1",
+  "stem": "SU100M1"
+ },
+ "1025": {
+  "nation": "ussr",
+  "slug": "bt-2",
+  "stem": "BT-2"
+ },
+ "10257": {
+  "nation": "germany",
+  "slug": "e-50",
+  "stem": "E-50"
+ },
+ "10273": {
+  "nation": "usa",
+  "slug": "m8a1",
+  "stem": "M8A1"
+ },
+ "10289": {
+  "nation": "china",
+  "slug": "wz-132-1",
+  "stem": "Ch29_Type_62C_prot"
+ },
+ "10337": {
+  "nation": "japan",
+  "slug": "kame",
+  "stem": "J49_Kame"
+ },
+ "10353": {
+  "nation": "other",
+  "slug": "pharaoh",
+  "stem": "Oth34_PanzerMummy"
+ },
+ "10369": {
+  "nation": "european",
+  "slug": "minotauro",
+  "stem": "It21_Controcarro3_Minotauro"
+ },
+ "1041": {
+  "nation": "germany",
+  "slug": "stug-iii-g",
+  "stem": "StuGIII"
+ },
+ "10497": {
+  "nation": "ussr",
+  "slug": "kv-2",
+  "stem": "KV2"
+ },
+ "10513": {
+  "nation": "germany",
+  "slug": "vk-45-02-a",
+  "stem": "VK4502A"
+ },
+ "10529": {
+  "nation": "usa",
+  "slug": "t67",
+  "stem": "T49"
+ },
+ "10545": {
+  "nation": "china",
+  "slug": "wind",
+  "stem": "Ch15_59_16_BP"
+ },
+ "1057": {
+  "nation": "usa",
+  "slug": "m4-sherman",
+  "stem": "M4_Sherman"
+ },
+ "10609": {
+  "nation": "other",
+  "slug": "magnate",
+  "stem": "Oth36_Indien_Panzer_S1"
+ },
+ "10625": {
+  "nation": "european",
+  "slug": "cc-1-mk-2",
+  "stem": "It19_Controcarro_1MK2_Ciclope"
+ },
+ "1073": {
+  "nation": "china",
+  "slug": "t-34-1",
+  "stem": "Ch04_T34_1"
+ },
+ "10753": {
+  "nation": "ussr",
+  "slug": "st-i",
+  "stem": "ST_I"
+ },
+ "10769": {
+  "nation": "germany",
+  "slug": "tiger-p",
+  "stem": "PzVI_Tiger_P"
+ },
+ "10785": {
+  "nation": "usa",
+  "slug": "t110e5",
+  "stem": "T110"
+ },
+ "10801": {
+  "nation": "china",
+  "slug": "panlong",
+  "stem": "Ch34_WZ-131G_FT_BP"
+ },
+ "10817": {
+  "nation": "france",
+  "slug": "amx-ac-46",
+  "stem": "AMX_AC_Mle1946"
+ },
+ "10865": {
+  "nation": "other",
+  "slug": "fixer",
+  "stem": "Oth37_T26_E4_SuperPershing_S1"
+ },
+ "10881": {
+  "nation": "european",
+  "slug": "smv-cc-64",
+  "stem": "It18_Semovente_mod_64"
+ },
+ "1089": {
+  "nation": "france",
+  "slug": "b1",
+  "stem": "B1"
+ },
+ "11009": {
+  "nation": "ussr",
+  "slug": "kv-4",
+  "stem": "KV4"
+ },
+ "11025": {
+  "nation": "germany",
+  "slug": "st-emil",
+  "stem": "Sturer_Emil"
+ },
+ "11041": {
+  "nation": "usa",
+  "slug": "t25-2",
+  "stem": "T25_2"
+ },
+ "1105": {
+  "nation": "uk",
+  "slug": "cromwell",
+  "stem": "GB21_Cromwell"
+ },
+ "11057": {
+  "nation": "china",
+  "slug": "114-sp2",
+  "stem": "Ch44_114_SP2"
+ },
+ "11073": {
+  "nation": "france",
+  "slug": "foch",
+  "stem": "AMX50_Foch"
+ },
+ "11121": {
+  "nation": "other",
+  "slug": "regressor",
+  "stem": "Oth38_50TP_Tyszkiewicza_S1"
+ },
+ "11137": {
+  "nation": "european",
+  "slug": "smv-cc-56",
+  "stem": "It17_Semovente_mod_56"
+ },
+ "1121": {
+  "nation": "japan",
+  "slug": "chi-ri",
+  "stem": "Chi_Ri"
+ },
+ "11265": {
+  "nation": "ussr",
+  "slug": "t-150",
+  "stem": "T150"
+ },
+ "11281": {
+  "nation": "germany",
+  "slug": "kpz-70",
+  "stem": "G_KpfPz_70"
+ },
+ "11297": {
+  "nation": "usa",
+  "slug": "t28-prot",
+  "stem": "T28_Prototype"
+ },
+ "113": {
+  "nation": "other",
+  "slug": "vindicator-um",
+  "stem": "Oth08_WH_Vindicator"
+ },
+ "11313": {
+  "nation": "china",
+  "slug": "type-58-50-08",
+  "stem": "Type_58TUR"
+ },
+ "1137": {
+  "nation": "other",
+  "slug": "predator-um",
+  "stem": "Oth09_WH_Predator"
+ },
+ "11377": {
+  "nation": "other",
+  "slug": "basilisk",
+  "stem": "Oth39_T20_S2"
+ },
+ "11393": {
+  "nation": "european",
+  "slug": "bassotto",
+  "stem": "It16_Bassoto"
+ },
+ "11521": {
+  "nation": "ussr",
+  "slug": "is-8",
+  "stem": "IS8"
+ },
+ "1153": {
+  "nation": "european",
+  "slug": "p-43-ter",
+  "stem": "It09_P43_ter"
+ },
+ "11537": {
+  "nation": "germany",
+  "slug": "jpanther-ii",
+  "stem": "JagdPantherII"
+ },
+ "11553": {
+  "nation": "usa",
+  "slug": "hellcat",
+  "stem": "M18_Hellcat"
+ },
+ "11569": {
+  "nation": "china",
+  "slug": "bz-58-2",
+  "stem": "Ch59_BZ58_2"
+ },
+ "11585": {
+  "nation": "france",
+  "slug": "arl-v39",
+  "stem": "ARL_V39"
+ },
+ "11633": {
+  "nation": "other",
+  "slug": "forest-witch",
+  "stem": "Oth42_ForestWitch_HW23"
+ },
+ "11649": {
+  "nation": "european",
+  "slug": "semovente-m41",
+  "stem": "It15_Semovente_M41"
+ },
+ "11777": {
+  "nation": "ussr",
+  "slug": "kv-1",
+  "stem": "KV1"
+ },
+ "11793": {
+  "nation": "germany",
+  "slug": "nashorn",
+  "stem": "Nashorn"
+ },
+ "11809": {
+  "nation": "usa",
+  "slug": "t23e3",
+  "stem": "T23E3"
+ },
+ "11825": {
+  "nation": "china",
+  "slug": "bz-75",
+  "stem": "Ch48_BZ_75"
+ },
+ "11889": {
+  "nation": "other",
+  "slug": "nebulon",
+  "stem": "Oth40_TVP_46_S2"
+ },
+ "11905": {
+  "nation": "european",
+  "slug": "shadowhunter",
+  "stem": "It10_P43_bis_BP"
+ },
+ "12033": {
+  "nation": "ussr",
+  "slug": "su-122-54",
+  "stem": "SU122_54"
+ },
+ "12049": {
+  "nation": "germany",
+  "slug": "jg-pz-e-100",
+  "stem": "JagdPz_E100"
+ },
+ "12065": {
+  "nation": "usa",
+  "slug": "t95e2",
+  "stem": "T95E2"
+ },
+ "12081": {
+  "nation": "china",
+  "slug": "bz-68",
+  "stem": "Ch49_BZ_68"
+ },
+ "12097": {
+  "nation": "france",
+  "slug": "amx-ac-48",
+  "stem": "AMX_AC_Mle1948"
+ },
+ "12145": {
+  "nation": "other",
+  "slug": "glacier",
+  "stem": "Oth41_Centurion_Mk3_S2"
+ },
+ "12161": {
+  "nation": "european",
+  "slug": "strv-k",
+  "stem": "S31_Strv_K"
+ },
+ "12305": {
+  "nation": "germany",
+  "slug": "e-50-m",
+  "stem": "E50_Ausf_M"
+ },
+ "12321": {
+  "nation": "usa",
+  "slug": "t6e1-grizzly",
+  "stem": "A77_T6M"
+ },
+ "12337": {
+  "nation": "china",
+  "slug": "bz-58",
+  "stem": "Ch51_BZ_58"
+ },
+ "12417": {
+  "nation": "european",
+  "slug": "bisonte-c45",
+  "stem": "It22_Progetto_C45_mod_71"
+ },
+ "12545": {
+  "nation": "ussr",
+  "slug": "k-91",
+  "stem": "K-91"
+ },
+ "12593": {
+  "nation": "china",
+  "slug": "bz-166",
+  "stem": "Ch50_BZ_166"
+ },
+ "12657": {
+  "nation": "other",
+  "slug": "titan-charioteer",
+  "stem": "Oth44_Charioteer_T"
+ },
+ "12673": {
+  "nation": "european",
+  "slug": "tornvagn",
+  "stem": "S32_Bofors_Tornvagn"
+ },
+ "12849": {
+  "nation": "china",
+  "slug": "116-f3",
+  "stem": "Ch52_WZ_122_6_F3"
+ },
+ "12913": {
+  "nation": "other",
+  "slug": "groundtank",
+  "stem": "Oth45_Sandstriker"
+ },
+ "12929": {
+  "nation": "european",
+  "slug": "tnh-t-vz-51",
+  "stem": "Cz16_TNH_T_vz51"
+ },
+ "1297": {
+  "nation": "germany",
+  "slug": "panther",
+  "stem": "PzV"
+ },
+ "13073": {
+  "nation": "germany",
+  "slug": "pz-ii-g",
+  "stem": "Pz_II_AusfG"
+ },
+ "13089": {
+  "nation": "usa",
+  "slug": "t110e4",
+  "stem": "T110E4"
+ },
+ "13105": {
+  "nation": "china",
+  "slug": "bz-176",
+  "stem": "Ch47_BZ_176"
+ },
+ "1313": {
+  "nation": "usa",
+  "slug": "m4a3e8",
+  "stem": "M4A3E8_Sherman"
+ },
+ "13169": {
+  "nation": "other",
+  "slug": "ac-wedge",
+  "stem": "Oth61_Pz_VM_Set"
+ },
+ "13185": {
+  "nation": "european",
+  "slug": "vz-55",
+  "stem": "Cz17_Vz_55"
+ },
+ "1329": {
+  "nation": "china",
+  "slug": "nc-31",
+  "stem": "Ch06_Renault_NC31"
+ },
+ "13329": {
+  "nation": "germany",
+  "slug": "d-w-2",
+  "stem": "DW_II"
+ },
+ "13345": {
+  "nation": "usa",
+  "slug": "t26e4",
+  "stem": "T26_E4_SuperPershing"
+ },
+ "13425": {
+  "nation": "other",
+  "slug": "ac-highlander",
+  "stem": "Oth62_Pz_VlD_Set"
+ },
+ "13441": {
+  "nation": "european",
+  "slug": "aeonix",
+  "stem": "Cz08_T-25BPS"
+ },
+ "13569": {
+  "nation": "ussr",
+  "slug": "obj-268",
+  "stem": "Object268"
+ },
+ "1361": {
+  "nation": "uk",
+  "slug": "churchill-mk-vi",
+  "stem": "GB_Churchill_MkVI"
+ },
+ "13617": {
+  "nation": "china",
+  "slug": "type-59-spc",
+  "stem": "Ch60_Type59_spc"
+ },
+ "13681": {
+  "nation": "other",
+  "slug": "ac-ocelote",
+  "stem": "Oth63_Pz_VllF_Set"
+ },
+ "13697": {
+  "nation": "european",
+  "slug": "tnh-105-1000",
+  "stem": "Cz18_TNH_105_1000"
+ },
+ "1377": {
+  "nation": "japan",
+  "slug": "chi-nu",
+  "stem": "Chi_Nu"
+ },
+ "13825": {
+  "nation": "ussr",
+  "slug": "t-62a",
+  "stem": "T62A"
+ },
+ "13841": {
+  "nation": "germany",
+  "slug": "indien-pz",
+  "stem": "Indien_Panzer"
+ },
+ "13857": {
+  "nation": "usa",
+  "slug": "t110e3",
+  "stem": "T110E3"
+ },
+ "13873": {
+  "nation": "china",
+  "slug": "bz-74-1",
+  "stem": "Ch56_BZ_74_1"
+ },
+ "13889": {
+  "nation": "france",
+  "slug": "foch-155",
+  "stem": "AMX_50Fosh_155"
+ },
+ "1393": {
+  "nation": "other",
+  "slug": "nameless",
+  "stem": "Sega_Nameless"
+ },
+ "13937": {
+  "nation": "other",
+  "slug": "ac-rebelde",
+  "stem": "Oth64_Pz_VlllK_Set"
+ },
+ "13953": {
+  "nation": "european",
+  "slug": "vz-44-1",
+  "stem": "Cz19_Vz_44_1"
+ },
+ "1409": {
+  "nation": "european",
+  "slug": "p-43-bis",
+  "stem": "It10_P43_bis"
+ },
+ "14097": {
+  "nation": "germany",
+  "slug": "vk-30-01-d",
+  "stem": "VK3002DB_V1"
+ },
+ "14113": {
+  "nation": "usa",
+  "slug": "m48-patton",
+  "stem": "M48A1"
+ },
+ "14129": {
+  "nation": "china",
+  "slug": "bzt-70",
+  "stem": "Ch57_BZT_70"
+ },
+ "14145": {
+  "nation": "france",
+  "slug": "amx-elc-bis",
+  "stem": "ELC_AMX"
+ },
+ "14193": {
+  "nation": "other",
+  "slug": "silencer",
+  "stem": "Oth46_Charioteer_S3"
+ },
+ "14209": {
+  "nation": "european",
+  "slug": "skoda-p-js",
+  "stem": "Cz29_Skoda_P-JS"
+ },
+ "14337": {
+  "nation": "ussr",
+  "slug": "obj-263",
+  "stem": "Object263"
+ },
+ "14385": {
+  "nation": "china",
+  "slug": "wz-120g-ft",
+  "stem": "Ch40_WZ120G_FT"
+ },
+ "14449": {
+  "nation": "other",
+  "slug": "swindler",
+  "stem": "Oth47_AMX_13_90_S3"
+ },
+ "14465": {
+  "nation": "european",
+  "slug": "ds-pzinz",
+  "stem": "Pl17_DS_PZlnz"
+ },
+ "14609": {
+  "nation": "germany",
+  "slug": "leopard-1",
+  "stem": "Leopard1"
+ },
+ "14625": {
+  "nation": "usa",
+  "slug": "t69",
+  "stem": "T69"
+ },
+ "14705": {
+  "nation": "other",
+  "slug": "fanrik",
+  "stem": "Oth48_EMIL_1951E1_S3"
+ },
+ "14721": {
+  "nation": "european",
+  "slug": "strv-81",
+  "stem": "S23_Strv_81"
+ },
+ "14865": {
+  "nation": "germany",
+  "slug": "leopard-pt-a",
+  "stem": "Pro_Ag_A"
+ },
+ "14881": {
+  "nation": "usa",
+  "slug": "t57-heavy",
+  "stem": "T57_58"
+ },
+ "14961": {
+  "nation": "other",
+  "slug": "mutant",
+  "stem": "Oth49_TM_04_NT"
+ },
+ "14977": {
+  "nation": "european",
+  "slug": "cs-63",
+  "stem": "Pl21_CS_63"
+ },
+ "15137": {
+  "nation": "usa",
+  "slug": "t21",
+  "stem": "T21"
+ },
+ "15217": {
+  "nation": "other",
+  "slug": "ac-forger",
+  "stem": "Oth65_PzVIllM_Tigeom"
+ },
+ "15233": {
+  "nation": "european",
+  "slug": "cs-59",
+  "stem": "Pl22_CS_59"
+ },
+ "1537": {
+  "nation": "ussr",
+  "slug": "t-28-mod-1940",
+  "stem": "T-28"
+ },
+ "15393": {
+  "nation": "usa",
+  "slug": "t54e1",
+  "stem": "T54E1"
+ },
+ "15409": {
+  "nation": "china",
+  "slug": "zq-90",
+  "stem": "Ch66_121_2_Ziqiang"
+ },
+ "15441": {
+  "nation": "uk",
+  "slug": "chieftain",
+  "stem": "GB87_Chieftain_T95_turret"
+ },
+ "15473": {
+  "nation": "other",
+  "slug": "endurance",
+  "stem": "Oth50_STT"
+ },
+ "15489": {
+  "nation": "european",
+  "slug": "cs-53",
+  "stem": "Pl23_CS_53"
+ },
+ "1553": {
+  "nation": "germany",
+  "slug": "jg-pz-iv",
+  "stem": "JagdPzIV"
+ },
+ "15617": {
+  "nation": "ussr",
+  "slug": "obj-907",
+  "stem": "Object_907"
+ },
+ "15649": {
+  "nation": "usa",
+  "slug": "t71",
+  "stem": "T71"
+ },
+ "1569": {
+  "nation": "usa",
+  "slug": "t20",
+  "stem": "T20"
+ },
+ "15697": {
+  "nation": "uk",
+  "slug": "chieftain-mk-6",
+  "stem": "GB84_Chieftain_Mk6"
+ },
+ "15729": {
+  "nation": "other",
+  "slug": "tsl-7-defender",
+  "stem": "Oth51_FD_24"
+ },
+ "15745": {
+  "nation": "european",
+  "slug": "cs-44",
+  "stem": "Pl20_CS_44"
+ },
+ "1585": {
+  "nation": "china",
+  "slug": "t-34-2",
+  "stem": "Ch05_T34_2"
+ },
+ "15889": {
+  "nation": "germany",
+  "slug": "vk-30-02-m",
+  "stem": "VK3002M"
+ },
+ "15905": {
+  "nation": "usa",
+  "slug": "m60",
+  "stem": "M60"
+ },
+ "15937": {
+  "nation": "france",
+  "slug": "r35",
+  "stem": "RenaultR35"
+ },
+ "15953": {
+  "nation": "uk",
+  "slug": "fv201-a45",
+  "stem": "GB52_FV201_A45"
+ },
+ "15985": {
+  "nation": "other",
+  "slug": "toxique",
+  "stem": "Oth52_Toxique"
+ },
+ "16001": {
+  "nation": "european",
+  "slug": "b-u-g-i",
+  "stem": "Pl18_BUGI"
+ },
+ "1601": {
+  "nation": "france",
+  "slug": "d1",
+  "stem": "D1"
+ },
+ "16145": {
+  "nation": "germany",
+  "slug": "pz-sfl-ivc",
+  "stem": "Pz_Sfl_IVc"
+ },
+ "1617": {
+  "nation": "uk",
+  "slug": "sherman-v",
+  "stem": "GB_Sherman_V"
+ },
+ "16193": {
+  "nation": "france",
+  "slug": "m4a1-rev",
+  "stem": "F73_M4A1_Revalorise"
+ },
+ "16241": {
+  "nation": "other",
+  "slug": "rammer",
+  "stem": "Oth53_Rammer"
+ },
+ "16257": {
+  "nation": "european",
+  "slug": "outcast",
+  "stem": "Cz29_Skoda_P-JS_BP"
+ },
+ "1633": {
+  "nation": "japan",
+  "slug": "chi-he",
+  "stem": "Chi_He"
+ },
+ "16401": {
+  "nation": "germany",
+  "slug": "wt-auf-pz-iv",
+  "stem": "Waffentrager_IV"
+ },
+ "16449": {
+  "nation": "france",
+  "slug": "amx-13-57",
+  "stem": "F69_AMX_13_57GF"
+ },
+ "1649": {
+  "nation": "other",
+  "slug": "helsing",
+  "stem": "Van_Helsing"
+ },
+ "16497": {
+  "nation": "other",
+  "slug": "e-10",
+  "stem": "Oth66_E100ANN_S4"
+ },
+ "16513": {
+  "nation": "european",
+  "slug": "shptk-tvp-100",
+  "stem": "Cz20_ShPTK_TVP_100"
+ },
+ "16641": {
+  "nation": "ussr",
+  "slug": "mt-25",
+  "stem": "MT25"
+ },
+ "1665": {
+  "nation": "european",
+  "slug": "lago",
+  "stem": "S04_Lago-I"
+ },
+ "16657": {
+  "nation": "germany",
+  "slug": "rhm-b-wt",
+  "stem": "RhB_Waffentrager"
+ },
+ "16673": {
+  "nation": "usa",
+  "slug": "t37",
+  "stem": "A94_T37"
+ },
+ "16705": {
+  "nation": "france",
+  "slug": "amx-m4-49",
+  "stem": "F74_AMX_M4_1949"
+ },
+ "16753": {
+  "nation": "other",
+  "slug": "dth-str",
+  "stem": "Oth67_FV215b_183ANN_S4"
+ },
+ "16769": {
+  "nation": "european",
+  "slug": "smv-vipera",
+  "stem": "It30_CC_mod_64_Prem"
+ },
+ "16897": {
+  "nation": "ussr",
+  "slug": "obj-140",
+  "stem": "Object_140"
+ },
+ "17": {
+  "nation": "germany",
+  "slug": "pz-iv-g",
+  "stem": "PzIV"
+ },
+ "17009": {
+  "nation": "other",
+  "slug": "kv-jr",
+  "stem": "Oth68_KV2ANN_S4"
+ },
+ "17025": {
+  "nation": "european",
+  "slug": "progetto-cc55-mod-54",
+  "stem": "It117_ProgettoCC55mod54"
+ },
+ "17169": {
+  "nation": "germany",
+  "slug": "pz-iv-a",
+  "stem": "Pz_IV_AusfA"
+ },
+ "17217": {
+  "nation": "france",
+  "slug": "eraser-bp44",
+  "stem": "ARL_44BP"
+ },
+ "17233": {
+  "nation": "uk",
+  "slug": "conway",
+  "stem": "GB81_FV4004"
+ },
+ "17265": {
+  "nation": "other",
+  "slug": "souleater",
+  "stem": "Oth69_Souleater"
+ },
+ "17281": {
+  "nation": "european",
+  "slug": "progetto-c50-mod-66",
+  "stem": "It119_ProgettoC50mod66"
+ },
+ "17425": {
+  "nation": "germany",
+  "slug": "pz-iv-d",
+  "stem": "Pz_IV_AusfD"
+ },
+ "17473": {
+  "nation": "france",
+  "slug": "amx-defender",
+  "stem": "F69_AMX_13D"
+ },
+ "17489": {
+  "nation": "uk",
+  "slug": "charioteer",
+  "stem": "GB80_Charioteer"
+ },
+ "17521": {
+  "nation": "other",
+  "slug": "lightbringer",
+  "stem": "Oth70_Lightbringer"
+ },
+ "17537": {
+  "nation": "european",
+  "slug": "carro-d-assalto-p-88",
+  "stem": "It116_Carro_d_assalto_P88"
+ },
+ "17729": {
+  "nation": "france",
+  "slug": "somua-sm",
+  "stem": "F84_Somua_SM"
+ },
+ "17745": {
+  "nation": "uk",
+  "slug": "fv217-badger",
+  "stem": "GB92_FV217"
+ },
+ "17777": {
+  "nation": "other",
+  "slug": "titan-strife",
+  "stem": "Oth71_Titan_Strife"
+ },
+ "17793": {
+  "nation": "european",
+  "slug": "rinoceronte",
+  "stem": "It115_Rinoceronte"
+ },
+ "17953": {
+  "nation": "usa",
+  "slug": "m41-bulldog",
+  "stem": "M41_Bulldog"
+ },
+ "17985": {
+  "nation": "france",
+  "slug": "bretagne-panther",
+  "stem": "F113_PzV_FR"
+ },
+ "18001": {
+  "nation": "uk",
+  "slug": "fv4005",
+  "stem": "GB83_4005"
+ },
+ "18033": {
+  "nation": "other",
+  "slug": "hazard-i",
+  "stem": "Oth72_Hazard_I"
+ },
+ "18049": {
+  "nation": "european",
+  "slug": "lion",
+  "stem": "It21_Lion"
+ },
+ "1809": {
+  "nation": "germany",
+  "slug": "hetzer",
+  "stem": "Hetzer"
+ },
+ "18177": {
+  "nation": "ussr",
+  "slug": "t-54-ltwt",
+  "stem": "R109_T54S"
+ },
+ "18209": {
+  "nation": "usa",
+  "slug": "t49",
+  "stem": "A100_T49"
+ },
+ "18241": {
+  "nation": "france",
+  "slug": "b-c-bourrasque",
+  "stem": "F116_Bat_Chat_Bourrasque"
+ },
+ "1825": {
+  "nation": "usa",
+  "slug": "m2-light",
+  "stem": "M2_lt"
+ },
+ "18257": {
+  "nation": "uk",
+  "slug": "challenger",
+  "stem": "GB41_Challenger"
+ },
+ "18289": {
+  "nation": "other",
+  "slug": "quetzal",
+  "stem": "Oth73_Nemini"
+ },
+ "18305": {
+  "nation": "european",
+  "slug": "sdp-40-zadymka",
+  "stem": "Pl33_SDP_Wz_40"
+ },
+ "1841": {
+  "nation": "china",
+  "slug": "wz-120",
+  "stem": "Ch18_WZ-120"
+ },
+ "18433": {
+  "nation": "ussr",
+  "slug": "lttb",
+  "stem": "R107_LTB"
+ },
+ "18449": {
+  "nation": "germany",
+  "slug": "ru-251",
+  "stem": "G103_RU_251"
+ },
+ "18497": {
+  "nation": "france",
+  "slug": "lorraine-fearless",
+  "stem": "F19_Lorraine40t_Com"
+ },
+ "18513": {
+  "nation": "uk",
+  "slug": "chimera",
+  "stem": "GB97_Chimera"
+ },
+ "18545": {
+  "nation": "other",
+  "slug": "argonaut",
+  "stem": "Oth74_Argonaut"
+ },
+ "18561": {
+  "nation": "european",
+  "slug": "sdp-44-burza",
+  "stem": "Pl32_SDP_Wz_44"
+ },
+ "1857": {
+  "nation": "france",
+  "slug": "b-c-25-t-ap",
+  "stem": "F75_Char_de_25t"
+ },
+ "18689": {
+  "nation": "ussr",
+  "slug": "t-70-57",
+  "stem": "R43_T-70_57"
+ },
+ "18753": {
+  "nation": "france",
+  "slug": "amx-cda-105",
+  "stem": "F89_Canon_dassaut_105"
+ },
+ "18769": {
+  "nation": "uk",
+  "slug": "action-x",
+  "stem": "GB93_Caernarvon_AX"
+ },
+ "18801": {
+  "nation": "other",
+  "slug": "mau5tank",
+  "stem": "Oth75_Braniaq_DM5"
+ },
+ "18817": {
+  "nation": "european",
+  "slug": "sdp-57-gowika",
+  "stem": "Pl31_SDP_Wz_57D"
+ },
+ "1889": {
+  "nation": "japan",
+  "slug": "chi-to",
+  "stem": "Chi_To"
+ },
+ "18945": {
+  "nation": "ussr",
+  "slug": "isu-130",
+  "stem": "R111_ISU130"
+ },
+ "18961": {
+  "nation": "germany",
+  "slug": "sp-i-c",
+  "stem": "G113_SP_I_C"
+ },
+ "18977": {
+  "nation": "usa",
+  "slug": "t95e6",
+  "stem": "A95_T95E6"
+ },
+ "19009": {
+  "nation": "france",
+  "slug": "amxmas",
+  "stem": "F_AMX-12BP"
+ },
+ "19025": {
+  "nation": "uk",
+  "slug": "defender-mk-1",
+  "stem": "GB_Centurion_MkDF"
+ },
+ "1905": {
+  "nation": "other",
+  "slug": "o-47",
+  "stem": "Akawara"
+ },
+ "19057": {
+  "nation": "other",
+  "slug": "destiny",
+  "stem": "Oth76_Destiny"
+ },
+ "19073": {
+  "nation": "european",
+  "slug": "sdp-58-kilana",
+  "stem": "Pl30_SDP_Wz58T"
+ },
+ "1921": {
+  "nation": "european",
+  "slug": "strv-m-42",
+  "stem": "S02_StrvM42"
+ },
+ "19217": {
+  "nation": "germany",
+  "slug": "grille-15",
+  "stem": "G121_Grille_15_L63"
+ },
+ "19233": {
+  "nation": "usa",
+  "slug": "chrysler-k",
+  "stem": "A115_Chrysler_K"
+ },
+ "19265": {
+  "nation": "france",
+  "slug": "charles",
+  "stem": "Achilles_FR"
+ },
+ "19281": {
+  "nation": "uk",
+  "slug": "super-conqueror",
+  "stem": "GB91_Super_Conqueror"
+ },
+ "19313": {
+  "nation": "other",
+  "slug": "prowler",
+  "stem": "Oth77_Prowler"
+ },
+ "19329": {
+  "nation": "european",
+  "slug": "sdp-60-gonkiewicza",
+  "stem": "Pl28_SDP_Wz_60"
+ },
+ "19473": {
+  "nation": "germany",
+  "slug": "krupp-38-d",
+  "stem": "Krupp-38D"
+ },
+ "19489": {
+  "nation": "usa",
+  "slug": "t28-defender",
+  "stem": "A68_T28D"
+ },
+ "19521": {
+  "nation": "france",
+  "slug": "b-c-25-t-avenir",
+  "stem": "Bat-Chat-25CL"
+ },
+ "19537": {
+  "nation": "uk",
+  "slug": "vickers-light",
+  "stem": "GB_Vickers_Light_105"
+ },
+ "19569": {
+  "nation": "other",
+  "slug": "ac-sterope",
+  "stem": "Oth78_AC_17_P_Sterope"
+ },
+ "19585": {
+  "nation": "european",
+  "slug": "nc-70-blyskawica",
+  "stem": "Pl29_NC_Wz_70T"
+ },
+ "19713": {
+  "nation": "ussr",
+  "slug": "loza-s-sherman",
+  "stem": "R140_M4A2_Loza"
+ },
+ "19729": {
+  "nation": "germany",
+  "slug": "tiger-131",
+  "stem": "G136_Tiger_131"
+ },
+ "19745": {
+  "nation": "usa",
+  "slug": "t26e5",
+  "stem": "A117_T26E5"
+ },
+ "19777": {
+  "nation": "france",
+  "slug": "a-p-amx-30",
+  "stem": "F117_Alt_Proto_AMX_30"
+ },
+ "19793": {
+  "nation": "uk",
+  "slug": "vickers-cr",
+  "stem": "GB_Vickers_Cruiser"
+ },
+ "19825": {
+  "nation": "other",
+  "slug": "ac-atlas",
+  "stem": "Oth79_AC_17_Alcyone"
+ },
+ "19841": {
+  "nation": "european",
+  "slug": "sdp-wz-66-grom",
+  "stem": "Pl27_SDP_Wz_66T"
+ },
+ "19969": {
+  "nation": "ussr",
+  "slug": "t-22-medium",
+  "stem": "R120_T22SR"
+ },
+ "19985": {
+  "nation": "germany",
+  "slug": "skorpion-g",
+  "stem": "G114_Rheinmetall_Scorpion"
+ },
+ "20001": {
+  "nation": "usa",
+  "slug": "t92e1",
+  "stem": "A99_T92E1"
+ },
+ "20033": {
+  "nation": "france",
+  "slug": "char-futur-4",
+  "stem": "F114_Projet_4_1"
+ },
+ "20049": {
+  "nation": "uk",
+  "slug": "fv301",
+  "stem": "GB_FV301"
+ },
+ "20081": {
+  "nation": "other",
+  "slug": "ac-celeno",
+  "stem": "Oth80_AC_16_Celeno"
+ },
+ "20097": {
+  "nation": "european",
+  "slug": "felice",
+  "stem": "It35_Felice"
+ },
+ "20257": {
+  "nation": "usa",
+  "slug": "sheridan",
+  "stem": "A116_XM551"
+ },
+ "20289": {
+  "nation": "france",
+  "slug": "pirate",
+  "stem": "F34_ARL_V39_BP"
+ },
+ "20305": {
+  "nation": "uk",
+  "slug": "centurion-mk-5-1",
+  "stem": "GB94_Centurion_Mk5-1_RAAC"
+ },
+ "20337": {
+  "nation": "other",
+  "slug": "ac-taygete",
+  "stem": "Oth81_AC_15_Taygete"
+ },
+ "20481": {
+  "nation": "ussr",
+  "slug": "obj-252u",
+  "stem": "R134_Object_252U"
+ },
+ "2049": {
+  "nation": "ussr",
+  "slug": "a-20",
+  "stem": "A-20"
+ },
+ "20497": {
+  "nation": "germany",
+  "slug": "vk-100-01-p",
+  "stem": "G115_VK10001P"
+ },
+ "20513": {
+  "nation": "usa",
+  "slug": "t54e2",
+  "stem": "A124_T54E2"
+ },
+ "20545": {
+  "nation": "france",
+  "slug": "renault-g1",
+  "stem": "F11_Renault_G1R"
+ },
+ "20561": {
+  "nation": "uk",
+  "slug": "turtle-mk-i",
+  "stem": "GB99_Turtle_Mk1"
+ },
+ "20593": {
+  "nation": "other",
+  "slug": "ac-pleione",
+  "stem": "Oth82_AC_14_Pleione"
+ },
+ "2065": {
+  "nation": "germany",
+  "slug": "pz-ii",
+  "stem": "PzII"
+ },
+ "20737": {
+  "nation": "ussr",
+  "slug": "su-130pm",
+  "stem": "R159_SU_130PM"
+ },
+ "20753": {
+  "nation": "germany",
+  "slug": "mauschen",
+  "stem": "G110_Mauschen"
+ },
+ "20769": {
+  "nation": "usa",
+  "slug": "t25-pilot-1",
+  "stem": "A111_T25_Pilot"
+ },
+ "20801": {
+  "nation": "france",
+  "slug": "lorraine-50-t",
+  "stem": "F115_Lorraine_50t"
+ },
+ "20817": {
+  "nation": "uk",
+  "slug": "explorer",
+  "stem": "GB21_A27BP"
+ },
+ "20849": {
+  "nation": "other",
+  "slug": "fve-defender",
+  "stem": "Oth84_FVE_Defender"
+ },
+ "2097": {
+  "nation": "china",
+  "slug": "wz-111-1-4",
+  "stem": "Ch12_111_1_2_3"
+ },
+ "20993": {
+  "nation": "ussr",
+  "slug": "t-2020",
+  "stem": "R63_ST_IBD"
+ },
+ "21009": {
+  "nation": "germany",
+  "slug": "panzer-58",
+  "stem": "G119_Pz58_Mutz"
+ },
+ "21025": {
+  "nation": "usa",
+  "slug": "t26e3-eagle-7",
+  "stem": "A121_T26E3"
+ },
+ "21057": {
+  "nation": "france",
+  "slug": "projet-murat",
+  "stem": "F119_Projet_Murat"
+ },
+ "21073": {
+  "nation": "uk",
+  "slug": "dreadnought",
+  "stem": "GB40_Gun_Carrier_BP"
+ },
+ "21105": {
+  "nation": "other",
+  "slug": "ac-07v-merope",
+  "stem": "Oth83_AC_13_Merope"
+ },
+ "21249": {
+  "nation": "ussr",
+  "slug": "thunder",
+  "stem": "KV-1s-BP"
+ },
+ "21265": {
+  "nation": "germany",
+  "slug": "vk-168-01-p",
+  "stem": "G138_VK16801P"
+ },
+ "21281": {
+  "nation": "usa",
+  "slug": "rudolph",
+  "stem": "M4A3E8_BP"
+ },
+ "2129": {
+  "nation": "uk",
+  "slug": "crusader",
+  "stem": "GB20_Crusader"
+ },
+ "21313": {
+  "nation": "france",
+  "slug": "amx-13-m24",
+  "stem": "F126_AMX_13_M24"
+ },
+ "21329": {
+  "nation": "uk",
+  "slug": "gsor-1008",
+  "stem": "GB109_GSOR_1008"
+ },
+ "21361": {
+  "nation": "other",
+  "slug": "herdbreaker",
+  "stem": "Oth86_Survivalist"
+ },
+ "2145": {
+  "nation": "japan",
+  "slug": "chi-ha-jp",
+  "stem": "Chi_Ha"
+ },
+ "21505": {
+  "nation": "ussr",
+  "slug": "t-44-85",
+  "stem": "R98_T44_85"
+ },
+ "21521": {
+  "nation": "germany",
+  "slug": "e-75-ts",
+  "stem": "G_E-75TS"
+ },
+ "21569": {
+  "nation": "france",
+  "slug": "erac-105-proto",
+  "stem": "F123_ERAC_105_Proto"
+ },
+ "21585": {
+  "nation": "uk",
+  "slug": "blasteroid",
+  "stem": "GB63_TOG_II_BP"
+ },
+ "2161": {
+  "nation": "other",
+  "slug": "wz-blaze",
+  "stem": "WZ-135G_FT"
+ },
+ "21617": {
+  "nation": "other",
+  "slug": "biter",
+  "stem": "Oth85_Ghoul"
+ },
+ "21761": {
+  "nation": "ussr",
+  "slug": "stg",
+  "stem": "R146_STG"
+ },
+ "2177": {
+  "nation": "european",
+  "slug": "14tp",
+  "stem": "Pl07_14TP"
+ },
+ "21777": {
+  "nation": "germany",
+  "slug": "vk-90-01-p",
+  "stem": "G_VK9001P"
+ },
+ "21793": {
+  "nation": "usa",
+  "slug": "sheridan-missile",
+  "stem": "A116_XM551_Exp"
+ },
+ "21825": {
+  "nation": "france",
+  "slug": "projet-louis",
+  "stem": "F120_Project_Louis"
+ },
+ "21841": {
+  "nation": "uk",
+  "slug": "caliban",
+  "stem": "GB112_Caliban"
+ },
+ "21889": {
+  "nation": "european",
+  "slug": "56tp",
+  "stem": "Pl24_56TP"
+ },
+ "22033": {
+  "nation": "germany",
+  "slug": "agent",
+  "stem": "VK2801_BP"
+ },
+ "22049": {
+  "nation": "usa",
+  "slug": "magnus",
+  "stem": "M6E2BP"
+ },
+ "22081": {
+  "nation": "france",
+  "slug": "elc-amx-901",
+  "stem": "F127_ELC_AMX_901_Proto"
+ },
+ "22097": {
+  "nation": "uk",
+  "slug": "churchill-viii",
+  "stem": "GB_Churchill_MkVIII"
+ },
+ "22129": {
+  "nation": "other",
+  "slug": "ac-teichos",
+  "stem": "Oth91_AC_U_MT_10"
+ },
+ "22145": {
+  "nation": "european",
+  "slug": "bofors-triton",
+  "stem": "S38_Bofors_Triton"
+ },
+ "22273": {
+  "nation": "ussr",
+  "slug": "obj-260",
+  "stem": "R110_Object_260"
+ },
+ "22305": {
+  "nation": "usa",
+  "slug": "ae-phase-i",
+  "stem": "A125_AEP_1"
+ },
+ "22337": {
+  "nation": "france",
+  "slug": "sentinelle",
+  "stem": "F140_Sentinelle"
+ },
+ "22353": {
+  "nation": "uk",
+  "slug": "churchill-w",
+  "stem": "GB09_Churchill_VII_BP"
+ },
+ "22385": {
+  "nation": "other",
+  "slug": "titan-jpanther-ii",
+  "stem": "Oth92_JagdPantherII_Titan"
+ },
+ "22401": {
+  "nation": "european",
+  "slug": "ambassador",
+  "stem": "S37_Ambassador"
+ },
+ "22529": {
+  "nation": "ussr",
+  "slug": "lt-432",
+  "stem": "R158_LT_432"
+ },
+ "22545": {
+  "nation": "germany",
+  "slug": "kanonenjagdpanzer",
+  "stem": "G112_JagdPanzer_105"
+ },
+ "22561": {
+  "nation": "usa",
+  "slug": "ts-5",
+  "stem": "A122_TS-5"
+ },
+ "22609": {
+  "nation": "uk",
+  "slug": "caernarvon-defender",
+  "stem": "GB11_Caernarvon_D"
+ },
+ "22641": {
+  "nation": "other",
+  "slug": "convoyer",
+  "stem": "Oth93_Convoyer"
+ },
+ "22657": {
+  "nation": "european",
+  "slug": "toro",
+  "stem": "It34_Toro"
+ },
+ "22785": {
+  "nation": "ussr",
+  "slug": "triumphant",
+  "stem": "T34_85BP"
+ },
+ "22801": {
+  "nation": "germany",
+  "slug": "icebreaker",
+  "stem": "PzVI_AusfBP"
+ },
+ "22817": {
+  "nation": "usa",
+  "slug": "m-vi-yoh",
+  "stem": "M-6-Y"
+ },
+ "22849": {
+  "nation": "france",
+  "slug": "brennos",
+  "stem": "F131_Brennos"
+ },
+ "22865": {
+  "nation": "uk",
+  "slug": "charlemagne",
+  "stem": "GB111_Charlemagne"
+ },
+ "22913": {
+  "nation": "european",
+  "slug": "donnola",
+  "stem": "It38_Donnola"
+ },
+ "23041": {
+  "nation": "ussr",
+  "slug": "t-34-shielded",
+  "stem": "R154_T-34E-43"
+ },
+ "2305": {
+  "nation": "ussr",
+  "slug": "su-152",
+  "stem": "SU-152"
+ },
+ "23057": {
+  "nation": "germany",
+  "slug": "kunze-panzer",
+  "stem": "G147_mPanzer_64"
+ },
+ "23073": {
+  "nation": "usa",
+  "slug": "m-v-yoh",
+  "stem": "M-5-Y"
+ },
+ "23105": {
+  "nation": "france",
+  "slug": "m47-chevalier",
+  "stem": "F142_M47_Chevalier"
+ },
+ "23121": {
+  "nation": "uk",
+  "slug": "cobra",
+  "stem": "GB106_Cobra"
+ },
+ "23169": {
+  "nation": "european",
+  "slug": "husarz",
+  "stem": "Pl120_Wz61_Ussar"
+ },
+ "2321": {
+  "nation": "germany",
+  "slug": "vk-36-01-h",
+  "stem": "VK3601H"
+ },
+ "23297": {
+  "nation": "ussr",
+  "slug": "object-244",
+  "stem": "R160_object_244"
+ },
+ "23313": {
+  "nation": "germany",
+  "slug": "kpz-50-t",
+  "stem": "G144_Kpz_50t"
+ },
+ "23329": {
+  "nation": "usa",
+  "slug": "m-iii-yoh",
+  "stem": "M-3-Y"
+ },
+ "23377": {
+  "nation": "uk",
+  "slug": "fv1066-senlac",
+  "stem": "GB101_FV1066_Senlac"
+ },
+ "23425": {
+  "nation": "european",
+  "slug": "zmije",
+  "stem": "Cz44_Zmije"
+ },
+ "2353": {
+  "nation": "china",
+  "slug": "vae-type-b",
+  "stem": "Ch07_Vickers_MkE_Type_BT26"
+ },
+ "23553": {
+  "nation": "ussr",
+  "slug": "ms-1",
+  "stem": "MS-1obr21"
+ },
+ "23569": {
+  "nation": "germany",
+  "slug": "pz-iv-gargoyle",
+  "stem": "Pz_IV_AusfBT"
+ },
+ "23585": {
+  "nation": "usa",
+  "slug": "m-vii-yoh",
+  "stem": "M-7-Y"
+ },
+ "23633": {
+  "nation": "uk",
+  "slug": "a25-harry-hopkins-i",
+  "stem": "GB116_Harry_Hopkins"
+ },
+ "2369": {
+  "nation": "france",
+  "slug": "fcm-36-pak-40",
+  "stem": "FCM_36Pak40"
+ },
+ "23809": {
+  "nation": "ussr",
+  "slug": "object-84",
+  "stem": "R_Object_84"
+ },
+ "23825": {
+  "nation": "germany",
+  "slug": "steyr-wt",
+  "stem": "G109_Steyr_WT"
+ },
+ "23841": {
+  "nation": "usa",
+  "slug": "super-hellcat",
+  "stem": "A130_Super_Hellcat"
+ },
+ "2385": {
+  "nation": "uk",
+  "slug": "medium-iii",
+  "stem": "GB06_Vickers_Medium_Mk_III"
+ },
+ "23889": {
+  "nation": "uk",
+  "slug": "fv4201-chieftain-proto",
+  "stem": "GB110_FV4201_Chieftain_Prototype"
+ },
+ "2401": {
+  "nation": "japan",
+  "slug": "ke-ni",
+  "stem": "Ke_Ni"
+ },
+ "24065": {
+  "nation": "ussr",
+  "slug": "ltg",
+  "stem": "R131_LTG"
+ },
+ "24081": {
+  "nation": "germany",
+  "slug": "u-panzer",
+  "stem": "VK3002DB_BP"
+ },
+ "24097": {
+  "nation": "usa",
+  "slug": "bltz9000",
+  "stem": "M18E2BP"
+ },
+ "24145": {
+  "nation": "uk",
+  "slug": "gsor-fearless",
+  "stem": "GB109_GSOR_1008_Fearless"
+ },
+ "24177": {
+  "nation": "other",
+  "slug": "ley-1-defender",
+  "stem": "Oth95_MTU_defender"
+ },
+ "24321": {
+  "nation": "ussr",
+  "slug": "t-100-lt",
+  "stem": "R132_T100LT"
+ },
+ "2433": {
+  "nation": "european",
+  "slug": "10tp",
+  "stem": "Pl06_10TP"
+ },
+ "24337": {
+  "nation": "germany",
+  "slug": "m48a2-raumpanzer",
+  "stem": "G142_M48RPz"
+ },
+ "24401": {
+  "nation": "uk",
+  "slug": "vickers-mbt",
+  "stem": "GB114_Vickers_MBT_Mk3"
+ },
+ "24577": {
+  "nation": "ussr",
+  "slug": "object-268-4",
+  "stem": "R149_Object_268_4"
+ },
+ "24593": {
+  "nation": "germany",
+  "slug": "keiler",
+  "stem": "G_E-75RT"
+ },
+ "24609": {
+  "nation": "usa",
+  "slug": "concept-1b",
+  "stem": "A128_Concept_1b"
+ },
+ "24657": {
+  "nation": "uk",
+  "slug": "a46-different",
+  "stem": "GB108_A46"
+ },
+ "24689": {
+  "nation": "other",
+  "slug": "xing-ji-xi-ren",
+  "stem": "Oth97_CNO_Consul"
+ },
+ "24849": {
+  "nation": "germany",
+  "slug": "kryos",
+  "stem": "JagdPzIV_AusfBP"
+ },
+ "24865": {
+  "nation": "usa",
+  "slug": "scepter",
+  "stem": "M-3-Y-Midas"
+ },
+ "24913": {
+  "nation": "uk",
+  "slug": "nemesis",
+  "stem": "GB128_Nemesis"
+ },
+ "24945": {
+  "nation": "other",
+  "slug": "titan-amx",
+  "stem": "Oth98_AMX_50_100_Titan"
+ },
+ "25089": {
+  "nation": "ussr",
+  "slug": "object-752",
+  "stem": "R172_Object_752"
+ },
+ "25105": {
+  "nation": "germany",
+  "slug": "barkhan",
+  "stem": "G_VK3502_BP"
+ },
+ "25121": {
+  "nation": "usa",
+  "slug": "m46-jaguar",
+  "stem": "M46_CL"
+ },
+ "25169": {
+  "nation": "uk",
+  "slug": "gsor-the-tank",
+  "stem": "GB141_GSOR_the_TANK"
+ },
+ "25345": {
+  "nation": "ussr",
+  "slug": "object-274a",
+  "stem": "R180_Object_274A"
+ },
+ "25361": {
+  "nation": "germany",
+  "slug": "wt-ritter",
+  "stem": "Waffentrager_IV_CL"
+ },
+ "25377": {
+  "nation": "usa",
+  "slug": "t77",
+  "stem": "A132_T77"
+ },
+ "25601": {
+  "nation": "ussr",
+  "slug": "is-2-shielded",
+  "stem": "R175_IS_2E"
+ },
+ "2561": {
+  "nation": "ussr",
+  "slug": "t-34-85",
+  "stem": "T-34-85"
+ },
+ "25617": {
+  "nation": "germany",
+  "slug": "hwk-30",
+  "stem": "G140_HWK_30"
+ },
+ "25633": {
+  "nation": "usa",
+  "slug": "m-iv-y",
+  "stem": "A141_M-4-Y"
+ },
+ "257": {
+  "nation": "ussr",
+  "slug": "su-85",
+  "stem": "SU-85"
+ },
+ "2577": {
+  "nation": "germany",
+  "slug": "vk-30-01-h",
+  "stem": "VK3001H"
+ },
+ "25857": {
+  "nation": "ussr",
+  "slug": "obj-777-ii",
+  "stem": "R119_Object_777"
+ },
+ "25873": {
+  "nation": "germany",
+  "slug": "elefant",
+  "stem": "G148_Elephant"
+ },
+ "25889": {
+  "nation": "usa",
+  "slug": "ranger",
+  "stem": "T21_BP"
+ },
+ "2593": {
+  "nation": "usa",
+  "slug": "t30",
+  "stem": "T30"
+ },
+ "25937": {
+  "nation": "uk",
+  "slug": "mark-i-male",
+  "stem": "GB86_Mark_I_Male"
+ },
+ "2609": {
+  "nation": "china",
+  "slug": "type-64",
+  "stem": "Ch24_Type64"
+ },
+ "26113": {
+  "nation": "ussr",
+  "slug": "object-452k",
+  "stem": "R181_Object_452K"
+ },
+ "26129": {
+  "nation": "germany",
+  "slug": "epsilon",
+  "stem": "Nashorn_BP"
+ },
+ "26145": {
+  "nation": "usa",
+  "slug": "high-score",
+  "stem": "A05_M4_105BD"
+ },
+ "2625": {
+  "nation": "france",
+  "slug": "arl-44",
+  "stem": "ARL_44"
+ },
+ "26369": {
+  "nation": "ussr",
+  "slug": "st-62-ver-2",
+  "stem": "R194_ST_62_var_2"
+ },
+ "26385": {
+  "nation": "germany",
+  "slug": "tiger-frontline",
+  "stem": "PzVI_AusfTUR"
+ },
+ "26401": {
+  "nation": "usa",
+  "slug": "enforcer",
+  "stem": "M36_BP"
+ },
+ "2657": {
+  "nation": "japan",
+  "slug": "sta-1",
+  "stem": "STA_1"
+ },
+ "26625": {
+  "nation": "ussr",
+  "slug": "t-34-85-breakthrough",
+  "stem": "T34_85TUR"
+ },
+ "26641": {
+  "nation": "germany",
+  "slug": "kpz-07-rh",
+  "stem": "G154_Kpz_07_RH"
+ },
+ "26657": {
+  "nation": "usa",
+  "slug": "astron-rex",
+  "stem": "A140_ASTRON_REX_105"
+ },
+ "26881": {
+  "nation": "ussr",
+  "slug": "obj-590",
+  "stem": "R187_Object_590"
+ },
+ "2689": {
+  "nation": "european",
+  "slug": "vickers-mk-f",
+  "stem": "F01_Vickers_MkF"
+ },
+ "26897": {
+  "nation": "germany",
+  "slug": "kpz-pr-68-p",
+  "stem": "G164_Kpz_Pr_68_P"
+ },
+ "26913": {
+  "nation": "usa",
+  "slug": "frosty",
+  "stem": "M24_Chaffee_BP"
+ },
+ "27137": {
+  "nation": "ussr",
+  "slug": "k-2",
+  "stem": "R192_K_2"
+ },
+ "27153": {
+  "nation": "germany",
+  "slug": "aufkl-panther",
+  "stem": "G85_Auf_Panther"
+ },
+ "27169": {
+  "nation": "usa",
+  "slug": "cyborg",
+  "stem": "M6E2V2_BP"
+ },
+ "27393": {
+  "nation": "ussr",
+  "slug": "obj-kust",
+  "stem": "R217_Object_Kust"
+ },
+ "27409": {
+  "nation": "germany",
+  "slug": "projekt-kpz-07p-e",
+  "stem": "G162_Project_Kpz_07P_E"
+ },
+ "27425": {
+  "nation": "usa",
+  "slug": "tl-7-120",
+  "stem": "A146_TL_7_120"
+ },
+ "27665": {
+  "nation": "germany",
+  "slug": "schwarzpanzer-58",
+  "stem": "G119_Panzer58_SH"
+ },
+ "27681": {
+  "nation": "usa",
+  "slug": "pawlack-tank",
+  "stem": "A142_Pawlack_Tank"
+ },
+ "27921": {
+  "nation": "germany",
+  "slug": "erich-konzept-i",
+  "stem": "G165_Erich_Koncept"
+ },
+ "27937": {
+  "nation": "usa",
+  "slug": "t49-fearless",
+  "stem": "T49_Fearless"
+ },
+ "2817": {
+  "nation": "ussr",
+  "slug": "kv-1s",
+  "stem": "KV-1s"
+ },
+ "28177": {
+  "nation": "germany",
+  "slug": "lkpz-70-k",
+  "stem": "G166_LKpz_70_K"
+ },
+ "28193": {
+  "nation": "usa",
+  "slug": "ts-60",
+  "stem": "A151_TS_60"
+ },
+ "28417": {
+  "nation": "ussr",
+  "slug": "kv-4-ktts",
+  "stem": "R121_KV4_KTT"
+ },
+ "28433": {
+  "nation": "germany",
+  "slug": "hwk-12",
+  "stem": "G126_HWK_12"
+ },
+ "28449": {
+  "nation": "usa",
+  "slug": "t42",
+  "stem": "A136_T42"
+ },
+ "2849": {
+  "nation": "usa",
+  "slug": "t34",
+  "stem": "T34_hvy"
+ },
+ "2865": {
+  "nation": "china",
+  "slug": "wz-110",
+  "stem": "Ch11_110"
+ },
+ "28673": {
+  "nation": "ussr",
+  "slug": "is-8-taurus",
+  "stem": "R81_IS8_CL"
+ },
+ "28689": {
+  "nation": "germany",
+  "slug": "rhm-pzw",
+  "stem": "G125_Spz_57_Rh"
+ },
+ "28705": {
+  "nation": "usa",
+  "slug": "xm66f",
+  "stem": "A153_XM66F"
+ },
+ "2881": {
+  "nation": "france",
+  "slug": "amx-40",
+  "stem": "AMX40"
+ },
+ "289": {
+  "nation": "usa",
+  "slug": "m3-stuart",
+  "stem": "M3_Stuart"
+ },
+ "28945": {
+  "nation": "germany",
+  "slug": "waffen-f1-0",
+  "stem": "G98_Waffentrager_E100"
+ },
+ "28961": {
+  "nation": "usa",
+  "slug": "sherman-easy-8",
+  "stem": "M4A3E8TUR"
+ },
+ "2897": {
+  "nation": "uk",
+  "slug": "churchill-i",
+  "stem": "GB08_Churchill_I"
+ },
+ "2913": {
+  "nation": "japan",
+  "slug": "ke-ho",
+  "stem": "Ke_Ho"
+ },
+ "29201": {
+  "nation": "germany",
+  "slug": "tiger-maus",
+  "stem": "G167_Tiger_Maus"
+ },
+ "29217": {
+  "nation": "usa",
+  "slug": "mbt-b",
+  "stem": "A150_MBT_B"
+ },
+ "2945": {
+  "nation": "european",
+  "slug": "progetto-46",
+  "stem": "It13_Progetto_M35_mod_46"
+ },
+ "29457": {
+  "nation": "germany",
+  "slug": "vk-19-02-shan-song-bao",
+  "stem": "G190_VK_1602_Quby"
+ },
+ "29473": {
+  "nation": "usa",
+  "slug": "atac",
+  "stem": "A175_ATAC"
+ },
+ "29713": {
+  "nation": "germany",
+  "slug": "kjpz-tiii-jager",
+  "stem": "G168_KJpz_T_III"
+ },
+ "29985": {
+  "nation": "usa",
+  "slug": "spht",
+  "stem": "A178_SPHT"
+ },
+ "30481": {
+  "nation": "germany",
+  "slug": "kpz-70-missile",
+  "stem": "G14_KpfPz_70R"
+ },
+ "3073": {
+  "nation": "ussr",
+  "slug": "t-46",
+  "stem": "T-46"
+ },
+ "3089": {
+  "nation": "germany",
+  "slug": "l-tr",
+  "stem": "Ltraktor"
+ },
+ "3105": {
+  "nation": "usa",
+  "slug": "m3-lee",
+  "stem": "M3_Grant"
+ },
+ "3121": {
+  "nation": "china",
+  "slug": "m5a1-stuart",
+  "stem": "Ch09_M5"
+ },
+ "3137": {
+  "nation": "france",
+  "slug": "amx-50-100",
+  "stem": "AMX_50_100"
+ },
+ "3153": {
+  "nation": "uk",
+  "slug": "black-prince",
+  "stem": "GB10_Black_Prince"
+ },
+ "3201": {
+  "nation": "european",
+  "slug": "50tp-prototyp",
+  "stem": "Pl08_50TP_prot"
+ },
+ "321": {
+  "nation": "france",
+  "slug": "d2",
+  "stem": "D2"
+ },
+ "33": {
+  "nation": "usa",
+  "slug": "t14",
+  "stem": "T14"
+ },
+ "3329": {
+  "nation": "ussr",
+  "slug": "ms-1-mod-1",
+  "stem": "MS-1"
+ },
+ "3345": {
+  "nation": "germany",
+  "slug": "pz-38-t",
+  "stem": "Pz38t"
+ },
+ "3361": {
+  "nation": "usa",
+  "slug": "t1-heavy",
+  "stem": "T1_hvy"
+ },
+ "337": {
+  "nation": "uk",
+  "slug": "medium-ii",
+  "stem": "GB05_Vickers_Medium_Mk_II"
+ },
+ "3377": {
+  "nation": "china",
+  "slug": "wz-131",
+  "stem": "Ch16_WZ_131"
+ },
+ "3425": {
+  "nation": "japan",
+  "slug": "type-61",
+  "stem": "Type_61"
+ },
+ "3457": {
+  "nation": "european",
+  "slug": "emil-i",
+  "stem": "S18_EMIL_1951E1"
+ },
+ "353": {
+  "nation": "japan",
+  "slug": "chi-ni",
+  "stem": "Chi_Ni"
+ },
+ "3585": {
+  "nation": "ussr",
+  "slug": "su-100",
+  "stem": "SU-100"
+ },
+ "3601": {
+  "nation": "germany",
+  "slug": "pz-jag-i",
+  "stem": "PanzerJager_I"
+ },
+ "3633": {
+  "nation": "china",
+  "slug": "is-2",
+  "stem": "Ch10_IS2"
+ },
+ "3649": {
+  "nation": "france",
+  "slug": "b-c-25-t",
+  "stem": "Bat_Chatillon25t"
+ },
+ "3681": {
+  "nation": "japan",
+  "slug": "stb-1",
+  "stem": "ST_B1"
+ },
+ "3697": {
+  "nation": "other",
+  "slug": "lupus",
+  "stem": "Oth06_Sega_Lupus"
+ },
+ "3713": {
+  "nation": "european",
+  "slug": "strv-74",
+  "stem": "S07_Strv_74"
+ },
+ "385": {
+  "nation": "european",
+  "slug": "progetto-65",
+  "stem": "It08_Progetto_M40_mod65"
+ },
+ "3857": {
+  "nation": "germany",
+  "slug": "jpanther",
+  "stem": "JagdPanther"
+ },
+ "3873": {
+  "nation": "usa",
+  "slug": "t29",
+  "stem": "T29"
+ },
+ "3889": {
+  "nation": "china",
+  "slug": "wz-132",
+  "stem": "Ch17_WZ131_1_WZ132"
+ },
+ "3905": {
+  "nation": "france",
+  "slug": "amx-50-120",
+  "stem": "AMX_50_120"
+ },
+ "3921": {
+  "nation": "uk",
+  "slug": "caernarvon",
+  "stem": "GB11_Caernarvon"
+ },
+ "3937": {
+  "nation": "japan",
+  "slug": "ho-ri",
+  "stem": "J20_Ho_Ri_type3"
+ },
+ "3953": {
+  "nation": "other",
+  "slug": "t-55a",
+  "stem": "Oth11_T-55A"
+ },
+ "3969": {
+  "nation": "european",
+  "slug": "leo",
+  "stem": "S13_Leo"
+ },
+ "4113": {
+  "nation": "germany",
+  "slug": "vk-30-02-d",
+  "stem": "VK3002DB"
+ },
+ "4145": {
+  "nation": "china",
+  "slug": "wz-121",
+  "stem": "Ch19_121"
+ },
+ "4193": {
+  "nation": "japan",
+  "slug": "ho-ri-t-ii",
+  "stem": "J21_Ho_Ri"
+ },
+ "4209": {
+  "nation": "other",
+  "slug": "warduck",
+  "stem": "Oth10_WarDuck"
+ },
+ "4225": {
+  "nation": "european",
+  "slug": "emil-ii",
+  "stem": "S17_EMIL_1952E2"
+ },
+ "4353": {
+  "nation": "ussr",
+  "slug": "t-44",
+  "stem": "T-44"
+ },
+ "4369": {
+  "nation": "germany",
+  "slug": "pz-iii",
+  "stem": "PzIII"
+ },
+ "4385": {
+  "nation": "usa",
+  "slug": "t32",
+  "stem": "T32"
+ },
+ "4401": {
+  "nation": "china",
+  "slug": "chi-ha-cn",
+  "stem": "Ch08_Type97_Chi_Ha"
+ },
+ "4417": {
+  "nation": "france",
+  "slug": "amx-m4-mle-54",
+  "stem": "F82_AMX_M4_Mle1949_Ter"
+ },
+ "4433": {
+  "nation": "uk",
+  "slug": "conqueror",
+  "stem": "GB12_Conqueror"
+ },
+ "4449": {
+  "nation": "japan",
+  "slug": "is-2-pravda-sp",
+  "stem": "IS-2_GuP"
+ },
+ "4465": {
+  "nation": "other",
+  "slug": "hafen",
+  "stem": "Oth12_Sega_Hafen"
+ },
+ "4481": {
+  "nation": "european",
+  "slug": "kranvagn",
+  "stem": "S16_Kranvagn"
+ },
+ "4609": {
+  "nation": "ussr",
+  "slug": "t-26",
+  "stem": "T-26"
+ },
+ "4657": {
+  "nation": "china",
+  "slug": "type-t-34",
+  "stem": "Ch21_T34"
+ },
+ "4689": {
+  "nation": "uk",
+  "slug": "churchill-vii",
+  "stem": "GB09_Churchill_VII"
+ },
+ "4705": {
+  "nation": "japan",
+  "slug": "firefly-saunders-sp",
+  "stem": "Firefly_GuP"
+ },
+ "4721": {
+  "nation": "other",
+  "slug": "gravedigger",
+  "stem": "Oth14_MdM_AshKnight"
+ },
+ "4737": {
+  "nation": "european",
+  "slug": "emil-1951",
+  "stem": "S25_EMIL_51"
+ },
+ "4881": {
+  "nation": "germany",
+  "slug": "pz-iii-a",
+  "stem": "PzIII_A"
+ },
+ "4897": {
+  "nation": "usa",
+  "slug": "m2-medium",
+  "stem": "M2_med"
+ },
+ "49": {
+  "nation": "china",
+  "slug": "type-59",
+  "stem": "Ch01_Type59"
+ },
+ "4913": {
+  "nation": "china",
+  "slug": "59-16",
+  "stem": "Ch15_59_16"
+ },
+ "4929": {
+  "nation": "france",
+  "slug": "amx-13-90",
+  "stem": "AMX_13_90"
+ },
+ "4945": {
+  "nation": "uk",
+  "slug": "valentine-mk-ix",
+  "stem": "GB04_Valentine"
+ },
+ "4961": {
+  "nation": "japan",
+  "slug": "ho-ri-t-i",
+  "stem": "J22_Ho_Ri_type96"
+ },
+ "4977": {
+  "nation": "other",
+  "slug": "scavenger",
+  "stem": "Oth15_RustCrab"
+ },
+ "4993": {
+  "nation": "european",
+  "slug": "p-43-06-ann",
+  "stem": "It10_P43_BD"
+ },
+ "51201": {
+  "nation": "ussr",
+  "slug": "kv-220-t",
+  "stem": "KV-220"
+ },
+ "5121": {
+  "nation": "ussr",
+  "slug": "at-1",
+  "stem": "AT-1"
+ },
+ "513": {
+  "nation": "ussr",
+  "slug": "is",
+  "stem": "IS"
+ },
+ "5137": {
+  "nation": "germany",
+  "slug": "tiger-ii",
+  "stem": "PzVIB_Tiger_II"
+ },
+ "51457": {
+  "nation": "ussr",
+  "slug": "matilda-iv",
+  "stem": "Matilda_II_LL"
+ },
+ "51473": {
+  "nation": "germany",
+  "slug": "pz-v-iv",
+  "stem": "PzV_PzIV"
+ },
+ "51489": {
+  "nation": "usa",
+  "slug": "t2-light",
+  "stem": "T2_lt"
+ },
+ "5153": {
+  "nation": "usa",
+  "slug": "m5-stuart",
+  "stem": "M5_Stuart"
+ },
+ "5169": {
+  "nation": "china",
+  "slug": "type-58",
+  "stem": "Ch20_Type58"
+ },
+ "51713": {
+  "nation": "ussr",
+  "slug": "churchill-iii",
+  "stem": "Churchill_LL"
+ },
+ "51729": {
+  "nation": "germany",
+  "slug": "pz-ii-j",
+  "stem": "PzII_J"
+ },
+ "51745": {
+  "nation": "usa",
+  "slug": "ram-ii",
+  "stem": "Ram-II"
+ },
+ "51809": {
+  "nation": "japan",
+  "slug": "ke-ni-otsu",
+  "stem": "Ke_Ni_B"
+ },
+ "5185": {
+  "nation": "france",
+  "slug": "amx-13-75",
+  "stem": "AMX_13_75"
+ },
+ "51985": {
+  "nation": "germany",
+  "slug": "pz-s35",
+  "stem": "S35_captured"
+ },
+ "5201": {
+  "nation": "uk",
+  "slug": "cruiser-i",
+  "stem": "GB03_Cruiser_Mk_I"
+ },
+ "52065": {
+  "nation": "japan",
+  "slug": "hetzer-kamesan-sp",
+  "stem": "G09_Hetzer_GuP"
+ },
+ "5217": {
+  "nation": "japan",
+  "slug": "chi-to-spg",
+  "stem": "J23_Chi_To_SPG"
+ },
+ "52225": {
+  "nation": "ussr",
+  "slug": "bt-sv",
+  "stem": "BT-SV"
+ },
+ "52241": {
+  "nation": "germany",
+  "slug": "pz-b2",
+  "stem": "B-1bis_captured"
+ },
+ "52257": {
+  "nation": "usa",
+  "slug": "m4a2e4",
+  "stem": "M4A2E4"
+ },
+ "5233": {
+  "nation": "other",
+  "slug": "smasher",
+  "stem": "Oth16_KV_TG"
+ },
+ "52481": {
+  "nation": "ussr",
+  "slug": "valentine-ii",
+  "stem": "Valentine_LL"
+ },
+ "5249": {
+  "nation": "european",
+  "slug": "pudel",
+  "stem": "Pl03_PzV_Pudel"
+ },
+ "52497": {
+  "nation": "germany",
+  "slug": "pz-38h",
+  "stem": "H39_captured"
+ },
+ "52513": {
+  "nation": "usa",
+  "slug": "m6a2e1",
+  "stem": "M6A2E1"
+ },
+ "52561": {
+  "nation": "uk",
+  "slug": "tortoise",
+  "stem": "GB32_Tortoise"
+ },
+ "52737": {
+  "nation": "ussr",
+  "slug": "m3-light",
+  "stem": "M3_Stuart_LL"
+ },
+ "52769": {
+  "nation": "usa",
+  "slug": "locust",
+  "stem": "M22_Locust"
+ },
+ "529": {
+  "nation": "germany",
+  "slug": "tiger-i",
+  "stem": "PzVI"
+ },
+ "52993": {
+  "nation": "ussr",
+  "slug": "a-32",
+  "stem": "A-32"
+ },
+ "53025": {
+  "nation": "usa",
+  "slug": "m6a2e1-exp",
+  "stem": "M6A2E1_exp"
+ },
+ "53249": {
+  "nation": "ussr",
+  "slug": "kv-5",
+  "stem": "KV-5"
+ },
+ "53505": {
+  "nation": "ussr",
+  "slug": "t-127",
+  "stem": "T-127"
+ },
+ "53537": {
+  "nation": "usa",
+  "slug": "t1e6",
+  "stem": "T1_E6"
+ },
+ "53585": {
+  "nation": "uk",
+  "slug": "matilda-bp",
+  "stem": "GB68_Matilda_Black_Prince"
+ },
+ "53761": {
+  "nation": "ussr",
+  "slug": "su-85i",
+  "stem": "SU_85I"
+ },
+ "5377": {
+  "nation": "ussr",
+  "slug": "is-3",
+  "stem": "IS-3"
+ },
+ "53841": {
+  "nation": "uk",
+  "slug": "tog-ii",
+  "stem": "GB63_TOG_II"
+ },
+ "5393": {
+  "nation": "germany",
+  "slug": "leopard",
+  "stem": "VK1602"
+ },
+ "5409": {
+  "nation": "usa",
+  "slug": "m7",
+  "stem": "M7_med"
+ },
+ "54097": {
+  "nation": "uk",
+  "slug": "at-15a",
+  "stem": "GB71_AT_15A"
+ },
+ "5425": {
+  "nation": "china",
+  "slug": "wz-113",
+  "stem": "Ch22_113"
+ },
+ "54273": {
+  "nation": "ussr",
+  "slug": "su-76i",
+  "stem": "SU76I"
+ },
+ "54289": {
+  "nation": "germany",
+  "slug": "lowe",
+  "stem": "Lowe"
+ },
+ "54353": {
+  "nation": "uk",
+  "slug": "excelsior",
+  "stem": "GB51_Excelsior"
+ },
+ "5441": {
+  "nation": "france",
+  "slug": "amx-30-1er-prot",
+  "stem": "F71_AMX_30_prototype"
+ },
+ "545": {
+  "nation": "usa",
+  "slug": "t1",
+  "stem": "T1_Cunningham"
+ },
+ "54529": {
+  "nation": "ussr",
+  "slug": "tetrarch",
+  "stem": "Tetrarch_LL"
+ },
+ "54545": {
+  "nation": "germany",
+  "slug": "t-25",
+  "stem": "T-25"
+ },
+ "5457": {
+  "nation": "uk",
+  "slug": "comet",
+  "stem": "GB22_Comet"
+ },
+ "5473": {
+  "nation": "japan",
+  "slug": "mitsu-108",
+  "stem": "J30_Mitsu_108"
+ },
+ "54785": {
+  "nation": "ussr",
+  "slug": "su-100y",
+  "stem": "SU100Y"
+ },
+ "54801": {
+  "nation": "germany",
+  "slug": "t-15",
+  "stem": "T-15"
+ },
+ "54865": {
+  "nation": "uk",
+  "slug": "light-vic",
+  "stem": "GB76_Mk_VIC"
+ },
+ "5489": {
+  "nation": "other",
+  "slug": "y5-t-34",
+  "stem": "Oth17_BDT-5A"
+ },
+ "5505": {
+  "nation": "european",
+  "slug": "tvp-t-50-51",
+  "stem": "Cz04_T50_51"
+ },
+ "55057": {
+  "nation": "germany",
+  "slug": "pz-iv-hydr",
+  "stem": "PzIV_Hydro"
+ },
+ "55073": {
+  "nation": "usa",
+  "slug": "t7-car",
+  "stem": "T7_Combat_Car"
+ },
+ "55297": {
+  "nation": "ussr",
+  "slug": "su-122-44",
+  "stem": "SU122_44"
+ },
+ "55313": {
+  "nation": "germany",
+  "slug": "jgtig-8-8-cm",
+  "stem": "JagdTiger_SdKfz_185"
+ },
+ "55889": {
+  "nation": "uk",
+  "slug": "cromwell-b",
+  "stem": "GB85_Cromwell_Berlin"
+ },
+ "56097": {
+  "nation": "usa",
+  "slug": "fury",
+  "stem": "A104_M4A3E8A"
+ },
+ "56577": {
+  "nation": "ussr",
+  "slug": "ltp",
+  "stem": "LTP"
+ },
+ "56609": {
+  "nation": "usa",
+  "slug": "t28-htc",
+  "stem": "A102_T28_concept"
+ },
+ "5665": {
+  "nation": "usa",
+  "slug": "t2-medium",
+  "stem": "T2_med"
+ },
+ "5681": {
+  "nation": "china",
+  "slug": "121b",
+  "stem": "Ch25_121_mod_1971B"
+ },
+ "57105": {
+  "nation": "germany",
+  "slug": "dicker-max",
+  "stem": "DickerMax"
+ },
+ "5713": {
+  "nation": "uk",
+  "slug": "centurion-7-1",
+  "stem": "GB24_Centurion_Mk3"
+ },
+ "5729": {
+  "nation": "japan",
+  "slug": "ju-nu",
+  "stem": "J29_Ju_Nu"
+ },
+ "57361": {
+  "nation": "germany",
+  "slug": "pz-iv-s",
+  "stem": "PzIV_schmalturm"
+ },
+ "5745": {
+  "nation": "other",
+  "slug": "y5-firefly",
+  "stem": "Oth18_BDT-5B"
+ },
+ "5761": {
+  "nation": "european",
+  "slug": "skoda-t-50",
+  "stem": "Cz02_T50"
+ },
+ "57617": {
+  "nation": "germany",
+  "slug": "panther-m10",
+  "stem": "Panther_M10"
+ },
+ "577": {
+  "nation": "france",
+  "slug": "ft",
+  "stem": "RenaultFT"
+ },
+ "58641": {
+  "nation": "germany",
+  "slug": "vk-72-01-k",
+  "stem": "VK7201"
+ },
+ "58881": {
+  "nation": "ussr",
+  "slug": "is-5",
+  "stem": "R113_Object_730"
+ },
+ "5889": {
+  "nation": "ussr",
+  "slug": "kv-3",
+  "stem": "KV-3"
+ },
+ "59137": {
+  "nation": "ussr",
+  "slug": "is-2-1945",
+  "stem": "R71_IS_2B"
+ },
+ "5921": {
+  "nation": "usa",
+  "slug": "pershing",
+  "stem": "Pershing"
+ },
+ "593": {
+  "nation": "uk",
+  "slug": "sherman-firefly",
+  "stem": "GB19_Sherman_Firefly"
+ },
+ "5937": {
+  "nation": "china",
+  "slug": "59-patton",
+  "stem": "Ch26_59_Patton"
+ },
+ "5953": {
+  "nation": "france",
+  "slug": "amx-38",
+  "stem": "AMX38"
+ },
+ "59649": {
+  "nation": "ussr",
+  "slug": "isu-122s",
+  "stem": "R116_ISU122C_Berlin"
+ },
+ "59665": {
+  "nation": "germany",
+  "slug": "grosstraktor",
+  "stem": "G100_Gtraktor_Krupp"
+ },
+ "5969": {
+  "nation": "uk",
+  "slug": "centurion-i",
+  "stem": "GB23_Centurion"
+ },
+ "5985": {
+  "nation": "japan",
+  "slug": "ju-to",
+  "stem": "J28_Ju_To"
+ },
+ "59905": {
+  "nation": "ussr",
+  "slug": "t-54-mod-1",
+  "stem": "R112_T54_45"
+ },
+ "6001": {
+  "nation": "other",
+  "slug": "y5-elc-bis",
+  "stem": "Oth19_BDT-5C"
+ },
+ "60161": {
+  "nation": "ussr",
+  "slug": "is-2sh",
+  "stem": "IS-2Sh"
+ },
+ "6017": {
+  "nation": "european",
+  "slug": "tvp-vtu",
+  "stem": "Cz07_TVP_46"
+ },
+ "60177": {
+  "nation": "germany",
+  "slug": "panther-8-8",
+  "stem": "G106_PzKpfwPanther_AusfF"
+ },
+ "60417": {
+  "nation": "ussr",
+  "slug": "is-3-defender",
+  "stem": "R115_IS-3_auto"
+ },
+ "609": {
+  "nation": "japan",
+  "slug": "r-otsu",
+  "stem": "NC27"
+ },
+ "60929": {
+  "nation": "ussr",
+  "slug": "bt-7-art",
+  "stem": "R105_BT_7A"
+ },
+ "6145": {
+  "nation": "ussr",
+  "slug": "is-4",
+  "stem": "IS-4"
+ },
+ "6161": {
+  "nation": "germany",
+  "slug": "luchs",
+  "stem": "PzII_Luchs"
+ },
+ "6177": {
+  "nation": "usa",
+  "slug": "t18",
+  "stem": "T18"
+ },
+ "6193": {
+  "nation": "china",
+  "slug": "t-34-3",
+  "stem": "Ch14_T34_3"
+ },
+ "6209": {
+  "nation": "france",
+  "slug": "amx-50-b",
+  "stem": "AMX_50B"
+ },
+ "6225": {
+  "nation": "uk",
+  "slug": "fv215b",
+  "stem": "GB13_FV215b"
+ },
+ "6241": {
+  "nation": "japan",
+  "slug": "chi-se",
+  "stem": "J27_Chi_Se"
+ },
+ "625": {
+  "nation": "other",
+  "slug": "strv-74a2",
+  "stem": "Strv_74A2"
+ },
+ "6257": {
+  "nation": "other",
+  "slug": "m4-fl10",
+  "stem": "Oth20_M4FL10"
+ },
+ "6273": {
+  "nation": "european",
+  "slug": "t-34-100",
+  "stem": "Cz05_T34-100"
+ },
+ "62737": {
+  "nation": "germany",
+  "slug": "lekpz-m-41-90-mm",
+  "stem": "G120_M41_90"
+ },
+ "62977": {
+  "nation": "ussr",
+  "slug": "t-44-100",
+  "stem": "R127_T44_100_P"
+ },
+ "62993": {
+  "nation": "germany",
+  "slug": "vk-45-03",
+  "stem": "G118_VK4503"
+ },
+ "63553": {
+  "nation": "france",
+  "slug": "amx-cdc",
+  "stem": "F68_AMX_Chasseur_de_char_46"
+ },
+ "63585": {
+  "nation": "japan",
+  "slug": "tiger-kuromorimine-sp",
+  "stem": "PzVI_GuP"
+ },
+ "63601": {
+  "nation": "other",
+  "slug": "dracula",
+  "stem": "AMX_dracula"
+ },
+ "63841": {
+  "nation": "japan",
+  "slug": "pz-iv-ankou-sp",
+  "stem": "Pz_IV_AusfH"
+ },
+ "64001": {
+  "nation": "ussr",
+  "slug": "t-34-85-rudy",
+  "stem": "T-34-85_Rudy"
+ },
+ "6401": {
+  "nation": "ussr",
+  "slug": "su-76",
+  "stem": "SU-76"
+ },
+ "64017": {
+  "nation": "germany",
+  "slug": "tankenstein",
+  "stem": "S01_Frankentank"
+ },
+ "64065": {
+  "nation": "france",
+  "slug": "fcm-50-t",
+  "stem": "FCM_50t"
+ },
+ "64081": {
+  "nation": "uk",
+  "slug": "mk-i-heavy-tank",
+  "stem": "GB_Mark_I"
+ },
+ "641": {
+  "nation": "european",
+  "slug": "standard-b",
+  "stem": "It12_Prototipo_Standard_B"
+ },
+ "6417": {
+  "nation": "germany",
+  "slug": "pz-iii-iv",
+  "stem": "PzIII_IV"
+ },
+ "64257": {
+  "nation": "ussr",
+  "slug": "t-34-85-victory",
+  "stem": "T-34-85_Victory"
+ },
+ "64273": {
+  "nation": "germany",
+  "slug": "jgtig-8-8-cm-2015",
+  "stem": "JagdTiger_SdKfz_185_Snowstorm"
+ },
+ "6433": {
+  "nation": "usa",
+  "slug": "t82",
+  "stem": "T82"
+ },
+ "64337": {
+  "nation": "uk",
+  "slug": "ac-iv-sentinel",
+  "stem": "GB35_Sentinel_AC_IV"
+ },
+ "6449": {
+  "nation": "china",
+  "slug": "wz-113g-ft",
+  "stem": "CH38_WZ113G-FT"
+ },
+ "64529": {
+  "nation": "germany",
+  "slug": "e-25",
+  "stem": "E-25"
+ },
+ "64561": {
+  "nation": "china",
+  "slug": "112-glacial",
+  "stem": "Ch23_112"
+ },
+ "64593": {
+  "nation": "uk",
+  "slug": "angry-connor",
+  "stem": "GB44_Archer_Custom"
+ },
+ "6465": {
+  "nation": "france",
+  "slug": "amx-12-t",
+  "stem": "AMX_12t"
+ },
+ "64769": {
+  "nation": "ussr",
+  "slug": "is-6-fearless",
+  "stem": "Object252_Fearless"
+ },
+ "64801": {
+  "nation": "usa",
+  "slug": "t34-1776",
+  "stem": "T34_hvy_Freedom"
+ },
+ "6481": {
+  "nation": "uk",
+  "slug": "covenanter",
+  "stem": "GB60_Covenanter"
+ },
+ "64849": {
+  "nation": "uk",
+  "slug": "ac-1-sentinel",
+  "stem": "Sentinel_AC1"
+ },
+ "6497": {
+  "nation": "japan",
+  "slug": "type-68",
+  "stem": "J26_Type_68"
+ },
+ "6529": {
+  "nation": "european",
+  "slug": "skoda-t-25",
+  "stem": "Cz08_T-25"
+ },
+ "65329": {
+  "nation": "china",
+  "slug": "type-62",
+  "stem": "Ch02_Type62"
+ },
+ "65377": {
+  "nation": "japan",
+  "slug": "chi-nu-kai",
+  "stem": "Chi_Nu_Kai"
+ },
+ "6657": {
+  "nation": "ussr",
+  "slug": "t-43",
+  "stem": "T-43"
+ },
+ "6673": {
+  "nation": "germany",
+  "slug": "marder-ii",
+  "stem": "G20_Marder_II"
+ },
+ "6689": {
+  "nation": "usa",
+  "slug": "t49-a",
+  "stem": "T49_Rocket"
+ },
+ "6705": {
+  "nation": "china",
+  "slug": "lt-vz-38",
+  "stem": "Ch_LT_vz38"
+ },
+ "6721": {
+  "nation": "france",
+  "slug": "bdr-g1-b",
+  "stem": "BDR_G1B"
+ },
+ "6753": {
+  "nation": "japan",
+  "slug": "type-71",
+  "stem": "J25_Type71"
+ },
+ "6785": {
+  "nation": "european",
+  "slug": "skoda-t-27",
+  "stem": "Cz13_T-27"
+ },
+ "6913": {
+  "nation": "ussr",
+  "slug": "su-85b",
+  "stem": "GAZ-74b"
+ },
+ "6929": {
+  "nation": "germany",
+  "slug": "maus",
+  "stem": "Maus"
+ },
+ "6945": {
+  "nation": "usa",
+  "slug": "wolverine",
+  "stem": "M10_Wolverine"
+ },
+ "6961": {
+  "nation": "china",
+  "slug": "wz-120-1g-ft",
+  "stem": "Ch39_WZ120_1G_FT"
+ },
+ "6977": {
+  "nation": "france",
+  "slug": "amx-m4-45",
+  "stem": "AMX_M4_1945"
+ },
+ "6993": {
+  "nation": "uk",
+  "slug": "cruiser-ii",
+  "stem": "GB69_Cruiser_Mk_II"
+ },
+ "7009": {
+  "nation": "japan",
+  "slug": "type-57",
+  "stem": "J24_Type_57"
+ },
+ "7025": {
+  "nation": "other",
+  "slug": "vulcan",
+  "stem": "Oth22_Sega_Vulcan"
+ },
+ "7041": {
+  "nation": "european",
+  "slug": "turbo",
+  "stem": "S07_Strv74BP"
+ },
+ "7169": {
+  "nation": "ussr",
+  "slug": "is-7",
+  "stem": "IS-7"
+ },
+ "7185": {
+  "nation": "germany",
+  "slug": "vk-30-01-p",
+  "stem": "VK3001P"
+ },
+ "7201": {
+  "nation": "usa",
+  "slug": "jackson",
+  "stem": "M36_Slagger"
+ },
+ "7217": {
+  "nation": "china",
+  "slug": "wz-112-2",
+  "stem": "Ch_WZ-112v2"
+ },
+ "7249": {
+  "nation": "uk",
+  "slug": "fv4202",
+  "stem": "GB70_FV4202_105"
+ },
+ "7265": {
+  "nation": "japan",
+  "slug": "ferrum",
+  "stem": "J29_Ju_Nu_BP"
+ },
+ "7281": {
+  "nation": "other",
+  "slug": "lycan",
+  "stem": "Oth23_Werewolf"
+ },
+ "7297": {
+  "nation": "european",
+  "slug": "60tp-lewandowskiego",
+  "stem": "Pl15_60TP"
+ },
+ "7425": {
+  "nation": "ussr",
+  "slug": "isu-152",
+  "stem": "ISU-152"
+ },
+ "7441": {
+  "nation": "germany",
+  "slug": "vk-45-02-b",
+  "stem": "VK4502P"
+ },
+ "7473": {
+  "nation": "china",
+  "slug": "t-34-2g-ft",
+  "stem": "Ch35_T-34-2G_FT"
+ },
+ "7505": {
+  "nation": "uk",
+  "slug": "cruiser-iv",
+  "stem": "GB59_Cruiser_Mk_IV"
+ },
+ "7521": {
+  "nation": "japan",
+  "slug": "type-5-ka-ri",
+  "stem": "J31_Type_5_Ka_Ri"
+ },
+ "7537": {
+  "nation": "other",
+  "slug": "nightmare",
+  "stem": "Oth24_StuH_42HW"
+ },
+ "7553": {
+  "nation": "european",
+  "slug": "50tp-tyszkiewicza",
+  "stem": "Pl05_50TP_Tyszkiewicza"
+ },
+ "769": {
+  "nation": "ussr",
+  "slug": "bt-7",
+  "stem": "BT-7"
+ },
+ "7697": {
+  "nation": "germany",
+  "slug": "ferdinand",
+  "stem": "Ferdinand"
+ },
+ "7713": {
+  "nation": "usa",
+  "slug": "t40",
+  "stem": "T40"
+ },
+ "7729": {
+  "nation": "china",
+  "slug": "wz-131g-ft",
+  "stem": "Ch34_WZ-131G_FT"
+ },
+ "7745": {
+  "nation": "france",
+  "slug": "ft-ac",
+  "stem": "RenaultFT_AC"
+ },
+ "7761": {
+  "nation": "uk",
+  "slug": "cruiser-iii",
+  "stem": "GB58_Cruiser_Mk_III"
+ },
+ "7777": {
+  "nation": "japan",
+  "slug": "type-63",
+  "stem": "J36_Type_63_HT"
+ },
+ "7793": {
+  "nation": "other",
+  "slug": "annihilator",
+  "stem": "Oth25_HWT20_FalconFire"
+ },
+ "7809": {
+  "nation": "european",
+  "slug": "53tp-markowskiego",
+  "stem": "Pl13_53TP_Markowskiego"
+ },
+ "785": {
+  "nation": "germany",
+  "slug": "pz-35-t",
+  "stem": "Pz35t"
+ },
+ "7937": {
+  "nation": "ussr",
+  "slug": "t-54",
+  "stem": "T-54"
+ },
+ "7953": {
+  "nation": "germany",
+  "slug": "jagdtiger",
+  "stem": "JagdTiger"
+ },
+ "7985": {
+  "nation": "china",
+  "slug": "wz-111-1g-ft",
+  "stem": "Ch36_WZ-111-1G_FT"
+ },
+ "8001": {
+  "nation": "france",
+  "slug": "lorraine-40-t",
+  "stem": "F19_Lorraine40t"
+ },
+ "801": {
+  "nation": "usa",
+  "slug": "m6",
+  "stem": "M6"
+ },
+ "8017": {
+  "nation": "uk",
+  "slug": "valentine-at",
+  "stem": "GB42_Valentine_AT"
+ },
+ "8033": {
+  "nation": "japan",
+  "slug": "type-5-heavy",
+  "stem": "J20_Type_2605"
+ },
+ "8049": {
+  "nation": "other",
+  "slug": "spike",
+  "stem": "Oth26_StrvM42HW"
+ },
+ "8065": {
+  "nation": "european",
+  "slug": "40tp-habicha",
+  "stem": "Pl10_40TP_Habicha"
+ },
+ "81": {
+  "nation": "uk",
+  "slug": "medium-i",
+  "stem": "GB01_Medium_Mark_I"
+ },
+ "817": {
+  "nation": "china",
+  "slug": "wz-111",
+  "stem": "Ch03_WZ-111"
+ },
+ "8193": {
+  "nation": "ussr",
+  "slug": "obj-704",
+  "stem": "Object_704"
+ },
+ "8209": {
+  "nation": "germany",
+  "slug": "pz-38-na",
+  "stem": "Pz38_NA"
+ },
+ "8225": {
+  "nation": "usa",
+  "slug": "t28",
+  "stem": "T28"
+ },
+ "8241": {
+  "nation": "china",
+  "slug": "wz-111g-ft",
+  "stem": "Ch37_WZ-111G_FT"
+ },
+ "8257": {
+  "nation": "france",
+  "slug": "ue-57",
+  "stem": "RenaultUE57"
+ },
+ "8273": {
+  "nation": "uk",
+  "slug": "uc-2-pdr",
+  "stem": "GB39_Universal_CarrierQF2"
+ },
+ "8289": {
+  "nation": "japan",
+  "slug": "type-95-ji-ro",
+  "stem": "J38_Type_95_Ji_Ro"
+ },
+ "8305": {
+  "nation": "other",
+  "slug": "titan-h-nd",
+  "stem": "Oth28_Sturmfeur_HW"
+ },
+ "8321": {
+  "nation": "european",
+  "slug": "45tp-habicha",
+  "stem": "Pl11_45TP_Habicha"
+ },
+ "8465": {
+  "nation": "germany",
+  "slug": "panther-ii",
+  "stem": "Panther_II"
+ },
+ "849": {
+  "nation": "uk",
+  "slug": "matilda",
+  "stem": "GB07_Matilda"
+ },
+ "8497": {
+  "nation": "china",
+  "slug": "wz-111-5a",
+  "stem": "Ch41_WZ_111_5A"
+ },
+ "8513": {
+  "nation": "france",
+  "slug": "amx-30-b",
+  "stem": "F72_AMX_30"
+ },
+ "8529": {
+  "nation": "uk",
+  "slug": "at-15",
+  "stem": "GB72_AT15"
+ },
+ "8561": {
+  "nation": "other",
+  "slug": "titan-t24-57",
+  "stem": "Oth27_M24_AMX"
+ },
+ "8577": {
+  "nation": "european",
+  "slug": "lansen-c",
+  "stem": "S26_Lancen_C"
+ },
+ "865": {
+  "nation": "japan",
+  "slug": "ha-go",
+  "stem": "Ha_Go"
+ },
+ "8737": {
+  "nation": "usa",
+  "slug": "t95",
+  "stem": "T95"
+ },
+ "8753": {
+  "nation": "china",
+  "slug": "m41d",
+  "stem": "Ch42_M41D"
+ },
+ "8785": {
+  "nation": "uk",
+  "slug": "at-2",
+  "stem": "GB73_AT2"
+ },
+ "8801": {
+  "nation": "japan",
+  "slug": "o-i-experimental",
+  "stem": "J23_Mi_To"
+ },
+ "881": {
+  "nation": "other",
+  "slug": "edelweiss",
+  "stem": "Sega_Edelweiss"
+ },
+ "8817": {
+  "nation": "other",
+  "slug": "titan-mk-i",
+  "stem": "Oth29_A15HW"
+ },
+ "8833": {
+  "nation": "european",
+  "slug": "spark",
+  "stem": "Cz08_T-25BP"
+ },
+ "8961": {
+  "nation": "ussr",
+  "slug": "kv-13",
+  "stem": "KV-13"
+ },
+ "897": {
+  "nation": "european",
+  "slug": "p-44-pantera",
+  "stem": "It14_P44_Pantera"
+ },
+ "8993": {
+  "nation": "usa",
+  "slug": "m46-patton",
+  "stem": "M46_Patton"
+ },
+ "9009": {
+  "nation": "china",
+  "slug": "ox",
+  "stem": "Type_58BP"
+ },
+ "9041": {
+  "nation": "uk",
+  "slug": "alecto",
+  "stem": "GB57_Alecto"
+ },
+ "9057": {
+  "nation": "japan",
+  "slug": "type-5-h-zetsu",
+  "stem": "J39_Type_5_Exp"
+ },
+ "9073": {
+  "nation": "other",
+  "slug": "titan-54d",
+  "stem": "Oth30_T54MS"
+ },
+ "9089": {
+  "nation": "european",
+  "slug": "skoda-t-56",
+  "stem": "Cz14_Skoda_T-56"
+ },
+ "9217": {
+  "nation": "ussr",
+  "slug": "is-6",
+  "stem": "Object252"
+ },
+ "9249": {
+  "nation": "usa",
+  "slug": "t25-at",
+  "stem": "T25_AT"
+ },
+ "9297": {
+  "nation": "uk",
+  "slug": "fv215b-183",
+  "stem": "GB48_FV215b_183"
+ },
+ "9313": {
+  "nation": "japan",
+  "slug": "type-4-heavy",
+  "stem": "J40_Type_4"
+ },
+ "9329": {
+  "nation": "other",
+  "slug": "titan-150",
+  "stem": "Oth31_T150BP"
+ },
+ "9345": {
+  "nation": "european",
+  "slug": "svear",
+  "stem": "S13_Leo_NY"
+ },
+ "9489": {
+  "nation": "germany",
+  "slug": "e-100",
+  "stem": "E-100"
+ },
+ "9505": {
+  "nation": "usa",
+  "slug": "m103",
+  "stem": "M103"
+ },
+ "9521": {
+  "nation": "china",
+  "slug": "wz-122-tm",
+  "stem": "Ch43_WZ-122_2"
+ },
+ "9553": {
+  "nation": "uk",
+  "slug": "at-8",
+  "stem": "GB74_AT8"
+ },
+ "9569": {
+  "nation": "japan",
+  "slug": "o-ni",
+  "stem": "J28_O_I_100"
+ },
+ "9601": {
+  "nation": "european",
+  "slug": "cs-52-lis",
+  "stem": "Pl119_CS_52_LIS"
+ },
+ "9745": {
+  "nation": "germany",
+  "slug": "e-75",
+  "stem": "E-75"
+ },
+ "9761": {
+  "nation": "usa",
+  "slug": "chaffee",
+  "stem": "M24_Chaffee"
+ },
+ "9777": {
+  "nation": "china",
+  "slug": "wz-114",
+  "stem": "Ch45_WZ_114"
+ },
+ "9793": {
+  "nation": "france",
+  "slug": "sau-40",
+  "stem": "Somua_Sau_40"
+ },
+ "9809": {
+  "nation": "uk",
+  "slug": "churchill-gc",
+  "stem": "GB40_Gun_Carrier_Churchill"
+ },
+ "9825": {
+  "nation": "japan",
+  "slug": "o-ho",
+  "stem": "J41_O_I_120"
+ },
+ "9841": {
+  "nation": "other",
+  "slug": "rover",
+  "stem": "Oth33_Blizzard_BP"
+ },
+ "9857": {
+  "nation": "european",
+  "slug": "skoda-t-45",
+  "stem": "Cz15_Skoda_T-45"
+ },
+ "9985": {
+  "nation": "ussr",
+  "slug": "su-101",
+  "stem": "SU-101"
+ }
+}

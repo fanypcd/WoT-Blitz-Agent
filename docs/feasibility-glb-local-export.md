@@ -4,6 +4,18 @@
 > 本地已全量缓存的 BlitzKit 产物 `data/cache/models/{tank_id}/`（735 个目录）。
 > 复核方式为**对抗式重验**：独立重写 GLB 读取器与比对器、**27 辆抽样泛化测试**、
 > **735 辆全量路径覆盖**，并以证伪立场检查上一轮原型结论。脚本见 §9。
+>
+> **2026-10-03 整理注记**（本文为历史评估，实施结果与修正以
+> [local-model-export.md](local-model-export.md) 为准）：
+> ① **已实施**：`tools/export_tank_glb.py` 落地，验收口径从"按可达节点求和"收紧到
+> **逐字节 + 节点顺序**——`collision` **735/735**、`model` **733/735**；§5.0 的 35 辆
+> "4 类规则缺口"已由 `LodComponent` 判据、全批次导出等规则收敛（见该文 §3）。
+> ② **§3.3 的槽位指派结论已被逐通道实测推翻**：BlitzKit 的 `normal` 实为 legacy
+> `images/<T>_NM`（DXT1，非"miscMap.R 灰度"）；`metallicRoughness` 的 **G** 实为
+> `baseRMMap` 通道 0（粗糙度，非"legacy normalmap"）；`occlusion` 与 `miscMap.R`
+> 全量 1011/1011 逐像素一致（非"baseRMMap.R"）；真正无客户端来源的是 BlitzKit 的
+> MR **B 通道（金属度位）**。通道语义判别与摆放见 local-model-export.md §4.1/§4.2。
+> ③ §4 的"验收口径待决策"已定为 **semantic**；§7 的开工量估算随实施完成而过时。
 
 ## 0. 结论
 

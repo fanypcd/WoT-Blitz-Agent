@@ -152,6 +152,21 @@
 为 1~2 万量级）。项目依赖的 `wotbreplay-parser` 也不带车辆表，只有 `map_id` /
 `room_type` 两个枚举。
 
+**2026-10-04 全量复扫（彻底闭合）**：对 Data 下 **31,516 个文本容器**（含此前未扫的
+`UI/`、`Stories/`、`MessageFilters/`、`Materials/`、顶层 60 个 dvpl）解码后按
+「已知 tank_id 字面量 ↔ 模型名共现」搜索，**0 命中**；`tank_id`/`tankopedia` 字面量
+0 命中。唯一的关联字面量是 16 处 UI 绑定文件（Inventory/Profile/BattleResults 等）
+里的 **`vehicleId`**——它绑定的是运行期视图模型（`tankProgress.tankDescr` 等），
+即服务器车库数据的 UI 投影，不是本地表。两条来源侧证据：
+
+- **`wotblitz.exe` 的协议字段名表**里 `tank_id` 与 `password`/`users`/
+  `vehicle_serialized_type` 并列——`tank_id` 是**车库/登录协议中服务器下发的字段**；
+- 运行期缓存 `DAVAProject/cache/base_stuff_Asia.dat`（zlib 包裹的服务器 pickle，
+  **按区命名**）只含物品/活动定义与车辆名引用，无任何 tank_id。
+
+结论：`tank_id` 由 WG 服务器在车库协议中下发，客户端在**运行期**才知道；客户端静态
+文件确实不含这张表。"游戏内能显示名称"走的是 en.yaml 的模型名域，与 tank_id 无关。
+
 ### 3.3 BlitzKit 当前如何提供这张表
 
 `tanks.pb` 每条坦克的主消息内，**field 1 = tank_id、field 32 = 游戏模型名**并列。

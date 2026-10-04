@@ -104,8 +104,8 @@
 
 | 目标（现役来源） | 已备好的替代 | 维护代码 | 落盘位置 | 阻塞项 |
 |---|---|---|---|---|
-| 坦克 GLB（BlitzKit CDN） | 客户端导出 | [tools/export_tank_glb.py](../tools/export_tank_glb.py) | `data/cache/local_models/`（1470 个 glb） | `model.glb` 仅 700/735 与 BlitzKit 等价（35 辆节点集合不一致）；贴图槽位映射标注"未达可替换" |
-| 封面图（BlitzKit CDN） | 客户端导出 | [tools/export_tank_icons.py](../tools/export_tank_icons.py) | `data/cache/local_tank_icons/`（705 张） | 覆盖 705/735，差 30 辆；且打包器的 `cp` 对缺失文件静默跳过、不报错 |
+| 坦克 GLB（BlitzKit CDN） | 客户端导出 | [tools/export_tank_glb.py](../tools/export_tank_glb.py) | `data/cache/local_models/`（1470 个 glb） | 几何 **733/735 逐字节等价**（含 UV0/1/2 与节点顺序；余 2 辆为 BlitzKit 侧行为）；贴图槽位完全对齐、`alphaMode` 99.1%、`doubleSided` 100%、MR.G 1010/1011（见 [local-model-export.md](local-model-export.md)）。剩余阻塞：**接线决策**（打包器源目录切换 + 来源混用护栏），非能力缺口 |
+| 封面图（BlitzKit CDN） | 客户端导出 | [tools/export_tank_icons.py](../tools/export_tank_icons.py) | `data/cache/local_tank_icons/`（730 张） | 覆盖 **730/735**（差 5 辆，客户端无对应图标）；且打包器的 `cp` 对缺失文件静默跳过、不报错；⚠️ 与 BlitzKit 封面**不是同一幅画**（NCC 中位 0.21，见 [decoupling-status.md](decoupling-status.md) §3.4）——换素材需先过观感决策 |
 | `models.pb` 的逐板装甲 | 客户端 XML | `wargaming/dvpl.rs::ArmorModel::parse_from_xml` | `data/game_data/{id}.json` 内已有 `armor_model`（含 plates / spaced / primary） | ✅ **2026-10-03 已对齐**：提取器改取 `<turrets0>` 的顶级炮塔 × 其末个主炮，与 models.pb 同档。全量核对板集差异 turret 434→0、hull 381→0（残留仅 float32 量化），摘要与 `armor_model` 不再矛盾 |
 | （对照用途） | 本地导出 vs BlitzKit 逐辆比对 | [tools/compare_tank_glb.py](../tools/compare_tank_glb.py) | `data/cache/local_compare/` | — |
 
@@ -124,8 +124,11 @@
 
 - `tanks.pb` 承载的整车数值：弹种（穿深近/远、伤害、模块伤害、口径、转正、跳弹角、爆炸半径）、
   火炮（装填/瞄准/散布/弹鼓/连发/俯仰极限）、HP、机动、tier、本地化名、引擎/履带/无线电模块。
-  客户端来源路径与逐字段映射**已在** [game-data-sources.md](game-data-sources.md) §2.2/§2.3 列出，
-  但**未实现**——`dvpl.rs` 只解析装甲与碰撞。
+  客户端来源路径与逐字段映射**已在** [game-data-sources.md](game-data-sources.md) §2.2/§2.3 列出。
+  **Python 侧已实现**：[tools/extract_vehicles.py](../tools/extract_vehicles.py)（2026-10-04，
+  产出同构 JSON 至 `data/cache/local_pb/`，与 BlitzKit pb 逐字段对照**数值零不一致**，
+  见 [decoupling-status.md](decoupling-status.md) §1）；Rust 运行期仍读 pb，**格式决策
+  （写 pb 编码器保持零改动 vs 改读 JSON）未定**，故尚未接线。
 - `models.pb` 的模型原点与俯仰/射界（客户端来源在 vehicle XML + `3d/Tanks/Parameters/*.yaml.dvpl`）。
 
 两个非代码障碍：
