@@ -20,11 +20,17 @@ Wait for CI with blocking watches instead of `sleep N` + polling:
 
 - Live PR status: `gh pr checks <pr-number> --watch` (prints one line per check as its state changes; works in non-TTY/background).
 - One run's verdict: `gh run watch <run-id> --exit-status --compact` (blocks to the end; when piped/backgrounded it prints the summary only at completion — don't expect incremental progress).
-- Run id: `gh run list --branch <branch> --limit 1 --json databaseId,headSha` (a run is bound to its head SHA and immutable — re-inspect it instead of re-running).
+- Run id: `gh run list --branch <branch> --limit 1 --json databaseId,headSha` (a run is bound to its head SHA and immutable — re-inspect it instead of re-running). Right after a push the check runs may not exist yet: `gh pr checks --watch` then exits 1 with `no checks reported`; fetch the run id first and use `gh run watch`.
 
 Exit status: with `--exit-status` the verdict *is* the process exit code — never pipe a watch through `tail` (the pipeline then reports the last command's status and swallows failures); drop the pipe or use `set -o pipefail`.
 
 Run the watch in the background and read its output when it finishes; keep working in the meantime. A push cancels in-flight runs for the same ref (workflow concurrency) — if you need the CI evidence for a specific head, let its watch finish before pushing the next commit.
+
+Inspecting a run while it is in flight (a snapshot, not a way to wait):
+
+- Which step a run is on now: `gh run view <run-id> --json status,conclusion,jobs --jq '.jobs[] | select(.status != "completed") | {name, status}'` (one call; do not loop it as a substitute for `gh run watch`).
+- Failed-step evidence without re-running: `gh run view <run-id> --log-failed` (whole step log); narrow it by the step's own log markers, e.g. `gh run view <run-id> --log 2>/dev/null | grep -a '\[armor-aiming\]'`.
+- Which step costs what: `gh api repos/<owner>/<repo>/actions/runs/<run-id>/jobs --jq '.jobs[] | select(.name|test("<job>")) | .steps[] | "\(.number). \(.name) \((.completed_at|fromdate) - (.started_at|fromdate))s \(.conclusion)"'`.
 
 ## Parser and contract changes
 
