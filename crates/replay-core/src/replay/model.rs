@@ -103,6 +103,10 @@ pub struct Timeline {
     pub consumables: Vec<ConsumableTransition>,
     /// 车辆模块/乘员状态事件（Avatar method16）
     pub module_crew_states: Vec<ModuleCrewStateEvent>,
+    /// 区域可破坏物实体（100m 格子锚点；type=5 class=3，eid 升序）
+    pub destructible_areas: Vec<crate::replay::destructibles::DestructibleArea>,
+    /// 区域可破坏物事件（type=32 短广播、envelope=区域实体；时钟升序）
+    pub destructible_events: Vec<crate::replay::destructibles::AreaDestructibleEvent>,
     /// 实时装填相位（arena subtype 15/17，**仅本方全队**；相位码 f2 与计数 f4 原样透传）
     pub reloads: Vec<RawReloadPhase>,
     /// 权威「当前生效完整装填时长」（方法 35；时间升序）
@@ -190,6 +194,12 @@ impl ReplayModel {
         // 消耗品生命周期（Type32 flag=0；与 flag=1 炮弹警告同包不同族）
         let consumables = combat::collect_consumable_transitions(packets);
         let module_crew_states = combat::collect_module_crew_states(packets);
+        // 区域可破坏物：先收格子锚点（type=5 class=3），再收其上的短广播事件
+        let destructible_areas = crate::replay::destructibles::collect_destructible_areas(packets);
+        let destructible_events = crate::replay::destructibles::collect_area_destructible_events(
+            packets,
+            &destructible_areas,
+        );
         let hp_events = &shared.hp_events;
         let initial_hp = &shared.initial_hp;
         let equipment = &shared.vehicle_equipment;
@@ -314,6 +324,8 @@ impl ReplayModel {
                 assault_bases,
                 consumables,
                 module_crew_states,
+                destructible_areas,
+                destructible_events,
                 reloads,
                 reload_effective,
             },

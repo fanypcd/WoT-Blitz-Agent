@@ -327,6 +327,19 @@ pub struct PlaybackData {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub module_crew_states: Vec<ModuleCrewStateEvent>,
 
+    /// 区域可破坏物实体（100m 格子锚点；type=5 class=3，eid 升序）。
+    /// `destructible_events[].area_eid` 联表本列表得事件所属格子。
+    /// 契约 additive：消费方忽略未知键。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub destructible_areas: Vec<crate::replay::destructibles::DestructibleArea>,
+    /// 区域可破坏物事件（type=32 短广播、envelope=区域实体；时钟升序）。
+    /// `object_id` = 服务器侧 u16 物体 id（body_len=5/6 位置已验证；PARTIAL——
+    /// 每图窄窗口、与客户端静态表不同域，跨图标定属资产管线）；
+    /// `body_len`/`args` 原样透传。事件与车辆 AoI 解耦：未点亮车辆的破坏照常广播
+    /// （受控实验 R132 8/8）。契约 additive：消费方忽略未知键。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub destructible_events: Vec<crate::replay::destructibles::AreaDestructibleEvent>,
+
     /// 实时装填相位（arena subtype 15/16/17，**仅本方全队**；相位码 f2 与计数 f4 原样透传）。
     /// 语义表见 `combat::arena` 的相位常量块：f2=1 剩余弹数更新 / 3 整夹重装 / 4 中途时长变更 /
     /// 5 就绪（f4=1 是就绪标志，非剩余数）/ 6 弹鼓逐发补槽 / 7 夹内推弹（不补弹）/ 8 语义未定（禁猜，
@@ -796,6 +809,16 @@ pub fn from_model(
             .map(|m| ModuleCrewStateEvent {
                 clock: r2(m.clock),
                 ..*m
+            })
+            .collect(),
+        destructible_areas: model.timeline.destructible_areas.clone(),
+        destructible_events: model
+            .timeline
+            .destructible_events
+            .iter()
+            .map(|e| crate::replay::destructibles::AreaDestructibleEvent {
+                clock: r2(e.clock),
+                ..e.clone()
             })
             .collect(),
     })
