@@ -368,11 +368,8 @@ def collect_renderables(scene: dict) -> dict:
             landscape = entry or None
             continue
 
-        if cls not in ("Mesh", "SpeedTreeObject", "WaterRenderObject"):
+        if cls not in ("Mesh", "SpeedTreeObject"):
             continue  # MapBorderRenderObject 等调试/边框对象
-        # WaterRenderObject（lagoon_water_palne 等）：恒高半透明平面，几何/材质
-        # 走与 Mesh 相同的 RenderBatch 路径（.scg datasource + NMaterial）；
-        # 前端 scene 侧用 isWaterName 启发式做透明/深度设置
 
         # RenderObject 可见位（缺省即可见，镜像 RenderObject::Load 序列化缺省）；
         # 摧毁态变体初始隐藏（bit0=0、仅 bit13）——_nm_dest 放行（隐藏正是其语义）
