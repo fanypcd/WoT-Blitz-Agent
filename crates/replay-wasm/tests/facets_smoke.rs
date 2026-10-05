@@ -58,7 +58,7 @@ fn playback_smoke() {
     };
     let bytes = std::fs::read(&path).unwrap();
 
-    let playback_str = wotb_replay_wasm::playback_json(&bytes, None).expect("时序能力构建成功");
+    let playback_str = wotb_replay_wasm::playback_json(&bytes, None, None).expect("时序能力构建成功");
     let pb: serde_json::Value = serde_json::from_str(&playback_str).unwrap();
     assert_eq!(pb["version"], 2, "contract v2（版本门禁；消费端拒绝错版）");
     // contract v2 新键：非争霸场为空数组也必须安全序列化在场（skip_serializing_if 语义）
@@ -112,7 +112,7 @@ fn playback_result_identity_invariant() {
         let Ok(result_str) = wotb_replay_wasm::result_json(&bytes, None) else {
             continue;
         };
-        let Ok(playback_str) = wotb_replay_wasm::playback_json(&bytes, None) else {
+        let Ok(playback_str) = wotb_replay_wasm::playback_json(&bytes, None, None) else {
             eprintln!("跳过（非整场/片段）: {}", path.display());
             continue;
         };
@@ -384,7 +384,7 @@ fn p2_tank_names_injection_and_ai_review_entry() {
 
     // 时序通道：注入后 vehicles[].tank_name 命中项被替换
     let pb: serde_json::Value =
-        serde_json::from_str(&wotb_replay_wasm::playback_json(&bytes, Some(&table)).unwrap())
+        serde_json::from_str(&wotb_replay_wasm::playback_json(&bytes, Some(&table), None).unwrap())
             .unwrap();
     let vhit = pb["vehicles"]
         .as_array()
