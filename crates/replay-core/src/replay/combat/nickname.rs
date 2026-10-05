@@ -5,7 +5,10 @@
 //! ARENA_INFO 组成 blob 昵称同域可证）——非 ASCII（中文等）昵称合法，
 //! 字符过滤会断开身份联表（account_id/team/tank_id）。本模块为全库唯一解码语义（SSOT）：
 //!
-//! - 长度域 `1..=30`；
+//! - 长度域 `1..=255`（u8 前缀全域）：真实对局存在 >30 字节的长昵称
+//!   （如 13 个全角字符 = 39 字节，S16 Kranvagn 回放样本），设字节上限会把
+//!   合法长昵称整条拒掉 → 实体无名 → 身份联表断裂（阵营/坦克落 0）；
+//!   截断包由载荷边界检查兜底（`57 + 1 + len > payload.len()` 即拒绝）；
 //! - 合法 UTF-8（拒绝 `from_utf8_lossy`—— replacement char 会把损坏伪装成
 //!   普通 mismatch）；
 //! - 拒绝控制字符（与组成 blob 昵称解析同规则）；**不限制 ASCII**。
@@ -14,8 +17,8 @@
 //! [`super::shots::resolve_author_player_eid_by_nick`]（作者 eid）、
 //! `wotb-agent::replay::loadout::collect_player_loadouts`（开局配置联表）。
 
-/// 解码 type=5 载荷的实体 id 与昵称。非 type=5 布局（过短 / 长度域越界 /
-/// 非法 UTF-8 / 控制字符）返回 None——调用方按"该实体无昵称"处理，不猜。
+/// 解码 type=5 载荷的实体 id 与昵称。非 type=5 布局（过短 / 长度为 0 /
+/// 声明长度超出载荷 / 非法 UTF-8 / 控制字符）返回 None——调用方按"该实体无昵称"处理，不猜。
 pub fn decode_type5_nickname(payload: &[u8]) -> Option<(u32, &str)> {
     // 偏移 57 的昵称块完整存在于 ≥60B 的满血锚点包；更短的 type=5 变体无昵称域
     if payload.len() < 60 {
@@ -24,7 +27,9 @@ pub fn decode_type5_nickname(payload: &[u8]) -> Option<(u32, &str)> {
     let eid = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
     let off = 57usize;
     let len = payload[off] as usize;
-    if !(1..=30).contains(&len) || off + 1 + len > payload.len() {
+    // 长度前缀是 u8（≤255），不设业务上限——上限会拒掉合法长中文昵称；
+    // 截断/垃圾包由载荷边界 + UTF-8 + 控制字符三道检查兜底
+    if len == 0 || off + 1 + len > payload.len() {
         return None;
     }
     let s = std::str::from_utf8(&payload[off + 1..off + 1 + len]).ok()?;
@@ -40,12 +45,11 @@ mod tests {
 
     /// 构造最小 type=5 载荷：eid@[0..4]、满血锚点@51、昵称块@57（[len][bytes@58..]）。
     fn mk_type5(eid: u32, nick: &[u8]) -> Vec<u8> {
-        let body = if nick.len() > 30 { &nick[..30] } else { nick };
-        let mut p = vec![0u8; 60.max(58 + body.len())];
+        let mut p = vec![0u8; 60.max(58 + nick.len())];
         p[0..4].copy_from_slice(&eid.to_le_bytes());
         p[51..53].copy_from_slice(&1000u16.to_le_bytes());
-        p[57] = body.len() as u8;
-        p[58..58 + body.len()].copy_from_slice(body);
+        p[57] = nick.len() as u8;
+        p[58..58 + nick.len()].copy_from_slice(nick);
         p
     }
 
@@ -56,7 +60,7 @@ mod tests {
     #[test]
     fn accepts_ascii_cn_cyrillic() {
         assert_eq!(nick_of(&mk_type5(7, b"Anonyme")), "Anonyme");
-        // 中文（本 bug 的主角样本）
+        // 中文
         assert_eq!(nick_of(&mk_type5(1, "兰亭公子苏".as_bytes())), "兰亭公子苏");
         assert_eq!(
             nick_of(&mk_type5(2, "他们都叫我袁弟呀".as_bytes())),
@@ -66,6 +70,13 @@ mod tests {
         assert_eq!(nick_of(&mk_type5(3, "Кирилл".as_bytes())), "Кирилл");
         // 空格合法（昵称域非 ascii_graphic 子集；控制字符才拒绝）
         assert_eq!(nick_of(&mk_type5(4, b"a b")), "a b");
+        // 长中文昵称（真实回放样本：4 全角叹号 + 9 汉字 = 39 字节）。旧 30 字节上限
+        // 把它整条拒掉 → 实体无名 → 按昵称联花名册失败 → 阵营/坦克落 0。
+        let long_cn = "！！！！一只爱睡觉的雪风酱";
+        assert_eq!(long_cn.len(), 39);
+        assert_eq!(nick_of(&mk_type5(11, long_cn.as_bytes())), long_cn);
+        // 31 字节（旧上限的界外值）如今合法：上限只由载荷边界约束
+        assert_eq!(nick_of(&mk_type5(9, &[b'x'; 31])), "x".repeat(31));
     }
 
     #[test]
@@ -79,13 +90,10 @@ mod tests {
         assert!(decode_type5_nickname(&trunc).is_none());
         // 控制字符
         assert!(decode_type5_nickname(&mk_type5(7, b"a\x01b")).is_none());
-        // 长度 0 / 越界
+        // 长度 0
         let mut p0 = mk_type5(8, b"abc");
         p0[57] = 0;
         assert!(decode_type5_nickname(&p0).is_none());
-        let mut p31 = mk_type5(9, &[b'x'; 40]);
-        p31[57] = 31;
-        assert!(decode_type5_nickname(&p31).is_none());
         // 声明长度超出载荷（截断包）
         let mut pt = mk_type5(10, b"abcdef");
         pt[57] = 20;
