@@ -221,6 +221,11 @@ def main() -> None:
         if cp(cache_maps / f"{space}.glb", f"map/{key}/scenery.glb"):
             got.append("scenery")
 
+        # 可破坏物清单（tools/export_map_destructibles.py 产物，按 key 目录）：
+        # 回放 destructible_events 的 (cell, slot) 联表目标（逆向总集 §5.4 公式）
+        if cp(cache_maps / key / "destructibles.json", f"map/{key}/destructibles.json"):
+            got.append("destructibles")
+
         # groundmeta + groundtex：{space}.ground.layers.json + {space}.ground.{layer}.webp
         if cp(cache_maps / f"{space}.ground.layers.json", f"map/{key}/ground.layers.json"):
             got.append("layers")

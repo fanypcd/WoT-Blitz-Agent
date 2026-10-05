@@ -23,6 +23,7 @@
 | 8 | `data/cache/models/{id}/*.glb` | **BlitzKit** `/tanks/{id}/{model,collision}.glb` | `web/assets.rs::ensure_glb_bytes`（运行期懒加载）+ `wargaming/model_fetch.rs`（CLI 批量） | COS `glb/` |
 | 9 | `data/cache/tank_images/{id}.webp` | **BlitzKit** `/tanks/{id}/icons/big.webp` | `wargaming/blitzkit.rs::download_all_icons` | COS `tank_images/` |
 | 10 | `data/cache/maps/`、`data/cache/terrain/` | **客户端解包** `3d/Maps/<space>/`（`.sc2`/`.scg`、landscape heightmap、colormap） | 生成：`tools/export_map_glb.py`（离线）；读取：`wargaming/map_assets.rs` | COS `map/` |
+| 10a | `data/cache/maps/{key}/destructibles.json`（可破坏物实例清单：位置 / 100m 格子 / 碰撞耐久 / 类型库联表） | **客户端解包** `3d/Maps/<space>/<space>.sc2`（StateSwitcher/SpeedTree + CollisionTypeComponent）+ `XML/destructibles.xml.dvpl`（类型库） | 生成：`tools/export_map_destructibles.py`（离线） | COS `map/{key}/destructibles.json`；消费方与回放切面 `destructible_events` 联表（逆向总集 §5.4） |
 | 11 | `data/data_version.json` | **本机自产**（各项时间戳汇总；`game_version` 取自客户端 `Data/version.txt.dvpl`） | `wargaming/data_version.rs::save` | COS `data/data_version.json` |
 
 来源分布：BlitzKit 4 项（#1/#2/#8/#9）、客户端解包 3 项（#4/#5/#10）、本机自产 3 项（#3/#7/#11）、混合 1 项（#6）。

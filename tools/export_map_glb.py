@@ -328,19 +328,26 @@ def collect_renderables(scene: dict) -> dict:
             continue
         cls = str(ro.get("##name", ""))
 
-        # 实体级初始可见性：bit0/bit1 为隐藏（blocking_volume=1、摧毁态 State-1=2）；
-        # 值 4（草地系统实体）客户端照常渲染
-        if entity.get("visibility", 0) & 3:
-            continue
+        # 摧毁态/变体形态（StateSwitcher 高状态子树 State1 与独立 *_crash/_crush/
+        # *_broken 兄弟实体）：按 (cell,slot) 事件切换渲染的目标网格——以 "D_"
+        # 前缀节点名随包导出（前端：事件到达时隐藏同位置完好节点、显示 D_ 节点）。
+        # 树倒（prop=3）无替换网格（倒伏动画作用于原节点），不在此列。
+        nm = str(entity.get("name") or "")
+        _nm_dest = bool(re.search(r"State ?[1-9]+$", nm) or re.search(r"_(crash|crush|broken)$", nm))
+        if not _nm_dest:
+            # 实体级初始可见性：bit0/bit1 为隐藏（blocking_volume=1、摧毁态 State-1=2）；
+            # 值 4（草地系统实体）客户端照常渲染；摧毁态变体（_nm_dest）跳过此检
+            # ——隐藏正是其初始态，几何仍需导出
+            if entity.get("visibility", 0) & 3:
+                continue
+            # 实体级初始可见性：bit0/bit1 为隐藏（blocking_volume=1、摧毁态 State-1=2）；
+            # 值 4（草地系统实体）客户端照常渲染
+            if entity.get("visibility", 0) & 3:
+                continue
 
         # 雾体积（如 malinovka fog_ma01.sc2）：客户端经雾管线渲染成半透明，
         # 静态导出会变成罩住半张图的白色实体网格——跳过
         if "fog" in str(name := entity.get("name") or "").lower():
-            continue
-
-        # StateSwitcher 的高状态子树（"SwitchNode State 1/2"＝损毁/变体形态）：
-        # 初始态为 0，其 batch switchIndex 缺省通配时会漏进来叠在完整形态上
-        if re.search(r"State [1-9]", str(entity.get("name") or "")):
             continue
 
         if cls == "Landscape":
@@ -364,12 +371,14 @@ def collect_renderables(scene: dict) -> dict:
         if cls not in ("Mesh", "SpeedTreeObject"):
             continue  # MapBorderRenderObject 等调试/边框对象
 
-        # RenderObject 可见位（缺省即可见，镜像 RenderObject::Load 序列化缺省）
-        flags = ro.get("ro.flags")
-        if isinstance(flags, int) and not (flags & RENDER_OBJECT_VISIBLE_FLAG):
-            continue
-        if ro.get("ro.notShadowOnly") is False:
-            continue
+        # RenderObject 可见位（缺省即可见，镜像 RenderObject::Load 序列化缺省）；
+        # 摧毁态变体初始隐藏（bit0=0、仅 bit13）——_nm_dest 放行（隐藏正是其语义）
+        if not _nm_dest:
+            flags = ro.get("ro.flags")
+            if isinstance(flags, int) and not (flags & RENDER_OBJECT_VISIBLE_FLAG):
+                continue
+            if ro.get("ro.notShadowOnly") is False:
+                continue
 
         switcher = component_by_type(entity, "StateSwitcherComponent")
         active_switch = switcher.get("ssc.activeState", 0) if switcher else 0
@@ -406,7 +415,9 @@ def collect_renderables(scene: dict) -> dict:
             # 按 LOD0/通配过滤
             if cls != "SpeedTreeObject" and lod not in (TARGET_LOD, SHARED_BATCH_INDEX):
                 continue
-            if switch not in (active_switch, SHARED_BATCH_INDEX):
+            # 摧毁态子树的批次 switchIndex 指向高状态（父 switcher activeState=0），
+            # 按 _nm_dest 放行（其几何就是要导出的损毁形态）
+            if not _nm_dest and switch not in (active_switch, SHARED_BATCH_INDEX):
                 continue
             datasource = batch.get("rb.datasource")
             if not isinstance(datasource, int):
@@ -422,7 +433,8 @@ def collect_renderables(scene: dict) -> dict:
                         sh_l0 = struct.unpack("<f", bytes.fromhex(sh["$bytes"])[:4])[0]
                     except (ValueError, struct.error):
                         pass
-            instances.append((name, transform, datasource,
+            out_name = ("D_" + name) if _nm_dest else name
+            instances.append((out_name, transform, datasource,
                               material_id if isinstance(material_id, int) else None,
                               entity_path, cls, lod, sh_l0))
     return {"instances": instances, "landscape": landscape,
