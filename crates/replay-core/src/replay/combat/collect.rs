@@ -540,6 +540,11 @@ pub(crate) fn collect_launches(
     (out, short_args)
 }
 
+/// 一条弹道链的**续段序列**：(时刻, 起点, 速度)，按飞行顺序（见 [`shot_segments`]）
+pub(crate) type ShotSegmentChain = Vec<(f32, [f32; 3], [f32; 3])>;
+/// (shooter, shotId) → 该发的续段序列（无续段 = 无键）
+pub(crate) type ShotSegments = HashMap<(u32, u32), ShotSegmentChain>;
+
 /// (shooter, shotId) 链 → **续段表**：每条链的首条为发射段，其余为**同一发的续段**
 /// （命中/跳弹后继续飞：起点 = 装甲接触点 / 穿透出射点，速度 = 续段方向，见 `collect_launches`）。
 ///
@@ -547,15 +552,10 @@ pub(crate) fn collect_launches(
 /// 组装时跳过）；`segments[(shooter, shotId)]` = 该发**全部续段的 (时刻, 起点, 速度)**，按飞行
 /// 顺序（= launches 的 clock/流序）。渲染层用它把弹道画成折线（`from → 续段起点… → method20 终点`），
 /// 命中归属窗口用首个续段时刻。无续段时表内无该键（直线弹道，终点用 method20）。
-pub(crate) fn shot_segments(
-    launches: &[LaunchEntry],
-) -> (
-    Vec<bool>,
-    HashMap<(u32, u32), Vec<(f32, [f32; 3], [f32; 3])>>,
-) {
+pub(crate) fn shot_segments(launches: &[LaunchEntry]) -> (Vec<bool>, ShotSegments) {
     let mut seen: std::collections::HashSet<(u32, u32)> = std::collections::HashSet::new();
     let mut is_continuation = vec![false; launches.len()];
-    let mut segments: HashMap<(u32, u32), Vec<(f32, [f32; 3], [f32; 3])>> = HashMap::new();
+    let mut segments: ShotSegments = HashMap::new();
     for (i, l) in launches.iter().enumerate() {
         let key = (l.shooter, l.shot_id);
         if seen.insert(key) {
@@ -576,10 +576,10 @@ pub(crate) fn shot_segments(
 pub(crate) fn shot_legs(
     from: [f32; 3],
     launch_vel: [f32; 3],
-    chain: Option<&Vec<(f32, [f32; 3], [f32; 3])>>,
+    chain: Option<&ShotSegmentChain>,
     to: [f32; 3],
 ) -> (Vec<[f32; 3]>, Vec<f32>) {
-    let empty: Vec<(f32, [f32; 3], [f32; 3])> = Vec::new();
+    let empty: ShotSegmentChain = Vec::new();
     let chain = chain.unwrap_or(&empty);
     let mut pts: Vec<[f32; 3]> = Vec::with_capacity(chain.len() + 2);
     pts.push(from);
@@ -1297,8 +1297,8 @@ mod shot_segments_tests {
             segs.get(&(11, 48267266)).cloned(),
             Some(vec![(71.219, [131.92, 30.58, 72.50], [0.0, 0.0, -680.0])])
         );
-        assert!(segs.get(&(11, 48267267)).is_none());
-        assert!(segs.get(&(12, 48267266)).is_none());
+        assert!(!segs.contains_key(&(11, 48267267)));
+        assert!(!segs.contains_key(&(12, 48267266)));
     }
 
     /// 三段链：续段**全部按序保留**（折线要一路画到服务器终点）

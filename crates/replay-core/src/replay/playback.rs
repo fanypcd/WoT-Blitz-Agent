@@ -248,7 +248,7 @@ fn kf_within(frames: &[KfPos], i: usize, j: usize) -> bool {
     let a = frames[i];
     let b = frames[j];
     let span = b.t - a.t;
-    if !(span > 0.0) {
+    if span.is_nan() || span <= 0.0 {
         return false;
     }
     let dyaw = wrap_pi(b.yaw - a.yaw);
@@ -1080,10 +1080,8 @@ mod tests {
         }
         let i = kf.t.partition_point(|&x| x <= t) - 1;
         let f = (t - kf.t[i]) / (kf.t[i + 1] - kf.t[i]);
-        let mut pos = [0.0f32; 3];
-        for c in 0..3 {
-            pos[c] = kf.pos[i * 3 + c] + (kf.pos[(i + 1) * 3 + c] - kf.pos[i * 3 + c]) * f;
-        }
+        let pos: [f32; 3] = [0, 1, 2]
+            .map(|c| kf.pos[i * 3 + c] + (kf.pos[(i + 1) * 3 + c] - kf.pos[i * 3 + c]) * f);
         let dyaw = wrap_pi(kf.yaw[i + 1] - kf.yaw[i]);
         (
             pos,
@@ -1134,7 +1132,11 @@ mod tests {
         ];
         assert!(!kf_within(&bent, 0, 2));
         // 航向最短弧跨 ±π（+3.10 → −3.10 实为 +0.08 的短弧）
-        let wrap = [mk(0.0, 0.0, 3.10), mk(1.0, 0.5, 3.14), mk(2.0, 1.0, -3.10)];
+        let wrap = [
+            mk(0.0, 0.0, 3.10),
+            mk(1.0, 0.5, std::f32::consts::PI),
+            mk(2.0, 1.0, -3.10),
+        ];
         assert!(kf_within(&wrap, 0, 2), "跨 ±π 的短弧不应被判为大偏差");
         let yawbent = [
             mk(0.0, 0.0, 0.0),
