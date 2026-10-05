@@ -374,6 +374,9 @@ impl AvatarFilter {
     }
 }
 
+/// 60Hz 帧网格步长（客户端每帧渲染一次 `output()`）
+pub const FRAME_DT: f64 = 1.0 / 60.0;
+
 /// 60Hz 帧网格时间线：按文件序喂入 type=10 采样，逐帧推进 output()（游戏每帧渲染一次），
 /// 查询 = 取事件时刻所在帧的渲染位姿。帧率影响 latency 缓动的离散化，量级可忽略。
 pub struct FilteredTimeline {
@@ -390,7 +393,6 @@ impl FilteredTimeline {
         }
         let mut sorted: Vec<&St10Sample> = samples.iter().collect();
         sorted.sort_by(|a, b| a.clock.partial_cmp(&b.clock).unwrap());
-        const FRAME_DT: f64 = 1.0 / 60.0;
         let start = sorted[0].clock as f64;
         let end = sorted[sorted.len() - 1].clock as f64 + 0.5;
         let frames_cap = ((end - start) / FRAME_DT).ceil() as usize + 1;

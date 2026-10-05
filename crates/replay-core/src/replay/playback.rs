@@ -17,7 +17,11 @@
 //! 保留为 team=0/tank_id=0 的"未知"车，不丢战局画面（昵称域为 UTF-8 全域，见 combat::nickname）。
 //!
 //! 序列化约定：位姿为列式 flat 数组（`pos` = [x,y,z]×N，其余各 N 项），时刻 `t_i = t_start + i*0.1`；
-//! 前端线性插值即可（滤波器输出本身平滑；hull_yaw/turret_yaw 为解卷绕连续域，见上）。
+//! 前端线性插值即可（hull_yaw/turret_yaw 为解卷绕连续域，见上）。
+//! **渲染位姿另有 `pose_kf`（关键帧折线）**：`pos`/`hull_yaw`/`hull_pitch` 的 10Hz 网格
+//! 会把滤波器的保持-跳变阶梯混叠成速度摆动（见 [`PoseKeyframes`]），渲染消费方应以
+//! `pose_kf` 为准（缺省 = 旧 facet，回退网格插值）；`turret_yaw`/`gun_pitch`/`hull_roll`
+//! 仍只有网格列（prop2/原始采样语义，不参与折线）。
 //! `coverage` = 有效数据区段（原始采样间隙 >2s 视为
 //! AoI 空洞——滤波器在无输入期会原地站住，前端按此隐藏车辆避免"幽灵车停在过期位置"）。
 
@@ -35,10 +39,14 @@ use super::combat::{
     ModuleCrewStateEvent, RawReloadDuration, RawReloadPhase, ShotReplayData,
     SupremacyBaseStateTransition, SupremacyPointsSample,
 };
-use super::filter::FilteredTimeline;
+use super::filter::{self, FilteredTimeline};
 
 /// 位姿网格步长（秒）——与现有 render_timeline / prop2 密集采样同惯例
 pub const GRID_DT: f32 = 0.1;
+/// 位姿关键帧走廊容差：位置（米）。2cm 在典型机位（20~50m）下约 1px 量级，仍远超网格路径精度
+const KF_TOL_POS: f32 = 0.02;
+/// 位姿关键帧走廊容差：角度（弧度 ≈ 0.40°）
+const KF_TOL_ANG: f32 = 0.007;
 /// 原始采样间隙超过此值视为 AoI 空洞（coverage 断开）
 const COVERAGE_GAP: f32 = 2.0;
 /// 实体收录的最少 type=10 采样数（噪声/瞬时实体过滤）
@@ -153,6 +161,124 @@ pub struct VehicleTrack {
     pub gun_index: Option<u32>,
     /// 有效数据区段 flat [t0, t1, ...]（闭区间对）
     pub coverage: Vec<f32>,
+    /// 位姿关键帧折线（渲染层**精确**表示，见 [`PoseKeyframes`]）。旧 facet 缺省 = None，
+    /// 消费端此时回退到 10Hz 网格列（`pos`/`hull_yaw`/`hull_pitch`）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pose_kf: Option<PoseKeyframes>,
+}
+
+/// 位姿关键帧折线：客户端渲染路径的**折点**序列。消费端在相邻关键帧间**线性插值**，
+/// 即复现客户端逐帧画面（关键帧之间的路径本身是线性的，偏差 ≤ 走廊容差 2cm/0.4°）。
+///
+/// 为什么不能只给 10Hz 网格：滤波器在「预测-保持」阶段（latency 未收敛到输入间隔，= 车辆
+/// 刚进 AoI 的数秒内）逐帧输出是**保持-跳变阶梯**；按固定 10Hz 网格重采样、再在网格间线性
+/// 插值，会把阶梯混叠成速度大幅摆动的滑行（实测某 0.5s 窗内前端线速度 4.5→29.6 m/s，
+/// 同段真值稳定）——3D 回放里"一顿一顿/不连续"的观感来源。折线保留保持段两端与跳变段，
+/// 点数 7~10 点/秒/车（≈ 位置更新率，与 10Hz 网格同量级）。
+///
+/// 时序语义与网格列一致：早于首点/晚于末点按端点保持。
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct PoseKeyframes {
+    /// 关键帧时刻（秒，回放时钟域，升序）
+    pub t: Vec<f32>,
+    /// flat [x,y,z] × K（回放世界系，米；与 `pos` 网格同坐标系）
+    pub pos: Vec<f32>,
+    /// 车体偏航（弧度，**解卷绕连续域**；与 `hull_yaw` 网格同域——相邻关键帧 |Δ| < π，
+    /// 消费端朴素线性插值即物理正确）
+    pub yaw: Vec<f32>,
+    /// 车体俯仰（弧度；与 `hull_pitch` 网格同域）
+    pub pitch: Vec<f32>,
+}
+
+/// 从 60Hz 渲染帧拟合关键帧折线（公开给探针/测试；facet 层在 `VehicleTrack.pose_kf` 落盘）。
+///
+/// 贪心走廊：从帧 i 起尽量延长到 j，使 [i, j] 内所有中间帧与线性插值之差 ≤ 容差
+/// （位置 = 欧氏距离，角度 = 最短弧差）。走廊跨越「保持→跳变」时中间帧偏差必然超限
+/// → 跳变被保留为一段陡斜率，而不是被抹平。
+pub fn pose_keyframes(tl: &FilteredTimeline) -> PoseKeyframes {
+    let (start, _) = tl.time_range();
+    let n = tl.frame_count();
+    let mut frames: Vec<KfPos> = Vec::with_capacity(n);
+    let mut prev_yaw: Option<f32> = None;
+    for k in 0..n {
+        // 帧中点查询：floor((t−start)/dt) 恒等 = k，规避 1/60 累加的浮点边界
+        let t = start + (k as f64 + 0.5) * filter::FRAME_DT;
+        let Some(p) = tl.pose_at(t, false) else { break };
+        // 航向解卷绕（与 `hull_yaw` 网格列同域）：消费端朴素线性插值即物理正确，
+        // ±π 边界不出现 ≈2π 跳变（否则关键帧跨 ±π 时插值会反甩一整圈）
+        let yaw = unwrap_angle(prev_yaw, p.ang[0]);
+        prev_yaw = Some(yaw);
+        frames.push(KfPos {
+            t: p.time,
+            pos: p.pos,
+            yaw,
+            pitch: p.ang[1],
+        });
+    }
+    let mut out = PoseKeyframes::default();
+    if frames.is_empty() {
+        return out;
+    }
+    // 落盘舍入（pos 1cm / 角度 0.001rad / 时刻 0.1ms）：未舍入的 f32 按最短往返表示序列化
+    // （≈9 字符/数），体积大 ~40%。时刻取 0.1ms 而不是 1ms——跳变段只有 ~17ms 长，毫秒级
+    // 时间舍入会把该段斜率改变百分之几（1.4m 跳变 → 中段偏差 ~2cm），0.1ms 下可忽略。
+    // 保持段内两端取值相同，舍入后仍逐值相等（阶梯不被破坏）。
+    let push = |out: &mut PoseKeyframes, f: &KfPos| {
+        out.t.push(r4(f.t as f32));
+        out.pos
+            .extend_from_slice(&[r2(f.pos[0]), r2(f.pos[1]), r2(f.pos[2])]);
+        out.yaw.push(r3(f.yaw));
+        out.pitch.push(r3(f.pitch));
+    };
+    push(&mut out, &frames[0]);
+    let mut i = 0usize;
+    while i + 1 < frames.len() {
+        let mut j = i + 1;
+        while j + 1 < frames.len() && kf_within(&frames, i, j + 1) {
+            j += 1;
+        }
+        push(&mut out, &frames[j]);
+        i = j;
+    }
+    out
+}
+
+/// 走廊判据：[i, j] 段内所有中间帧与线性插值的偏差是否都在容差内（角度 = 最短弧差）。
+fn kf_within(frames: &[KfPos], i: usize, j: usize) -> bool {
+    let a = frames[i];
+    let b = frames[j];
+    let span = b.t - a.t;
+    if !(span > 0.0) {
+        return false;
+    }
+    let dyaw = wrap_pi(b.yaw - a.yaw);
+    for f in &frames[i + 1..j] {
+        let u = ((f.t - a.t) / span) as f32;
+        let mut d2 = 0.0f32;
+        for c in 0..3 {
+            let v = a.pos[c] + (b.pos[c] - a.pos[c]) * u;
+            d2 += (v - f.pos[c]) * (v - f.pos[c]);
+        }
+        if d2 > KF_TOL_POS * KF_TOL_POS {
+            return false;
+        }
+        if wrap_pi(f.yaw - a.yaw - dyaw * u).abs() > KF_TOL_ANG {
+            return false;
+        }
+        if (f.pitch - (a.pitch + (b.pitch - a.pitch) * u)).abs() > KF_TOL_ANG {
+            return false;
+        }
+    }
+    true
+}
+
+/// 走廊拟合的中间帧（= 一帧 60Hz 渲染位姿）
+#[derive(Clone, Copy)]
+struct KfPos {
+    t: f64,
+    pos: [f32; 3],
+    yaw: f32,
+    pitch: f32,
 }
 
 /// 一发射击（弹道飞行 + 结果标记；原始语义透传，前端做标签映射）
@@ -393,6 +519,10 @@ fn r2(x: f32) -> f32 {
 }
 fn r3(x: f32) -> f32 {
     (x * 1000.0).round() / 1000.0
+}
+/// 0.1ms 舍入（关键帧时刻：跳变段仅 ~17ms 长，毫秒级舍入会显著改变该段斜率）
+fn r4(x: f32) -> f32 {
+    (x * 10000.0).round() / 10000.0
 }
 
 /// 归一化到 [−π, π]（合成角规范化 + 解卷绕差值短弧化；落盘契约 = 解卷绕连续域，非短弧）
@@ -703,6 +833,7 @@ pub fn from_model(
             turret_index: None,
             gun_index: None,
             coverage: build_coverage(&clocks),
+            pose_kf: Some(pose_keyframes(&tl)),
         });
     }
 
@@ -912,6 +1043,204 @@ mod tests {
         let b = [300.0, 10.0, 0.0];
         assert_eq!(flight_secs(&a, &b, &[150.0, 0.0, 0.0]), 2.0);
         assert_eq!(flight_secs(&a, &b, &[0.0, 0.0, 0.0]), 0.5);
+    }
+
+    // ---------- 位姿关键帧折线 ----------
+
+    /// 消费端语义求值：端点保持 + 段内线性（与前端 trackInterp 的 sampleKeyframes 同式）
+    fn sample_kf(kf: &PoseKeyframes, t: f32) -> ([f32; 3], f32, f32) {
+        let last = kf.t.len() - 1;
+        if t <= kf.t[0] {
+            return (kf.pos[0..3].try_into().unwrap(), kf.yaw[0], kf.pitch[0]);
+        }
+        if t >= kf.t[last] {
+            let o = last * 3;
+            return (
+                kf.pos[o..o + 3].try_into().unwrap(),
+                kf.yaw[last],
+                kf.pitch[last],
+            );
+        }
+        let i = kf.t.partition_point(|&x| x <= t) - 1;
+        let f = (t - kf.t[i]) / (kf.t[i + 1] - kf.t[i]);
+        let mut pos = [0.0f32; 3];
+        for c in 0..3 {
+            pos[c] = kf.pos[i * 3 + c] + (kf.pos[(i + 1) * 3 + c] - kf.pos[i * 3 + c]) * f;
+        }
+        let dyaw = wrap_pi(kf.yaw[i + 1] - kf.yaw[i]);
+        (
+            pos,
+            kf.yaw[i] + dyaw * f,
+            kf.pitch[i] + (kf.pitch[i + 1] - kf.pitch[i]) * f,
+        )
+    }
+
+    /// 合成输入：等间隔位置更新，每步 step_m 米（模拟客户端 10~12Hz 位置广播）
+    fn synthetic_samples(step_m: f32, interval: f32, n: usize) -> Vec<combat::St10Sample> {
+        (0..n)
+            .map(|i| {
+                let d = i as f32 * step_m;
+                combat::St10Sample {
+                    clock: 10.0 + i as f32 * interval,
+                    pos: [d, 0.0, d * 0.5],
+                    yaw: 0.3,
+                    pitch: 0.0,
+                    roll: 0.0,
+                    pos_error: [0.0; 3],
+                }
+            })
+            .collect()
+    }
+
+    /// 走廊判据几何：共线 → 通过；中间帧偏移超容差 → 拒绝；航向跨 ±π 用最短弧
+    #[test]
+    fn kf_within_geometry() {
+        let mk = |t: f64, x: f32, yaw: f32| KfPos {
+            t,
+            pos: [x, 0.0, 0.0],
+            yaw,
+            pitch: 0.0,
+        };
+        let line = [mk(0.0, 0.0, 0.0), mk(1.0, 0.5, 0.0), mk(2.0, 1.0, 0.0)];
+        assert!(kf_within(&line, 0, 2));
+        // 边界两侧用容差本身构造（容差调整后仍成立）：0.5×容差 → 通过；2×容差 → 拒绝
+        let soft = [
+            mk(0.0, 0.0, 0.0),
+            mk(1.0, 0.5 + KF_TOL_POS * 0.5, 0.0),
+            mk(2.0, 1.0, 0.0),
+        ];
+        assert!(kf_within(&soft, 0, 2));
+        let bent = [
+            mk(0.0, 0.0, 0.0),
+            mk(1.0, 0.5 + KF_TOL_POS * 2.0, 0.0),
+            mk(2.0, 1.0, 0.0),
+        ];
+        assert!(!kf_within(&bent, 0, 2));
+        // 航向最短弧跨 ±π（+3.10 → −3.10 实为 +0.08 的短弧）
+        let wrap = [mk(0.0, 0.0, 3.10), mk(1.0, 0.5, 3.14), mk(2.0, 1.0, -3.10)];
+        assert!(kf_within(&wrap, 0, 2), "跨 ±π 的短弧不应被判为大偏差");
+        let yawbent = [
+            mk(0.0, 0.0, 0.0),
+            mk(1.0, 0.5, KF_TOL_ANG * 2.0),
+            mk(2.0, 1.0, 0.0),
+        ];
+        assert!(!kf_within(&yawbent, 0, 2));
+    }
+
+    /// 关键帧折线保真：任意时刻与 60Hz 渲染帧之差 ≤ 容差（对前端的契约）
+    #[test]
+    fn keyframes_reproduce_frames_within_tolerance() {
+        let tl = FilteredTimeline::build(&synthetic_samples(1.4, 0.083, 200)).unwrap();
+        let kf = pose_keyframes(&tl);
+        assert!(kf.t.len() >= 2, "关键帧数过少：{}", kf.t.len());
+        assert_eq!(kf.pos.len(), kf.t.len() * 3, "列式数组必须等长");
+        assert_eq!(kf.yaw.len(), kf.t.len());
+        assert_eq!(kf.pitch.len(), kf.t.len());
+        let (start, end) = tl.time_range();
+        let mut max_err = 0.0f32;
+        for k in 0..tl.frame_count() {
+            let t = start + (k as f64 + 0.5) * filter::FRAME_DT;
+            let p = tl.pose_at(t, false).unwrap();
+            let (kp, ky, kpitch) = sample_kf(&kf, p.time as f32);
+            max_err = max_err.max(
+                ((kp[0] - p.pos[0]).powi(2)
+                    + (kp[1] - p.pos[1]).powi(2)
+                    + (kp[2] - p.pos[2]).powi(2))
+                .sqrt(),
+            );
+            assert!(
+                wrap_pi(ky - p.ang[0]).abs() <= KF_TOL_ANG + 0.001,
+                "yaw 超容差"
+            );
+            assert!(
+                (kpitch - p.ang[1]).abs() <= KF_TOL_ANG + 0.001,
+                "pitch 超容差"
+            );
+        }
+        // 上界 = 走廊容差 + 落盘舍入传播（两个端点各 ≤0.5cm 舍入 → 段内 ≤1cm）
+        assert!(
+            max_err <= KF_TOL_POS + 0.006,
+            "位置最大偏差 {max_err}m 超容差"
+        );
+        assert!(end > start);
+        // 航向为解卷绕连续域：相邻关键帧 |Δ| < π（跨 ±π 不出现反甩）
+        for i in 0..kf.t.len() - 1 {
+            assert!(
+                (kf.yaw[i + 1] - kf.yaw[i]).abs() < std::f32::consts::PI,
+                "关键帧航向不连续：{i} → {}",
+                i + 1
+            );
+        }
+    }
+
+    /// 跳变保留（对照 10Hz 混叠）：客户端在两次位置更新之间保持原地、收包后跳变。
+    /// 关键帧折线复现阶梯（存在陡斜率段与保持段），而按 10Hz 网格重采样 + 线性插值会把
+    /// 阶梯抹成滑行——同一 60Hz 帧序列上两者偏差相差一个量级。
+    #[test]
+    fn keyframes_keep_holds_and_jumps_unlike_grid_aliasing() {
+        // 12Hz 位置更新（与 0.1s 网格不同相 → 网格重采样必然混叠），每步 1.4m
+        let tl = FilteredTimeline::build(&synthetic_samples(1.4, 1.0 / 12.0, 300)).unwrap();
+        let kf = pose_keyframes(&tl);
+        let (start, end) = tl.time_range();
+        let frames: Vec<(f64, [f32; 3])> = (0..tl.frame_count())
+            .map(|k| {
+                let t = start + (k as f64 + 0.5) * filter::FRAME_DT;
+                let p = tl.pose_at(t, false).unwrap();
+                (p.time, p.pos)
+            })
+            .collect();
+
+        let dist = |a: [f32; 3], b: [f32; 3]| {
+            ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+        };
+        let mut err_kf = 0.0f32;
+        for (t, pos) in &frames {
+            let (kp, _, _) = sample_kf(&kf, *t as f32);
+            err_kf = err_kf.max(dist(kp, *pos));
+        }
+        // 10Hz 网格重采样 + 线性插值（改动前的渲染路径）
+        let grid: Vec<(f32, [f32; 3])> = (0..)
+            .map(|i| start + i as f64 * GRID_DT as f64)
+            .take_while(|t| *t <= end)
+            .map(|t| (t as f32, tl.pose_at(t, false).unwrap().pos))
+            .collect();
+        let mut err_grid = 0.0f32;
+        for (t, pos) in &frames {
+            let t = *t as f32;
+            let i = grid
+                .partition_point(|(gt, _)| *gt <= t)
+                .saturating_sub(1)
+                .min(grid.len() - 2);
+            let f = (t - grid[i].0) / (grid[i + 1].0 - grid[i].0);
+            let g = [0, 1, 2].map(|c| grid[i].1[c] + (grid[i + 1].1[c] - grid[i].1[c]) * f);
+            err_grid = err_grid.max(dist(g, *pos));
+        }
+        assert!(err_kf <= KF_TOL_POS + 0.006, "折线偏差 {err_kf}m 超容差");
+        assert!(
+            err_grid > 0.15,
+            "网格混叠偏差应显著（实际 {err_grid}m）——若此断言失败，说明合成节奏与网格同相，\
+             调整合成参数而不是放宽断言"
+        );
+        // 阶梯结构确实被保留：存在 ≥1m 的陡段（跳变）与 ≥0.15s 的零位移保持段
+        let mut max_step = 0.0f32;
+        let mut max_hold = 0.0f32;
+        for i in 0..kf.t.len() - 1 {
+            let d = dist(
+                [kf.pos[i * 3], kf.pos[i * 3 + 1], kf.pos[i * 3 + 2]],
+                [
+                    kf.pos[(i + 1) * 3],
+                    kf.pos[(i + 1) * 3 + 1],
+                    kf.pos[(i + 1) * 3 + 2],
+                ],
+            );
+            let dt = kf.t[i + 1] - kf.t[i];
+            max_step = max_step.max(d);
+            if d < 1e-4 {
+                max_hold = max_hold.max(dt);
+            }
+        }
+        assert!(max_step >= 1.0, "跳变段未被保留（最大段长 {max_step}m）");
+        assert!(max_hold >= 0.15, "保持段未被保留（最长保持 {max_hold}s）");
     }
 
     // ---------- 端到端探针（真实回放分布证据） ----------
