@@ -171,8 +171,8 @@ pub fn dump_replay_streams(packets: &[(u32, f32, &[u8])]) -> serde_json::Value {
             "t": l.t, "shooter": l.shooter, "shot_id": l.shot_id,
             "point": l.point, "vel": l.vel,
         })).collect::<Vec<_>>(),
-        "endpoints": endpoints.iter().map(|(sid, (t, p))|
-            json!({"shot_id": sid, "t": t, "p": p})).collect::<Vec<_>>(),
+        "endpoints": endpoints.iter().flat_map(|(sid, list)| list.iter().map(move |(t, p)|
+            json!({"shot_id": sid, "t": t, "p": p}))).collect::<Vec<_>>(),
         "direct_hits8": collect_direct_hits8(packets).iter().map(|d| json!({
             "t": d.t, "shooter": d.shooter, "victim": d.victim, "result": d.result,
         })).collect::<Vec<_>>(),
@@ -491,7 +491,10 @@ pub(crate) fn collect_launches(
     keep: impl Fn(u32) -> bool,
 ) -> (Vec<LaunchEntry>, HashMap<u32, usize>) {
     let mut out: Vec<LaunchEntry> = Vec::new();
-    let mut seen_shots: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    // 去重键 = **(shooter, shotId)**：shotId 是**每射手计数器**，不同玩家会撞同一值
+    // （实测 6 场样本 5 场存在，单场 3~7 发）。按 shotId 单独去重会把另一个玩家的射击整发丢掉，
+    // 并让"同 id 的终点"配到错的发射上（炮线方向错乱——用户实测 bug）。
+    let mut seen_shots: std::collections::HashSet<(u32, u32)> = std::collections::HashSet::new();
     let mut short_args: HashMap<u32, usize> = HashMap::new();
     // 流序当前 prop2（全实体维护——keep 过滤只作用于发射事件本身）
     let mut ang2: std::collections::HashMap<u32, (f32, u16)> = Default::default();
@@ -523,9 +526,9 @@ pub(crate) fn collect_launches(
             continue;
         }
         let shot_id = u32::from_le_bytes([a[4], a[5], a[6], a[7]]);
-        if !seen_shots.insert(shot_id) {
+        if !seen_shots.insert((shooter, shot_id)) {
             continue;
-        } // 同一 Shot 的后续 method29；Shot 级 primary launch 保留首条
+        } // 同一 Shot 的后续 method29（同一射手重播）；Shot 级 primary launch 保留首条
         let f = |o: usize| f32::from_le_bytes([a[o], a[o + 1], a[o + 2], a[o + 3]]);
         out.push(LaunchEntry {
             t: *clock,
@@ -540,9 +543,13 @@ pub(crate) fn collect_launches(
     (out, short_args)
 }
 
-/// method20 (0x14) 弹道终点收集（作者/他人路径共用）：shotId 配对（含 miss 的空地终点），重复 shotId 保留首条。
-pub(crate) fn collect_endpoints(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, (f32, [f32; 3])> {
-    let mut endpoints: HashMap<u32, (f32, [f32; 3])> = HashMap::new();
+/// method20 (0x14) 弹道终点收集（作者/他人路径共用）：shotId 配对（含 miss 的空地终点）。
+/// **保留该 shotId 的全部候选**（不多选首条）：shotId 每射手独立，两条不同玩家的射击可能同 id，
+/// 具体归属由 [`pick_endpoint`] 按几何一致判定。
+pub(crate) fn collect_endpoints(
+    packets: &[(u32, f32, &[u8])],
+) -> HashMap<u32, Vec<(f32, [f32; 3])>> {
+    let mut endpoints: HashMap<u32, Vec<(f32, [f32; 3])>> = HashMap::new();
     for (_, clock, p) in packets {
         if p.len() < 28 {
             continue;
@@ -556,7 +563,7 @@ pub(crate) fn collect_endpoints(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, (
         }
         let shot_id = u32::from_le_bytes([p[12], p[13], p[14], p[15]]);
         let a = &p[16..];
-        endpoints.entry(shot_id).or_insert((
+        endpoints.entry(shot_id).or_default().push((
             *clock,
             [
                 f32::from_le_bytes([a[0], a[1], a[2], a[3]]),
@@ -567,6 +574,117 @@ pub(crate) fn collect_endpoints(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, (
     }
     endpoints
 }
+
+/// 终点候选 → 本发可用终点（**几何一致判定**）。
+///
+/// 判据：候选终点相对炮口的连线与发射速度方向的夹角。实测 587 发里 565 发（96.3%）夹角 <1°，
+/// 是弹道的硬不变量；例外全是**穿透后偏转继续飞**的弹——method20 终点是弹道**最终停止点**，
+/// 落在出射方向延长线上（样本：Kranvagn 命中后出射 +38.6°、终点在 730m 外 452m 高处），
+/// 直接连到炮口就是一条指向天空的假炮线。shotId 又是**每射手计数器**（两玩家会撞同 id，
+/// 实测 6 场 5 场出现），别人的终点也会挂到本发上。
+///
+/// 规则：夹角 ≤ [`END_DIR_TOL_DEG`]（多候选还须比次优好 ≥ [`END_DIR_MARGIN_DEG`]）→ 采用；
+/// 否则返回 None（调用方按"终点缺失"处理：他人路径跳过、作者路径 fail-fast ——宁缺勿错）。
+pub(crate) fn pick_endpoint(
+    cands: &[(f32, [f32; 3])],
+    launch_point: [f32; 3],
+    vel: [f32; 3],
+    _shot_id_shared: bool,
+) -> Option<(f32, [f32; 3])> {
+    match cands.len() {
+        0 => None,
+        _ => {
+            let vlen = (vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]).sqrt();
+            if !(vlen > 1e-3) {
+                return None;
+            }
+            let ang = |e: &[f32; 3]| -> Option<f32> {
+                let d = [
+                    e[0] - launch_point[0],
+                    e[1] - launch_point[1],
+                    e[2] - launch_point[2],
+                ];
+                let dlen = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                if !(dlen > 1e-3) {
+                    return None;
+                }
+                let cos = (d[0] * vel[0] + d[1] * vel[1] + d[2] * vel[2]) / (dlen * vlen);
+                Some(cos.clamp(-1.0, 1.0).acos().to_degrees())
+            };
+            let mut best: Option<(usize, f32)> = None;
+            let mut second: f32 = f32::INFINITY;
+            for (i, c) in cands.iter().enumerate() {
+                let Some(a) = ang(&c.1) else { continue };
+                match best {
+                    Some((_, ba)) if a >= ba => second = second.min(a),
+                    Some((_, ba)) => {
+                        second = ba;
+                        best = Some((i, a));
+                    }
+                    None => best = Some((i, a)),
+                }
+            }
+            match best {
+                // 单候选只需夹角过关；多候选还须比次优显著更好，否则判歧义
+                Some((i, ba))
+                    if ba <= END_DIR_TOL_DEG
+                        && (cands.len() == 1 || second - ba >= END_DIR_MARGIN_DEG) =>
+                {
+                    Some(cands[i])
+                }
+                _ => None,
+            }
+        }
+    }
+}
+
+/// 终点不可用（穿透后偏转 / shotId 误配）时的**落点回退**：用本发的命中通知（method8
+/// 直击通知，服务器权威）恢复"炮弹实际到达处"——终点取**受击方位置**、时刻取命中时刻。
+///
+/// 判据（全部为数据本身的不变量，非阈值猜测）：同一射手；命中时刻落在 [发射, 发射+1.5s]；
+/// 且 `|受击方位置 − 炮口| / 弹速 ≈ 命中时刻 − 发射时刻`（±0.25s，容许状态采样陈旧）。
+/// 不满足即返回 None（调用方维持"终点缺失"语义：他人路径跳过、作者路径 fail-fast）。
+///
+/// 注意：此时 `ball_b` 是受击方**位置**（非 method20 的穿透出射点），"弹着点相对目标的偏移"
+/// 类分析（viewer aim_point）在这类发上退化为 0——由终点筛选淘汰的弹本就拿不到可信出射点。
+pub(crate) fn endpoint_from_hit(
+    hits: &[DirectHit8],
+    shooter: u32,
+    fire_t: f32,
+    launch_point: [f32; 3],
+    speed: f32,
+) -> Option<(f32, [f32; 3])> {
+    let speed = if speed.is_finite() && speed > 1.0 {
+        speed
+    } else {
+        return None;
+    };
+    hits.iter()
+        .filter(|d| d.shooter == shooter)
+        .filter_map(|d| {
+            let (pos, _, _) = d.victim_state?;
+            let dt = d.t - fire_t;
+            if !(0.0..=1.5).contains(&dt) {
+                return None;
+            }
+            let dist = ((pos[0] - launch_point[0]).powi(2)
+                + (pos[1] - launch_point[1]).powi(2)
+                + (pos[2] - launch_point[2]).powi(2))
+            .sqrt();
+            let implied = dist / speed;
+            if (implied - dt).abs() > 0.25 {
+                return None;
+            }
+            Some((d.t, pos))
+        })
+        .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+}
+
+/// 终点归属判定容差：连线与发射方向的容许夹角（度）。20° 只放行"明确沿发射线"的终点
+/// （正常弹 <1°、小偏转保留），更大的穿透偏转/误配一律按"终点缺失"处理。
+const END_DIR_TOL_DEG: f32 = 20.0;
+/// 决定性裕度：最优候选须比次优好这么多（度），否则按歧义处理
+const END_DIR_MARGIN_DEG: f32 = 15.0;
 
 /// method8 直击通知收集（作者/他人路径共用），按时钟排序。
 pub(crate) fn collect_direct_hits8(packets: &[(u32, f32, &[u8])]) -> Vec<DirectHit8> {
@@ -1185,5 +1303,134 @@ mod launch_identity_tests {
         assert!((launches[0].t - 110.26195).abs() < 1e-5);
         assert_eq!(launches[0].point, [99.82513, 25.24507, 20.54626]);
         assert_eq!(launches[0].vel, [-616.206, -2.696, -287.546]);
+    }
+}
+
+#[cfg(test)]
+mod pick_endpoint_tests {
+    use super::*;
+
+    /// 沿线唯一候选 → 采用（绝大多数正常弹，实测 96.3% 夹角 <1°）
+    #[test]
+    fn aligned_single_candidate_is_taken() {
+        let c = [(10.0, [0.0, 0.0, 100.0])];
+        assert_eq!(
+            pick_endpoint(&c, [0.0, 0.0, 0.0], [0.0, 0.0, 500.0], false),
+            Some((10.0, [0.0, 0.0, 100.0]))
+        );
+        assert_eq!(
+            pick_endpoint(&[], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], false),
+            None
+        );
+    }
+
+    /// 穿透后偏转的终点（样本真值）：连线在出射方向 36.6° 外 → 判为本发不可用；
+    /// 同一终点对其**出射方**是沿线的 → 采用（这是"别人终点挂到本发"的同一根机制）
+    #[test]
+    fn deflected_endpoint_is_rejected_but_usable_for_its_owner() {
+        let launch_krv = [109.65, 32.33, 135.39];
+        let vel_krv = [226.93, -17.48, -640.78]; // 炮口仰角 −1.5°（与当时炮管姿态一致）
+        let launch_exit = [131.92, 30.58, 72.50];
+        let vel_exit = [253.46, 424.62, -466.77]; // 出射仰角 +38.6°
+        let end = (72.23, [385.4, 452.1, -394.3]);
+        assert_eq!(pick_endpoint(&[end], launch_krv, vel_krv, false), None);
+        assert_eq!(
+            pick_endpoint(&[end], launch_exit, vel_exit, false),
+            Some(end)
+        );
+    }
+
+    /// 命中回退：同射手 + 时刻窗 + |受击方−炮口|/弹速 ≈ 命中时刻−发射时刻 → 采用受击方位置
+    #[test]
+    fn endpoint_from_hit_matches_by_geometry() {
+        let launch = [0.0, 0.0, 0.0];
+        let speed = 680.0;
+        let hit = |shooter: u32, t: f32, pos: [f32; 3]| DirectHit8 {
+            t,
+            shooter,
+            victim: 7,
+            result: 1,
+            component_index: None,
+            hash6: [0; 6],
+            victim_state: Some((pos, [0.0; 3], t)),
+            victim_prop2: None,
+        };
+        // 70m 外、0.1s → 命中时刻 0.1 与 |Δ|/speed 一致 → 采用
+        let ok = || hit(11, 71.1, [0.0, 0.0, 70.0]);
+        assert_eq!(
+            endpoint_from_hit(&[ok()], 11, 71.0, launch, speed),
+            Some((71.1, [0.0, 0.0, 70.0]))
+        );
+        // 别人打的 → 不采用
+        assert_eq!(endpoint_from_hit(&[ok()], 12, 71.0, launch, speed), None);
+        // 时刻与几何不自洽（命中时刻离发射太远）→ 不采用
+        let bad_t = hit(11, 73.0, [0.0, 0.0, 70.0]);
+        assert_eq!(endpoint_from_hit(&[bad_t], 11, 71.0, launch, speed), None);
+        // 位置与弹速不自洽（70m 走 0.1s 需 700m/s，弹速 680 → 差 0.003s 通过；
+        // 换成 500m 远则 implied≈0.74s ≫ 0.1s）→ 不采用
+        let far = hit(11, 71.1, [0.0, 0.0, 500.0]);
+        assert_eq!(endpoint_from_hit(&[far], 11, 71.0, launch, speed), None);
+        // 无受击方状态快照 → 不采用（宁缺勿错）
+        let mut no_state = hit(11, 71.1, [0.0, 0.0, 70.0]);
+        no_state.victim_state = None;
+        assert_eq!(
+            endpoint_from_hit(&[no_state], 11, 71.0, launch, speed),
+            None
+        );
+    }
+
+    /// 小偏转（≤容差）保留：终点略偏离发射线仍属本发
+    #[test]
+    fn slight_deflection_is_kept() {
+        let d = 300.0f32;
+        let off = d * 15f32.to_radians().tan();
+        assert!(pick_endpoint(
+            &[(1.0, [0.0, off, -d])],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, -500.0],
+            false
+        )
+        .is_some());
+        let off2 = d * 30f32.to_radians().tan();
+        assert!(pick_endpoint(
+            &[(2.0, [0.0, off2, -d])],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, -500.0],
+            false
+        )
+        .is_none());
+    }
+
+    /// 两个候选：取夹角最小者；裕度不足则判歧义（宁缺勿错）
+    #[test]
+    fn two_candidates_need_decisive_margin() {
+        let launch = [0.0, 0.0, 0.0];
+        let vel = [0.0, 0.0, -100.0]; // 朝 −z
+        let near = (1.0, [0.0, 0.0, -200.0]); // 0°
+        let far = (2.0, [200.0, 0.0, 0.0]); // 90°
+        assert_eq!(pick_endpoint(&[near, far], launch, vel, true), Some(near));
+        // 两条都在容差内且相差 <15° → 歧义
+        let a = (1.0, [0.0, 5.0, -200.0]); // ≈1.4°
+        let b = (2.0, [0.0, 17.5, -200.0]); // ≈5.0°
+        assert_eq!(pick_endpoint(&[a, b], launch, vel, true), None);
+        // 最优超出容差（>20°）→ 歧义
+        let c = (1.0, [0.0, 30.0, -60.0]); // ≈26.6°
+        let d = (2.0, [0.0, 0.0, 100.0]); // 180°
+        assert_eq!(pick_endpoint(&[c, d], launch, vel, true), None);
+    }
+
+    /// 退化输入：零速度 / 终点与炮口重合 → 无法判定 → None（fail-closed）
+    #[test]
+    fn degenerate_inputs_fail_closed() {
+        let c = [(1.0, [10.0, 0.0, 0.0]), (2.0, [10.0, 0.5, 0.0])];
+        assert_eq!(
+            pick_endpoint(&c, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], true),
+            None
+        );
+        let c2 = [(1.0, [5.0, 0.0, 0.0]), (2.0, [5.0, 0.0, 0.0])];
+        assert_eq!(
+            pick_endpoint(&c2, [5.0, 0.0, 0.0], [1.0, 0.0, 0.0], true),
+            None
+        );
     }
 }

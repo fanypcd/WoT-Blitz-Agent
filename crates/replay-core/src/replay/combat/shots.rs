@@ -342,7 +342,7 @@ pub(crate) struct ShotScanShared {
     /// 每射手首个 args<37 包的 args_len（作者路径 fail-fast 证据；正常回放为空表）
     pub short_args: HashMap<u32, usize>,
     /// method20 弹道终点（shotId 配对，含 miss 的空地终点）
-    pub endpoints: HashMap<u32, (f32, [f32; 3])>,
+    pub endpoints: HashMap<u32, Vec<(f32, [f32; 3])>>,
     /// method8 直击通知（全局广播；按时钟排序）
     pub direct_hits8: Vec<DirectHit8>,
     /// type=32 命中通知（AoI 广播含他人；保持包序——hash6 令牌配对与顺序无关）
@@ -958,8 +958,14 @@ pub(crate) fn extract_shot_replays_from_shared(
         );
     }
 
-    // ② method20 弹道终点（shotId 配对；含 miss 的空地终点）
+    // ② method20 弹道终点（shotId 配对；含 miss 的空地终点）。
+    // shotId 是**每射手计数器**：同一 id 可能被两名玩家共用（实测 6 场 5 场出现）——
+    // 共用时终点归属必须按几何一致判定（见 pick_endpoint），否则会把别人的终点画成本发炮线。
     let endpoints = &shared.endpoints;
+    let mut shot_id_users: HashMap<u32, u32> = HashMap::new();
+    for l in &launches {
+        *shot_id_users.entry(l.shot_id).or_insert(0) += 1;
+    }
 
     // ③ method38 命中结果（Avatar 方法 = 仅作者自己的射击反馈；共享收集 + 同钟同受击者合并，
     // 布局见 ShotScanShared.hit_results38 文档）
@@ -1039,12 +1045,26 @@ pub(crate) fn extract_shot_replays_from_shared(
         )
         .ok_or_else(|| anyhow::anyhow!("{}: 射手 type=10 状态快照缺失", ctx()))?;
 
-        // 弹道终点（shotId 精确配对）；ball_a = method29 炮口发射位置
+        // 弹道终点（shotId 配对；同 id 多候选时按几何一致择一，见 pick_endpoint）；
+        // ball_a = method29 炮口发射位置
         let ball_a = l.point;
-        let (end_time, ball_b) = endpoints
-            .get(&shot_id)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("{}: method20 弹道终点缺失（shotId 无配对）", ctx()))?;
+        // 同一 shotId 被多发共用（每射手计数器）→ 终点需几何筛查；未被共用时保持历史行为
+        let shared_id = shot_id_users.get(&shot_id).copied().unwrap_or(0) > 1;
+        let speed = (l.vel[0] * l.vel[0] + l.vel[1] * l.vel[1] + l.vel[2] * l.vel[2]).sqrt();
+        let (end_time, ball_b) = match pick_endpoint(
+            endpoints.get(&shot_id).map(Vec::as_slice).unwrap_or(&[]),
+            ball_a,
+            l.vel,
+            shared_id,
+        )
+        .or_else(|| endpoint_from_hit(direct_hits8, l.shooter, fire_time, ball_a, speed))
+        {
+            Some(x) => x,
+            None => anyhow::bail!(
+                "{}: method20 弹道终点缺失/歧义（shotId 无可用配对，命中通知亦无）",
+                ctx()
+            ),
+        };
         let fire_tick = tick_at(tick_timeline, fire_time);
 
         // ⑦' 弹药槽位：发射时刻的最后选择（type=28 时间线 ≤ fire_time 的最新值）
@@ -1745,12 +1765,23 @@ pub(crate) fn extract_other_shot_replays_from_shared(
 
     // ⑤ 血量链降幅区间（全 source 保留——作者路径 ⑥' 的无过滤版本，cause=0 炮弹直击；含 type=5 满血锚点）
     let dmg_losses = derive_dmg_losses(&shared.hp_events, None, &shared.initial_hp);
+    // ⑤' shotId 共用表（每射手计数器 → 同 id 可能多发；见 pick_endpoint）
+    let mut shot_id_users: HashMap<u32, u32> = HashMap::new();
+    for l in &launches {
+        *shot_id_users.entry(l.shot_id).or_insert(0) += 1;
+    }
+
     // ⑤' 互斥预归属：每段降幅只归属区间内 end_time 最大的命中发射（同区间未穿弹不计入、
     // 不重复计数）。目标识别与循环内同式（method8 ±0.05s）。
     let shot_dmg_inputs: Vec<Option<(f32, u32, u32)>> = launches
         .iter()
         .map(|l| {
-            let (end_time, _) = endpoints.get(&l.shot_id).copied()?;
+            let (end_time, _) = pick_endpoint(
+                endpoints.get(&l.shot_id).map(Vec::as_slice).unwrap_or(&[]),
+                l.point,
+                l.vel,
+                shot_id_users.get(&l.shot_id).copied().unwrap_or(0) > 1,
+            )?;
             let teid = direct_hits8
                 .iter()
                 .filter(|d| d.shooter == l.shooter && (d.t - end_time).abs() <= 0.05)
@@ -1778,6 +1809,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
     let mut out: Vec<ShotReplayData> = Vec::with_capacity(launches.len());
     // render_cache 由调用方传入（作者/他人两路共享——滤波时间线按实体确定）
     let mut skipped_no_endpoint = 0usize;
+    let mut endpoint_from_hit_used = 0usize;
     let mut skipped_no_target_state = 0usize;
     let mut muzzle_fallback = 0usize;
     for (li, l) in launches.iter().enumerate() {
@@ -1789,13 +1821,26 @@ pub(crate) fn extract_other_shot_replays_from_shared(
             )
         };
         let ball_a = l.point;
-        let (end_time, ball_b) = match endpoints.get(&l.shot_id) {
-            Some(x) => *x,
-            None => {
-                skipped_no_endpoint += 1;
-                eprintln!("[replay_others] 跳过 {}: method20 终点缺失", ctx());
-                continue;
-            }
+        let speed = (l.vel[0] * l.vel[0] + l.vel[1] * l.vel[1] + l.vel[2] * l.vel[2]).sqrt();
+        let (end_time, ball_b) = match pick_endpoint(
+            endpoints.get(&l.shot_id).map(Vec::as_slice).unwrap_or(&[]),
+            ball_a,
+            l.vel,
+            shot_id_users.get(&l.shot_id).copied().unwrap_or(0) > 1,
+        ) {
+            Some(x) => x,
+            // 终点被筛掉（穿透偏转/误配）时回退到命中通知给出的落点（受击方位置）
+            None => match endpoint_from_hit(direct_hits8, l.shooter, l.t, ball_a, speed) {
+                Some(x) => {
+                    endpoint_from_hit_used += 1;
+                    x
+                }
+                None => {
+                    skipped_no_endpoint += 1;
+                    eprintln!("[replay_others] 跳过 {}: method20 终点缺失/歧义", ctx());
+                    continue;
+                }
+            },
         };
         // 射手状态快照；AoI 裁剪缺失时用炮口坐标兜底（ball_a = method29 服务器权威发射位置），朝向从速度向量推算，不整发跳过
         let (sp, sa, sp_dt, sp_src, pos_from_muzzle) = match anchor_at(l.shooter, l.t) {
