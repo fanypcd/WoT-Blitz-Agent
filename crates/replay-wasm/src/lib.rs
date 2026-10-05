@@ -96,7 +96,11 @@ pub fn result_json(bytes: &[u8], tank_names_json: Option<&str>) -> anyhow::Resul
 ///
 /// `tank_names_json`：可选的车型名表（同 [`result_json`]）——注入后 `vehicles[].tank_name`
 /// 为真实车型名；缺省时为空串（客户端路径无 tank_cache，前端按 `tank_id` 自行映射）。
-pub fn playback_json(bytes: &[u8], tank_names_json: Option<&str>) -> anyhow::Result<String> {
+pub fn playback_json(
+    bytes: &[u8],
+    tank_names_json: Option<&str>,
+    limits_json: Option<&str>,
+) -> anyhow::Result<String> {
     let mut replay = wotbreplay_parser::replay::Replay::open(Cursor::new(bytes))?;
     let summary = ReplayParser::new().parse_replay(&mut replay, "client.wotbreplay")?;
     let packets = decode_packets(bytes)?;
@@ -105,7 +109,13 @@ pub fn playback_json(bytes: &[u8], tank_names_json: Option<&str>) -> anyhow::Res
         .map(|p| (p.packet_type, p.clock_secs, p.payload.as_slice()))
         .collect();
 
-    let limits = GunPitchLimits::new();
+    // 俯仰锚定表注入（与 parseShotReplays 的 limitsJson 同款）：
+    // {昵称: GunPitchRange}，消费方由资产面 tank/{id}.json 的 pitch_limits 组装。
+    // 缺省空表时 gun_pitch 走 hull_pitch 兜底（坡上炮管俯仰不正确的根因）。
+    let limits: GunPitchLimits = match limits_json {
+        Some(s) if !s.is_empty() => serde_json::from_str(s).unwrap_or_default(),
+        _ => GunPitchLimits::new(),
+    };
     let model = ReplayModel::scan(&ScanInput {
         packets: &packets,
         roster: &roster_of(&summary),
@@ -293,9 +303,11 @@ mod js {
     /// JS 入口（时序能力）：`parsePlayback(new Uint8Array(fileBuffer), tankNamesJson?)`
     /// → PlaybackData JSON 字符串（位姿网格/弹道/击杀/阶段/可见性）。
     /// `tankNamesJson` 可选：同 `parseResult`——注入后 `vehicles[].tank_name` 为真实车型名。
+    /// `limitsJson` 可选：俯仰锚定表 JSON（{昵称: GunPitchRange}）——注入后 prop2
+    /// 俯仰按车型极限解码；缺省时 gun_pitch 走 hull_pitch 兜底（坡上炮管不准）。
     #[wasm_bindgen(js_name = parsePlayback)]
-    pub fn parse_playback(bytes: &[u8], tank_names: Option<String>) -> Result<String, JsValue> {
-        super::playback_json(bytes, tank_names.as_deref())
+    pub fn parse_playback(bytes: &[u8], tank_names: Option<String>, limits: Option<String>) -> Result<String, JsValue> {
+        super::playback_json(bytes, tank_names.as_deref(), limits.as_deref())
             .map_err(|e| JsValue::from_str(&format!("playback parse failed: {e:#}")))
     }
 
