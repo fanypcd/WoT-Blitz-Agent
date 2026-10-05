@@ -216,7 +216,7 @@ mod tests {
         assert_eq!(ev[0].slot, 0x02);
         assert_eq!(ev[0].fall_dir, 0x8b);
         assert_eq!(ev[1].body_len, 7);
-        assert_eq!(ev[1].prop, 1);  // 0xa8 = 1010 1000 → prop=01
+        assert_eq!(ev[1].prop, 1); // 0xa8 = 1010 1000 → prop=01
         assert_eq!(ev[1].args.len(), 7);
     }
 
