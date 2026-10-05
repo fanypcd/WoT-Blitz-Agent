@@ -293,8 +293,14 @@ pub struct PlaybackShot {
     pub from: [f32; 3],
     /// 弹道终点（method20，穿透出射/停止点）
     pub to: [f32; 3],
-    /// 直线近似飞行时长（秒）= |to−from| / |launch_velocity|
+    /// 飞行时长（秒）：**折线各段时长之和**（直射弹退化为 |to−from| / |launch_velocity|）
     pub flight_secs: f32,
+    /// 弹道折线中间点（跳弹/穿透出射点，按飞行顺序；直射弹缺省）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub via: Vec<[f32; 3]>,
+    /// 各段时长（秒）：段 0 = from→via[0]，…，末段 = …→to；`len == via.len() + 1`（缺省 = 单段）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub leg_secs: Vec<f32>,
     pub shell_speed: f32,
     /// 是否命中车辆（有可解析目标）
     pub hit: bool,
@@ -604,7 +610,18 @@ fn to_playback_shot(s: &ShotReplayData, _name_to_eid: &HashMap<String, u32>) -> 
         target_eid,
         from: s.ball_a,
         to: s.ball_b,
-        flight_secs: r2(flight_secs(&s.ball_a, &s.ball_b, &s.launch_velocity)),
+        // 折线总时长（跳弹/穿透段按各自段速度计）：直射弹 = 直线估计，逐值不变
+        flight_secs: r2(if s.leg_secs.is_empty() {
+            flight_secs(&s.ball_a, &s.ball_b, &s.launch_velocity)
+        } else {
+            s.leg_secs.iter().sum()
+        }),
+        via: s
+            .via
+            .iter()
+            .map(|p| [r2(p[0]), r2(p[1]), r2(p[2])])
+            .collect(),
+        leg_secs: s.leg_secs.iter().map(|x| r2(*x)).collect(),
         shell_speed: r2((s.launch_velocity[0] * s.launch_velocity[0]
             + s.launch_velocity[1] * s.launch_velocity[1]
             + s.launch_velocity[2] * s.launch_velocity[2])

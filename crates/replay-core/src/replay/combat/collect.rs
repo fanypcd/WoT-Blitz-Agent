@@ -540,32 +540,74 @@ pub(crate) fn collect_launches(
     (out, short_args)
 }
 
-/// (shooter, shotId) 链 → **续段索引**：每条链的首条为发射段，其余为续段。
+/// (shooter, shotId) 链 → **续段表**：每条链的首条为发射段，其余为**同一发的续段**
+/// （命中/跳弹后继续飞：起点 = 装甲接触点 / 穿透出射点，速度 = 续段方向，见 `collect_launches`）。
 ///
-/// 返回 `(续段标记, 首条的续段起点)`：`is_continuation[i]` 为真表示第 i 条是某发的续段
-/// （不是独立射击，组装时跳过）；`next_segment[(shooter, shotId)]` = 该发**首个续段**的
-/// (时刻, 起点)——命中/跳弹点，炮线在这里拐弯（渲染以该点为终点：终点连线即"炮口→命中点"，
-/// 与客户端一致；后续再拐弯的段不画）。无续段时表内无该键（终点用 method20）。
+/// 返回 `(续段标记, 续段表)`：`is_continuation[i]` 为真表示第 i 条是某发的续段（不是独立射击，
+/// 组装时跳过）；`segments[(shooter, shotId)]` = 该发**全部续段的 (时刻, 起点, 速度)**，按飞行
+/// 顺序（= launches 的 clock/流序）。渲染层用它把弹道画成折线（`from → 续段起点… → method20 终点`），
+/// 命中归属窗口用首个续段时刻。无续段时表内无该键（直线弹道，终点用 method20）。
 pub(crate) fn shot_segments(
     launches: &[LaunchEntry],
-) -> (Vec<bool>, HashMap<(u32, u32), (f32, [f32; 3])>) {
+) -> (
+    Vec<bool>,
+    HashMap<(u32, u32), Vec<(f32, [f32; 3], [f32; 3])>>,
+) {
     let mut seen: std::collections::HashSet<(u32, u32)> = std::collections::HashSet::new();
     let mut is_continuation = vec![false; launches.len()];
-    let mut next_segment: HashMap<(u32, u32), (f32, [f32; 3])> = HashMap::new();
+    let mut segments: HashMap<(u32, u32), Vec<(f32, [f32; 3], [f32; 3])>> = HashMap::new();
     for (i, l) in launches.iter().enumerate() {
         let key = (l.shooter, l.shot_id);
         if seen.insert(key) {
-            if let Some(n) = launches[i + 1..]
-                .iter()
-                .find(|m| m.shooter == l.shooter && m.shot_id == l.shot_id)
-            {
-                next_segment.insert(key, (n.t, n.point));
-            }
-        } else {
-            is_continuation[i] = true;
+            continue;
         }
+        is_continuation[i] = true;
+        segments.entry(key).or_default().push((l.t, l.point, l.vel));
     }
-    (is_continuation, next_segment)
+    (is_continuation, segments)
+}
+
+/// 弹道折线：`(中间点 via, 各段时长 leg_secs)`。
+///
+/// 时长按 **几何 / 段速度** 计算（段 k 的速度 = 该段起点处速度：发射段用发射速度，续段用其自带
+/// 速度）——**不用包时钟**：包钟是 10Hz 量化的，跳弹常与发射同刻（样本里 71.219 vs 71.22），
+/// 用钟会得到零长段（炮弹瞬间闪到跳弹点）。末段速度为最后一个续段速度。
+/// `via` 与 `leg_secs` 满足 `leg_secs.len() == via.len() + 1`。
+pub(crate) fn shot_legs(
+    from: [f32; 3],
+    launch_vel: [f32; 3],
+    chain: Option<&Vec<(f32, [f32; 3], [f32; 3])>>,
+    to: [f32; 3],
+) -> (Vec<[f32; 3]>, Vec<f32>) {
+    let empty: Vec<(f32, [f32; 3], [f32; 3])> = Vec::new();
+    let chain = chain.unwrap_or(&empty);
+    let mut pts: Vec<[f32; 3]> = Vec::with_capacity(chain.len() + 2);
+    pts.push(from);
+    for (_, p, _) in chain.iter() {
+        pts.push(*p);
+    }
+    pts.push(to);
+    let speed_at = |k: usize| -> f32 {
+        let v = if k == 0 {
+            launch_vel
+        } else {
+            chain.get(k - 1).map(|(_, _, v)| *v).unwrap_or(launch_vel)
+        };
+        (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
+    };
+    let mut legs: Vec<f32> = Vec::with_capacity(pts.len() - 1);
+    for k in 0..pts.len() - 1 {
+        let d = [
+            pts[k + 1][0] - pts[k][0],
+            pts[k + 1][1] - pts[k][1],
+            pts[k + 1][2] - pts[k][2],
+        ];
+        let dist = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        let s = speed_at(k);
+        legs.push(if s > 1.0 { dist / s } else { 0.5 });
+    }
+    let via = pts[1..pts.len() - 1].to_vec();
+    (via, legs)
 }
 
 /// method20 (0x14) 弹道终点收集（作者/他人路径共用）：shotId 配对（含 miss 的空地终点），重复 shotId 保留首条。
@@ -1211,16 +1253,16 @@ mod launch_identity_tests {
         assert_eq!(launches[0].point, [99.82513, 25.24507, 20.54626]);
         assert_eq!(launches[0].vel, [-616.206, -2.696, -287.546]);
         // 组装层折叠：射击数仍为 1，链首 = 发射段，续段首点 = 落点（画到这里为止）
-        let (is_cont, next) = shot_segments(&launches);
+        let (is_cont, segs) = shot_segments(&launches);
         assert_eq!(
             is_cont,
             vec![false, true],
             "同一 (shooter, shotId) 只出一次射击"
         );
-        assert_eq!(
-            next.get(&(7, 45509301)).copied(),
-            Some((110.35225, [-51.16804, 24.38959, -49.91319]))
-        );
+        let got = segs.get(&(7, 45509301)).cloned().unwrap_or_default();
+        assert_eq!(got.len(), 1, "续段按序全部保留（折线用）");
+        assert_eq!(got[0].0, 110.35225);
+        assert_eq!(got[0].1, [-51.16804, 24.38959, -49.91319]);
     }
 }
 
@@ -1249,35 +1291,65 @@ mod shot_segments_tests {
             l(71.5, 11, 48267267, [100.0, 30.0, 150.0]),      // 同射手另一发（无续段）
             l(71.6, 12, 48267266, [10.0, 20.0, 10.0]),        // 另一射手（不同链）
         ];
-        let (is_cont, next) = shot_segments(&launches);
+        let (is_cont, segs) = shot_segments(&launches);
         assert_eq!(is_cont, vec![false, true, false, false]);
         assert_eq!(
-            next.get(&(11, 48267266)).copied(),
-            Some((71.219, [131.92, 30.58, 72.50]))
+            segs.get(&(11, 48267266)).cloned(),
+            Some(vec![(71.219, [131.92, 30.58, 72.50], [0.0, 0.0, -680.0])])
         );
-        assert!(next.get(&(11, 48267267)).is_none());
-        assert!(next.get(&(12, 48267266)).is_none());
+        assert!(segs.get(&(11, 48267267)).is_none());
+        assert!(segs.get(&(12, 48267266)).is_none());
     }
 
-    /// 三段链：只登记**首个**续段（炮线在第一个拐点就结束绘制，后续拐点不画）
+    /// 三段链：续段**全部按序保留**（折线要一路画到服务器终点）
     #[test]
-    fn only_first_continuation_is_used() {
+    fn all_continuations_are_kept_in_order() {
         let launches = vec![
             l(10.0, 5, 7, [0.0, 0.0, 0.0]),
             l(10.1, 5, 7, [10.0, 1.0, 0.0]),
             l(10.3, 5, 7, [30.0, 5.0, 0.0]),
         ];
-        let (is_cont, next) = shot_segments(&launches);
+        let (is_cont, segs) = shot_segments(&launches);
         assert_eq!(is_cont, vec![false, true, true]);
-        assert_eq!(next.get(&(5, 7)).copied(), Some((10.1, [10.0, 1.0, 0.0])));
+        let got = segs.get(&(5, 7)).cloned().unwrap_or_default();
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].1, [10.0, 1.0, 0.0]);
+        assert_eq!(got[1].1, [30.0, 5.0, 0.0]);
     }
 
-    /// 无续段（普通弹）→ 表内无键，组装方回退 method20 终点
+    /// 折线几何：段时长按 |Δ|/段速度；via 与 leg_secs 满足 len(legs) = len(via)+1
+    #[test]
+    fn legs_use_per_segment_speed() {
+        let chain = vec![
+            (1.0f32, [100.0, 0.0, 0.0], [0.0, 0.0, -500.0]),
+            (2.0f32, [100.0, 0.0, -300.0], [0.0, 0.0, -250.0]),
+        ];
+        let (via, legs) = shot_legs(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, -1000.0],
+            Some(&chain),
+            [100.0, 0.0, -800.0],
+        );
+        assert_eq!(via, vec![[100.0, 0.0, 0.0], [100.0, 0.0, -300.0]]);
+        assert_eq!(legs.len(), 3);
+        assert!((legs[0] - 0.1).abs() < 1e-6, "段0: 100m / 1000mps");
+        assert!((legs[1] - 0.6).abs() < 1e-6, "段1: 300m / 500mps");
+        assert!(
+            (legs[2] - 2.0).abs() < 1e-6,
+            "段2: 500m / 250mps（末段用最后续段速度）"
+        );
+    }
+
+    /// 无续段（普通弹）→ 表内无键、折线退化为单段直线
     #[test]
     fn plain_shot_has_no_continuation() {
         let launches = vec![l(10.0, 5, 7, [0.0, 0.0, 0.0])];
-        let (is_cont, next) = shot_segments(&launches);
+        let (is_cont, segs) = shot_segments(&launches);
         assert_eq!(is_cont, vec![false]);
-        assert!(next.is_empty());
+        assert!(segs.is_empty());
+        let (via, legs) = shot_legs([0.0, 0.0, 0.0], [0.0, 0.0, -680.0], None, [0.0, 0.0, -68.0]);
+        assert!(via.is_empty());
+        assert_eq!(legs.len(), 1);
+        assert!((legs[0] - 0.1).abs() < 1e-3);
     }
 }

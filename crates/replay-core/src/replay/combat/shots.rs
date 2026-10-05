@@ -114,6 +114,14 @@ pub struct ShotReplayData {
     /// 发射速度向量 [vx, vy, vz]（m/s）；method29 launchVelocity 服务器权威弹道方向（含俯仰），
     /// 与 launchPoint→终点连线夹角实测 <0.1°。
     pub launch_velocity: [f32; 3],
+    /// 弹道折线中间点（跳弹/穿透出射点，按飞行顺序；直射弹为空）——同 (shooter, shotId) 的
+    /// 后续 method29 起点。渲染：`ball_a → via… → ball_b`。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub via: Vec<[f32; 3]>,
+    /// 各段时长（秒）：段 0 = ball_a→via[0]，…，末段 = …→ball_b；`len == via.len() + 1`。
+    /// 按几何/段速度计算（不用包时钟——10Hz 量化会让跳弹段变零长）。空 = 单段直线弹。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub leg_secs: Vec<f32>,
     /// 命中结果位图（u32 = flags16 | headerHi16<<16；wotinspector hit_flags 同源）。
     /// 全 16 位命名见 [`hit_flags_mod`]（WotbTools 全位 PROVEN）：0x0001 直接击杀 / 0x0002 目标已死 /
     /// 0x0004 起火 / 0x0008 跳弹 / 0x0010 材料击穿 / 0x0020 未击穿 / 0x0040/0x0080 间隙层穿与未穿 /
@@ -960,7 +968,7 @@ pub(crate) fn extract_shot_replays_from_shared(
 
     // ①' 段链分组：同 (shooter, shotId) 的后续 method29 = 同一发的跳弹/穿透续段。
     // 发射段 = 链首（唯一进入组装），续段首点 = 命中/跳弹点（渲染终点），续段本身不是独立射击。
-    let (launch_is_cont, next_segment) = collect::shot_segments(&launches);
+    let (launch_is_cont, segments) = collect::shot_segments(&launches);
     let launches: Vec<LaunchEntry> = launches
         .into_iter()
         .enumerate()
@@ -1051,13 +1059,21 @@ pub(crate) fn extract_shot_replays_from_shared(
 
         // 弹道终点（shotId 精确配对）；ball_a = method29 炮口发射位置
         let ball_a = l.point;
-        // 终点：有续段（命中/跳弹）→ 续段首点（画面里炮线拐弯处，与命中通知同刻）；
-        // 无续段 → method20 终点（弹道最终停止点）
-        let (end_time, ball_b) = next_segment
-            .get(&(l.shooter, shot_id))
+        // 弹道拆段（确定性）：续段表给出跳弹/出射点及其段速度；终点 = method20（服务器最终停止点）。
+        // 命中归属用的时刻 = **首个续段时刻**（= 装甲接触时刻，与 method8 同刻）——不能等到终点时刻，
+        // 跳弹后还飞了 ~1s。无续段时命中时刻 = 终点时刻（直线弹，原语义）。
+        let chain = segments.get(&(l.shooter, shot_id));
+        let (end_time, ball_b) = endpoints
+            .get(&shot_id)
             .copied()
-            .or_else(|| endpoints.get(&shot_id).copied())
             .ok_or_else(|| anyhow::anyhow!("{}: method20 弹道终点缺失（shotId 无配对）", ctx()))?;
+        // `end_time` 语义 = **炮弹抵达目标/落点的时刻**：有续段（跳弹/穿透）时取首个续段时刻
+        // （与 method8 同刻），否则取终点时刻。命中归属、受击方状态快照、prop2 取样窗都以此为基准。
+        let end_time = chain
+            .and_then(|c| c.first())
+            .map(|c| c.0)
+            .unwrap_or(end_time);
+        let (via, leg_secs) = shot_legs(l.point, l.vel, chain, ball_b);
         let fire_tick = tick_at(tick_timeline, fire_time);
 
         // ⑦' 弹药槽位：发射时刻的最后选择（type=28 时间线 ≤ fire_time 的最新值）
@@ -1514,6 +1530,8 @@ pub(crate) fn extract_shot_replays_from_shared(
             ball_a,
             ball_b,
             launch_velocity: l.vel,
+            via,
+            leg_secs,
             hit_flags,
             crit_modules,
             destroyed_modules,
@@ -1736,7 +1754,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
         .collect();
 
     // ①' 段链分组（与作者路径同构）：链首 = 发射段；其余 = 同一发的跳弹/穿透续段
-    let (launch_is_cont, next_segment) = collect::shot_segments(&launches);
+    let (launch_is_cont, segments) = collect::shot_segments(&launches);
     let launches: Vec<LaunchEntry> = launches
         .into_iter()
         .enumerate()
@@ -1772,10 +1790,13 @@ pub(crate) fn extract_other_shot_replays_from_shared(
     let shot_dmg_inputs: Vec<Option<(f32, u32, u32)>> = launches
         .iter()
         .map(|l| {
-            let (end_time, _) = next_segment
+            let (end_time, _) = endpoints.get(&l.shot_id).copied()?;
+            // 命中归属窗口基准 = 首个续段时刻（装甲接触），无续段则终点时刻
+            let end_time = segments
                 .get(&(l.shooter, l.shot_id))
-                .copied()
-                .or_else(|| endpoints.get(&l.shot_id).copied())?;
+                .and_then(|c| c.first())
+                .map(|c| c.0)
+                .unwrap_or(end_time);
             let teid = direct_hits8
                 .iter()
                 .filter(|d| d.shooter == l.shooter && (d.t - end_time).abs() <= 0.05)
@@ -1814,12 +1835,8 @@ pub(crate) fn extract_other_shot_replays_from_shared(
             )
         };
         let ball_a = l.point;
-        // 终点：有续段（命中/跳弹）→ 续段首点；无续段 → method20 终点（与作者路径同构）
-        let (end_time, ball_b) = match next_segment
-            .get(&(l.shooter, l.shot_id))
-            .copied()
-            .or_else(|| endpoints.get(&l.shot_id).copied())
-        {
+        // 终点 = method20（服务器最终停止点）；续段链给出折线的中间点与各段时长（与作者路径同构）
+        let (end_time, ball_b) = match endpoints.get(&l.shot_id).copied() {
             Some(x) => x,
             None => {
                 skipped_no_endpoint += 1;
@@ -1827,6 +1844,13 @@ pub(crate) fn extract_other_shot_replays_from_shared(
                 continue;
             }
         };
+        let chain = segments.get(&(l.shooter, l.shot_id));
+        // `end_time` 语义 = 抵达时刻（有续段时取首续段时刻，与 method8 同刻），与作者路径同构
+        let end_time = chain
+            .and_then(|c| c.first())
+            .map(|c| c.0)
+            .unwrap_or(end_time);
+        let (via, leg_secs) = shot_legs(l.point, l.vel, chain, ball_b);
         // 射手状态快照；AoI 裁剪缺失时用炮口坐标兜底（ball_a = method29 服务器权威发射位置），朝向从速度向量推算，不整发跳过
         let (sp, sa, sp_dt, sp_src, pos_from_muzzle) = match anchor_at(l.shooter, l.t) {
             Some((pos, ang, dt, src)) => (pos, ang, dt, src, false),
@@ -2108,6 +2132,8 @@ pub(crate) fn extract_other_shot_replays_from_shared(
             ball_a,
             ball_b,
             launch_velocity: l.vel,
+            via,
+            leg_secs,
             hit_flags: 0, // method38 作者专属，他人不可得（结果看 game_hit_result）
             crit_modules: 0,
             destroyed_modules: 0,
