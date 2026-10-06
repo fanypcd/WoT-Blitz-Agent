@@ -61,7 +61,7 @@ tmp_wi_js/
 examples/
 
 # Python 字节码缓存
-tools/**/__pycache__/
+__pycache__/
 
 # 打包产物（桌面便携包；打包链已于 2026-10 移除，保留忽略防误入库）
 dist/
