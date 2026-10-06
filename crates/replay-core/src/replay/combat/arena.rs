@@ -146,12 +146,29 @@ pub struct AoiPresence {
     /// 0 / ≥0xFF00 哨兵族的语义由消费方按自己的口径分类（unknown ≠ 0）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hp_raw: Option<u16>,
+    /// 开段 Type5 物化快照位姿（pos 米、yaw/pitch 弧度；偏移 14/26/30，仅战斗车辆且
+    /// 载荷 ≥34B）。**客户端语义 = `Entity::onEnterAoI → setFilterOnEntity()` 以实体当前
+    /// world 变换初始化位置滤波器**——段化滤波（D1）的段首种子：重入帧从真实物化位置
+    /// 开始渲染，而不是从上一在场段末位滑移追赶。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pose: Option<MaterializationPose>,
+}
+
+/// Type5 物化快照位姿（世界系；战斗车辆）。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct MaterializationPose {
+    pub pos: [f32; 3],
+    pub yaw: f32,
+    pub pitch: f32,
 }
 
 /// Type5 物化包的战斗车辆 entityTypeId（payload[4..6) u16）
 const ENTITY_TYPE_COMBAT_VEHICLE: u16 = 2;
 /// Type5 战斗车辆物化快照的当前 HP 偏移（u16 LE；与 `collect_initial_hp` 同一偏移）
 const MATERIALIZATION_HP_OFFSET: usize = 51;
+/// Type5 物化快照位姿偏移：pos 3×f32 @14..26、yaw @26..30、pitch @30..34（LE；DAVA 世界系）
+const MATERIALIZATION_POSE_OFFSET: usize = 14;
+const MATERIALIZATION_POSE_END: usize = 34;
 
 /// Type5 物化快照的原始 HP（仅战斗车辆且载荷足长）
 fn materialization_hp_raw(p: &[u8]) -> Option<u16> {
@@ -167,12 +184,35 @@ fn materialization_hp_raw(p: &[u8]) -> Option<u16> {
     ]))
 }
 
+/// Type5 物化快照位姿（仅战斗车辆且载荷足长）
+fn materialization_pose(p: &[u8]) -> Option<MaterializationPose> {
+    if p.len() < MATERIALIZATION_POSE_END {
+        return None;
+    }
+    if u16::from_le_bytes([p[4], p[5]]) != ENTITY_TYPE_COMBAT_VEHICLE {
+        return None;
+    }
+    let f32_at = |off: usize| {
+        f32::from_le_bytes([p[off], p[off + 1], p[off + 2], p[off + 3]])
+    };
+    Some(MaterializationPose {
+        pos: [
+            f32_at(MATERIALIZATION_POSE_OFFSET),
+            f32_at(MATERIALIZATION_POSE_OFFSET + 4),
+            f32_at(MATERIALIZATION_POSE_OFFSET + 8),
+        ],
+        yaw: f32_at(MATERIALIZATION_POSE_OFFSET + 12),
+        pitch: f32_at(MATERIALIZATION_POSE_OFFSET + 16),
+    })
+}
+
 /// 收集 AoI 在场区段：Type33 与 Type5 一一配对（3,869:3,869，间隔 0.046~1.207s）取 Type5
 /// 时刻为进入；Type4 关闭当前段。跨场段数 0..N（敌方重入常见，485/503 重入）。
 pub fn collect_aoi_lifecycle(packets: &[(u32, f32, &[u8])]) -> Vec<AoiPresence> {
     // 文件序状态机：Type33 记 pending（按 eid，取首个）；Type5 消费 pending 开段；Type4 关段
     let mut pending33: std::collections::HashSet<u32> = Default::default();
-    let mut open: std::collections::HashMap<u32, (f32, Option<u16>)> = Default::default();
+    let mut open: std::collections::HashMap<u32, (f32, Option<u16>, Option<MaterializationPose>)> =
+        Default::default();
     let mut out: Vec<AoiPresence> = Vec::new();
     for (ptype, clock, p) in packets {
         if p.len() < 4 {
@@ -185,16 +225,17 @@ pub fn collect_aoi_lifecycle(packets: &[(u32, f32, &[u8])]) -> Vec<AoiPresence> 
             }
             5 => {
                 if pending33.remove(&eid) && !open.contains_key(&eid) {
-                    open.insert(eid, (*clock, materialization_hp_raw(p)));
+                    open.insert(eid, (*clock, materialization_hp_raw(p), materialization_pose(p)));
                 }
             }
             4 => {
-                if let Some((t_in, hp_raw)) = open.remove(&eid) {
+                if let Some((t_in, hp_raw, pose)) = open.remove(&eid) {
                     out.push(AoiPresence {
                         eid,
                         t_in,
                         t_out: Some(*clock),
                         hp_raw,
+                        pose,
                     });
                 }
                 pending33.remove(&eid);
@@ -202,12 +243,13 @@ pub fn collect_aoi_lifecycle(packets: &[(u32, f32, &[u8])]) -> Vec<AoiPresence> 
             _ => {}
         }
     }
-    for (eid, (t_in, hp_raw)) in open {
+    for (eid, (t_in, hp_raw, pose)) in open {
         out.push(AoiPresence {
             eid,
             t_in,
             t_out: None,
             hp_raw,
+            pose,
         });
     }
     out.sort_by(|a, b| a.eid.cmp(&b.eid).then(a.t_in.partial_cmp(&b.t_in).unwrap()));

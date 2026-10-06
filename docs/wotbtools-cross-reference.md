@@ -174,6 +174,17 @@ WotbTools 的 canonical 流水线（Java `wotb-core` + 前端）需要 Agent 侧
   AC Wedge 0/6、Medium I 0/15 等），跨配置取最大或用剩余弹数 +1（f4）推断都会错格，
   裁决详见 §六 末「弹容 N 裁决」。缓存键回归：同 tank_id 不同玩家可搭载不同配置，
   解析缓存不得按 tank_id 单键共享。
+- **AoI 重入段化滤波（D1 卡顿修复）**（2026-10-06，数值修正 + additive）：位置滤波器按
+  AoI 在场段独立实例化（客户端 `onEnterAoI → setFilterOnEntity()` 每次新建；原实现整场
+  单实例——重入帧先钉上一段末位 ~1s 再以最高 54.6 m/s 滑移 ~1.5s 收敛，即 3D 回放
+  "追赶滑移"卡顿）。`visibility[]`（`AoiPresence`）additive 新增 `pose`（Type5 物化快照
+  位姿：pos 3×f32@14 / yaw@26 / pitch@30，仅战斗车辆且载荷足长）= 段首种子（8 槽吸附
+  首输入 ≡ 客户端以实体当前 world 变换初始化滤波器）。**数值影响**：`vehicles[].pos /
+  hull_yaw / pose_kf` 与 shots 的炮口渲染锚点在**重入车辆**上变化（9 场 79 次重入实测：
+  重入帧渲染位 vs 真值 med 28.4m → **0.4m**；非重入车辆/段内逐位不变）。消费端零改动
+  （同契约，值变准确）；`pose_kf` 折线段边界跳变由走廊容差自动保留为陡斜率段，隐藏期
+  由既有 visibility/coverage 门禁隐藏。附带更正 `indexes.rs` 两处 0x1440C70 注释
+  （D2 翻案：越末帧 = 硬保持无外推分支，0.9 = 稀疏 bracket 跨度阈值因子）。
 
 **剩余待办：**
 

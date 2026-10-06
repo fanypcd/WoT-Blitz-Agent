@@ -2,7 +2,7 @@
 //! 作者严格路径与他人宽松路径（合并方案见 docs/architecture-debt.md 第 2 节）。
 
 use super::*;
-use crate::replay::filter::FilteredTimeline;
+use crate::replay::filter::SegmentedPoseTimeline;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -374,6 +374,8 @@ pub(crate) struct ShotScanShared {
     pub hp_events: Vec<HpEvent>,
     /// type=5 满血锚点（血量链 seed）
     pub initial_hp: HashMap<u32, (f32, u16)>,
+    /// AoI 在场段（D1 段化滤波：段边界 + Type5 物化快照种子；render_cache 构建消费）
+    pub aoi_presence: Vec<AoiPresence>,
     // —— 以下为作者路径（Avatar 专属包）数据，他人路径不消费 ——
     /// method38 命中结果（同钟同受击者合并后，按时钟排序）
     pub hit_results38: Vec<HitFeedback>,
@@ -415,6 +417,7 @@ pub(crate) fn build_shot_scan_shared(
     let refresh_clusters = collect_refresh_clusters(packets);
     let hp_events = parse_hp_events(packets);
     let initial_hp = collect_initial_hp(packets);
+    let aoi_presence = collect_aoi_lifecycle(packets);
 
     // ③ method38 命中结果（Avatar 方法 = 仅作者自己的射击反馈）
     let mut hit_results: Vec<HitFeedback> = Vec::new();
@@ -608,6 +611,7 @@ pub(crate) fn build_shot_scan_shared(
         refresh_clusters,
         hp_events,
         initial_hp,
+        aoi_presence,
         hit_results38: merged38,
         ammo_selects,
         shell_broadcasts,
@@ -733,9 +737,10 @@ enum ShooterGunFallback<'a> {
 
 #[allow(clippy::too_many_arguments)] // 两路径组装的公共入参，聚合结构反而不透明
 fn shot_render_pack(
-    render_cache: &mut HashMap<u32, FilteredTimeline>,
+    render_cache: &mut HashMap<u32, SegmentedPoseTimeline>,
     st10: &St10Index,
     prop2: &Prop2Index,
+    aoi_presence: &[AoiPresence],
     shooter_eid: u32,
     fire_time: f32,
     shooter_judgment_pos: [f32; 3],
@@ -756,6 +761,7 @@ fn shot_render_pack(
             render_cache,
             shooter_eid,
             st10.get(&shooter_eid),
+            aoi_presence,
             fire_time,
             shooter_judgment_pos,
         )
@@ -768,6 +774,7 @@ fn shot_render_pack(
                 render_cache,
                 teid,
                 st10.get(&teid),
+                aoi_presence,
                 end_time,
                 target_judgment_pos,
             )
@@ -785,6 +792,7 @@ fn shot_render_pack(
                     render_cache,
                     teid,
                     st10.get(&teid),
+                    aoi_presence,
                     end_time,
                     -3.0,
                     2.0,
@@ -800,6 +808,7 @@ fn shot_render_pack(
             render_cache,
             shooter_eid,
             st10.get(&shooter_eid),
+            aoi_presence,
             fire_time,
             -3.0,
             2.0,
@@ -935,7 +944,7 @@ pub fn extract_shot_replays_with_limits(
     pitch_limits: &GunPitchLimits,
 ) -> anyhow::Result<Vec<ShotReplayData>> {
     let shared = build_shot_scan_shared(packets, author_player_eid);
-    let mut render_cache: HashMap<u32, FilteredTimeline> = HashMap::new();
+    let mut render_cache: HashMap<u32, SegmentedPoseTimeline> = HashMap::new();
     extract_shot_replays_from_shared(&shared, author_player_eid, pitch_limits, &mut render_cache)
 }
 
@@ -946,7 +955,7 @@ pub(crate) fn extract_shot_replays_from_shared(
     shared: &ShotScanShared,
     author_player_eid: u32,
     pitch_limits: &GunPitchLimits,
-    render_cache: &mut HashMap<u32, FilteredTimeline>,
+    render_cache: &mut HashMap<u32, SegmentedPoseTimeline>,
 ) -> anyhow::Result<Vec<ShotReplayData>> {
     if author_player_eid == 0 {
         anyhow::bail!("无法解析作者实体：meta.player_name / battle_results 昵称与 type=5 实体昵称匹配失败（作者实体未在录像中出现或昵称无效）");
@@ -1340,6 +1349,7 @@ pub(crate) fn extract_shot_replays_from_shared(
             render_cache,
             st10,
             prop2,
+            &shared.aoi_presence,
             author_player_eid,
             fire_time,
             sp,
@@ -1680,7 +1690,7 @@ pub fn extract_all_shots_auto_with_limits(
         resolve_author_player_eid_by_nick(packets, author_nick)
     };
     let shared = build_shot_scan_shared(packets, author_eid);
-    let mut render_cache: HashMap<u32, FilteredTimeline> = HashMap::new();
+    let mut render_cache: HashMap<u32, SegmentedPoseTimeline> = HashMap::new();
     let author =
         extract_shot_replays_from_shared(&shared, author_eid, pitch_limits, &mut render_cache)?;
     let others = extract_other_shot_replays_from_shared(
@@ -1728,7 +1738,7 @@ pub fn extract_other_shot_replays_with_limits(
     pitch_limits: &GunPitchLimits,
 ) -> OtherShotsExtraction {
     let shared = build_shot_scan_shared(packets, author_player_eid);
-    let mut render_cache: HashMap<u32, FilteredTimeline> = HashMap::new();
+    let mut render_cache: HashMap<u32, SegmentedPoseTimeline> = HashMap::new();
     extract_other_shot_replays_from_shared(
         &shared,
         author_player_eid,
@@ -1743,7 +1753,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
     shared: &ShotScanShared,
     author_player_eid: u32,
     pitch_limits: &GunPitchLimits,
-    render_cache: &mut HashMap<u32, FilteredTimeline>,
+    render_cache: &mut HashMap<u32, SegmentedPoseTimeline>,
 ) -> OtherShotsExtraction {
     // ① 全部非作者的 method29 发射事件（作者由严格路径处理；shotId 全局去重）；args<37 的包直接跳过
     let launches: Vec<LaunchEntry> = shared
@@ -1982,6 +1992,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
             render_cache,
             st10,
             prop2,
+            &shared.aoi_presence,
             l.shooter,
             l.t,
             sp,

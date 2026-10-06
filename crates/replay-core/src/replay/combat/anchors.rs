@@ -2,7 +2,7 @@
 //! （AvatarFilter 输出的锚点/降采样；《回放与射击逆向总集》第二篇 §4.1 / 第三篇 §五）。
 
 use super::*;
-use crate::replay::filter::FilteredTimeline;
+use crate::replay::filter::SegmentedPoseTimeline;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -208,10 +208,13 @@ fn dist3(a: [f32; 3], b: [f32; 3]) -> f32 {
 /// 渲染层锚点（客户端位置滤波器，《回放与射击逆向总集》第二篇 §4.1 / 第三篇 §五）：per-entity 滤波器时间线惰性构建 + 事件时刻所在帧的滤波输出。
 /// `at_or_after=true` 语义 = 包在该帧网络泵处理后于当帧渲染（游戏客户端帧循环次序）。
 /// 时间线 per-entity 只建一次（60Hz × 战斗时长，每实体 ~1MB）。
+/// 段化（D1）：按 AoI 在场段独立滤波 + Type5 快照段首种子（`presence` = 全场段列表，
+/// 按 eid 过滤）——重入后炮口锚点从真实物化位置开始，不再从上一段末位滑移追赶。
 pub(crate) fn render_anchor(
-    cache: &mut HashMap<u32, FilteredTimeline>,
+    cache: &mut HashMap<u32, SegmentedPoseTimeline>,
     eid: u32,
     samples: Option<&Vec<St10Sample>>,
+    presence: &[AoiPresence],
     t: f32,
     judgment_pos: [f32; 3],
 ) -> Option<RenderAnchorData> {
@@ -220,7 +223,8 @@ pub(crate) fn render_anchor(
         return None;
     }
     if let std::collections::hash_map::Entry::Vacant(e) = cache.entry(eid) {
-        e.insert(FilteredTimeline::build(samples)?);
+        let pres: Vec<AoiPresence> = presence.iter().filter(|p| p.eid == eid).cloned().collect();
+        e.insert(SegmentedPoseTimeline::build(samples, &pres)?);
     }
     let tl = cache.get(&eid)?;
     let pose = tl.pose_at(t as f64, true)?;
@@ -255,10 +259,13 @@ pub(crate) fn render_anchor(
 
 /// 滤波时间线降采样：[base+dt_from, base+dt_to] 步长 step 的滤波器输出（渲染层严格对齐，
 /// 滑块用）。pos 为绝对世界坐标；roll 按原始 volatile 插值。时间线 per-entity 惰性构建并缓存。
+/// 段化（D1）：在场段内才输出（隐藏段 = 客户端无该实体数据，跳过采样）。
+#[allow(clippy::too_many_arguments)] // 窗口语义四参 + 身份三参，聚合结构反而不透明
 pub(crate) fn render_timeline(
-    cache: &mut HashMap<u32, FilteredTimeline>,
+    cache: &mut HashMap<u32, SegmentedPoseTimeline>,
     eid: u32,
     samples: Option<&Vec<St10Sample>>,
+    presence: &[AoiPresence],
     base_t: f32,
     dt_from: f32,
     dt_to: f32,
@@ -268,7 +275,8 @@ pub(crate) fn render_timeline(
         return Vec::new();
     };
     if let std::collections::hash_map::Entry::Vacant(e) = cache.entry(eid) {
-        match FilteredTimeline::build(samples) {
+        let pres: Vec<AoiPresence> = presence.iter().filter(|p| p.eid == eid).cloned().collect();
+        match SegmentedPoseTimeline::build(samples, &pres) {
             Some(tl) => {
                 e.insert(tl);
             }
@@ -300,14 +308,12 @@ pub(crate) fn render_timeline(
         }
         prev.roll
     };
-    // 只输出时间线覆盖范围内（该实体首/末 volatile 之间）的采样：
-    // 覆盖范围外 = 客户端尚无/已无该实体数据（AoI 外不渲染），交给前端隐藏模型
-    let (cov_start, cov_end) = tl.time_range();
+    // 只输出在场段内的采样（AoI 外 = 客户端尚无/已无该实体数据，不渲染，交给前端隐藏模型）
     let mut out = Vec::new();
     let mut dt = dt_from;
     while dt <= dt_to + 1e-6 {
         let t = (base_t + dt) as f64;
-        if t >= cov_start - 1e-6 && t <= cov_end + 1e-6 {
+        if tl.contains(t) {
             if let Some(pose) = tl.pose_at(t, true) {
                 out.push(RenderTimelineSample {
                     dt,

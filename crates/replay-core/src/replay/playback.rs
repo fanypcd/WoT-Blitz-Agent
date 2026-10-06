@@ -39,7 +39,7 @@ use super::combat::{
     ModuleCrewStateEvent, RawReloadDuration, RawReloadPhase, ShotReplayData,
     SupremacyBaseStateTransition, SupremacyPointsSample,
 };
-use super::filter::{self, FilteredTimeline};
+use super::filter;
 
 /// 位姿网格步长（秒）——与现有 render_timeline / prop2 密集采样同惯例
 pub const GRID_DT: f32 = 0.1;
@@ -211,28 +211,34 @@ pub struct PoseKeyframes {
 
 /// 从 60Hz 渲染帧拟合关键帧折线（公开给探针/测试；facet 层在 `VehicleTrack.pose_kf` 落盘）。
 ///
+/// 段化输入（`SegmentedPoseTimeline`）：逐段生成候选帧（yaw 解卷绕链跨段延续）后统一
+/// 贪心走廊——跨段边界（AoI 隐藏期）的帧间跳变必然超容差 → 自动保留为陡斜率段，
+/// 与「保持→跳变」同型；隐藏期本身不可见（消费端 visibility/coverage 门禁），插值不暴露。
+///
 /// 贪心走廊：从帧 i 起尽量延长到 j，使 [i, j] 内所有中间帧与线性插值之差 ≤ 容差
 /// （位置 = 欧氏距离，角度 = 最短弧差）。走廊跨越「保持→跳变」时中间帧偏差必然超限
 /// → 跳变被保留为一段陡斜率，而不是被抹平。
-pub fn pose_keyframes(tl: &FilteredTimeline) -> PoseKeyframes {
-    let (start, _) = tl.time_range();
-    let n = tl.frame_count();
-    let mut frames: Vec<KfPos> = Vec::with_capacity(n);
+pub fn pose_keyframes(tl: &filter::SegmentedPoseTimeline) -> PoseKeyframes {
+    let mut frames: Vec<KfPos> = Vec::new();
     let mut prev_yaw: Option<f32> = None;
-    for k in 0..n {
-        // 帧中点查询：floor((t−start)/dt) 恒等 = k，规避 1/60 累加的浮点边界
-        let t = start + (k as f64 + 0.5) * filter::FRAME_DT;
-        let Some(p) = tl.pose_at(t, false) else { break };
-        // 航向解卷绕（与 `hull_yaw` 网格列同域）：消费端朴素线性插值即物理正确，
-        // ±π 边界不出现 ≈2π 跳变（否则关键帧跨 ±π 时插值会反甩一整圈）
-        let yaw = unwrap_angle(prev_yaw, p.ang[0]);
-        prev_yaw = Some(yaw);
-        frames.push(KfPos {
-            t: p.time,
-            pos: p.pos,
-            yaw,
-            pitch: p.ang[1],
-        });
+    for (_, _, seg) in tl.segments() {
+        let (start, _) = seg.time_range();
+        let n = seg.frame_count();
+        for k in 0..n {
+            // 帧中点查询：floor((t−start)/dt) 恒等 = k，规避 1/60 累加的浮点边界
+            let t = start + (k as f64 + 0.5) * filter::FRAME_DT;
+            let Some(p) = seg.pose_at(t, false) else { break };
+            // 航向解卷绕（与 `hull_yaw` 网格列同域）：消费端朴素线性插值即物理正确，
+            // ±π 边界不出现 ≈2π 跳变（否则关键帧跨 ±π 时插值会反甩一整圈）
+            let yaw = unwrap_angle(prev_yaw, p.ang[0]);
+            prev_yaw = Some(yaw);
+            frames.push(KfPos {
+                t: p.time,
+                pos: p.pos,
+                yaw,
+                pitch: p.ang[1],
+            });
+        }
     }
     let mut out = PoseKeyframes::default();
     if frames.is_empty() {
@@ -781,7 +787,16 @@ pub fn from_model(
 
     let mut vehicles_out: Vec<VehicleTrack> = Vec::with_capacity(candidates.len());
     for eid in candidates.keys() {
-        let tl = FilteredTimeline::build(&st10[eid]);
+        // 段化滤波（D1）：按 AoI 在场段独立滤波 + Type5 物化快照段首种子——
+        // 客户端每次进 AoI 新建滤波器；整场单实例会让重入帧从上一段末位滑移追赶
+        let presences: Vec<crate::replay::combat::AoiPresence> = model
+            .timeline
+            .presence
+            .iter()
+            .filter(|p| p.eid == *eid)
+            .cloned()
+            .collect();
+        let tl = filter::SegmentedPoseTimeline::build(&st10[eid], &presences);
         let Some(tl) = tl else { continue };
         let clocks: Vec<f32> = st10[eid].iter().map(|s| s.clock).collect();
 
@@ -817,7 +832,7 @@ pub fn from_model(
         for i in 0..samples_n {
             let t = meta.t_start + i as f32 * GRID_DT;
             let Some(pose) = tl.pose_at(t as f64, false) else {
-                bail!("车辆 {eid} 位姿网格 t={t} 无帧（FilteredTimeline 恒可求值，不应发生）");
+                bail!("车辆 {eid} 位姿网格 t={t} 无帧（段化时间线恒可求值，不应发生）");
             };
             let yaw = unwrap_angle(prev_hull_yaw, pose.ang[0]);
             prev_hull_yaw = Some(yaw);
@@ -1026,8 +1041,8 @@ pub(crate) fn collect_all_shots(
     author_player_eid: u32,
     pitch_limits: &GunPitchLimits,
 ) -> anyhow::Result<Vec<ShotReplayData>> {
-    // 滤波时间线缓存跨两路共享（按实体确定）
-    let mut render_cache: HashMap<u32, FilteredTimeline> = HashMap::new();
+    // 滤波时间线缓存跨两路共享（按实体确定；段化 = D1，重入后炮口锚点从物化位开始）
+    let mut render_cache: HashMap<u32, filter::SegmentedPoseTimeline> = HashMap::new();
     match combat::extract_shot_replays_from_shared(
         shared,
         author_player_eid,
@@ -1194,7 +1209,7 @@ mod tests {
     /// 关键帧折线保真：任意时刻与 60Hz 渲染帧之差 ≤ 容差（对前端的契约）
     #[test]
     fn keyframes_reproduce_frames_within_tolerance() {
-        let tl = FilteredTimeline::build(&synthetic_samples(1.4, 0.083, 200)).unwrap();
+        let tl = filter::SegmentedPoseTimeline::build(&synthetic_samples(1.4, 0.083, 200), &[]).unwrap();
         let kf = pose_keyframes(&tl);
         assert!(kf.t.len() >= 2, "关键帧数过少：{}", kf.t.len());
         assert_eq!(kf.pos.len(), kf.t.len() * 3, "列式数组必须等长");
@@ -1243,7 +1258,8 @@ mod tests {
     #[test]
     fn keyframes_keep_holds_and_jumps_unlike_grid_aliasing() {
         // 12Hz 位置更新（与 0.1s 网格不同相 → 网格重采样必然混叠），每步 1.4m
-        let tl = FilteredTimeline::build(&synthetic_samples(1.4, 1.0 / 12.0, 300)).unwrap();
+        let tl =
+            filter::SegmentedPoseTimeline::build(&synthetic_samples(1.4, 1.0 / 12.0, 300), &[]).unwrap();
         let kf = pose_keyframes(&tl);
         let (start, end) = tl.time_range();
         let frames: Vec<(f64, [f32; 3])> = (0..tl.frame_count())

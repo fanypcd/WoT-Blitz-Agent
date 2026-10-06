@@ -13,7 +13,7 @@
 //!   在离线回放域为 no-op（type=10 的 y 已是接地高度；WoTB 无载具搭乘）；
 //! - spaceID/vehicleID 通道省略（单空间）。
 
-use super::combat::St10Sample;
+use super::combat::{AoiPresence, St10Sample};
 
 /// OSS `AvatarFilterSettings` 编译期默认值（二进制实证原样保留，逆向文档 §7.3）
 const LATENCY_VELOCITY: f32 = 1.0;
@@ -441,6 +441,132 @@ impl FilteredTimeline {
     }
 }
 
+/// 按 AoI 在场段独立的车辆位姿时间线（D1，卡顿主因修复）。
+///
+/// **客户端语义**：`Entity::onEnterAoI → setFilterOnEntity()` 在**每次**进入观察集时
+/// 新建滤波器（OSS 14.4.1），滤波状态不跨隐藏段存活。此前实现整场共用一个
+/// [`AvatarFilter`]：重入后滤波器仍携带上一段的旧位形——先钉旧位置 ~1s，再以最高
+/// 54.6 m/s 滑向真实位置、~1.5s 收敛（9 场 78 次重入实测：重入帧渲染位 vs 真实位置
+/// med 29.4 m / p90 192 m），表现即 3D 回放里的"追赶滑移"卡顿。
+///
+/// 修复：[`collect_aoi_lifecycle`](super::combat::collect_aoi_lifecycle) 的在场段逐段
+/// 独立 build；段首以 **Type5 物化快照**（`AoiPresence.pose`）作为首输入——滤波器
+/// reset 语义（8 槽吸附首输入）与客户端以实体当前 world 变换初始化新滤波器逐位等价，
+/// 重入帧直接从真实物化位置开始。
+pub struct SegmentedPoseTimeline {
+    /// (t_in, t_out, 时间线) 按 t_in 升序；t_out = None = 战斗结束仍在场。
+    /// t_in 用 NEG_INFINITY 表示"无 presence 证据"的单段退化（整场一条，原行为）。
+    segments: Vec<(f32, Option<f32>, FilteredTimeline)>,
+}
+
+impl SegmentedPoseTimeline {
+    /// 按在场段划分样本逐段 build；每段首输入 = Type5 物化快照（有则）。
+    ///
+    /// `presence` 为空 → 单段退化（整场一条时间线，与旧行为一致——本方作者车全程
+    /// 可见时即此形态）。段外零星样本（协议上 type=10 只在 AoI 内广播；防御性处理）
+    /// 归入时间上最近的段。
+    pub fn build(samples: &[St10Sample], presence: &[AoiPresence]) -> Option<Self> {
+        if presence.is_empty() {
+            return FilteredTimeline::build(samples)
+                .map(|tl| Self { segments: vec![(f32::NEG_INFINITY, None, tl)] });
+        }
+        let mut seg_samples: Vec<Vec<St10Sample>> = vec![Vec::new(); presence.len()];
+        for s in samples {
+            // 归属段 = 最后一个 t_in ≤ clock 且 clock < t_out 的段；无覆盖段 → 下一个
+            // 将开始的段（重入前零星采样），再退则最后一段
+            let mut target = presence.partition_point(|p| p.t_in <= s.clock);
+            if target > 0 {
+                target -= 1;
+                let out = presence[target].t_out;
+                if out.is_none_or(|t| s.clock < t) {
+                    seg_samples[target].push(s.clone());
+                    continue;
+                }
+                target += 1; // 落在隐藏段 → 归入下一段
+            }
+            let idx = target.min(presence.len() - 1);
+            seg_samples[idx].push(s.clone());
+        }
+        let mut segments = Vec::with_capacity(presence.len());
+        for (p, mut list) in presence.iter().zip(seg_samples) {
+            // 段首种子：Type5 物化快照 = 客户端 setFilterOnEntity 的初始化等价
+            //（滤波器 reset 8 槽吸附首输入）。build 内部按时钟升序排序，种子 clock = t_in
+            // ≤ 段内任何样本，排序后必然在最前。
+            if let Some(pose) = &p.pose {
+                list.push(St10Sample {
+                    clock: p.t_in,
+                    pos: pose.pos,
+                    yaw: pose.yaw,
+                    pitch: pose.pitch,
+                    roll: 0.0,
+                    pos_error: [0.0; 3],
+                });
+            }
+            let Some(tl) = FilteredTimeline::build(&list) else {
+                continue; // 空段（无样本且无种子）：跳过
+            };
+            segments.push((p.t_in, p.t_out, tl));
+        }
+        if segments.is_empty() {
+            return None;
+        }
+        Some(Self { segments })
+    }
+
+    /// 跨段查询：命中段内求值；隐藏段（两段之间）= 前段末帧保持（last-known，
+    /// 渲染层隐藏期不消费）；早于首段 = 首段首帧钳位。
+    pub fn pose_at(&self, t: f64, at_or_after: bool) -> Option<FramePose> {
+        let tf = t as f32;
+        let mut active: Option<&(f32, Option<f32>, FilteredTimeline)> = None;
+        for seg in &self.segments {
+            if seg.0 > tf {
+                break;
+            }
+            active = Some(seg);
+            if seg.1.is_none_or(|t_out| tf < t_out) {
+                return seg.2.pose_at(t, at_or_after);
+            }
+        }
+        let seg = active.or_else(|| self.segments.first())?;
+        seg.2.pose_at(t, at_or_after)
+    }
+
+    /// 段访问（折线拟合逐段消费；顺序 = t_in 升序）
+    pub fn segments(&self) -> &[(f32, Option<f32>, FilteredTimeline)] {
+        &self.segments
+    }
+
+    /// t 是否落在某在场段内（隐藏段 = false：AoI 外客户端不渲染，采样输出方应跳过）
+    pub fn contains(&self, t: f64) -> bool {
+        let tf = t as f32;
+        self.segments
+            .iter()
+            .any(|(t_in, t_out, _)| *t_in <= tf && t_out.is_none_or(|o| tf < o))
+    }
+
+    /// 总覆盖范围 [首段首帧, 末段末帧]（网格采样轴钳位用）。取时间线真实起点
+    /// 而非段 t_in——退化段的哨兵 t_in（NEG_INFINITY）不得进入数值域。
+    pub fn time_range(&self) -> (f64, f64) {
+        let first = self
+            .segments
+            .first()
+            .map(|(_, _, tl)| tl.time_range().0)
+            .unwrap_or(0.0);
+        let last = self
+            .segments
+            .last()
+            .map(|(_, _, tl)| tl.time_range().1)
+            .unwrap_or(0.0);
+        (first, last)
+    }
+
+    /// 全段帧数总和（60Hz 帧网格；测试/探针用）
+    #[allow(dead_code)]
+    pub fn frame_count(&self) -> usize {
+        self.segments.iter().map(|(_, _, tl)| tl.frame_count()).sum()
+    }
+}
+
 // ---------- 几何助手（语义对应 OSS Vector3/BoundingBox/Angle） ----------
 
 fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -494,7 +620,7 @@ fn lerp_angle(a: f32, b: f32, t: f32) -> f32 {
 mod referee {
     use super::*;
     use std::collections::HashMap;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     fn collect_replay_files(root: &Path) -> Vec<std::path::PathBuf> {
         if root.is_file() {
@@ -914,6 +1040,268 @@ mod tests {
             max_step < 10.0,
             "跳变应被吸收，帧间最大位移 {:.1}m",
             max_step
+        );
+    }
+}
+
+#[cfg(test)]
+mod segmented_tests {
+    use super::*;
+
+    fn sample(clock: f32, pos: [f32; 3]) -> St10Sample {
+        St10Sample {
+            clock,
+            pos,
+            yaw: 0.0,
+            pitch: 0.0,
+            roll: 0.0,
+            pos_error: [0.5; 3],
+        }
+    }
+
+    fn presence(eid: u32, t_in: f32, t_out: Option<f32>, seed: Option<[f32; 3]>) -> AoiPresence {
+        crate::replay::combat::AoiPresence {
+            eid,
+            t_in,
+            t_out,
+            hp_raw: None,
+            pose: seed.map(|pos| crate::replay::combat::MaterializationPose {
+                pos,
+                yaw: 0.0,
+                pitch: 0.0,
+            }),
+        }
+    }
+
+    const OLD_POS: [f32; 3] = [0.0, 0.0, 0.0];
+    const NEW_POS: [f32; 3] = [200.0, 0.0, 0.0];
+
+    /// D1 核心行为：重入段以 Type5 快照为段首输入 → 重入帧渲染位 = 物化位置
+    /// （整场单滤波器的旧行为会先钉旧位置 ~1s 再滑移，重入帧偏差 = 段间位移量级）
+    #[test]
+    fn reentry_frame_starts_at_materialization_pose() {
+        let mut samples = Vec::new();
+        for i in 0..100 {
+            samples.push(sample(10.0 + i as f32 * 0.1, OLD_POS));
+        }
+        for i in 0..100 {
+            samples.push(sample(30.0 + i as f32 * 0.1, NEW_POS));
+        }
+        let presences = vec![
+            presence(7, 10.0, Some(20.0), None),
+            presence(7, 30.0, None, Some(NEW_POS)),
+        ];
+        let tl = SegmentedPoseTimeline::build(&samples, &presences).unwrap();
+        // 重入帧（段2 首帧）：渲染位必须已在 NEW_POS 附近（种子吸附），
+        // 而不是从 OLD_POS 出发的滑移中点（旧行为在 200m 位移下重入帧 ≈ 旧位）
+        let p = tl.pose_at(30.02, false).unwrap();
+        let d = ((p.pos[0] - NEW_POS[0]).powi(2)
+            + (p.pos[1] - NEW_POS[1]).powi(2)
+            + (p.pos[2] - NEW_POS[2]).powi(2))
+        .sqrt();
+        assert!(d < 1.0, "重入帧渲染位距物化位置 {d}m（应吸附种子）");
+        // 段1 帧仍在旧位
+        let p1 = tl.pose_at(15.0, false).unwrap();
+        assert!(p1.pos[0] < 1.0, "段1 渲染位应留在旧位");
+    }
+
+    /// 跨段路由：隐藏段 = 前段末帧保持；早于首段 = 首段钳位；contains 语义
+    #[test]
+    fn routing_hidden_gap_and_contains() {
+        let samples = vec![
+            sample(10.0, OLD_POS),
+            sample(10.1, OLD_POS),
+            sample(30.0, NEW_POS),
+            sample(30.1, NEW_POS),
+        ];
+        let presences = vec![
+            presence(7, 10.0, Some(20.0), None),
+            presence(7, 30.0, None, Some(NEW_POS)),
+        ];
+        let tl = SegmentedPoseTimeline::build(&samples, &presences).unwrap();
+        assert!(tl.contains(15.0) && tl.contains(30.05));
+        assert!(!tl.contains(25.0), "隐藏段不在任何在场段内");
+        // 隐藏段查询 = 前段末帧保持（last-known）
+        let p = tl.pose_at(25.0, false).unwrap();
+        assert!(p.pos[0] < 1.0, "隐藏段应保持前段末位");
+        // 早于首段 = 首段钳位
+        let p0 = tl.pose_at(5.0, false).unwrap();
+        assert!(p0.pos[0] < 1.0);
+    }
+
+    /// 空 presence 退化 = 整场单段（原行为；本方作者车全程可见的常态）
+    #[test]
+    fn empty_presence_degrades_to_single_timeline() {
+        let samples: Vec<St10Sample> = (0..50).map(|i| sample(i as f32 * 0.1, OLD_POS)).collect();
+        let tl = SegmentedPoseTimeline::build(&samples, &[]).unwrap();
+        assert_eq!(tl.segments().len(), 1);
+        let (start, end) = tl.time_range();
+        assert!((start - 0.0).abs() < 1e-3 && end > 4.0, "range = ({start}, {end})");
+        assert!(tl.contains(2.0));
+    }
+
+    /// 段外零星样本（AoI 物化前的防御性采样）归入下一段，不产生独立段
+    #[test]
+    fn orphan_sample_joins_next_segment() {
+        let samples = vec![
+            sample(28.0, NEW_POS), // 隐藏段内零星（协议上不应有）
+            sample(30.0, NEW_POS),
+            sample(30.1, NEW_POS),
+        ];
+        let presences = vec![presence(7, 30.0, None, Some(NEW_POS))];
+        let tl = SegmentedPoseTimeline::build(&samples, &presences).unwrap();
+        assert_eq!(tl.segments().len(), 1);
+        // 隐藏段零星样本查询：不在段内 → contains false；pose 保持（唯一段钳位）
+        assert!(!tl.contains(28.0));
+    }
+}
+
+// ---------- AoI 重入回归探针（D1 修复量化；真实样本分布证据） ----------
+//
+// 运行：cargo test -p wotb-replay-core --lib aoi_reentry_probe -- --ignored --nocapture
+// （缺省 data/replay_samples/；WOTB_FILTER_PROBE= 同 referee 探针）
+//
+// 判定：对每场每次重入（同 eid 第 2+ 在场段），取 t_in+0.1s 的渲染位 vs 该时刻
+// ±0.05s 内最近原始 type=10 采样（真值）的距离——
+//   修复后（段化 + 种子）：med ≤ 2m（渲染滞后内的正常吸附）
+//   旧行为基线（整场单滤波器）：med 29.4m / p90 192m（追赶滑移）
+#[cfg(test)]
+mod aoi_reentry {
+    use super::*;
+    use crate::replay::combat;
+    use std::path::{Path, PathBuf};
+
+    fn collect_replay_files(root: &Path) -> Vec<std::path::PathBuf> {
+        if root.is_file() {
+            return vec![root.to_path_buf()];
+        }
+        let mut out = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(root) {
+            for e in rd.flatten() {
+                if e.path()
+                    .extension()
+                    .map(|x| x == "wotbreplay")
+                    .unwrap_or(false)
+                {
+                    out.push(e.path());
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    fn median(v: &mut [f32]) -> f32 {
+        v.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+        if v.is_empty() { 0.0 } else { v[v.len() / 2] }
+    }
+
+    #[test]
+    #[ignore = "真实样本分布探针：cargo test aoi_reentry_probe -- --ignored --nocapture"]
+    fn aoi_reentry_probe() {
+        // cwd = crate 目录（cargo test 语义）：缺省 root 锚定仓库根的 data/replay_samples
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let default_root = manifest.join("../../data/replay_samples");
+        let root = std::env::var("WOTB_FILTER_PROBE")
+            .map(PathBuf::from)
+            .unwrap_or(default_root);
+        let files = collect_replay_files(&root);
+        assert!(!files.is_empty(), "无回放样本：{}", root.display());
+        let (mut errs_new, mut errs_old) = (Vec::new(), Vec::new());
+        let mut reentries = 0usize;
+        let mut presence_total = 0usize;
+        let mut multi_seg_eids = 0usize;
+        for f in &files {
+            let Ok(bytes) = std::fs::read(f) else { continue };
+            let Ok(raw) = crate::replay::packets::read_raw_packets(&bytes) else { continue };
+            let packets: Vec<(u32, f32, &[u8])> = raw
+                .iter()
+                .map(|p| (p.packet_type, p.clock_secs, p.payload.as_slice()))
+                .collect();
+            let presence = combat::collect_aoi_lifecycle(&packets);
+            let (mut st10, _) = combat::build_entity_indexes(&packets);
+            for v in st10.values_mut() {
+                v.sort_by(|a, b| a.clock.partial_cmp(&b.clock).unwrap());
+            }
+            // 按 eid 分组段；第 2+ 段 = 重入
+            let mut by_eid: std::collections::BTreeMap<u32, Vec<&combat::AoiPresence>> =
+                Default::default();
+            for p in &presence {
+                by_eid.entry(p.eid).or_default().push(p);
+            }
+            presence_total += presence.len();
+            for (eid, segs) in &by_eid {
+                if segs.len() < 2 {
+                    continue;
+                }
+                multi_seg_eids += 1;
+                let Some(samples) = st10.get(eid) else { continue };
+                let segs_owned: Vec<combat::AoiPresence> =
+                    segs.iter().map(|p| (*p).clone()).collect();
+                let Some(tl_new) = SegmentedPoseTimeline::build(samples, &segs_owned) else {
+                    continue;
+                };
+                let Some(tl_old) = FilteredTimeline::build(samples) else { continue };
+                for seg in segs.iter().skip(1) {
+                    let t = (seg.t_in + 0.1) as f64;
+                    // 真值 = 该时刻 ±0.05s 内最近原始采样
+                    let Some(truth) = samples
+                        .iter()
+                        .min_by_key(|s| (s.clock as f64 - t).abs() as u64)
+                        .filter(|s| (s.clock as f64 - t).abs() <= 0.05)
+                    else {
+                        continue;
+                    };
+                    let dist = |p: &FramePose| {
+                        ((p.pos[0] - truth.pos[0]).powi(2)
+                            + (p.pos[1] - truth.pos[1]).powi(2)
+                            + (p.pos[2] - truth.pos[2]).powi(2))
+                            .sqrt()
+                    };
+                    if let Some(p) = tl_new.pose_at(t, false) {
+                        errs_new.push(dist(&p));
+                    }
+                    if let Some(p) = tl_old.pose_at(t, false) {
+                        errs_old.push(dist(&p));
+                    }
+                    reentries += 1;
+                }
+            }
+        }
+        eprintln!(
+            "[probe] files={} presence={} multi_seg_eids={} reentries={}",
+            files.len(),
+            presence_total,
+            multi_seg_eids,
+            reentries
+        );
+        assert!(reentries >= 5, "重入样本过少：{reentries}");
+        let (mut n, mut o) = (errs_new.clone(), errs_old.clone());
+        println!(
+            "AoI 重入帧偏差（渲染 vs 真值，{reentries} 次重入，{} 场）：",
+            files.len()
+        );
+        println!(
+            "  修复后（段化+种子）：med {:.1}m / p90 {:.1}m",
+            median(&mut n),
+            errs_new
+                .clone()
+                .get(errs_new.len() * 9 / 10)
+                .copied()
+                .unwrap_or(0.0)
+        );
+        println!(
+            "  旧行为（整场单滤波器）：med {:.1}m / p90 {:.1}m",
+            median(&mut o),
+            errs_old
+                .get(errs_old.len() * 9 / 10)
+                .copied()
+                .unwrap_or(0.0)
+        );
+        let mut n2 = n.clone();
+        assert!(
+            median(&mut n2) <= 2.0,
+            "修复后重入帧偏差中位数超判据（应 ≤2m，渲染滞后内吸附）"
         );
     }
 }
