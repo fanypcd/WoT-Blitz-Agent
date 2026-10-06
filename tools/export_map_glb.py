@@ -307,19 +307,75 @@ class MaterialLibrary:
         return merged
 
 
+VARIANT_LABEL_RE = re.compile(r"^([a-z]+)(\d+)$")
+
+
+def entity_variant_label(entity: dict) -> str | None:
+    """实体 LabelComponent 的变体标签（形如 md1/dt2/er0：字母前缀+数字序号）。
+
+    多变体地图（Dead Rail/.Middleburg 等 9 图）按变体把出生点/边界/专属布景
+    打成 mdN 组，客户端一局只激活一组——按变体过滤的实现见
+    resolve_variant_map（打标随包，前端按对局 map_id 剔除非本组节点）。
+    非单一标签 / 不匹配字母+数字 → None（恒导出）。
+    """
+    for c in components_of(entity):
+        if isinstance(c, dict) and c.get("comp.typename") == "LabelComponent":
+            labels = c.get("lc.labels") or []
+            if len(labels) == 1:
+                m = VARIANT_LABEL_RE.match(str(labels[0]))
+                return m.group(0) if m else None
+            return None
+    return None
+
+
+def scene_variant_labels(scene: dict) -> list[str]:
+    """场景中出现的变体标签，按数字序号升序（组序 ↔ 变体序，见 resolve_variant_map）。"""
+    labels = set()
+    for _path, ent in iter_entities_recursive(scene):
+        lab = entity_variant_label(ent)
+        if lab:
+            labels.add(lab)
+    return sorted(labels, key=lambda s: int(VARIANT_LABEL_RE.match(s).group(2)))
+
+
+def resolve_variant_map(space_entries: list, scene: dict) -> dict[int, str]:
+    """同 space 的注册表条目 ↔ 变体组 按序配对 → {map_id: label}。
+
+    组序 = 标签数字升序（er0/er1/er2、md1/md2/md3）；key 序 = 基础键（无 _NN
+    后缀）在前、其余按后缀数字升序。9 张多变体图全部吻合（erlenberg 的 _01↔er1
+    组内 spawn 名却是 Spawn_02_*，证明按序数而非字面后缀配对）。组数与 key 数
+    不一致 = 口径外结构，返回 {}（不写映射，前端不裁剪——fail-open 保持现状）。
+    """
+
+    def key_order(e) -> tuple:
+        m = re.search(r"_0*(\d+)$", e.key)
+        return (0, -1) if m is None else (1, int(m.group(1)))
+
+    labels = scene_variant_labels(scene)
+    ordered = sorted(space_entries, key=key_order)
+    if not labels or len(labels) != len(ordered):
+        return {}
+    return {e.map_id: lab for e, lab in zip(ordered, labels)}
+
+
 def collect_renderables(scene: dict) -> dict:
     """按客户端批次激活规则收集场景内容。
 
     返回 {
       instances: [(entity_name, world_transform, datasource, material_id, path, cls)],
       landscape: {...} | None,      # bbox/heightmap/matname
+      variant_labels: {entity_path: "mdN"} | {},
     }
     """
     instances: list = []
     landscape = None
     lod_batch_dropped = 0
+    variant_labels: dict = {}
 
     for entity_path, entity in iter_entities_recursive(scene):
+        _vlab = entity_variant_label(entity)
+        if _vlab:
+            variant_labels[entity_path] = _vlab
         render = component_by_type(entity, "RenderComponent")
         if render is None:
             continue
@@ -424,13 +480,22 @@ def collect_renderables(scene: dict) -> dict:
                 continue
             material_id = batch.get("rb.nmatname")
             # SpeedTree 的 SH 环境光 L0（speedtree-materials-fp.sl:
-            # baseColor *= varVertexColor，SH 仅 L0 常数实测）→ 材质染色
+            # baseColor *= varVertexColor）→ 材质染色。SH L0 = RGB 三通道：
+            # 常见图 = √π 灰（erlenberg/medvedkovo 恒 1.772454）；karelia/neptune
+            # 等图为真实每树彩色环境（karelia (0.37,0.50,0.50) 冷调黄昏）。
+            # **按字面值导出，不做 √π 归一化、只取 R**（2026-10-07 勘误：
+            # 归一化理论源于把地面 colormap 误当树冠烘焙真值——对照实验证明
+            # colormap 无树冠信号；客户端按字面 SH 乘，钳制/归一化才是发灰主因）
             sh_l0 = None
             if cls == "SpeedTreeObject":
                 sh = ro.get("sto.SHCoeff")
                 if isinstance(sh, dict) and isinstance(sh.get("$bytes"), str):
                     try:
-                        sh_l0 = struct.unpack("<f", bytes.fromhex(sh["$bytes"])[:4])[0]
+                        raw = bytes.fromhex(sh["$bytes"])[:12]
+                        if len(raw) == 12:
+                            sh_l0 = struct.unpack("<3f", raw)
+                        else:
+                            sh_l0 = struct.unpack("<f", bytes.fromhex(sh["$bytes"])[:4])[0]
                     except (ValueError, struct.error):
                         pass
             out_name = ("D_" + name) if _nm_dest else name
@@ -438,7 +503,8 @@ def collect_renderables(scene: dict) -> dict:
                               material_id if isinstance(material_id, int) else None,
                               entity_path, cls, lod, sh_l0))
     return {"instances": instances, "landscape": landscape,
-            "lod_batches_dropped": lod_batch_dropped}
+            "lod_batches_dropped": lod_batch_dropped,
+            "variant_labels": variant_labels}
 
 
 
@@ -481,9 +547,10 @@ def decode_group_uvs(group: dict):
             continue
         u = floats[:, uv_off // 4]
         v = floats[:, uv_off // 4 + 1]
+        # 只拒非有限值（偏移错位才会出 NaN/inf）。不可按幅值拒绝：平铺 UV 的
+        # 合法倍数没有上限（REPEAT 采样），铁轨条 v=-118 实测——旧幅值守卫
+        # (>64) 把真 TEXCOORD0 错选成位 4 备用对，铁轨整条拉成一段灰带
         if not (np.isfinite(u).all() and np.isfinite(v).all()):
-            continue
-        if max(abs(float(u.max())), abs(float(v.max()))) > 64:
             continue
         found[bit] = list(zip(u.tolist(), v.tolist()))
     if 3 in found:
@@ -538,6 +605,85 @@ def decode_speedtree_card(group: dict):
         "occ_mean": round(float(colors[:, 0].mean()), 4),
         "uvs": f[:, 4:6].tolist(),
         "indices": indices,
+    }
+
+
+SPEEDTREE_GEN2_STRIDE = 92
+
+def decode_speedtree_card_gen2(group: dict):
+    """新一代 SpeedTree（92B/顶点）混合批解算：刚体几何(w=0) + 锚定叶簇(w=1)。
+
+    erlenberg Spruce/Linden/bush 实测（2026-10-06）：该世代批内混有两种顶点——
+    pivot.w=1 的顶点按 56B 世代同机制 billboard（speedtree-materials-vp.sl：
+    角点偏移在【视空间】加回 pivot；整片叶簇共享一个 pivot，每簇 4~66+ 顶点、
+    簇内多三角），w=0 的是带法线的刚体树枝/树干。列（32bit 槽）：
+        [0]pos(3) [3]normal(3) [6]COLOR0(UBYTE4) [7]uv0(2) [9]? (6)
+        [15]jointIndex(1) [16]pivot.xyz(3) [19]pivot.w(1) [20]? (3)
+    （? 列 = 风摆关节副值/第二相位，billboard 重建不需要，不识别不影响导出）
+    返回 dict(anchors/corners/colors/uvs/indices/occ_mean + rigid)：卡片子集 =
+    w=1 顶点重编索引（同 56B 同式）；rigid = w=0 子集的
+    {positions, indices, uvs, uvs1}（无则 None）交静态路径照常导出。
+    守卫 fail-closed：stride 不符 / w 非严格 0/1 双峰 / 三角形跨界（卡↔刚体
+    共享顶点）/ 卡片无三角形 → None（整组回退静态，与旧版行为一致）。
+    """
+    vc = group.get("vertexCount")
+    payload = decode_bytes(group.get("vertices"))
+    if not isinstance(vc, int) or vc <= 0 or payload is None:
+        return None
+    if len(payload) != vc * SPEEDTREE_GEN2_STRIDE:
+        return None
+    arr = np.frombuffer(payload, dtype=np.uint8).reshape(vc, SPEEDTREE_GEN2_STRIDE)
+    f = arr.view("<f4")
+    w = f[:, 19]
+    if not bool(((np.abs(w) < 1e-4) | (np.abs(w - 1) < 1e-4)).all()):
+        return None
+    card_idx = np.where(np.abs(w - 1) < 1e-4)[0]
+    if len(card_idx) == 0:
+        return None
+    tri = group_triangles(group, decode_polygon_indices(group))
+    if not tri:
+        return None
+    card_set = set(card_idx.tolist())
+    triplets = list(zip(tri[0::3], tri[1::3], tri[2::3]))
+    if any((a in card_set) != (b in card_set) or (b in card_set) != (c in card_set)
+           for a, b, c in triplets):
+        return None
+    card_tri = [i for t in triplets if t[0] in card_set for i in t]
+    if not card_tri:
+        return None
+    # 卡片子集重编索引；锚点/角点同 56B 同式（w=1 ⇒ anchor=pivot、corner=pos−pivot）
+    remap = {old: new for new, old in enumerate(card_idx.tolist())}
+    pos = f[:, 0:3]
+    piv = f[:, 16:19]
+    anchor = pos * (1.0 - w[:, None]) + piv * w[:, None]
+    corner = pos - anchor
+    colors = arr[:, 24:28].astype(np.float32) / 255.0
+    rigid_idx = np.where(np.abs(w) < 1e-4)[0]
+    rigid = None
+    if len(rigid_idx):
+        rigid_rem = {old: new for new, old in enumerate(rigid_idx.tolist())}
+        rigid = {
+            "positions": pos[rigid_idx].tolist(),
+            "indices": [rigid_rem[i] for t in triplets
+                        if t[0] not in card_set for i in t],
+            "uvs": f[rigid_idx][:, 7:9].tolist(),
+            "uvs1": None,
+            # COLOR_0 顶点遮挡必须随刚体子集导出：混合组（如 Spruce w=1 占比仅
+            # 0.25）的 w=0 子集是【固定朝向叶片】而非树枝（三角形尺寸与卡片叶
+            # 同量级、贴图同为叶图集）——客户端对两种叶片都乘 varVertexColor；
+            # 漏导则固定叶全亮、billboard 叶带 AO 偏暗 = 同树叶片双色
+            # （2026-10-07 erlenberg 实测报障）。前端 ST| 静态材质按
+            # vertexColors 消费（GLTFLoader 对带 COLOR_0 的几何自动置位）。
+            "colors": colors[rigid_idx].reshape(-1).tolist(),
+        }
+    return {
+        "anchors": anchor[card_idx].tolist(),
+        "corners": np.concatenate([corner[card_idx], w[card_idx][:, None]], axis=1).reshape(-1).tolist(),
+        "colors": colors[card_idx].reshape(-1).tolist(),
+        "occ_mean": round(float(colors[card_idx, 0].mean()), 4),
+        "uvs": f[card_idx][:, 7:9].tolist(),
+        "indices": [remap[i] for i in card_tri],
+        "rigid": rigid,
     }
 
 
@@ -904,18 +1050,29 @@ class GlbBuilder:
         self.total_tris += len(indices) // 3
         return len(self.meshes) - 1
 
-    def add_node(self, mesh_index: int, transform: dict, name: str | None) -> None:
-        self.nodes.append({
+    def add_node(self, mesh_index: int, transform: dict, name: str | None,
+                 variant_label: str | None = None) -> None:
+        node = {
             "mesh": mesh_index,
             "translation": transform["translation"],
             "rotation": transform["rotation"],
             "scale": transform["scale"],
             "name": name or None,
-        })
+        }
+        if variant_label:
+            # 变体标签随包（GLTFLoader 落 node.userData.mdVariant）：前端按对局
+            # map_id 对照 asset.extras.variantByMapId 剔除非本组节点——多变体地图
+            # （Dead Rail 等 9 图）的场景 GLB 按 space 共享，组外布景不剔除即成
+            # 幻影物体（回放里立着游戏里没有的石头）
+            node["extras"] = {"mdVariant": variant_label}
+        self.nodes.append(node)
 
-    def finish(self, generator: str) -> bytes:
+    def finish(self, generator: str, scene_extras: dict | None = None) -> bytes:
+        asset: dict = {"version": "2.0", "generator": generator}
+        if scene_extras:
+            asset["extras"] = scene_extras
         gltf = {
-            "asset": {"version": "2.0", "generator": generator},
+            "asset": asset,
             "scene": 0,
             "scenes": [{"nodes": list(range(len(self.nodes)))}],
             "nodes": self.nodes,
@@ -928,6 +1085,10 @@ class GlbBuilder:
             "bufferViews": self.buffer_views,
             "buffers": [{"byteLength": len(self.buffer)}],
         }
+        if scene_extras:
+            # scene 级 extras 由 GLTFLoader 落 gltf.scene.userData（前端主读入口；
+            # asset.extras 为冗余备份）
+            gltf["scenes"][0]["extras"] = scene_extras
         json_chunk = json.dumps(gltf, separators=(",", ":")).encode()
         while len(json_chunk) % 4:
             json_chunk += b" "
@@ -967,7 +1128,8 @@ def _border_doc(border: tuple[float, float, float, float] | None) -> dict | None
             "xMax": round(x_max, 3), "yMax": round(y_max, 3)}
 
 
-def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Path) -> dict:
+def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Path,
+               scenery_only: bool = False) -> dict:
     space = entry.space
     directory = game_data / "3d" / "Maps" / space
     sc2_path = find_member(directory, space, ".sc2.dvpl") or find_member(directory, space, ".sc2")
@@ -995,6 +1157,13 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
     instances = renderables["instances"]
     if not instances:
         raise RuntimeError(f"{space}: 无可见网格实例")
+    # 变体映射（{map_id: "mdN"}，随 GLB extras 下发；多变体图 9 张，其余为 {}）
+    try:
+        sibling_entries = [e for e in load_registry(game_data) if e.space == space]
+    except Exception:
+        sibling_entries = [entry]
+    variant_by_map_id = resolve_variant_map(sibling_entries, scene)
+    variant_labels: dict = renderables.get("variant_labels") or {}
 
     # 00_global_content 装饰贴图索引（stem → 路径）：env_*/dec_* 装饰材质的
     # albedo 按约定与实体同名存放在全局内容目录（如 env_kr_cactus.pvr）
@@ -1045,6 +1214,7 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
             drop_lod.add((epath, lod))
 
     for name, transform, datasource, material_id, _path, cls, lod, sh_l0 in instances:
+        inst_variant = variant_labels.get(_path)
         # 客户端不上屏的几何：ShadowVolume 材质（模板阴影体，只渲染进阴影贴图）
         # 与 *_helper 编辑器辅助体（材质无任何贴图槽）——导出只会成为屏幕上
         # 不存在的无贴图异物（如 dec_hm_stones01_shad 的阴影壳、env_nt_heinkel_helper）
@@ -1107,6 +1277,19 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         card = decode_speedtree_card(group) if cls == "SpeedTreeObject" else None
         if card is not None:
             stats["st_cards"] = stats.get("st_cards", 0) + 1
+        # 新一代（92B）混合批：切成「锚定叶簇（卡片路径）+ 刚体余量（静态路径，
+        # 工作集 positions/indices/uvs 就地替换为子集——下游 uv1 烘焙/材质/网格
+        # 全部一致使用子集）」。守卫不过 → None，行为与旧版（整组静态）相同
+        gen2 = (decode_speedtree_card_gen2(group)
+                if (cls == "SpeedTreeObject" and card is None) else None)
+        if gen2 is not None:
+            stats["st_cards_gen2"] = stats.get("st_cards_gen2", 0) + 1
+            if gen2["rigid"] is not None:
+                positions = gen2["rigid"]["positions"]
+                indices = gen2["rigid"]["indices"]
+                uvs = gen2["rigid"]["uvs"]
+                uvs1 = gen2["rigid"]["uvs1"]
+                stats["st_gen2_rigid"] = stats.get("st_gen2_rigid", 0) + 1
 
         mat_desc = materials.resolve(material_id)
         albedo_path = mat_desc["textures"].get("albedo")
@@ -1160,12 +1343,28 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
                 if mask_path:
                     has_alpha = True
         # SpeedTree 材质（speedtree-materials-fp.sl）：color = albedo × SH(L0)
-        # × flatColor——无场景光照，alpha discard 0.5。标记 ST| + SH 染色，
+        # × varVertexColor——无场景光照，alpha discard 0.5。标记 ST| + SH 染色，
         # 前端据此用不受光材质（我们此前的 Lambert+太阳让随机卡片亮度
-        # 随朝向乱变，与客户端的均匀叶色完全不符）
+        # 随朝向乱变，与客户端的均匀叶色完全不符）。
+        # **SH 按字面 RGB 三通道导出（2026-10-07 定版）**：karelia/neptune 等
+        # 图的 SHCoeff 是真实每树彩色环境（karelia (0.37,0.50,0.50) 冷调黄昏、
+        # neptune (0.9,1.0,1.19)），erlenberg/medvedkovo 恒为 √π 灰——两种都是
+        # 客户端按字面乘的数据。此前的两处偏差都已撤销/修正：①「√π 归一化」
+        # 理论源于把地面 colormap 误当树冠烘焙真值（对照实验：colormap 无树冠
+        # 信号），已撤；②旧钳制 min(occ×SH,1.35) + occMean 归一化把 ×1.77 压平
+        # 成 ×1.35 且抹掉叶簇内 AO 明暗对比——树叶发灰发平（erlenberg 实测报障）。
+        # occ_mean 固定导 1.0（= 停用前端均值归一化，vOcc 直乘）；
+        # 乘积钳制由前端放宽到 2.0（旧包走旧钳制，双版本兼容）。
         is_st = cls == "SpeedTreeObject" and sh_l0 is not None
-        st_tint = min(sh_l0, 2.0) if is_st else None
-        card_occ = card["occ_mean"] if card is not None else None
+        if is_st:
+            if isinstance(sh_l0, tuple):
+                st_tint = tuple(min(c, 2.0) for c in sh_l0)
+            else:
+                st_tint = (min(sh_l0, 2.0),) * 3
+        else:
+            st_tint = None
+        card_occ = (card["occ_mean"] if card is not None
+                    else (gen2["occ_mean"] if gen2 is not None else None))
         mat_key = (albedo_path, decal_path, mask_path, flat_rgb, has_alpha,
                    bool(img is not None), anim_layer and mask_path is not None,
                    is_water, st_tint, card_occ)
@@ -1174,17 +1373,22 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
                 glb, textures, albedo_path, mat_desc, img, has_alpha,
                 blend=(anim_layer and mask_path is not None) or is_water,
                 opacity=0.7 if is_water else None,
-                st_tint=st_tint, occ_mean=card_occ)
+                st_tint=st_tint, occ_mean=1.0 if card_occ is not None else None)
         material_index = material_index_by_albedo[mat_key]
 
         # 网格按 (datasource, 材质) 去重：同型物体共享几何，但不同材质的
         # 共享几何（如 seabottom 海床/水面同 16 顶点四边形）必须各自建网格，
         # 否则先到的材质会套给全部实例（水面被渲染成海床）
         mesh_key = (datasource, material_index)
+        if gen2 is not None:
+            mesh_key = (datasource, material_index, "gen2")
         if mesh_key in mesh_by_ds:
-            glb.add_node(mesh_by_ds[mesh_key], transform, name)
+            existing = mesh_by_ds[mesh_key]
+            for mi in (existing if isinstance(existing, tuple) else (existing,)):
+                glb.add_node(mi, transform, name, inst_variant)
             continue
 
+        created = []
         if card is not None:
             # 叶卡：POSITION=锚点（树冠内固定点），_CORNER=角点偏移(+pivot.w)，
             # COLOR_0=烘焙遮挡（灰度）——前端视空间重建叶卡朝向
@@ -1194,17 +1398,52 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
                     {"name": "_CORNER", "type": "VEC4", "data": card["corners"]},
                     {"name": "COLOR_0", "type": "VEC4", "data": card["colors"]},
                 ])
+            if mesh_index is not None:
+                created.append(mesh_index)
+        elif gen2 is not None:
+            # 新一代混合批：刚体余量（静态网格）+ 锚定叶簇（卡片网格）各建一个，
+            # 同一实例挂两节点（共享几何分别按 datasource+角色 去重）
+            rig = gen2["rigid"]
+            if rig:
+                mi = glb.add_shared_mesh(
+                    (datasource, "gen2rig"), rig["positions"], rig["indices"],
+                    rig["uvs"], compute_normals(rig["positions"], rig["indices"]),
+                    material_index,
+                    extra_attrs=([{"name": "COLOR_0", "type": "VEC4", "data": rig["colors"]}]
+                                 if rig.get("colors") else None))
+                if mi is not None:
+                    created.append(mi)
+            mi = glb.add_shared_mesh(
+                (datasource, "gen2card"), gen2["anchors"], gen2["indices"],
+                gen2["uvs"], None, material_index, extra_attrs=[
+                    {"name": "_CORNER", "type": "VEC4", "data": gen2["corners"]},
+                    {"name": "COLOR_0", "type": "VEC4", "data": gen2["colors"]},
+                ])
+            if mi is not None:
+                created.append(mi)
         else:
             mesh_index = glb.add_shared_mesh(datasource, positions, indices, uvs,
                                              compute_normals(positions, indices), material_index)
-        if mesh_index is None:
+            if mesh_index is not None:
+                created.append(mesh_index)
+        if not created:
             continue
-        mesh_by_ds[mesh_key] = mesh_index
-        glb.add_node(mesh_index, transform, name)
+        mesh_by_ds[mesh_key] = tuple(created)
+        for mi in created:
+            glb.add_node(mi, transform, name, inst_variant)
 
     # ---- GLB + sidecar + 地面贴图 ----
     (output_dir / f"{space}.glb").write_bytes(
-        glb.finish("wotb-agent export_map_glb (client-aligned)"))
+        glb.finish("wotb-agent export_map_glb (client-aligned)",
+                   {"variantByMapId": variant_by_map_id} if variant_by_map_id else None))
+
+    if scenery_only:
+        # 只重导 GLB（变体打标等场景修正）；不触地面贴图与 sidecar——旧 sidecar
+        # 的 ground/worldBounds 字段保持原样，避免部分写出造成消费端回退
+        return {"meta": {"key": entry.key, "space": space,
+                         "instances": len(glb.nodes),
+                         "variantByMapId": variant_by_map_id},
+                "bytes": (output_dir / f"{space}.glb").stat().st_size}
 
     landscape = renderables["landscape"] or {}
     land_mat = materials.resolve(landscape.get("matname"))
@@ -1335,21 +1574,22 @@ def bake_uv1_overlays(base_img: Image.Image, decal_img, mask_img,
 def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | None,
                     mat_desc: dict, img: Image.Image | None, has_alpha: bool,
                     blend: bool = False, opacity: float | None = None,
-                    st_tint: float | None = None, occ_mean: float | None = None) -> int:
+                    st_tint=None, occ_mean: float | None = None) -> int:
     """albedo 贴图（含透明）→ GLB 材质；无贴图时用贴图均值色兜底。
 
     blend=True（TEXTURE0_ANIMATION_SHIFT 效果层：瀑布/波纹/烟雾）：客户端在
     Translucent 层做 alpha 混合，用 BLEND 模式近似；其余透明材质（树叶卡片）
     为 alpha test，用 MASK。
+    st_tint：SpeedTree SH(L0) 逐通道染色（RGB 三元组，字面值）。
     """
     base_name = (mat_desc.get("materialName") or "mat")[:60]
     base = {"name": ("ST|" + base_name) if st_tint is not None else base_name,
             "pbrMetallicRoughness": {"metallicFactor": 0.0, "roughnessFactor": 1.0},
             "doubleSided": True}
     if st_tint is not None:
-        base["pbrMetallicRoughness"]["baseColorFactor"] = [st_tint, st_tint, st_tint, 1.0]
+        base["pbrMetallicRoughness"]["baseColorFactor"] = [st_tint[0], st_tint[1], st_tint[2], 1.0]
     if occ_mean is not None:
-        base["extras"] = {"occMean": occ_mean}   # 前端按均值归一化遮挡，保留纵深不整体压暗
+        base["extras"] = {"occMean": occ_mean}   # 前端遮挡除数；1.0 = vOcc 直乘（客户端同式）
     if img is not None:
         # DDS 源贴图翻回 authored 方向（row0=top）再嵌入——glTF v=0 ↔ 图像首行，
         # 与客户端 D3D 采样约定对齐；PVR 源解码即对齐，不翻
@@ -1645,6 +1885,13 @@ def _export_map_worker(task: dict) -> dict:
     entry = MapEntry(e["map_id"], e["key"], e["local_name"], e["minimap_dir"], e["display"])
     started = time.time()
     try:
+        if task.get("scenery_only"):
+            info = export_map(game_data, entry, out_dir, scenery_only=True)
+            vb = info["meta"].get("variantByMapId") or {}
+            return {"key": entry.key, "space": entry.space, "map_id": entry.map_id,
+                    "ok": True, "sec": round(time.time() - started, 1),
+                    "line": f"[ok] {entry.space:<20} GLB {info['bytes'] / 1e6:.2f}MB "
+                            f"变体映射={vb or '无'}"}
         if task["ground_only"]:
             directory = game_data / "3d" / "Maps" / entry.space
             sc2_path = find_member(directory, entry.space, ".sc2.dvpl") or find_member(directory, entry.space, ".sc2")
@@ -1688,6 +1935,8 @@ def main() -> int:
     parser.add_argument("--output-dir", type=pathlib.Path, default=pathlib.Path("data/cache/maps"))
     parser.add_argument("--ground-only", action="store_true",
                         help="跳过 GLB，只重新导出地面贴图（+元数据）")
+    parser.add_argument("--scenery-only", action="store_true",
+                        help="只重导 GLB（如变体打标修正）；不触地面贴图与 sidecar")
     parser.add_argument("--jobs", type=int, default=4,
                         help="并行导出进程数（缺省 4；每张图相互独立）")
     args = parser.parse_args()
@@ -1729,7 +1978,8 @@ def main() -> int:
               "entry": {"map_id": e.map_id, "key": e.key, "local_name": e.local_name,
                         "space": e.space, "minimap_dir": e.minimap_dir,
                         "display": e.display},
-              "ground_only": bool(args.ground_only)}
+              "ground_only": bool(args.ground_only),
+              "scenery_only": bool(args.scenery_only)}
              for e in targets]
 
     def on_result(res: dict) -> None:
