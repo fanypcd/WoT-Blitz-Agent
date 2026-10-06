@@ -5,6 +5,12 @@
 //! 携带事件 envelope（区域实体 = 100m 格子锚点）：
 //! **物体 = lka 逆表[(floor(x/100)+0x7F, floor(z/100)+0x7F, slot)] → 场景实体 id**
 //! （`blitz/<map>.lka`：KeyedArchive，key=场景实体 id，value=(cellX,cellY,slot)）。
+//! **slot 编号取分段索引表**：存在 `blitz/<map>.erN.lka` 时整体替代主表（不得
+//! 合并——两套编号体系，erlenberg 实测 829 公共键 455 个 serverId 不同 + 268 键
+//! 仅在分段表；2026-10-06 Middleburg 回放 11 事件地面真值：er0 表 11/11 命中
+//! （10 碾压树距车 1.5~3.7m + 1 HE 弹着点 0.9m），主表 4 MISS + 6 错联至远处
+//! 实体/建筑。全图库扫描当前仅 03_erlenberg_er 有分段，er0=er1=er2 逐键一致；
+//! 资产管线 export_map_destructibles.py 已按此口径取表）。
 //! 与客户端反汇编机制吻合：事件元素 → 记录+0x78 = u32 (cellX,cellY,slot) →
 //! FNV-1a 哈希表（LoadModelsMap 按 lka 填充）→ 场景节点 → 状态切换。
 //! 验证：受控实验 10/10（作者碾压帐篷/树/沙袋 + HE 射树，槽位↔物体逐一命中）、

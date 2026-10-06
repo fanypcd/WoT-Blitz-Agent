@@ -30,7 +30,12 @@ def author_track(facet):
         if v.get("is_author"):
             pos = v["pos"]
             t0 = facet["meta"]["t_start"]
-            pts = [(t0 + i / 10.0, pos[i], pos[i + 2]) for i in range(0, len(pos), 3)]
+            # pos = [x,y,z]×N 列式；三元组 k 的时刻 = t0 + k×0.1（flat 索引 i=3k
+            # 直接除会得到 3 倍拉伸的时间轴，2026-10-06 修正）
+            pts = [
+                (t0 + (i // 3) / 10.0, pos[i], pos[i + 2])
+                for i in range(0, len(pos), 3)
+            ]
             return v.get("eid"), pts
     return None, []
 

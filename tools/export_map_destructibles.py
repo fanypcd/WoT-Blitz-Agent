@@ -91,22 +91,8 @@ def is_speedtree(entity: dict) -> bool:
     return isinstance(obj, dict) and str(obj.get("##name", "")) == "SpeedTreeObject"
 
 
-def parse_lka(entry: X.MapEntry, game_data: pathlib.Path) -> dict:
-    """blitz/<space>.lka（KeyedArchive）：场景实体 id → 服务器可破坏物 id。
-
-    值 = u32：(cellX=floor(x/100)+0x7F, cellY=floor(z/100)+0x7F, slot u16)——
-    100m 格子码 + 格内槽位（几何相关性 0.985/0.986 实测；与 devReplaysIgnores
-    的 ignored_destructables 同域。客户端 DestructibleManager 按 key 查节点，
-    exe 断言 "wrong lka key provided"/"Missed key:"）。覆盖子集：SpeedTree +
-    小型 fragiles；temple/militaryBox/WatchTower/bush_liveOak 等不在表内。
-    """
-    lka_rel = entry.local_name.replace("/", "\\")
-    lka_path = (game_data / "3d" / "Maps" / lka_rel).parent / "blitz" / (
-        pathlib.PurePath(lka_rel).stem + ".lka.dvpl"
-    )
-    if not lka_path.exists():
-        return {}
-    ka = read_archive(Reader(decode_dvpl(lka_path.read_bytes())))
+def _read_lka(path: pathlib.Path) -> dict:
+    ka = read_archive(Reader(decode_dvpl(path.read_bytes())))
     out = {}
     for k, v in ka.items():
         if not str(k).isdigit() or not isinstance(v, int):
@@ -117,6 +103,40 @@ def parse_lka(entry: X.MapEntry, game_data: pathlib.Path) -> dict:
             "slot": v & 0xFFFF,
         }
     return out
+
+
+def parse_lka(entry: X.MapEntry, game_data: pathlib.Path) -> dict:
+    """blitz/<space>.lka（KeyedArchive）：场景实体 id → 服务器可破坏物 id。
+
+    值 = u32：(cellX=floor(x/100)+0x7F, cellY=floor(z/100)+0x7F, slot u16)——
+    100m 格子码 + 格内槽位（几何相关性 0.985/0.986 实测；与 devReplaysIgnores
+    的 ignored_destructables 同域。客户端 DestructibleManager 按 key 查节点，
+    exe 断言 "wrong lka key provided"/"Missed key:"）。覆盖子集：SpeedTree +
+    小型 fragiles；temple/militaryBox/WatchTower/bush_liveOak 等不在表内。
+
+    **slot 编号口径（2026-10-06 闭合）**：存在分段索引表 `<stem>.erN.lka` 时
+    **整体替代主表**，不得合并——两套是不同的编号体系（erlenberg 实测：829 个
+    公共键 455 个 serverId 不同、268 键仅在分段表；Middleburg 回放 11 事件
+    地面真值判定 er0 表 11/11 命中，主表 4 MISS + 6 错联至远处实体/建筑）。
+    分段表之间必须逐键一致，不一致 = 结构漂移，fail-closed 拒绝猜测。
+    """
+    lka_rel = entry.local_name.replace("/", "\\")
+    lka_dir = (game_data / "3d" / "Maps" / lka_rel).parent / "blitz"
+    stem = pathlib.PurePath(lka_rel).stem
+    seg_paths = sorted(lka_dir.glob(stem + ".er*.lka.dvpl"))
+    if seg_paths:
+        tables = [(p, _read_lka(p)) for p in seg_paths]
+        base_path, base = tables[0]
+        for p, t in tables[1:]:
+            if t != base:
+                raise AssertionError(
+                    f"{p.name} 与 {base_path.name} 逐键不一致（分段 lka 漂移，拒绝猜测）"
+                )
+        return base
+    main_path = lka_dir / (stem + ".lka.dvpl")
+    if not main_path.exists():
+        return {}
+    return _read_lka(main_path)
 
 
 def export_map(entry: X.MapEntry, game_data: pathlib.Path, types: dict) -> dict:

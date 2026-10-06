@@ -51,6 +51,10 @@ testing** happen in the WotbTools repository (https://github.com/A158Coke/WotbTo
   parser / facet / data / asset-pipeline work only.
 - `frontend/` is frozen and kept only for local debugging (`cargo run --release -- web`).
   Leave it read-only; do not add features, fixes, or tests to it.
+- All frontend testing — including playback verification of parser/pipeline fixes — uses the
+  WotbTools frontend dev server, not this frozen copy; see
+  [§All frontend testing runs the WotbTools frontend](#all-frontend-testing-runs-the-wotbtools-frontend-local-dev-build)
+  for the standard posture (`serve_asset_pack.mjs` + `npm run dev` + `admin=1`).
 - Cross-repo consequence: UI fixes may still need parser-side support here (e.g. a data field
   the UI consumes). Land the parser part here first, then the UI change in WotbTools.
 - Background: [README §与 WotbTools 的关系](README.md), [docs/index.md](docs/index.md) §前端面收敛,
@@ -73,15 +77,26 @@ Rationale: the 3D scene depends on real GPU/terrain/asset-plane state that a det
 throttled or headless browser does not faithfully reproduce; agent-driven screenshots cost many
 round-trips and still leave the verdict unproven.
 
-## Local WotbTools frontend runs need this repo's asset pack
+## All frontend testing runs the WotbTools frontend (local dev build)
 
-When the WotbTools frontend is tested locally, its 3D assets must be served from this repository's
-asset pack — otherwise map terrain / vehicle GLBs / tank data silently do not load (only replay
-parsing keeps working, which makes it look like "the models just vanished"):
+**The test frontend is always the WotbTools frontend, never this repository's frozen
+`frontend/`.** The frozen copy predates current scene features (e.g. destructible tree-fall) and
+only exists for `cargo run --release -- web` self-hosting — verifying against it proves nothing.
+Standard local test posture:
 
-1. `node scripts/serve_asset_pack.mjs 8123` — serves `release/asset_pack/` with CORS.
+1. `node scripts/serve_asset_pack.mjs 8123` — serves `release/asset_pack/` with CORS. If the port
+   is already bound, an instance is likely still running: verify it serves the current pack
+   (`curl http://127.0.0.1:8123/index.json`) instead of starting a second one — the script reads
+   files from disk per request, so a running instance automatically picks up rebuilt packs.
 2. In the WotbTools checkout, `frontend/.env.local` must contain
    `VITE_ASSET_BASE_URL=http://127.0.0.1:8123` (gitignored; `?assets=` in a URL overrides it and
    persists to localStorage, so clear it with an empty `?assets=` when returning to the default).
-3. The WotbTools side of this workflow is documented in its `docs/frontend/local-production-dev.md`
+3. `npm run dev` in the WotbTools `frontend/` — Vite takes the first free port from 5173
+   (stale instances often hold 5173/5174; use the port it actually prints).
+4. Open the local dev page with `admin=1` and drop a `.wotbreplay` into it, e.g.
+   `http://localhost:<port>/?view=agent-replay&agentViews=1&admin=1`. `admin=1` is a dev-only
+   visibility bypass (WotbTools `useAuth.js`): dev builds treat the `wotbtools-admin`/`HoF-admin`
+   realm roles as held, which local accounts normally lack; production builds ignore it and the
+   backend still enforces real auth.
+5. The WotbTools side of this workflow is documented in its `docs/frontend/local-production-dev.md`
    and `frontend/AGENTS.md`.
