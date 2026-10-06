@@ -620,7 +620,7 @@ fn lerp_angle(a: f32, b: f32, t: f32) -> f32 {
 mod referee {
     use super::*;
     use std::collections::HashMap;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     fn collect_replay_files(root: &Path) -> Vec<std::path::PathBuf> {
         if root.is_file() {
@@ -1192,7 +1192,7 @@ mod aoi_reentry {
     }
 
     fn median(v: &mut [f32]) -> f32 {
-        v.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
         if v.is_empty() { 0.0 } else { v[v.len() / 2] }
     }
 
