@@ -57,6 +57,12 @@ testing** happen in the WotbTools repository (https://github.com/A158Coke/WotbTo
   for the standard posture (`serve_asset_pack.mjs` + `npm run dev` + `admin=1`).
 - Cross-repo consequence: UI fixes may still need parser-side support here (e.g. a data field
   the UI consumes). Land the parser part here first, then the UI change in WotbTools.
+- Scene-runtime changes that ride the shared Web/Android bundle (playbackScene, scene shaders,
+  asset-consumption logic) must increment `android/gradle.properties:wotbVersion` in the same
+  WotbTools PR (its `.agents/AGENTS.md` "Android Version-as-Code" rule): `android-release.yml`
+  only listens for that file on main pushes — without the bump a merge ships Web only and no new
+  APK. Asset-data fixes (COS bucket) and WASM releases are separate delivery channels and do not
+  require a version bump by themselves.
 - Background: [README §与 WotbTools 的关系](README.md), [docs/index.md](docs/index.md) §前端面收敛,
   [docs/architecture-debt.md](docs/architecture-debt.md).
 
