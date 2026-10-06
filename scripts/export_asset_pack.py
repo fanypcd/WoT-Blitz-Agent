@@ -11,6 +11,9 @@
     ├── data/{tanks.pb, models.pb, tank_cache.json, data_version.json}
     └── map/{key}/
         ├── ground.webp                 # /api/playback/map 的高清底图答案
+        │                               # （含 tools/bake_ground_roofs.py 的场景正交俯视烘焙：
+        │                               #   屋顶/树冠/草丛按真实遮挡关系合成；导出包后需重跑
+        │                               #   `python tools/bake_ground_roofs.py --all --write`）
         ├── mini.webp                   # res=mini 的答案
         ├── terrain.u16.bin             # /api/playback/terrain 的答案
         ├── terrain.json                # X-Terrain-Meta 头的 sidecar 化 {size,zmax,zmin,span}
