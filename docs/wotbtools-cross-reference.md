@@ -166,6 +166,14 @@ WotbTools 的 canonical 流水线（Java `wotb-core` + 前端）需要 Agent 侧
 - **攻防基地 canonical 0**（上游同步）：对方 `baseStatus` 把攻防基地 canonical 0 在显示层映射为
   idle——本仓 `frontend/src/scene/baseStatus.js` 已同步（`arena.rs` 探针口径不变：canonical 0
   仍是"无基地数据"）。
+- **车辆实际搭载配置与弹容**（2026-10-06，additive）：`vehicles[].config_idx` = 该车实际搭载配置
+  在坦克数据 `configs[]` 数组中的下标（comp blob → 弹种 → 血量证据链 = `resolve_config_index`，
+  与 shots 的 `shooter_config_idx` 同域）；`vehicles[].burst_size` = 该配置的弹夹容量**原值**
+  （0 = 单发；configs 唯一时即便 config_idx 不解析也给出）。`burst_size` 是**装填条弹容 N 的
+  唯一权威取值**——多炮坦克各炮弹容不同（资产包 735 台中 52 台跨配置不一致：T69 4/3、
+  AC Wedge 0/6、Medium I 0/15 等），跨配置取最大或用剩余弹数 +1（f4）推断都会错格，
+  裁决详见 §六 末「弹容 N 裁决」。缓存键回归：同 tank_id 不同玩家可搭载不同配置，
+  解析缓存不得按 tank_id 单键共享。
 
 **剩余待办：**
 
@@ -215,3 +223,25 @@ BlitzKit `burst_size` 三方一致（63 车互验）。**subtype 16 = 引擎 `Re
 WotbTools `frontend/src/scene/reloadBar.js`（42 条单测，含整夹/弹鼓/取消/f4 漂移纠正/
 方法 35 作用域回归），本仓同构副本 `frontend/src/scene/reloadBar.js`。协议事实另记入
 [回放与射击逆向总集.md](回放与射击逆向总集.md) 第一篇 §3.8、§3.10。
+
+### 弹容 N 裁决（2026-10-06 补充）
+
+**弹容 N（装填条分格数）的唯一权威取值 = `vehicles[].burst_size`**——解析面按回放 comp
+blob（ARENA_INFO subtype 1）证据链解析出的**实际搭载主炮配置**，直接给出该配置在坦克数据
+里的弹夹容量（`configs[config_idx].burst_size` 原值，0 = 单发）。消费端无需再联表坦克数据、
+无需等异步取数，也不存在取数失败时的降级歧义。
+
+- **禁用旧推断**：不再用「消息流剩余弹数最大值 + 1」（f4 快照推断，`inferMagazineSize`）求 N——
+  f4 快照继续用于**在膛发数**重锚（语义不变），只是不再参与 N。
+- **禁用跨配置取最大**：`configs[].burst_size` 跨配置取最大在多炮坦克上取到的是未搭载炮的弹容
+  （实测资产包 735 台中 52 台跨配置不一致；混合形态含"单发炮 + 弹夹炮"与"两门弹夹炮容量不同"
+  ——T69 4/3、T54E1 4/3、ATAC 6/12、AC Wedge 0/6、Medium I 0/15 等）。
+- **回退**：`burst_size` 缺失（坦克数据缺失或配置证据链未命中）→ 单发（1），不猜；
+  configs 唯一时无歧义，直接给该唯一配置的原值（config_idx 仍不解析，与既有语义一致）。
+- **客户端（WASM）路径**：浏览器解析无坦克数据注入，`vehicles[]` 另行透传 comp blob 的
+  模块局部 id（`turret_local`/`gun_local`，纯回放证据）；消费方用资产面 `tank/{id}.json`
+  联表 `configs[]` 按**同一三级证据链**（comp locals → 发射弹种 `shell_ids` → 初始血量
+  `max_hp`）自行钉定实际搭载配置（WotbTools `reloadBar.resolveMountedConfig`，与
+  `resolve_config_index` 同语义并有测试锁定）。
+- **时长不受影响**：装填时长/进度基准仍全部来自相位 f3 + `reload_effective`（回放广播真值，
+  一场只装一门炮，天然按实际炮正确），本裁决只改 N 的来源。

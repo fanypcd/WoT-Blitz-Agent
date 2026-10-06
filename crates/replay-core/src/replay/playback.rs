@@ -159,6 +159,25 @@ pub struct VehicleTrack {
     /// 实际搭载的主炮配置（dense 索引；语义同上）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gun_index: Option<u32>,
+    /// 实际搭载配置在坦克数据 `configs[]` 数组中的下标（与 shots 的 `shooter_config_idx`
+    /// 同域）：`configs[config_idx].burst_size` = 该车实际搭载主炮的弹夹容量——装填条
+    /// 弹容 N 的权威取值（多炮坦克各炮弹容不同，**禁止**跨配置取最大/用剩余弹数+1 推断）。
+    /// None = 证据不足（configs 唯一或证据链未命中），消费端回退顶级配置。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_idx: Option<u32>,
+    /// 实际搭载主炮的弹夹容量（= `configs[config_idx].burst_size` 原值；**0 = 单发**，
+    /// 消费端 ≤1 都读作单发）。config_idx 未解析但 configs 唯一时仍给出（唯一配置无歧义）；
+    /// None = 坦克数据缺失或配置证据链未命中，消费端按单发（1）处理、不猜。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub burst_size: Option<u32>,
+    /// comp blob（ARENA_INFO subtype 1）透传的炮塔模块局部 id（module_id>>8）——
+    /// **纯回放证据**，与坦克数据无关：消费端用 `configs[].turret_local` 联表即可在
+    /// 无坦克数据注入的路径（WASM 客户端）自行钉定实际搭载配置。None = 无 comp 证据。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turret_local: Option<u16>,
+    /// comp blob 透传的主炮模块局部 id（语义同上）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gun_local: Option<u16>,
     /// 有效数据区段 flat [t0, t1, ...]（闭区间对）
     pub coverage: Vec<f32>,
     /// 位姿关键帧折线（渲染层**精确**表示，见 [`PoseKeyframes`]）。旧 facet 缺省 = None，
@@ -423,6 +442,28 @@ pub fn comp_descriptors_from_updates(
         }
     }
     out
+}
+
+/// 把 comp blob 的模块局部 id 透传到车辆 facet（`turret_local` / `gun_local`）。
+/// **纯回放证据，无坦克数据依赖**——服务器与 WASM（客户端）路径共用：消费端用
+/// `configs[].turret_local`/`gun_local` 联表即可在无坦克数据注入的路径（浏览器 WASM）
+/// 钉定实际搭载配置（实际搭载配置解析的上游证据链见 tank_configs::resolve_config_index）。
+/// 匹配规则 = 昵称 + tank_id 低 16 位（与 [`collect_comp_descriptors`] 的键一致）。
+pub fn annotate_vehicle_comp_locals(
+    vehicles: &mut [VehicleTrack],
+    comps: &HashMap<String, CompDescriptor>,
+) {
+    for v in vehicles.iter_mut() {
+        if v.tank_id == 0 {
+            continue;
+        }
+        if let Some(c) = comps.get(&v.nickname) {
+            if (c.tank_id & 0xFFFF) == (v.tank_id & 0xFFFF) {
+                v.turret_local = Some(c.turret_local);
+                v.gun_local = Some(c.gun_local);
+            }
+        }
+    }
 }
 
 /// 战局阶段点（updateArena PERIOD；前端据此显示战斗计时器）
@@ -849,6 +890,10 @@ pub fn from_model(
             equipment: rec.and_then(|r| r.equipment),
             turret_index: None,
             gun_index: None,
+            config_idx: None,
+            burst_size: None,
+            turret_local: None,
+            gun_local: None,
             coverage: build_coverage(&clocks),
             pose_kf: Some(pose_keyframes(&tl)),
         });

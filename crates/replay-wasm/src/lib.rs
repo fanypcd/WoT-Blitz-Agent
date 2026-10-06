@@ -131,7 +131,13 @@ pub fn playback_json(
         pitch_limits: &limits,
         tank_names: &tank_names,
     };
-    let playback = wotb_replay_core::replay::playback::from_model(&model, &render)?;
+    let mut playback = wotb_replay_core::replay::playback::from_model(&model, &render)?;
+    // comp blob 模块局部 id 透传（纯回放证据，无坦克数据依赖）：消费端用
+    // 资产面 tank/{id}.json 的 configs[].turret_local/gun_local 联表，即可在客户端
+    // 路径钉定实际搭载配置（弹容 N 的上游权威 = 服务器路径的 config_idx/burst_size）。
+    let valid_tanks: Vec<u32> = summary.players.iter().map(|p| p.tank_id).collect();
+    let comps = wotb_replay_core::replay::playback::collect_comp_descriptors(&packets, &valid_tanks);
+    wotb_replay_core::replay::playback::annotate_vehicle_comp_locals(&mut playback.vehicles, &comps);
     Ok(serde_json::to_string(&playback)?)
 }
 
