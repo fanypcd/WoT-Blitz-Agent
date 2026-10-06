@@ -1,6 +1,6 @@
 # 文档索引
 
-> 全部 Markdown 文档的定位与状态一览（2026-10-03 整理）。入口永远是根目录 [README](../README.md)。
+> 全部 Markdown 文档的定位与状态一览（2026-10-06 整理）。入口永远是根目录 [README](../README.md)。
 
 ## 使用文档（随项目演进，保持最新）
 
@@ -26,7 +26,7 @@
 > [docs/vue-migration-plan.md](vue-migration-plan.md) 里提到的 `scripts/package.ps1` /
 > `build-all.ps1` 同样只作历史记录——桌面便携包打包链已删除，前端仅本机调试用。
 
-## 对接消费方（WotbTools）的当前进度（2026-10-03）
+## 对接消费方（WotbTools）的当前进度（2026-10-06）
 
 本项目的回放能力由 WotbTools 以 WASM/静态资产面消费（上游契约与版本锁定见对方仓
 `contracts/agent/replay-facets-v2.md`、`deploy/agent/source.json`）。面向消费方的**最新一轮**
@@ -49,8 +49,11 @@
 
 切面字段均为**附加**（`AiReviewFacet` v1 / `PlaybackData` v2 版本不变）。
 
-**对方侧状态（2026-10-05 更新）**：`deploy/agent/source.json` 当前 pin **`v0.3.11` / `73ea422a`**
-（v0.3.4–v0.3.11 增量已在生产链路；v0.3.12 可破坏地形切面 + 资产已入 COS，待对方 pin 后消费端 `feat/playback-destructibles` 生效）；此前对方完成**客户端解析迁移**（A158Coke/WotbTools#447
+**对方侧状态（2026-10-06 更新）**：`deploy/agent/source.json` 当前 pin **`v0.3.14` / `9ad2ef4`**
+（v0.3.4–v0.3.14 增量已在生产链路：对方 2026-10-05 接连 pin v0.3.12 可破坏地形 /
+v0.3.13 pose_kf+弹道折线 / v0.3.14 昵称修复；消费端 `feat/playback-destructibles` 已于
+2026-10-06 以 PR #537 合入对方 main；**v0.3.15** 实际搭载配置 + AoI 段化滤波已发布、
+待对方 pin，对消费端零契约变化）；此前对方完成**客户端解析迁移**（A158Coke/WotbTools#447
 「服务器没有 parser」）——服务端解析器模块整体删除，浏览器/Android 跑本项目的 WASM，**本项目由此成为
 该仓唯一的回放解析器**；AI 复盘走 WASM → canonical facts → `ClientAiReviewProjection`，parity 由
 `ClientAiProjectionParityTest` 进 required CI 常驻看护。

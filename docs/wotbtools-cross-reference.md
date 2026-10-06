@@ -196,9 +196,13 @@ WotbTools 的 canonical 流水线（Java `wotb-core` + 前端）需要 Agent 侧
   `coverage`（packet 计数与 `decodedPacketRatio`）、`finish_reason`、`unsupported_damage`
   （只有双方无数值），并实测确认 `Shot.game_hit_result` 与对方 Java `primaryResultRaw` 同义。
   其中"未钳零原始 HP"与"Visibility 当前 HP"已由 v0.3.5 的 `hp_raw` 覆盖。
-- 上游版本同步：**已解除**——对方 `deploy/agent/source.json` 现已 pin `v0.3.9` / `b4e50e1`
-  （2026-10-03 核对），v0.3.4–v0.3.9 的切面增量已在其生产链路上（此前对方完成"服务器没有 parser"
-  的客户端解析迁移 #447，本项目由此成为其唯一回放解析器；装填条渲染对齐落在对方 PR #451）。
+- 上游版本同步：**已解除**——对方 `deploy/agent/source.json` 现已 pin `v0.3.14` / `9ad2ef4`
+  （2026-10-06 核对：对方 2026-10-05 接连 pin v0.3.12 可破坏地形 / v0.3.13 pose_kf+弹道折线 /
+  v0.3.14 昵称修复），v0.3.4–v0.3.14 的切面增量已在其生产链路上（此前对方完成"服务器没有 parser"
+  的客户端解析迁移 #447，本项目由此成为其唯一回放解析器；装填条渲染对齐落在对方 PR #451；
+  可破坏地形消费端 `feat/playback-destructibles` 已于 2026-10-06 以 PR #537 合入对方 main）。
+  **v0.3.15**（实际搭载配置 + AoI 段化滤波）已发布、待对方 pin——该版本对消费端零契约变化
+  （additive 字段 + 重入车辆数值修正），对方 pin 后自动生效。
 
 ## §六 装填数据裁决（2026-10-02 定稿，v0.3.9）
 
