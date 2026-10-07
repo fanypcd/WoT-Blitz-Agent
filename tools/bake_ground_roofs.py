@@ -338,7 +338,7 @@ def span_of(meta) -> float:
     return max(wb["max"][0] - wb["min"][0], wb["max"][1] - wb["min"][1])
 
 
-def bake_map(pack: Path, key: str, write: bool, quality: int) -> dict:
+def bake_map(pack: Path, key: str, write: bool, quality: int, min_score: float = 0.02) -> dict:
     mdir = pack / "map" / key
     glb_path, ground_path, mini_path = mdir / "scenery.glb", mdir / "ground.webp", mdir / "mini.webp"
     for p in (glb_path, ground_path, mini_path):
@@ -354,7 +354,13 @@ def bake_map(pack: Path, key: str, write: bool, quality: int) -> dict:
 
     mini = np.asarray(Image.open(mini_path).convert("RGB"))
     scores = calibrate(flat_tris, np.asarray(Image.fromarray(mini).convert("L")), span)
-    best = max(scores, key=lambda k: (scores[k] if scores[k] == scores[k] else -1))
+    valid_scores = {k: v for k, v in scores.items() if v == v}
+    best = max(valid_scores, key=valid_scores.get) if valid_scores else None
+    # 置信门限：最高分低于阈值 = 没有任何朝向能与客户端小地图对上——
+    # 多半是小地图配色对比度不足（暗屋顶配暗地形等），此时**不写**（fail-closed：
+    # 错朝向的屋顶比没有屋顶糟），保留原底图待人工复核。
+    if write and (best is None or valid_scores[best] < min_score):
+        return {"key": key, "skipped": f"校准弱（best={best}:{round(valid_scores.get(best, float('nan')), 4) if valid_scores else 'nan'} < {min_score}），未写", "scores": {k: round(v, 4) for k, v in scores.items()}}
 
     ground = np.asarray(Image.open(ground_path).convert("RGB")).copy()
     size = ground.shape[0]
@@ -411,6 +417,15 @@ def self_test():
     print("self-test: ok")
 
 
+def _bake_worker(job):
+    """multiprocessing 工作函数（--jobs > 1 时按图并行；各图写各自目录，无竞争）。"""
+    pack, key, write, quality, min_score = job
+    try:
+        return bake_map(Path(pack), key, write, quality, min_score)
+    except Exception as e:  # noqa: BLE001 — 单图失败不断链
+        return {"key": key, "error": str(e)}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--pack", default="release/asset_pack")
@@ -418,18 +433,25 @@ def main():
     ap.add_argument("--all", action="store_true", help="遍历包内全部地图")
     ap.add_argument("--write", action="store_true", help="写回 ground.webp（缺省只校准+报告）")
     ap.add_argument("--quality", type=int, default=82, help="webp 质量（默认 82）")
+    ap.add_argument("--jobs", type=int, default=1, help="并行进程数（按图分片；每 worker 峰值 ~1GB）")
+    ap.add_argument("--min-score", type=float, default=0.02, help="朝向校准置信门限（低于则不写，fail-closed）")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
     if args.self_test:
         self_test()
         return
     pack = Path(args.pack)
-    keys = ([d.name for d in (pack / "map").iterdir() if d.is_dir()] if args.all else [args.map])
-    for key in keys:
-        try:
-            print(json.dumps(bake_map(pack, key, args.write, args.quality), ensure_ascii=False))
-        except Exception as e:  # noqa: BLE001 — 批处理时单图失败不断链
-            print(json.dumps({"key": key, "error": str(e)}, ensure_ascii=False))
+    keys = ([d.name for d in (pack / "map").iterdir() if d.is_dir()] if args.all
+            else ([args.map] if args.map else []))
+    jobs = [(str(pack), k, args.write, args.quality, args.min_score) for k in keys]
+    if args.jobs > 1 and len(jobs) > 1:
+        from multiprocessing import Pool
+        with Pool(min(args.jobs, len(jobs))) as pool:
+            for r in pool.imap_unordered(_bake_worker, jobs):
+                print(json.dumps(r, ensure_ascii=False), flush=True)
+        return
+    for job in jobs:
+        print(json.dumps(_bake_worker(job), ensure_ascii=False))
 
 
 if __name__ == "__main__":
