@@ -307,6 +307,69 @@ class MaterialLibrary:
         return merged
 
 
+class ClientMaterialFamily:
+    """材质 fx 名 → 客户端 shader 族与 define（决定叶卡/树材质的复刻方式）。
+
+    判定依据是**材质文件**（Data/Materials/<fx>.material，YAML），不是实体类：
+    .sc2 里 SpeedTreeObject 类只描述顶点流形态；上屏用哪套着色器由材质的
+    `Shader:` 行决定（客户端证据 = Data/Materials/Shaders/Default/speedtree-materials-*.sl
+    与 materials-*.sl 两份源码）：
+
+      speedtree-materials + SPHERICAL_LIT/PBR_SPEEDTREE：
+          varVertexColor = 0.282094 × SH(L0) × vertexOcclusion × aoMult
+      speedtree-materials 其余（legacy for old tree lighting）：
+          varVertexColor = color0 × treeLeafColorMul × treeLeafOcclusionMul
+                          + treeLeafOcclusionOffset          （**SH 完全不参与**）
+      materials（Textured.material 等）：普通受光材质——客户端按 lit 路线渲染
+          （如 skit 的芦苇/蕨：SpeedTreeObject 类 + Textured.material，颜色 =
+          albedo × flatColor × 场景光照），不适用叶卡的 unlit/SH 染色。
+
+    StandardSpeedTreeAllQualities 之类的模板（MaterialTemplate: ULTRA/HIGH/… 引用）
+    沿引用链逐档解析并取并集。
+    """
+
+    def __init__(self, game_data: pathlib.Path):
+        self.base = game_data / "Materials"
+        self._cache: dict[str | None, dict | None] = {}
+
+    def resolve(self, fx_path: str | None) -> dict | None:
+        name = (fx_path or "").rsplit("/", 1)[-1] or None
+        if name not in self._cache:
+            self._cache[name] = self._resolve(name, 0)
+        return self._cache[name]
+
+    def _resolve(self, name: str | None, depth: int) -> dict | None:
+        if not name or depth > 4:
+            return None
+        for cand in (self.base / (name + ".dvpl"), self.base / name):
+            if not cand.exists():
+                continue
+            try:
+                raw = cand.read_bytes()
+                text = (decode_dvpl(raw) if cand.suffix == ".dvpl" else raw).decode("utf-8", "replace")
+            except Exception:
+                return None
+            m = re.search(r"Shader:\s*(\S+)", text)
+            # Define 只看 UniqueDefines / QualityDependentUniqueDefines：IgnoreDefines
+            # 是"关闭"语义（SpeedTree.material 的 ShadowMap pass 就写着
+            # IgnoreDefines: [SPHERICAL_LIT, …]），全文匹配会把它误判成启用。
+            defines_text = "\n".join(
+                ln for ln in text.splitlines()
+                if "Defines" in ln and "IgnoreDefines" not in ln)
+            info = {"shader": m.group(1).rsplit("/", 1)[-1] if m else None,
+                    "speedtree": bool(m and "speedtree" in m.group(1).lower()),
+                    "spherical": "SPHERICAL_LIT" in defines_text}
+            if info["shader"] is None:   # 模板：沿 ULTRA/HIGH/… 的材质引用链取并集
+                for ref in re.findall(r"(~res:/Materials/[\w.\-]+\.material)", text):
+                    sub = self._resolve(ref.rsplit("/", 1)[-1], depth + 1)
+                    if sub is not None:
+                        info["speedtree"] |= sub["speedtree"]
+                        info["spherical"] |= sub["spherical"]
+                        info["shader"] = info["shader"] or sub["shader"]
+            return info
+        return None
+
+
 VARIANT_LABEL_RE = re.compile(r"^([a-z]+)(\d+)$")
 
 
@@ -930,10 +993,11 @@ class TextureStore:
         self._cache: dict[str, tuple[Image.Image | None, bool]] = {}
         # 颜色均值兜底（UV 缺失时给材质一个从贴图派生的底色）
         self.avg_color: dict[str, tuple[float, float, float] | None] = {}
-        # 源容器为 DDS 的贴图：decode_dds 内部做过一次垂直翻转（row0=authored
-        # bottom），嵌入 GLB 前需翻回（glTF v=0 ↔ row0；客户端对 DDS 的 v=0 =
-        # authored top，D3D 约定——地面烘焙链路已对 colormap 逐像素验证）。
-        # PVR 源经 tileMask 验证为"解码即对"，保持原样。
+        # 源容器为 DDS 的贴图（仅诊断/追溯用，不参与嵌入决策）：decode_dds 与
+        # decode_pvr3 各自都在解码里翻过一次（消掉容器行序），嵌入 GLB 时统一
+        # 再翻回"文件原始行序"——glTF v=0 ↔ 图像首行，与客户端 D3D v=0 =
+        # authored top 对齐（DDS 侧地面烘焙链路已逐像素验证；PVR 侧 2026-10-07
+        # 由叶卡 UV 窗口覆盖率与标牌贴图方向实测校正，见 _build_material）。
         self.from_dds: dict[str, bool] = {}
 
     def _candidates(self, tex_path: str) -> list[pathlib.Path]:
@@ -1181,12 +1245,14 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
     # `.tex` 相对路径解析根：地图目录（landscape/... 等）与 3d/Maps 根
     # （`../00_global_content/...` 去掉 ../ 后即相对此根）
     textures = TextureStore(directory, [directory.parent])
+    families = ClientMaterialFamily(game_data)
     glb = GlbBuilder()
 
     # ---- 几何按 datasource 去重（客户端同型物体共享 PolygonGroup）、材质按
     # 解析后的 albedo 去重（实例级 NMaterial 只是挂同一贴图树的空壳）----
     mesh_by_ds: dict[int, int] = {}
     alpha_bake_cache: dict[tuple, Image.Image] = {}
+    flat_tint_cache: dict[tuple, Image.Image] = {}
     material_index_by_albedo: dict[tuple, int] = {}
     stats = {"decode_fail": 0, "no_group": 0, "no_uv": 0, "uv1": 0, "no_texture": 0,
              "impostor": 0, "flatcard": 0, "tree_lod_batch": 0, "st_cards": 0,
@@ -1239,6 +1305,11 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         if group is None:
             stats["no_group"] += 1
             continue
+        # 材质 shader 族（决定是否 SpeedTree 叶卡/树材质：billboard 重建 + 不受光染色）
+        fam = families.resolve((materials.resolve(material_id).get("fxName")))
+        # 材质文件缺失（Materials.custom 等）→ 回退旧口径：按实体类判 ST + SH 染色
+        st_family = fam["speedtree"] if fam is not None else (cls == "SpeedTreeObject")
+        st_spherical = fam["spherical"] if fam is not None else True
         try:
             positions = decode_polygon_positions(group)
             raw_indices = decode_polygon_indices(group)
@@ -1273,15 +1344,18 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         # SCG 的 POSITION 是"锚点 pivot + 角点偏移"的展开态——pivot.w=1 时客户端
         # 渲染完全锚定 pivot，角点偏移每帧旋转风摆相位后在视空间加回（叶卡恒
         # 面向相机）。导出锚点为 POSITION、角点偏移/烘焙遮挡为自定义属性，
-        # 前端着色器逐帧重建；非卡片布局（树干等）返回 None 走静态路径
-        card = decode_speedtree_card(group) if cls == "SpeedTreeObject" else None
+        # 前端着色器逐帧重建；非卡片布局（树干等）返回 None 走静态路径。
+        # billboard 变换只存在于 speedtree-materials 着色器里——材质非该族
+        # （Textured.material 等）时客户端就是静态几何，不做卡片重建
+        card = (decode_speedtree_card(group)
+                if (st_family and cls == "SpeedTreeObject") else None)
         if card is not None:
             stats["st_cards"] = stats.get("st_cards", 0) + 1
         # 新一代（92B）混合批：切成「锚定叶簇（卡片路径）+ 刚体余量（静态路径，
         # 工作集 positions/indices/uvs 就地替换为子集——下游 uv1 烘焙/材质/网格
         # 全部一致使用子集）」。守卫不过 → None，行为与旧版（整组静态）相同
         gen2 = (decode_speedtree_card_gen2(group)
-                if (cls == "SpeedTreeObject" and card is None) else None)
+                if (st_family and cls == "SpeedTreeObject" and card is None) else None)
         if gen2 is not None:
             stats["st_cards_gen2"] = stats.get("st_cards_gen2", 0) + 1
             if gen2["rigid"] is not None:
@@ -1325,6 +1399,7 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
                              _prop_floats(mat_desc, "flatColor", (1, 1, 1, 1))[:3])
         anim_layer = bool((mat_desc.get("flags") or {}).get("TEXTURE0_ANIMATION_SHIFT"))
         needs_bake = (decal_path or mask_path) and uvs1 is not None and img is not None
+        flat_baked = False   # UV1 烘焙已含 flatColor 时不重复染色
         if needs_bake and (flat_rgb != (1.0, 1.0, 1.0) or anim_layer or decal_path):
             bake_key = (albedo_path, decal_path, mask_path, flat_rgb)
             if bake_key not in alpha_bake_cache:
@@ -1340,27 +1415,52 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
             baked = alpha_bake_cache.get(bake_key)
             if baked is not None:
                 img = baked
+                flat_baked = True
                 if mask_path:
                     has_alpha = True
-        # SpeedTree 材质（speedtree-materials-fp.sl）：color = albedo × SH(L0)
-        # × varVertexColor——无场景光照，alpha discard 0.5。标记 ST| + SH 染色，
-        # 前端据此用不受光材质（我们此前的 Lambert+太阳让随机卡片亮度
-        # 随朝向乱变，与客户端的均匀叶色完全不符）。
-        # **SH 按字面 RGB 三通道导出（2026-10-07 定版）**：karelia/neptune 等
-        # 图的 SHCoeff 是真实每树彩色环境（karelia (0.37,0.50,0.50) 冷调黄昏、
-        # neptune (0.9,1.0,1.19)），erlenberg/medvedkovo 恒为 √π 灰——两种都是
-        # 客户端按字面乘的数据。此前的两处偏差都已撤销/修正：①「√π 归一化」
-        # 理论源于把地面 colormap 误当树冠烘焙真值（对照实验：colormap 无树冠
-        # 信号），已撤；②旧钳制 min(occ×SH,1.35) + occMean 归一化把 ×1.77 压平
-        # 成 ×1.35 且抹掉叶簇内 AO 明暗对比——树叶发灰发平（erlenberg 实测报障）。
-        # occ_mean 固定导 1.0（= 停用前端均值归一化，vOcc 直乘）；
-        # 乘积钳制由前端放宽到 2.0（旧包走旧钳制，双版本兼容）。
-        is_st = cls == "SpeedTreeObject" and sh_l0 is not None
+        # FLATCOLOR 整图染色（客户端 speedtree-fp / materials-fp 皆为采样后
+        # baseColor *= flatColor）。此前只随 UV1 覆盖烘焙顺带应用，独立 FLATCOLOR
+        # 材质（skit 芦苇叶 1.345/1.145/1.030、port 树皮 1.354/1.070/0.502、
+        # holland 灌木 2.491/2.073/1.683 等）被静默丢弃。逐通道伽马空间相乘，
+        # 与客户端同式；按 (albedo, 染色) 缓存，避免共享贴图被就地改写。
+        if (img is not None and not flat_baked and flat_rgb != (1.0, 1.0, 1.0)
+                and (mat_desc.get("flags") or {}).get("FLATCOLOR")):
+            tint_key = (albedo_path, flat_rgb)
+            if tint_key not in flat_tint_cache:
+                flat_tint_cache[tint_key] = apply_flat_tint(img, flat_rgb)
+            img = flat_tint_cache[tint_key]
+            stats["flat_tinted"] = stats.get("flat_tinted", 0) + 1
+        # SpeedTree 材质族（客户端 speedtree-materials.sl）：无场景光照，
+        # color = albedo × varVertexColor，alpha discard 0.5——标记 ST| 让前端走
+        # 不受光材质（我们此前的 Lambert+太阳让随机卡片亮度随朝向乱变，与客户端
+        # 的均匀叶色完全不符）。
+        # **族判定按材质、不按实体类（2026-10-07 勘误）**：.sc2 的 SpeedTreeObject
+        # 类只决定顶点流形态，上屏着色器由材质文件 `Shader:` 行决定——芦苇/蕨
+        # （skit Cattail/BostonFern）虽是 SpeedTreeObject 类但材质是 Textured.material，
+        # 客户端按普通【受光】几何渲染（materials shader），旧口径把它们当 ST|
+        # 不受光 + SH 加亮 = 芦苇/蕨异常偏亮发平的根因。
+        # 染色按材质族分派（同一份客户端源码的两个分支，见 ClientMaterialFamily）：
+        # - SPHERICAL_LIT/PBR_SPEEDTREE：SH(L0) 字面 RGB（2026-10-07 定版，erlenberg
+        #   实测）；客户端另乘 0.282094(≈A0) 与 aoMult，属已知偏差，本前端未复刻。
+        # - legacy（SpeedTree.material）：**SH 完全不参与**——客户端公式为
+        #   color0 × treeLeafColorMul × treeLeafOcclusionMul + treeLeafOcclusionOffset；
+        #   skit/karelia/canal 等图全体树木走这一支，skit 该组属性 = (1,1,1)/1.0
+        #   ⇒ 叶色 = albedo × COLOR0，旧口径乘 SH(1.7725) 使叶片偏亮 77%（实测报障）。
+        is_st = bool(st_family)
         if is_st:
-            if isinstance(sh_l0, tuple):
-                st_tint = tuple(min(c, 2.0) for c in sh_l0)
+            if st_spherical and sh_l0 is not None:
+                if isinstance(sh_l0, tuple):
+                    st_tint = tuple(min(c, 2.0) for c in sh_l0)
+                else:
+                    st_tint = (min(sh_l0, 2.0),) * 3
+            elif st_spherical:
+                st_tint = (1.0, 1.0, 1.0)   # 无 SHCoeff：等价只乘 color0（客户端同式）
             else:
-                st_tint = (min(sh_l0, 2.0),) * 3
+                # 属性缺省 = shader 默认（treeLeafColorMul 0.5 / OcclusionMul 0.5 / Offset 0）
+                tcm = _prop_floats(mat_desc, "treeLeafColorMul", (0.5, 0.5, 0.5, 0.5))
+                tom = _prop_floats(mat_desc, "treeLeafOcclusionMul", (0.5,))
+                too = _prop_floats(mat_desc, "treeLeafOcclusionOffset", (0.0,))
+                st_tint = tuple(min(max(tcm[i] * tom[0] + too[0], 1e-3), 4.0) for i in range(3))
         else:
             st_tint = None
         card_occ = (card["occ_mean"] if card is not None
@@ -1571,6 +1671,16 @@ def bake_uv1_overlays(base_img: Image.Image, decal_img, mask_img,
     return Image.fromarray(arr.astype(np.uint8), "RGBA")
 
 
+def apply_flat_tint(img: Image.Image, tint) -> Image.Image:
+    """FLATCOLOR 整图染色：RGB 逐通道乘 tint（伽马空间，与客户端 fragment 同式）。
+
+    输入输出均 RGBA；返回新图（调用方按 (albedo, tint) 缓存，切勿就地改缓存贴图）。
+    """
+    arr = np.asarray(img.convert("RGBA"), np.float32).copy()
+    arr[..., :3] = np.clip(arr[..., :3] / 255.0 * np.asarray(tint[:3], np.float32), 0.0, 1.0) * 255.0
+    return Image.fromarray(arr.astype(np.uint8), "RGBA")
+
+
 def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | None,
                     mat_desc: dict, img: Image.Image | None, has_alpha: bool,
                     blend: bool = False, opacity: float | None = None,
@@ -1580,7 +1690,8 @@ def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | 
     blend=True（TEXTURE0_ANIMATION_SHIFT 效果层：瀑布/波纹/烟雾）：客户端在
     Translucent 层做 alpha 混合，用 BLEND 模式近似；其余透明材质（树叶卡片）
     为 alpha test，用 MASK。
-    st_tint：SpeedTree SH(L0) 逐通道染色（RGB 三元组，字面值）。
+    st_tint：SpeedTree 材质族染色（RGB 三元组；SPHERICAL_LIT 族 = SH(L0) 字面值，
+    legacy 族 = treeLeafColorMul×treeLeafOcclusionMul+Offset——**SH 不参与**）。
     """
     base_name = (mat_desc.get("materialName") or "mat")[:60]
     base = {"name": ("ST|" + base_name) if st_tint is not None else base_name,
@@ -1591,9 +1702,13 @@ def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | 
     if occ_mean is not None:
         base["extras"] = {"occMean": occ_mean}   # 前端遮挡除数；1.0 = vOcc 直乘（客户端同式）
     if img is not None:
-        # DDS 源贴图翻回 authored 方向（row0=top）再嵌入——glTF v=0 ↔ 图像首行，
-        # 与客户端 D3D 采样约定对齐；PVR 源解码即对齐，不翻
-        embed = img.transpose(Image.FLIP_TOP_BOTTOM) if textures.from_dds.get(albedo_path) else img
+        # 源贴图统一翻回"文件原始行序"再嵌入——decode_dds / decode_pvr3 各自
+        # 都在解码里翻过一次（消掉容器行序），此处再翻即为文件行序，对齐
+        # glTF v=0 ↔ 图像首行与客户端 D3D v=0 = authored top。
+        # **此前只对 DDS 源翻**：PVR 源（SpeedTree 叶卡图集/芦苇等）净效果上下
+        # 颠倒，叶卡 UV 窗口全部落在图集空白区 → 树叶只剩零星小点（2026-10-07
+        # 实测报障：skit skt_fir_leafs 叶卡主窗口覆盖率 5.4% → 翻正后 35.2%）。
+        embed = img.transpose(Image.FLIP_TOP_BOTTOM)
         buf = io.BytesIO()
         if has_alpha:
             embed.save(buf, "PNG")
