@@ -61,8 +61,19 @@ testing** happen in the WotbTools repository (https://github.com/A158Coke/WotbTo
   asset-consumption logic) must increment `android/gradle.properties:wotbVersion` in the same
   WotbTools PR (its `.agents/AGENTS.md` "Android Version-as-Code" rule): `android-release.yml`
   only listens for that file on main pushes — without the bump a merge ships Web only and no new
-  APK. Asset-data fixes (COS bucket) and WASM releases are separate delivery channels and do not
-  require a version bump by themselves.
+  APK.
+- **When in doubt, check whether the change alters the Android bundle at all** — the APK embeds
+  a snapshot of the shared web bundle, so anything that changes what that bundle serves is a
+  runtime change for Android users and needs the `wotbVersion` bump. Besides scene-runtime code,
+  this includes: **WASM pin bumps** (`deploy/agent/source.json` — `android-release.yml` runs
+  `fetch-agent-wasm.sh` against the pin and packs the result into APK assets;
+  `bundle-manifest.json` records `agentWasm.commit/release`, so a pin bump with no version bump
+  would ship a different runtime under the same versionCode and could not replace a staged
+  build), parser-facing contract adaptations the bundle consumes, and asset/serving-path changes
+  baked into the bundle. Only changes that never reach the APK (server-side only, COS asset data
+  alone, docs) skip the bump. Bump in the *same* WotbTools PR as the change.
+- Authored a release here? The release itself (tag/artifact) needs no WotbTools version bump —
+  it is the *pin bump that consumes it* in WotbTools that does.
 - **Asset-data changes must be re-synced to COS** (bucket `wotbtools-assets-1478073677`, the
   production origin proxied by tx Caddy) or production users never see them. Any change that
   alters asset-pack content qualifies: map re-export, ground rebake
