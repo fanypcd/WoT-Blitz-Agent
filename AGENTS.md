@@ -63,6 +63,16 @@ testing** happen in the WotbTools repository (https://github.com/A158Coke/WotbTo
   only listens for that file on main pushes — without the bump a merge ships Web only and no new
   APK. Asset-data fixes (COS bucket) and WASM releases are separate delivery channels and do not
   require a version bump by themselves.
+- **Asset-data changes must be re-synced to COS** (bucket `wotbtools-assets-1478073677`, the
+  production origin proxied by tx Caddy) or production users never see them. Any change that
+  alters asset-pack content qualifies: map re-export, ground rebake
+  (`tools/composite_overhead.py` after `bake-ground-overhead.mjs`), texture/material fixes.
+  Re-running `scripts/export_asset_pack.py` **rebuilds the pack from scratch and overwrites
+  overhead-baked grounds** — after an export, re-run the composite
+  (`python tools/composite_overhead.py --all --write`; overhead renders cache in
+  `release/overhead-bake/`), then re-sync: `COS_SECRET_ID=… COS_SECRET_KEY=…
+  python tools/upload_asset_pack_cos.py --local release/asset_pack` (skips byte-identical
+  objects, uploads only the delta). Credentials are env-var only, never committed.
 - Background: [README §与 WotbTools 的关系](README.md), [docs/index.md](docs/index.md) §前端面收敛,
   [docs/architecture-debt.md](docs/architecture-debt.md).
 
