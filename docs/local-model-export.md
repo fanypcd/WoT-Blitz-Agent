@@ -1,8 +1,11 @@
 # 坦克模型的本机自产管线与两来源对照
 
-> 2026-10-01 实施记录。**不替换运行期数据源**：BlitzKit 缓存 `data/cache/models/` 仍是
-> Web/查看器的来源；本管线把客户端自产版本写到 `data/cache/local_models/`，两者并存并
-> 逐辆对照。可行性依据见 [feasibility-glb-local-export.md](feasibility-glb-local-export.md)（报告 B）。
+> 2026-10-01 实施记录。写作时的口径是"**不替换运行期数据源**"（BlitzKit 缓存
+> `data/cache/models/` 仍是 Web/查看器的来源，本管线写到 `data/cache/local_models/` 并存
+> 逐辆对照）；**2026-10-07 已改为替换**：`data/cache/models/` 整体换为本地导出，与
+> `local_models/` 逐辆逐字节一致（735/735），包与 COS 随发——现状与接线证据见
+> [data-inventory.md](data-inventory.md) §3。可行性依据见
+> [feasibility-glb-local-export.md](feasibility-glb-local-export.md)（报告 B）。
 
 ## 0. 结论
 
@@ -48,8 +51,8 @@ python tools/probe_switch.py <nation> <stem> [关键字]
 输出布局刻意与 BlitzKit 缓存平行，便于直接对照：
 
 ```
-data/cache/models/<tank_id>/{model,collision}.glb        ← BlitzKit（运行期来源，本管线不触碰）
-data/cache/local_models/<tank_id>/{model,collision}.glb  ← 本机自产
+data/cache/models/<tank_id>/{model,collision}.glb        ← 2026-10-07 起 = 本机自产（此前为 BlitzKit 缓存）
+data/cache/local_models/<tank_id>/{model,collision}.glb  ← 本机自产（导出落点；已与上者逐辆一致）
 data/cache/local_compare/<tank_id>_compare.png           ← 三视图并排 + 差异图
 data/cache/local_compare/compare_report.json             ← 逐辆/逐节点差异明细
 ```

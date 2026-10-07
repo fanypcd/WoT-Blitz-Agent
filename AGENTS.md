@@ -38,6 +38,21 @@ Inspecting a run while it is in flight (a snapshot, not a way to wait):
 - Public replay/facet contract changes must be documented together with the implementation.
 - WotbTools consumes this repository as the upstream replay parser. Parser fixes belong here first, then WotbTools updates its pinned Agent release.
 
+## Documentation follows the change
+
+Documentation ships in the **same commit** as the change it describes — not as a follow-up, and
+never skipped because the change "looks small":
+
+- `docs/index.md` — progress/errata entry: what changed, the evidence it rests on, and the blast
+  radius (which maps / artifacts / consumers are affected).
+- `docs/data-inventory.md` + `docs/game-data-sources.md` — data-plane facts (pack stats and
+  per-directory listings, generation and distribution chains, publishing pitfalls). They share one
+  set of facts: change one and sync the other.
+- Refresh the concrete numbers (counts, sizes, timestamps, hashes) whenever the artifact they
+  describe is regenerated — a stale figure is worse than no figure.
+- **Reverting a change means deleting its documentation**: no doc may keep describing behavior,
+  artifacts or pitfalls that no longer exist.
+
 ## Frontend ownership (read before touching `frontend/`)
 
 **This repository does not own the product frontend.** Frontend development **and frontend

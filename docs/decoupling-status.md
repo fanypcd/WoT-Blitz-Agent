@@ -15,8 +15,8 @@
 |---|---|---|
 | `game_data` 冻结故障修复（field2→field32） | ✅ 已在 main（`e3b22c3`；原分支载体已删） | [game-data-sources.md](game-data-sources.md) §6 |
 | 两处 pb 字段号 bug（引擎起火率 / 履带阻力） | ✅ 已提交 `5032251` | 报告 A §8；`data/tank_data/*.json` 重生成 |
-| **GLB 自产管线** | ✅ 可用，未接线 | `tools/export_tank_glb.py` + `tools/compare_tank_glb.py`；`collision` **735/735**、`model` **733/735** 逐字节等价（含 UV0/1/2 与节点顺序）；规则见 [local-model-export.md](local-model-export.md) §3 |
-| **封面图自产管线** | ✅ 可用，未接线 | `tools/export_tank_icons.py`；**730/735**（详见 §3） |
+| **GLB 自产管线** | ✅ **已接线（2026-10-07）** | `data/cache/models/` 已整体换为自产导出：735 辆的 `model.glb` + `collision.glb` 全量 generator = `wotb-agent local sc2 exporter`，与 `data/cache/local_models/` 逐辆逐字节一致（735/735），包与 COS 已随发（[data-inventory.md](data-inventory.md) §3）；工具 `tools/export_tank_glb.py` + `tools/compare_tank_glb.py`；原等价性口径：`collision` **735/735**、`model` **733/735** 逐字节等价（含 UV0/1/2 与节点顺序），规则见 [local-model-export.md](local-model-export.md) §3 |
+| **封面图自产管线** | ✅ 可用，未接线（包内仍 BlitzKit 源，抽样 80/80 命中） | `tools/export_tank_icons.py`；**730/735**（详见 §3） |
 | **`tanks.pb`/`models.pb` 本机解析器** | ✅ 可用，未接线 | `tools/extract_vehicles.py`（客户端 XML/components/yaml/en.yaml → 同构 JSON）+ `tools/compare_vehicle_data.py`（pb→同形 dict 逐字段对照）；`data/tank_id_bridge.json` 735 条已固化。全量对照（2026-10-04）：**全部数值字段 0 不一致**，残差仅 BK 侧枪序（238，非规范）、客户端无本地化的模块/车名（≈145，BK 用自家 DB 补齐）、4 辆 BK 弹种集合不同、1 辆类别词缺失（见 §2 C5） |
 | `baseRMMap` 通道搬迁（MR 槽） | ✅ 已提交 `923144d` | ch0→G（粗糙度）、ch1→B（金属度）；修后与 BlitzKit 的 G 通道一致 **1010/1011**；[local-model-export.md](local-model-export.md) §4.1 |
 | UV1/UV2 / `doubleSided` 对齐 | ✅ | TEXCOORD_1/2（139/18 辆）；`customCullMode==0`（1598/1598 零反例）——均见 [local-model-export.md](local-model-export.md) §3 |

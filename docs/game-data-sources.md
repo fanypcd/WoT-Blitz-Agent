@@ -27,7 +27,7 @@
 |---|---|---|---|
 | `data/tanks.pb` 坦克数据库 | BlitzKit `definitions/tanks.pb` | ✅ 完全 | §2.2 |
 | `data/models.pb` 模型定义 | BlitzKit `definitions/models.pb` | ✅ 完全 | §2.3 |
-| `data/cache/models/{id}/*.glb` | BlitzKit `tanks/{id}/{model,collision}.glb` | ✅ 需写转换器 | §2.4 |
+| `data/cache/models/{id}/*.glb` | **本机客户端**（`tools/export_tank_glb.py` 自产；2026-10-07 已换源并接线，BlitzKit CDN 仅缺失兜底） | ✅ 已实现并接线 | §2.4 |
 | `data/cache/tank_images/{id}.webp` | BlitzKit `tanks/{id}/icons/big.webp` | ✅ 完全 | §2.5 |
 | `data/game_data/{id}.json` 装甲/碰撞盒 | 本机客户端 DVPL（已本地） | — | §2.6 |
 | `data/tank_cache.json` | `tanks.pb` 派生（纯本地，**不经 WG API**） | ✅ 随 pb | — |
@@ -263,17 +263,27 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
 ### 5.2 资产面（COS）增量发布流程
 
 桶：`wotbtools-assets-1478073677`（ap-shanghai），布局与 `release/asset_pack/` 逐项对应，
-根 `manifest.json` 含全量 sha256（4124→4131 条）。发布要点：
+根 `manifest.json` 含全量 sha256（**4167 条**，2026-10-07）。**首选工具**：
+[tools/upload_asset_pack_cos.py](../tools/upload_asset_pack_cos.py)（差分比对 + 并发上传 +
+`manifest.json` 强传 + Cache-Control 策略）；下列要点同时是手工流程的检查单：
 
 1. **先做一致性安全检查**：比对桶内 `manifest.json` 与本地旧包快照的 sha256，并抽查若干
    对象核对清单哈希——确认桶处于预期状态，避免覆盖他人改动
 2. **按 manifest 差分上传**，只传真正变化的：`新增 + 内容变更` 的对象，外加 `manifest.json`
-   本身；本轮为 479 个对象（7 新增 + 472 变更，2.58 MB），其余 3652 个未触碰
-3. **不设 Content-Type**：桶内既有对象均未设置，保持一致以免引入元数据漂移
-4. **上传后回拉校验**：逐对象下载比对 sha256
-5. `manifest.json` 的 `generated` 是本次更新时刻，会与 `index.json`（地图资产未变）不同步；
-   若需两者一致须重跑 `export_asset_pack.py` 全量重打包
-6. 回滚素材：旧包状态的本地快照（`game_data/` + `tank/` + `manifest.json`），必要时原样传回
+   本身（2026-10-02 那轮 479 个对象 / 2.58 MB；2026-10-07 全量重导那轮 72 个对象 / 751.6 MB，
+   其余 4096 个未触碰）
+3. ⚠️ **判据是 `Content-Length`、不是哈希**：内容变了但字节数恰好相同的对象会被静默跳过
+   （2026-10-07 的 `map/lagoon/ground.webp` 即此例）。第 5 步的逐对象回拉校验能把这类漏网
+   捞出来，确认后须用 SDK `put_object` 强制覆盖
+4. ⚠️ **上传会遍历包目录下全部文件**：俯视烘焙的渲染中间产物 `<pack>/overhead/*.rgba`
+   （按图 64 MB，非包内资产）必须提前移出，约定缓存在 `release/overhead-bake/`；2026-10-07
+   曾误传 73 个对象 / ~2.4 GB（已清理）
+5. **上传后回拉校验**：逐对象下载比对 sha256
+6. **不设 Content-Type**：桶内既有对象均未设置，保持一致以免引入元数据漂移
+7. `manifest.json` 的 `generated` 是本次更新时刻，可能与 `index.json`（地图资产未变）不同步；
+   若需两者一致须重跑 `export_asset_pack.py` 全量重打包。另：`worktree_dirty=true` 的包
+   **不等于**标注 commit 的原样工作区（见 [data-inventory.md](data-inventory.md) §2.1）
+8. 回滚素材：旧包状态的本地快照（`game_data/` + `tank/` + `manifest.json`），必要时原样传回
 
 ---
 

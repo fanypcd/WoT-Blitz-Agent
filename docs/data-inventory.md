@@ -1,7 +1,10 @@
 # 数据面清单：使用中 / 未接入 / 分发
 
-> 2026-10-03 整理。回答三个问题：**运行起来到底读了哪些数据**、**每份数据谁在维护、
-> 怎么送到消费方**、**哪些替代来源已经备好但还没接线**。
+> 2026-10-03 整理，**2026-10-07 随资产面全量重导/重传刷新**（包统计与逐目录清单、地图
+> 导出与俯视合成链路、上传工具的漏传陷阱、陈旧包警告解除；同日复核**坦克模型已换客户端
+> 解包源**——`cache/models` ≡ `local_models` 735/735，§1 #8 与 §3 已按新状态改写）。回答
+> 三个问题：**运行起来到底读了哪些数据**、**每份数据谁在维护、怎么送到消费方**、**哪些
+> 替代来源已经备好但还没接线**。
 >
 > 姊妹篇：[game-data-sources.md](game-data-sources.md) 讲"每份数据从哪来、能否脱离
 > BlitzKit"（含逐字段来源映射、spaced 规则、故障复盘）；本文讲"谁在用、谁维护、怎么分发"。
@@ -9,7 +12,7 @@
 
 ## 一、正在使用的数据
 
-运行期（Web / 3D 查看器 / 回放 / CLI）真正会读的共 **11 项**。
+运行期（Web / 3D 查看器 / 回放 / CLI）真正会读的共 **11 项**（每项背后的提取 / 维护工具见 §六）。
 
 | # | 数据 | 来源 | 维护代码 | 分发去处 |
 |---|---|---|---|---|
@@ -20,13 +23,13 @@
 | 5 | `data/game_data/{id}.json`（碰撞盒） | **客户端解包** `3d/Tanks/Parameters/{nation}/{model}.yaml.dvpl` | `wargaming/dvpl.rs::CollisionData::parse_from_yaml` | COS `game_data/`（同一文件） |
 | 6 | `data/tank_data/{id}.json` | **混合**：`models.pb`（BlitzKit）+ `game_data`（客户端） | `wargaming/tank_configs.rs::export_tank_data` | COS `tank/{id}.json`（改名） |
 | 7 | 弹种反解表（全局 shell id → 弹种数据） | **本机自产**（`tanks.pb` 全量展开，离线生成） | `replay/loadout.rs::ShellKindTable::from_tanks_pb` + CLI `dump-shell-kinds` | **消费方前端常量**（`shellKinds.json`），**不进 COS** |
-| 8 | `data/cache/models/{id}/*.glb` | **BlitzKit** `/tanks/{id}/{model,collision}.glb` | `web/assets.rs::ensure_glb_bytes`（运行期懒加载）+ `wargaming/model_fetch.rs`（CLI 批量） | COS `glb/` |
+| 8 | `data/cache/models/{id}/*.glb` | **客户端解包**（`tools/export_tank_glb.py` 本机自产；**2026-10-07 已换源**，BlitzKit CDN 退为缺失兜底） | 生成：`tools/export_tank_glb.py`（离线）；兜底：`web/assets.rs::ensure_glb_bytes`（BlitzKit 下载，reqwest→curl 回退）+ `wargaming/model_fetch.rs`（CLI 批量） | COS `glb/` |
 | 9 | `data/cache/tank_images/{id}.webp` | **BlitzKit** `/tanks/{id}/icons/big.webp` | `wargaming/blitzkit.rs::download_all_icons` | COS `tank_images/` |
-| 10 | `data/cache/maps/`、`data/cache/terrain/` | **客户端解包** `3d/Maps/<space>/`（`.sc2`/`.scg`、landscape heightmap、colormap） | 生成：`tools/export_map_glb.py`（离线）；读取：`wargaming/map_assets.rs` | COS `map/` |
+| 10 | `data/cache/maps/`、`data/cache/terrain/` | **客户端解包** `3d/Maps/<space>/`（`.sc2`/`.scg`、landscape heightmap、colormap） | 生成：`tools/export_map_glb.py`（离线；场景 GLB + 地面原始烘焙）；地面 `ground.webp` 再经 `tools/composite_overhead.py` 叠俯视渲染合成（渲染由消费方仓 `frontend/scripts/bake-ground-overhead.mjs` 用真实 three.js 跑出，缓存 `release/overhead-bake/`）；读取：`wargaming/map_assets.rs` | COS `map/` |
 | 10a | `data/cache/maps/{key}/destructibles.json`（可破坏物实例清单：位置 / 100m 格子 / 碰撞耐久 / 类型库联表） | **客户端解包** `3d/Maps/<space>/<space>.sc2`（StateSwitcher/SpeedTree + CollisionTypeComponent）+ `XML/destructibles.xml.dvpl`（类型库） | 生成：`tools/export_map_destructibles.py`（离线） | COS `map/{key}/destructibles.json`；消费方与回放切面 `destructible_events` 联表（逆向总集 §5.4） |
 | 11 | `data/data_version.json` | **本机自产**（各项时间戳汇总；`game_version` 取自客户端 `Data/version.txt.dvpl`） | `wargaming/data_version.rs::save` | COS `data/data_version.json` |
 
-来源分布：BlitzKit 4 项（#1/#2/#8/#9）、客户端解包 3 项（#4/#5/#10）、本机自产 3 项（#3/#7/#11）、混合 1 项（#6）。
+来源分布：BlitzKit 3 项（#1/#2/#9）、客户端解包 4 项（#4/#5/#8/#10）、本机自产 3 项（#3/#7/#11）、混合 1 项（#6）。
 
 附注：**WG API**（`api.wotblitz.{asia,eu,com}`，`wargaming/api_client.rs`）只用于玩家战绩，
 不落 `data/`、不进任何分发。
@@ -61,15 +64,20 @@
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测：**4124 个文件 / 2932.5 MB**，`generated` = `2026-10-02T16:28:10Z`）：
+包内布局（本地实测：**4168 个文件 / 3788.3 MB**）。`manifest.json` 的 `upstream_commit` /
+`worktree_dirty` / `generated` 是包内容的溯源锚点——`worktree_dirty=false` 表示该 commit 的
+**原样工作区**即可复现整包（语义见打包器 `git_provenance()`）；**现值以包内 manifest 为准，
+每次重打包或改溯源戳后刷新本句**。2026-10-07 的历史脉络：资产重传时 = `90f1bf8` + dirty
+（当时导出器修复与工具入库尚未提交）；同日随文档同步**仅改溯源戳**（资产字节不变）→
+`upstream_commit` = 文档同步那次提交、`worktree_dirty` = false。
 
 | 包内路径 | 文件数 | 来自（见第一节编号） |
 |---|---|---|
 | `glb/{tank_id}/{model,collision}.glb` | 1470 | #8 |
 | `tank/{tank_id}.json` | 735 | #6（由 `tank_data/` 改名） |
 | `tank_images/{id}.webp` | 735 | #9 |
-| `game_data/{id}.json` | 728 | #4 / #5 |
-| `map/{key}/…` | 450 | #10（底图 / 小地图 / 地形 / 场景 / groundtex） |
+| `game_data/{id}.json` | 735 | #4 / #5 |
+| `map/{key}/…` | 486 | #10：36 场景 `scenery.glb` + 36 `ground.webp` + 234 分层 `ground/{cm,lm,tile0,tile1,mask0,mask1[,hmap0,hmap1]}.webp` + 36 `ground.layers.json` + 36 `terrain.json` + 36 `terrain.u16.bin` + 36 `mini.webp` + 36 `destructibles.json` |
 | `data/` | 5 | #1 `tanks.pb`、#2 `models.pb`、#3 `tank_cache.json`、#11 `data_version.json`、打包器派生 `tank_names.json` |
 | `index.json` | 1 | 打包器生成（地图 id → key/display） |
 | `manifest.json` | — | 打包器生成（全量 sha256；本身不登记自己） |
@@ -79,9 +87,21 @@
 地图地形多一个 `terrain.json` sidecar（把 `X-Terrain-Meta` 头物化）；`index.json` /
 `manifest.json` 均为生成物。
 
-> ⚠️ **盘上这份包早于 2026-10-03 的 field32 修复**：包内 `game_data` 仍为 728 个，
-> 而源 `data/game_data/` 已是 735 个。重新发布前必须重跑打包器，否则会把修复前的
-> 旧数据推给消费方。
+**上传**：[tools/upload_asset_pack_cos.py](../tools/upload_asset_pack_cos.py)
+（凭据只从环境变量 `COS_SECRET_ID` / `COS_SECRET_KEY` 读，不落盘）。远端同
+`Content-Length` 即跳过——⚠️ **内容变了但字节数恰好相同的对象会被漏传**（2026-10-07 的
+`map/lagoon/ground.webp` 即此例，需用 SDK 强制 `put_object` 覆盖）；`manifest.json` 最后
+强传作完整性锚点；`.json` 走 `no-cache`、二进制走 `max-age=3600`。手工发布流程与注意点见
+[game-data-sources.md](game-data-sources.md) §5.2。
+
+⚠️ 上传工具会遍历包目录下**全部**文件：俯视烘焙的渲染中间产物（`<pack>/overhead/*.rgba`，
+按图 64MB）必须在上传前移出，约定缓存在 `release/overhead-bake/`，否则会随包传上 COS
+（2026-10-07 曾误传 73 个对象 / ~2.4GB，已清理）。
+
+> ✔️ **盘上这份包与源一致**（2026-10-07 全量重导 + 重打包 + 上传 + 逐对象 sha256 回拉校验）：
+> 包内 `game_data` 735 个、地图 36 张，与 `data/` 源目录同版；2026-10-03 记的 field32 陈旧包
+> 警告已解除。判断包是否陈旧仍以 `manifest.json` 的逐文件 sha256 为准（打包器只做拷贝 +
+> 哈希，**不做来源一致性校验**）。
 
 **不进包的**：`data/cache/local_*`（见第三节）、`data/replay_samples/`、
 `data/sessions/`、`data/snapshots/`、`data/token_usage.json`。
@@ -99,22 +119,30 @@
 `import()` 后注入 WASM（`parseShotReplays` 的可选入参）。**它不经过 COS 桶**，
 是第一节 11 项里唯一不在资产包内的。
 
-## 三、已备好但未接入的替换来源
+## 三、替换来源：接线状态
 
-产物已在盘上、导出器已可用，但**运行期与打包器都还指向旧来源**：
+**已接线：坦克 GLB（2026-10-07）。** `data/cache/models/` 已整体换为客户端解包的自产导出
+（`tools/export_tank_glb.py` 产物：735 辆的 `model.glb` + `collision.glb`，**全量** generator =
+`wotb-agent local sc2 exporter`），与 `data/cache/local_models/` 逐辆逐字节一致（735/735，
+id 集差为空）；打包器与 COS 随 2026-10-07 的包一同发布。原"打包器源目录切换"阻塞项关闭；
+BlitzKit CDN 下载（`web/assets.rs::ensure_glb_bytes` / `wargaming/model_fetch.rs`）退化为
+**缺失兜底**。几何等价性口径与残留差异见 [local-model-export.md](local-model-export.md)；
+⚠️ **来源混用护栏仍未加**——打包器依旧只做拷贝 + sha256，不校验来源一致性（见本节末两条）。
+
+以下为**尚未接线**的其余替换来源：
 
 | 目标（现役来源） | 已备好的替代 | 维护代码 | 落盘位置 | 阻塞项 |
 |---|---|---|---|---|
-| 坦克 GLB（BlitzKit CDN） | 客户端导出 | [tools/export_tank_glb.py](../tools/export_tank_glb.py) | `data/cache/local_models/`（1470 个 glb） | 几何 **733/735 逐字节等价**（含 UV0/1/2 与节点顺序；余 2 辆为 BlitzKit 侧行为）；贴图槽位完全对齐、`alphaMode` 99.1%、`doubleSided` 100%、MR.G 1010/1011（见 [local-model-export.md](local-model-export.md)）。剩余阻塞：**接线决策**（打包器源目录切换 + 来源混用护栏），非能力缺口 |
-| 封面图（BlitzKit CDN） | 客户端导出 | [tools/export_tank_icons.py](../tools/export_tank_icons.py) | `data/cache/local_tank_icons/`（730 张） | 覆盖 **730/735**（差 5 辆，客户端无对应图标）；且打包器的 `cp` 对缺失文件静默跳过、不报错；⚠️ 与 BlitzKit 封面**不是同一幅画**（NCC 中位 0.21，见 [decoupling-status.md](decoupling-status.md) §3.4）——换素材需先过观感决策 |
-| `models.pb` 的逐板装甲 | 客户端 XML | `wargaming/dvpl.rs::ArmorModel::parse_from_xml` | `data/game_data/{id}.json` 内已有 `armor_model`（含 plates / spaced / primary） | ✅ **2026-10-03 已对齐**：提取器改取 `<turrets0>` 的顶级炮塔 × 其末个主炮，与 models.pb 同档。全量核对板集差异 turret 434→0、hull 381→0（残留仅 float32 量化），摘要与 `armor_model` 不再矛盾 |
+| 封面图（BlitzKit CDN） | 客户端导出 | [tools/export_tank_icons.py](../tools/export_tank_icons.py) | `data/cache/local_tank_icons/`（730 张） | 覆盖 **730/735**（差 5 辆，客户端无对应图标）；且打包器的 `cp` 对缺失文件静默跳过、不报错；⚠️ 与 BlitzKit 封面**不是同一幅画**（NCC 中位 0.21，见 [decoupling-status.md](decoupling-status.md) §3.4）——换素材需先过观感决策；包内 735 张图标经抽样核验**仍为 BlitzKit 源** |
+| `models.pb` 的逐板装甲（包内 `tank/{id}.json` 的 `armor_model`） | 客户端 XML | `wargaming/dvpl.rs::ArmorModel::parse_from_xml` | `data/game_data/{id}.json` 内已有 `armor_model`（含 plates / spaced / primary） | ✅ **2026-10-03 已对齐**：提取器改取 `<turrets0>` 的顶级炮塔 × 其末个主炮，与 models.pb 同档。全量核对板集差异 turret 434→0、hull 381→0（残留仅 float32 量化）。**运行期装甲摘要已走客户端**：`tank_resolver::extract_armor_summary` 优先读 `game_data/{id}.json` 的 `armor_model`，BlitzKit 仅缺失回退；**包内逐板 `armor_model` 未换源**——`tank_configs::synth_armor_model` 仍以 models.pb 为逐板/spaced/履带来源，`primary` 从 game_data 拷贝 |
 | （对照用途） | 本地导出 vs BlitzKit 逐辆比对 | [tools/compare_tank_glb.py](../tools/compare_tank_glb.py) | `data/cache/local_compare/` | — |
 
 另外两个**跨领域的接线点**（不在上表，但换源必然撞上）：
 
 - **打包器的源目录**：现读 `data/cache/models/` 与 `data/cache/tank_images/`，而本地导出器写
   `local_models/` / `local_tank_icons/`。两边内部布局与文件名完全一致，**只需改目录**——
-  但漏改不会报错，只有产物悄悄沿用旧来源。
+  但漏改不会报错，只有产物悄悄沿用旧来源。**模型一半已按此路径落地（2026-10-07：本地
+  导出整体同步进 `cache/models`）**；封面图仍未切换（见上表）。
 - **来源混用无护栏**：打包器只做拷贝 + sha256（传输完整性），**不做来源一致性校验**。
   同一辆车混用两源在 `tank_configs` 的 `turret_index`/`gun_index` 与 GLB 节点号上是
   **硬耦合**，会静默错位（见 [feasibility-glb-local-export.md](feasibility-glb-local-export.md) §8.4）。
@@ -149,20 +177,90 @@ BlitzKit（4 项）  #1 tanks.pb ─┐
                  #2 models.pb ─┼─→ 运行期 blitzkit.rs（pb 解析）+ web/assets.rs（GLB 懒下载）
                  #8 GLB ───────┤
                  #9 封面图 ─────┘
-                 派生下游：#3 tank_cache.json、#6 tank_data（一半）、#7 弹种反解表
+     #3 tank_cache.json、#6 tank_data（一半）、#7 弹种反解表
 
 客户端解包（3 项）#4/#5 game_data ─→ 运行期 game_extract（装甲摘要 / 碰撞盒）   ✅ 已接入
+                 #8 GLB（2026-10-07 换源）─→ cache/models ← local_models        ✅ 已接入
                  #10 maps/terrain ─→ 运行期 map_assets                        ✅ 已接入
 
 本机自产（3 项）  #3 / #7 / #11                                              ✅ 已接入
 混合（1 项）      #6 tank_data                                                ✅ 已接入
 
+已接线（2026-10-07）
+                 local_models/ ─→ #8 换源（cache/models ≡ local_models，735/735；包与 COS 已随发）
+
 已备好未接入（2 项 + 1 特例）
-                 local_models/ ─→ 目标替 #8                                   ⚠️ 有阻塞
-                 local_tank_icons/ ─→ 目标替 #9                               ⚠️ 有阻塞
-                 game_data 的 armor_model ─→ 目标替 #2 的装甲部分             ⚠️ 语义不一致
+                 local_tank_icons/ ─→ 目标替 #9                               ⚠️ 有阻塞（观感决策；包内仍 BlitzKit 源）
+                 game_data 的 armor_model ─→ 目标替 #2 的装甲部分             ✅ 运行期摘要已用它；包内逐板仍 BlitzKit + primary 拷贝
 ```
 
-**一句话结论**：BlitzKit 的直接入口只有 4 个，但派生面很宽（3 个下游 + 1 个下载点）；
-客户端侧"已接入"的只有装甲碰撞与地图两块，GLB / 封面图 / 逐板装甲三项是"产物已备好、
-**尚未接线**"，而整车数值（`tanks.pb`）在客户端侧**完全没有解析代码**。
+**一句话结论**：BlitzKit 的直接入口现有 3 个（`tanks.pb` / `models.pb` / 封面图），但派生面很宽
+（3 个下游 + 1 个兜底下载点）；客户端侧"已接入"的有装甲碰撞、地图、**坦克 GLB（2026-10-07 换源）**
+与装甲摘要读源，封面图与包内逐板装甲尚未换源，而整车数值（`tanks.pb`）在客户端侧**完全没有
+解析代码**。
+
+## 六、本地提取工具索引
+
+跑一次"从本机客户端取数"要动到哪些文件（2026-10-07 盘点）。入口默认指向 Steam 安装的
+`Data/`，可用 `--game-data` / `--game-dir` 覆盖。
+
+### 6.1 Python 提取链（`tools/`）
+
+底座（所有 Python 导出的公共依赖）：
+
+| 路径 | 作用 |
+|---|---|
+| `tools/wotbtools/wotb_sc2.py` | DAVA `SceneFileV2`(.sc2) + DVPL 解包（KeyedArchive 读取） |
+| `tools/wotbtools/wotb_scg.py` | DAVA `SCPG`(.scg) 几何解码（顶点流 / 索引 / 图元） |
+
+按提取目标的导出器（接线状态见 §1 / §3）：
+
+| 提取目标 | 工具 | 产出落点 | 接线 |
+|---|---|---|---|
+| 地图场景（GLB + 地面 + 分层 + sidecar） | `tools/export_map_glb.py`（`--ground-only` / `--scenery-only` / `--jobs`） | `data/cache/maps/<space>.{glb,ground.*.webp,json}` | ✅ |
+| 地图可破坏物清单（碰撞 / 耐久 / 类型库联表） | `tools/export_map_destructibles.py` | `data/cache/maps/<key>/destructibles.json` | ✅ |
+| 坦克模型（`model.glb` + `collision.glb`） | `tools/export_tank_glb.py` | `data/cache/local_models/<id>/`（10-07 起同步进 `cache/models/`） | ✅ |
+| 坦克封面图 / 图标 | `tools/export_tank_icons.py` | `data/cache/local_tank_icons/`（730/735） | ⚠️ 未接线 |
+| 车辆数值（`tanks.pb` / `models.pb` 等价物） | `tools/extract_vehicles.py`（+ `data/tank_id_bridge.json`） | `data/cache/local_pb/` | ⚠️ 未接线 |
+| 俯视地面合成 | `tools/composite_overhead.py`（现役）/ `tools/bake_ground_roofs.py`（旧软光栅，已退役） | 写回 `<pack>/map/<key>/ground.webp` | ✅ |
+
+### 6.2 Rust 侧解包（`src/wargaming/`，由 CLI 子命令驱动）
+
+| 模块 | 作用 | 驱动命令 |
+|---|---|---|
+| `dvpl.rs` | DVPL 解码 + 装甲 XML / 碰撞 YAML 解析（`ArmorModel::parse_from_xml`、`CollisionData::parse_from_yaml`） | `parse-game`、`extract-game` |
+| `game_extract.rs` | 批量提取 → `data/game_data/{id}.json`（含 `armor_model` / `collision`） | `extract-game --force`、`update-data` |
+| `map_assets.rs` | 与客户端同链解析地图注册表，提取底图 / 地形 / 小地图 | `fetch-terrain`、`fetch-minimaps`（运行期 `/api/playback/map`） |
+| `data_version.rs` | `data/data_version.json` 版本指纹（`game_version` 读 `Data/version.txt.dvpl`） | `update-data` |
+| `model_fetch.rs` | GLB 全量预热（BlitzKit 兜底路径，已非主来源） | `fetch-models` |
+| `tank_configs.rs` | 配置 / 装甲领域层（`synth_armor_model`：逐板装甲仍读 models.pb，`primary` 从 game_data 拷贝） | `dump-tank-data` |
+| `tank_resolver.rs` | 装甲**摘要**（优先读客户端 `game_data` 的 `armor_model`，缺失回退 BlitzKit） | CLI 分析链 |
+
+### 6.3 对照 / 验证（同目录，非导出源）
+
+`tools/compare_tank_glb.py`（本地导出 vs BlitzKit 逐辆几何对照）、`tools/compare_tank_icons.py`
+（封面图 NCC 对照）、`tools/compare_vehicle_data.py`（车辆数值逐字段对照）、
+`tools/test_export_variants.py`（变体标签单测）、`tools/probe_switch.py`（.sc2 状态开关解剖）、
+`tools/decode_experiment.py`（可破坏物候选物理解码实验）。
+
+### 6.4 打包 / 分发 / 本机辅助
+
+| 路径 | 作用 |
+|---|---|
+| `scripts/export_asset_pack.py` | 收拢上述产物为 `release/asset_pack/`（`index.json` / `manifest.json` + 逐文件 sha256） |
+| `tools/upload_asset_pack_cos.py` | 资产包 → COS 差分上传（`manifest.json` 最后强传；陷阱见 §2.1） |
+| `scripts/serve_asset_pack.mjs` | 本机 CORS 伺服 `release/asset_pack`（消费方 dev server 取用） |
+| `tools/preview_glb.html` | 本地 GLB 查看器（`.gitignore` 覆盖，不入库） |
+| `scripts/build-wasm.ps1` | WASM 回放解析产物构建（引擎侧，与资产提取无关） |
+
+### 6.5 不在本仓 / 未跟踪
+
+- **俯视渲染器**：消费方仓 `WotbTools/frontend/scripts/bake-ground-overhead.mjs`（headless
+  Chrome + three.js，产物 `.rgba` 交 `tools/composite_overhead.py` 合成）。
+- **逆向探针**：`examples/*.rs`（17 个：`destructible_probe*` / `filter_*_probe` /
+  `m29_*_probe` / `p1_comp_probe` 等），`.gitignore` 覆盖、仅本机存在；`cargo test` 仍编译
+  本地副本，但**不入库**。
+
+**一句话记法**：地图 / 坦克 / 图标 / 车辆数值在 `tools/`（Python，底座是 `tools/wotbtools/`
+解 DAVA 容器）；装甲 / 碰撞 / 底图在 `src/wargaming/`（Rust，CLI 驱动）；
+`scripts/export_asset_pack.py` 收口，`tools/upload_asset_pack_cos.py` 发 COS。
