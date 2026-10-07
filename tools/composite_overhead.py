@@ -102,9 +102,8 @@ def main():
     ap.add_argument("--quality", type=int, default=82)
     args = ap.parse_args()
     pack = Path(args.pack)
-    keys = ([d.name for d in (pack / "overhead").glob("*.meta.json")] if args.all
+    keys = ([f.stem[: -len(".meta")] for f in (pack / "overhead").glob("*.meta.json")] if args.all
             else [args.map])
-    keys = [Path(k).stem if k.endswith(".meta.json") else k for k in keys]
     for key in keys:
         try:
             print(json.dumps(composite_map(pack, key, args.write, args.quality), ensure_ascii=False))
