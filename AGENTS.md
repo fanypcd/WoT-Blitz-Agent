@@ -108,7 +108,9 @@ Standard local test posture:
    `VITE_ASSET_BASE_URL=http://127.0.0.1:8123` (gitignored; `?assets=` in a URL overrides it and
    persists to localStorage, so clear it with an empty `?assets=` when returning to the default).
 3. `npm run dev` in the WotbTools `frontend/` — Vite takes the first free port from 5173
-   (stale instances often hold 5173/5174; use the port it actually prints).
+   (stale instances often hold 5173/5174; use the port it actually prints). Without a local
+   backend on 8087, auth/capability probes fail — either start it or use
+   `npm run dev:production-remote` (proxies `/api` to the production site for login).
 4. Open the local dev page with `admin=1` and drop a `.wotbreplay` into it, e.g.
    `http://localhost:<port>/?view=agent-replay&agentViews=1&admin=1`. `admin=1` is a dev-only
    visibility bypass (WotbTools `useAuth.js`): dev builds treat the `wotbtools-admin`/`HoF-admin`
@@ -116,3 +118,42 @@ Standard local test posture:
    backend still enforces real auth.
 5. The WotbTools side of this workflow is documented in its `docs/frontend/local-production-dev.md`
    and `frontend/AGENTS.md`.
+
+### Testing against the latest local WASM and asset pack
+
+The WotbTools frontend consumes two build artifacts from this repository; keeping them current
+with local changes is part of the test posture:
+
+**WASM parser** — WotbTools pins a released artifact, not local working-tree code
+(`deploy/agent/source.json`: repo/ref/release/asset/sha256; the fetch script verifies both
+sha256 and fingerprint). The commit-addressed runtime URL (`/wasm/<ref>/…`) means one frontend
+build only ever loads its own pin:
+
+```bash
+# In the WotbTools checkout — after this repo has published a release (or bumped the pin):
+bash scripts/fetch-agent-wasm.sh        # downloads, sha256+fingerprint verifies, unpacks
+```
+
+To test **unreleased local parser changes**, either publish a release first
+(bump `workspace.metadata.release.version` → release workflow) or build from source with
+`scripts/build-agent-wasm.sh` (fallback path). Symptom of a stale pin after `source.json`
+changes: `/wasm/<ref>/…` 404 → "engine load failed" in 3D / shots / armor while everything
+else works — rerun the fetch script.
+
+**Asset pack** — `release/asset_pack/` is gitignored and served by `serve_asset_pack.mjs` from
+disk, so it is always "local latest" as long as it has been rebuilt. Full refresh chain when
+map/tooling changes land (each step overwrites the previous one's output):
+
+```bash
+python scripts/export_asset_pack.py --map-index map_index.json   # rebuild pack (overwrites
+                                                                 # overhead-baked grounds!)
+python tools/composite_overhead.py --all --write                 # re-bake overhead views
+                                                                 # (renders cached in release/overhead-bake/)
+# COS re-upload if production users must see it (see §Asset-data changes above)
+```
+
+`export_asset_pack.py` rebuilds `ground.webp` from the client colormap and **destroys the
+overhead-baked grounds** — never serve a freshly exported pack without re-running the composite.
+`deploy/agent/source.json` pin and WASM artifacts (`common/assets/wasm/`) are gitignored in
+WotbTools; the pin file itself is committed.
+
