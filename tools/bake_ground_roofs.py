@@ -241,16 +241,21 @@ def rasterize_tris(tris, size: int, span: float, orient: str):
     return mask, zbuf
 
 
-def bilinear_sample(img: np.ndarray, u: np.ndarray, v: np.ndarray) -> np.ndarray:
-    """u/v ∈ [0,1] 双线性采样（img: H×W×C）；1×1 纹理退化为常量取样。"""
+def bilinear_sample_repeat(img: np.ndarray, u: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """REPEAT 环绕的双线性采样（glTF sampler=10497，导出器平铺 UV 惯例）。
+    注意 glTF UV 原点在**左上**（GLTFLoader flipY=false），输入 v 直接就是行方向，
+    不再做 1−v 翻转——多翻一次，图集上下不对称的物体会采到镜像区域。"""
     h, w = img.shape[:2]
-    fx = np.clip(u, 0.0, 1.0) * (w - 1)
-    fy = np.clip(v, 0.0, 1.0) * (h - 1)
+    uu = u - np.floor(u); vv = v - np.floor(v)          # REPEAT：取小数部分
+    fx = uu * w - 0.5
+    fy = vv * h - 0.5
     x0 = np.floor(fx).astype(np.int64); y0 = np.floor(fy).astype(np.int64)
-    x1 = np.minimum(x0 + 1, w - 1); y1 = np.minimum(y0 + 1, h - 1)
     tx = (fx - x0)[..., None]; ty = (fy - y0)[..., None]
-    return (img[y0, x0] * (1 - tx) * (1 - ty) + img[y0, x1] * tx * (1 - ty)
-            + img[y1, x0] * (1 - tx) * ty + img[y1, x1] * tx * ty)
+    # 环绕索引（负数/越界都取模）
+    x0m = x0 % w; x1m = (x0 + 1) % w
+    y0m = y0 % h; y1m = (y0 + 1) % h
+    return (img[y0m, x0m] * (1 - tx) * (1 - ty) + img[y0m, x1m] * tx * (1 - ty)
+            + img[y1m, x0m] * (1 - tx) * ty + img[y1m, x1m] * tx * ty)
 
 
 def render_textured(prims, size: int, span: float, orient: str):
@@ -292,7 +297,7 @@ def render_textured(prims, size: int, span: float, orient: str):
             else:
                 iu = w0 * uv[t, 0, 0] + w1 * uv[t, 1, 0] + w2 * uv[t, 2, 0]
                 iv = w0 * uv[t, 0, 1] + w1 * uv[t, 1, 1] + w2 * uv[t, 2, 1]
-                rgba = bilinear_sample(tex, iu, 1.0 - iv)   # glTF UV 原点在左下
+                rgba = bilinear_sample_repeat(tex, iu, iv)   # glTF UV 原点在左上（勿再翻转）
             if vcol is None:
                 vc = np.ones(gx.shape + (4,), np.float32)
             else:
@@ -315,17 +320,43 @@ def render_textured(prims, size: int, span: float, orient: str):
 # ---------------------------------------------------------------- 校准与烘焙
 
 
+def _grad_mag(gray: np.ndarray) -> np.ndarray:
+    """灰度梯度幅值（Sobel，无 scipy 依赖）。"""
+    g = gray.astype(np.float32)
+    gx = np.zeros_like(g); gy = np.zeros_like(g)
+    gx[:, 1:-1] = g[:, 2:] - g[:, :-2]
+    gy[1:-1, :] = g[2:, :] - g[:-2, :]
+    return np.hypot(gx, gy)
+
+
 def calibrate(tris, mini_gray: np.ndarray, span: float):
-    """8 朝向掩膜暗度 vs 小地图暗度的均值差（越高 = 覆盖落点越对）。"""
+    """双指标朝向校准，取优：任一指标过门限即可信。
+    - 暗度差（掩膜内外灰度均值差）：对比方向正确的图灵敏（medvedkovo 0.074，
+      用户验收通过）；对比度反转（karelia 亮屋顶配暗森林）与混合内容
+      （canal 暗树丛+亮建筑抵消）时失效。
+    - 梯度幅值差（掩膜内外 Sobel 均值差）：符号无关，建筑/树丛轮廓 vs 平滑地形；
+      但灵敏度低（medvedkovo 仅 0.013）。
+    返回 (best_score, best_orient, all_scores dict 含 dark:/grad: 前缀)。"""
     small = np.asarray(Image.fromarray(mini_gray).resize((512, 512)), np.float32) / 255.0
-    scores = {}
+    grad = _grad_mag(small)
+    grad /= (grad.max() or 1.0)
+    dark, soft = {}, {}
     for orient in ("xy", "yx", "xY", "Yx", "Xy", "yX", "XY", "YX"):
         mask, _ = rasterize_tris(tris, 512, span, orient)
         if mask.sum() < 64:
-            scores[orient] = float("nan")
+            dark[orient] = float("nan"); soft[orient] = float("nan")
             continue
-        scores[orient] = float(small[~mask].mean() - small[mask].mean())
-    return scores
+        dark[orient] = float(small[~mask].mean() - small[mask].mean())
+        soft[orient] = float(grad[mask].mean() - grad[~mask].mean())
+    dk = max(dark, key=lambda k: (dark[k] == dark[k], dark[k]))
+    gk = max(soft, key=lambda k: (soft[k] == soft[k], soft[k]))
+    alls = {f"dark:{k}": round(v, 4) for k, v in dark.items()}
+    alls.update({f"grad:{k}": round(v, 4) for k, v in soft.items()})
+    if dark[dk] >= soft[gk]:
+        alls["metric"] = f"dark:{dk}"
+        return dark[dk], dk, alls
+    alls["metric"] = f"grad:{gk}"
+    return soft[gk], gk, alls
 
 
 def span_of(meta) -> float:
@@ -353,14 +384,13 @@ def bake_map(pack: Path, key: str, write: bool, quality: int, min_score: float =
     span = span_of(meta)
 
     mini = np.asarray(Image.open(mini_path).convert("RGB"))
-    scores = calibrate(flat_tris, np.asarray(Image.fromarray(mini).convert("L")), span)
-    valid_scores = {k: v for k, v in scores.items() if v == v}
-    best = max(valid_scores, key=valid_scores.get) if valid_scores else None
-    # 置信门限：最高分低于阈值 = 没有任何朝向能与客户端小地图对上——
-    # 多半是小地图配色对比度不足（暗屋顶配暗地形等），此时**不写**（fail-closed：
-    # 错朝向的屋顶比没有屋顶糟），保留原底图待人工复核。
-    if write and (best is None or valid_scores[best] < min_score):
-        return {"key": key, "skipped": f"校准弱（best={best}:{round(valid_scores.get(best, float('nan')), 4) if valid_scores else 'nan'} < {min_score}），未写", "scores": {k: round(v, 4) for k, v in scores.items()}}
+    best_score, best, all_scores = calibrate(flat_tris, np.asarray(Image.fromarray(mini).convert("L")), span)
+    # 置信门限（双指标取优后）：最高分低于阈值 = 没有任何朝向能与客户端小地图
+    # 对上——此时**不写**（fail-closed：错朝向的屋顶比没有屋顶糟），保留原底图
+    # 待人工复核。
+    if write and best_score < min_score:
+        return {"key": key, "skipped": f"校准弱（best={best}:{round(best_score, 4)} < {min_score}），未写",
+                "scores": all_scores}
 
     ground = np.asarray(Image.open(ground_path).convert("RGB")).copy()
     size = ground.shape[0]
@@ -371,7 +401,7 @@ def bake_map(pack: Path, key: str, write: bool, quality: int, min_score: float =
     out[ys, xs] = colorbuf[ys, xs] * 255.0 * 0.92 + out[ys, xs] * 0.08
     out_img = Image.fromarray(out.clip(0, 255).astype(np.uint8))
 
-    report = {"key": key, "orient": best, "scores": {k: round(v, 4) for k, v in scores.items()},
+    report = {"key": key, "orient": best, "score": round(best_score, 4), "scores": all_scores,
               "tris": stats["tris"], "mesh_used": stats["mesh_used"], "mesh_skipped": stats["mesh_skipped"],
               "cover_pct": round(100 * mask.sum() / mask.size, 2), "written": False}
     if write:
