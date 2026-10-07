@@ -367,11 +367,9 @@ mod tests {
     #[test]
     fn entity_hp_prefers_tail_table_and_first_packet_offset51() {
         use super::EntityHp;
-        let mut e = EntityHp::default();
         // 首见包：偏移 51 = 满血 1650，无尾表
-        e.first_offset51 = Some(1650);
         // 重广播包：偏移 51 = 当前血量 1279（模拟），带尾表开局值 1650
-        e.tail_table = Some(1650);
+        let e = EntityHp { first_offset51: Some(1650), tail_table: Some(1650), ..Default::default() };
         assert_eq!(e.tail_table.or(e.first_offset51), Some(1650));
         // 无尾表时用首见偏移 51（不是后到包的当前血量）
         let e2 = EntityHp {

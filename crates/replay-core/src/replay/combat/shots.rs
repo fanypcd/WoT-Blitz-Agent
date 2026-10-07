@@ -2453,7 +2453,7 @@ mod target_binding_tests {
     fn two_candidates_bound_by_inc_yaw_geometry() {
         // 射手在原点；受击 A 在 +x（受击→射手方位角 atan2(−100,0) = −π/2）、
         // B 在 +z（atan2(0,−100) = +π ≡ u16 0）。hash6 来向角 = A 的 → 绑 A。
-        let a_yaw = (-std::f32::consts::FRAC_PI_2) as f32;
+        let a_yaw = -std::f32::consts::FRAC_PI_2;
         let a = dh(20.0, 100, enc_yaw(a_yaw));
         let b = dh(20.0, 200, enc_yaw(std::f32::consts::PI));
         let cands = vec![&a, &b];
