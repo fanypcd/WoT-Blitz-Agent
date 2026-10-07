@@ -43,47 +43,33 @@ Inspecting a run while it is in flight (a snapshot, not a way to wait):
 **This repository does not own the product frontend.** Frontend development **and frontend
 testing** happen in the WotbTools repository (https://github.com/A158Coke/WotbTools).
 
-- Any Web UI / 3D replay scene / playback control / label / effect / styling change, and any
-  frontend test for it, belongs in WotbTools — not here. A frontend change made here is dead
-  code: nothing deploys or maintains this frontend, so the fix never reaches users.
-- When a task is phrased as a frontend or UI problem (rendering, HUD, overlays, interaction),
-  treat WotbTools as the implementation target and this repository as the place for
-  parser / facet / data / asset-pipeline work only.
-- `frontend/` is frozen and kept only for local debugging (`cargo run --release -- web`).
-  Leave it read-only; do not add features, fixes, or tests to it.
-- All frontend testing — including playback verification of parser/pipeline fixes — uses the
-  WotbTools frontend dev server, not this frozen copy; see
-  [§All frontend testing runs the WotbTools frontend](#all-frontend-testing-runs-the-wotbtools-frontend-local-dev-build)
-  for the standard posture (`serve_asset_pack.mjs` + `npm run dev` + `admin=1`).
-- Cross-repo consequence: UI fixes may still need parser-side support here (e.g. a data field
-  the UI consumes). Land the parser part here first, then the UI change in WotbTools.
-- Scene-runtime changes that ride the shared Web/Android bundle (playbackScene, scene shaders,
-  asset-consumption logic) must increment `android/gradle.properties:wotbVersion` in the same
-  WotbTools PR (its `.agents/AGENTS.md` "Android Version-as-Code" rule): `android-release.yml`
-  only listens for that file on main pushes — without the bump a merge ships Web only and no new
-  APK.
-- **When in doubt, check whether the change alters the Android bundle at all** — the APK embeds
-  a snapshot of the shared web bundle, so anything that changes what that bundle serves is a
-  runtime change for Android users and needs the `wotbVersion` bump. Besides scene-runtime code,
-  this includes: **WASM pin bumps** (`deploy/agent/source.json` — `android-release.yml` runs
-  `fetch-agent-wasm.sh` against the pin and packs the result into APK assets;
-  `bundle-manifest.json` records `agentWasm.commit/release`, so a pin bump with no version bump
-  would ship a different runtime under the same versionCode and could not replace a staged
-  build), parser-facing contract adaptations the bundle consumes, and asset/serving-path changes
-  baked into the bundle. Only changes that never reach the APK (server-side only, COS asset data
-  alone, docs) skip the bump. Bump in the *same* WotbTools PR as the change.
-- Authored a release here? The release itself (tag/artifact) needs no WotbTools version bump —
-  it is the *pin bump that consumes it* in WotbTools that does.
-- **Asset-data changes must be re-synced to COS** (bucket `wotbtools-assets-1478073677`, the
-  production origin proxied by tx Caddy) or production users never see them. Any change that
-  alters asset-pack content qualifies: map re-export, ground rebake
-  (`tools/composite_overhead.py` after `bake-ground-overhead.mjs`), texture/material fixes.
-  Re-running `scripts/export_asset_pack.py` **rebuilds the pack from scratch and overwrites
-  overhead-baked grounds** — after an export, re-run the composite
-  (`python tools/composite_overhead.py --all --write`; overhead renders cache in
-  `release/overhead-bake/`), then re-sync: `COS_SECRET_ID=… COS_SECRET_KEY=…
-  python tools/upload_asset_pack_cos.py --local release/asset_pack` (skips byte-identical
-  objects, uploads only the delta). Credentials are env-var only, never committed.
+- Any Web UI / 3D replay scene / playback control / label / effect / styling change — and any
+  frontend test for it — belongs in WotbTools (https://github.com/A158Coke/WotbTools), not here:
+  a frontend change made here is dead code, nothing deploys or maintains this copy. When a task
+  reads as a UI problem (rendering, HUD, overlays, interaction), the implementation target is
+  WotbTools; this repository covers parser / facet / data / asset-pipeline work.
+- `frontend/` is frozen for local debugging (`cargo run --release -- web`) — leave it read-only.
+  All frontend testing (including parser/pipeline playback verification) runs the WotbTools dev
+  server; see [§All frontend testing runs the WotbTools frontend](#all-frontend-testing-runs-the-wotbtools-frontend-local-dev-build).
+- Parser-side support lands here first, then the UI change in WotbTools (e.g. a data field the
+  UI consumes).
+- **Android version sync (`wotbVersion` in WotbTools `android/gradle.properties`)**: the APK
+  embeds a snapshot of the shared web bundle, so any change altering what that bundle serves is
+  an Android runtime change and needs a bump in the *same* WotbTools PR (its `.agents/AGENTS.md`
+  "Android Version-as-Code" rule; `android-release.yml` only listens for that file on main).
+  Scope: scene-runtime code (playbackScene, shaders, asset consumption), **WASM pin bumps**
+  (`deploy/agent/source.json` — the release workflow fetches the pin into APK assets and records
+  `agentWasm.commit/release` in `bundle-manifest.json`, so an unbumped pin ships a different
+  runtime under the same versionCode), parser-facing contract adaptations, and packaged
+  asset/serving-path changes. Server-only, COS-only and docs changes skip it. A release here
+  needs no bump by itself — its *consuming pin bump* in WotbTools does.
+- **Asset-data changes must be re-synced to COS** (bucket `wotbtools-assets-1478073677` — the
+  production origin proxied by tx Caddy): map re-export, ground rebake, texture/material fixes.
+  Note `scripts/export_asset_pack.py` **overwrites overhead-baked grounds**, so after an export
+  re-run `python tools/composite_overhead.py --all --write` (renders cache in
+  `release/overhead-bake/`), then upload the delta:
+  `COS_SECRET_ID=… COS_SECRET_KEY=… python tools/upload_asset_pack_cos.py --local release/asset_pack`.
+  Credentials are env-var only, never committed.
 - Background: [README §与 WotbTools 的关系](README.md), [docs/index.md](docs/index.md) §前端面收敛,
   [docs/architecture-debt.md](docs/architecture-debt.md).
 

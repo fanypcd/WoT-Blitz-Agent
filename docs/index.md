@@ -162,11 +162,14 @@ additive 新增 `eid`/`account_id` 字段（条目起点反推 + varint 前向�
    的既定稳健策略，实测提取 100%，严格化收益仅形态美观）；P2b 逐位级 hash6 预测
    （判别门已覆盖全部实际歧义，剩余为数据模型粒度限制）。
 
-**对方侧状态（2026-10-06 更新）**：`deploy/agent/source.json` 当前 pin **`v0.3.14` / `9ad2ef4`**
-（v0.3.4–v0.3.14 增量已在生产链路：对方 2026-10-05 接连 pin v0.3.12 可破坏地形 /
-v0.3.13 pose_kf+弹道折线 / v0.3.14 昵称修复；消费端 `feat/playback-destructibles` 已于
-2026-10-06 以 PR #537 合入对方 main；**v0.3.15** 实际搭载配置 + AoI 段化滤波已发布、
-待对方 pin，对消费端零契约变化）；此前对方完成**客户端解析迁移**（A158Coke/WotbTools#447
+**对方侧状态（2026-10-07 更新）**：pin 切换 **v0.4.0**（`dd5aafe`，本次确定性收口；对方
+PR #558：pin + AI 投影 golden 重生成（字段级对比确认与 v0.3.15 逐字段一致）+ `wotbVersion`
+2.1.10 随 APK 内嵌运行时递增）。消费端契约适配与 3D 回放性能/画质专项已随对方 **PR #555**
+合入（场景 GLB 实例化合批、画质四档重分档、均衡档俯视烘焙底图、动态分辨率与性能偏好、
+可破坏物拾取）；俯视烘焙管线在本仓（`tools/bake_ground_roofs.py` → `tools/composite_overhead.py`，
+配对对方 `bake-ground-overhead.mjs`；资产包内容变更须重传 COS，见 AGENTS.md）。此前链路：
+v0.3.12 可破坏地形 → v0.3.13 pose_kf+弹道折线 → v0.3.14 昵称修复 → v0.3.15 实际搭载配置
++ 段化滤波 → **v0.4.0 确定性收口**。对方已完成**客户端解析迁移**（A158Coke/WotbTools#447
 「服务器没有 parser」）——服务端解析器模块整体删除，浏览器/Android 跑本项目的 WASM，**本项目由此成为
 该仓唯一的回放解析器**；AI 复盘走 WASM → canonical facts → `ClientAiReviewProjection`，parity 由
 `ClientAiProjectionParityTest` 进 required CI 常驻看护。
