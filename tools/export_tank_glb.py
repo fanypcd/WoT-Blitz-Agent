@@ -703,9 +703,15 @@ def export_visual(sc2_path: pathlib.Path, glb: Glb, tex: TexStore, mode: str, st
                     continue
                 slot = _gltf_slot_name(glsl)
                 out = _prep_texture(arr, slot)
-                keep_alpha = _has_varying_alpha(out)
+                varying = _has_varying_alpha(out)
                 if glsl == "baseColorTexture":
-                    base_alpha_varies = keep_alpha
+                    base_alpha_varies = varying
+                # alpha 只在 alphaTest 材质里会被 glTF 真正采样（履带镂空）。不透明材质
+                # 保留 alpha 是有害的：客户端把高光/选择遮罩这类**非视觉数据**放在 albedo
+                # 的 alpha 里，webp 编码器对 alpha=0 区域的 RGB 不保真（实测 Ch23_112 轮面
+                # 整片 alpha=0，编码后 RGB 均值偏差 39.2、不透明区域仅 2~3），渲染端忽略
+                # alpha 直接采 RGB 就露出编码垃圾（负重轮横向白条）。故不透明材质一律丢。
+                keep_alpha = varying and "alphatestThreshold" in (m.get("properties") or {})
                 i = glb.image((fname, glsl, mode, keep_alpha),
                               _encode_webp(out, keep_alpha), "image/webp")
                 target = pbr if glsl in ("baseColorTexture", "metallicRoughnessTexture") else mat
