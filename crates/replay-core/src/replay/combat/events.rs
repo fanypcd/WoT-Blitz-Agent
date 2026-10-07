@@ -33,20 +33,6 @@ pub enum CombatEventType {
     Unknown { sub_type: u32 },
 }
 
-/// 推断出的一次"射击事件"：把作者伤害计数器递增与敌方生命值下降相关联。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ShotEvent {
-    pub timestamp: f32,
-    pub damage: u32,
-    pub target_name: String,
-    /// 推断的目标实体 ID（按"伤害最接近"匹配）。
-    pub target_eid: u32,
-    pub target_hp_after: Option<u16>,
-    pub target_damage: u16,
-    pub is_kill: bool,
-    pub hit: bool,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CombatTimeline {
     pub events: Vec<CombatEvent>,
@@ -243,70 +229,6 @@ impl CombatTimeline {
                 _ => None,
             })
             .collect()
-    }
-
-    /// 打印事件时间线（人类可读，`combat` 命令用）。
-    /// 推断"每发射击"：作者伤害计数器（sub=10）递增即一次开炮命中（差值=本次伤害），再在同一时刻附近找血量下降的敌方实体作为目标。
-    pub fn infer_shots(&self, author_eid: u32) -> Vec<ShotEvent> {
-        let health = self.health_timeline();
-        let deaths = self.death_events();
-
-        let mut dmg_increases: Vec<(f32, u32)> = Vec::new();
-        let mut last_cum = 0u32;
-        for e in &self.events {
-            if let CombatEventType::DamageCounter { cumulative_damage } = &e.event_type {
-                if *cumulative_damage > last_cum {
-                    dmg_increases.push((e.timestamp, *cumulative_damage - last_cum));
-                    last_cum = *cumulative_damage;
-                }
-            }
-        }
-
-        let mut shots = Vec::new();
-        let mut prev_dc_time = 0.0f32;
-        for (dc_time, dc_delta) in &dmg_increases {
-            let window_lo = prev_dc_time.max(*dc_time - 3.0);
-            let nearby: Vec<&(f32, u32, String, u16, u16)> = health
-                .iter()
-                .filter(|(t, eid, _, _, _)| {
-                    *t > window_lo && *t <= *dc_time + 0.05 && *eid != author_eid
-                })
-                .collect();
-
-            let target = if nearby.len() == 1 {
-                Some(nearby[0])
-            } else if nearby.len() > 1 {
-                nearby
-                    .iter()
-                    .min_by_key(|x| (x.4 as i32 - *dc_delta as i32).unsigned_abs())
-                    .copied()
-            } else {
-                None
-            };
-            prev_dc_time = *dc_time;
-
-            let is_kill = if let Some((_, target_eid, _, _, _)) = target {
-                deaths.iter().any(|(d_time, d_eid, _)| {
-                    *d_eid == *target_eid && (*d_time - dc_time).abs() < 1.0
-                })
-            } else {
-                false
-            };
-
-            shots.push(ShotEvent {
-                timestamp: *dc_time,
-                damage: *dc_delta,
-                target_name: target
-                    .map(|(_, _, name, _, _)| name.clone())
-                    .unwrap_or_else(|| "miss/assist".to_string()),
-                target_eid: target.map(|(_, eid, _, _, _)| *eid).unwrap_or_default(),
-                target_hp_after: target.map(|(_, _, _, hp, _)| *hp),
-                target_damage: target.map(|(_, _, _, _, dmg)| *dmg).unwrap_or(0),
-                is_kill,
-                hit: target.is_some(),
-            });
-        }
-        shots
     }
 }
 

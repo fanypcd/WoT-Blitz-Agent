@@ -154,9 +154,12 @@ impl TankResolver {
                 .find(|pr| pr.info.account_id == p.account_id)
                 .map(|pr| pr.info.tank_id);
             let Some(tid) = tank_id else { continue };
-            // 实际搭载（comp blob，确定性）：tank 低 16 位对号后取该炮塔/主炮局部 id
+            // 实际搭载（comp blob，确定性）：**account_id 主键**（条目 field7，P3 探针
+            // 定案——匿名/重名昵称免疫），退回昵称键；tank 低 16 位对号后取该炮塔/主炮局部 id
             let comp = comps
-                .get(p.info.nickname.as_str())
+                .values()
+                .find(|c| c.account_id != 0 && c.account_id == p.account_id as u64)
+                .or_else(|| comps.get(p.info.nickname.as_str()))
                 .filter(|c| (c.tank_id & 0xFFFF) == (tid & 0xFFFF))
                 .map(|c| (c.turret_local, c.gun_local));
             if let Some(r) = Self::models_pitch_limits(tid, comp) {

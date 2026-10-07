@@ -166,11 +166,15 @@ fn shot_replays_shell_injection_smoke() {
     // 样本须含已知全局弹种 id 的对局：GB13_FV215b 场（作者/他人均发 18010 APCR）
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data/replay_samples");
     let path = std::fs::read_dir(&dir).ok().and_then(|rd| {
-        rd.flatten().map(|e| e.path()).find(|p| {
-            p.file_name()
-                .map(|n| n.to_string_lossy().contains("FV215b"))
-                .unwrap_or(false)
-        })
+        rd.flatten()
+            .map(|e| e.path())
+            // 只认回放文件：切面导出产物（*.facet.*.json）同名含车型，不过滤会误抓
+            .filter(|p| p.extension().is_some_and(|e| e == "wotbreplay"))
+            .find(|p| {
+                p.file_name()
+                    .map(|n| n.to_string_lossy().contains("FV215b"))
+                    .unwrap_or(false)
+            })
     });
     let Some(path) = path else {
         eprintln!("无 FV215b 样本，跳过");
@@ -232,7 +236,7 @@ fn shot_replays_shell_injection_smoke() {
 
 /// P0 结算字段（WotBTools 名人堂/联赛评分阻断项）：arena_id（**字符串**，值可超
 /// JS 安全整数）、arena_bonus_type（meta.json 原始数值）、damage_received（玩家级，
-/// #301 f11，缺省 0 为真实语义）。
+/// #301 f11；结算缺失时 null，unknown ≠ 0）。
 #[test]
 fn result_p0_settlement_fields_smoke() {
     let Some(path) = largest_sample() else {
@@ -265,16 +269,16 @@ fn result_p0_settlement_fields_smoke() {
         r.get("arena_bonus_type")
     );
 
-    // damage_received：每个玩家都有（缺省 0）
+    // damage_received：结算在 → 数值；结算缺失 → null（unknown ≠ 0 契约，2026-10 起）
     let players = r["players"].as_array().unwrap();
     assert!(!players.is_empty());
     for p in players {
+        let v = p.get("damage_received");
         assert!(
-            p.get("damage_received")
-                .map(|v| v.is_u64())
-                .unwrap_or(false),
-            "玩家 {} 缺 damage_received",
-            p.get("nickname").unwrap_or(&serde_json::json!("?"))
+            v.map(|v| v.is_u64() || v.is_null()).unwrap_or(false),
+            "玩家 {} damage_received 应为数值或 null（got {:?}）",
+            p.get("nickname").unwrap_or(&serde_json::json!("?")),
+            v
         );
     }
     eprintln!(

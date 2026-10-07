@@ -164,6 +164,17 @@ pub struct PlayerLoadout {
     pub shells: Vec<ShellEntry>,
 }
 
+/// type=5 实体的开局 HP 来源分槽（见 `collect_player_loadouts`）：
+/// 尾部属性表 id13 在**任意**包上都是开局值（权威）；偏移 51 仅在**首见**包上等于
+/// 开局值（重广播包上是当前血量）——旧实现"首个非零值"会让后到重广播包的当前血量
+/// 覆盖首包 0，语义错误。均缺失 → None = 未获取（unknown ≠ 值）。
+#[derive(Default)]
+struct EntityHp {
+    nickname: String,
+    tail_table: Option<u32>,
+    first_offset51: Option<u32>,
+}
+
 /// 提取全场玩家开局配置：
 /// type=5 数据包（eid=[0..4]、昵称长度前缀串@57、开局血量见 [`initial_hp_from_type5`]）
 /// 联表 battle_results（昵称→队伍/tank_id）与 tanks.pb（基准 HP/弹种表）。
@@ -172,24 +183,31 @@ pub fn collect_player_loadouts(
     packets: &[(u32, f32, &[u8])],
     br: &BattleResults,
 ) -> Vec<PlayerLoadout> {
-    // type=5 开局实体：eid → (昵称, 初始 HP)；昵称解码走 replay-core SSOT（UTF-8 全域）
-    let mut entities: HashMap<u32, (String, u32)> = HashMap::new();
+    // type=5 开局实体：eid → (昵称, 初始 HP)。HP 按来源分级（见 EntityHp）。
+    let mut entities: HashMap<u32, EntityHp> = HashMap::new();
     for (pkt_type, _, p) in packets {
         if *pkt_type != 5 || p.len() < 60 {
             continue;
         }
         let eid = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
-        let hp = initial_hp_from_type5(p);
-        let entry = entities.entry(eid).or_insert((String::new(), hp));
-        if entry.1 == 0 {
-            entry.1 = hp;
+        let entry = entities.entry(eid).or_default();
+        if entry.first_offset51.is_none() {
+            // 首见包：偏移 51 锚点语义成立（首条 type=5 恒早于该实体首次掉血，GB109 20 实体实证）
+            entry.first_offset51 = Some(u16::from_le_bytes([p[51], p[52]]) as u32);
         }
-        if entry.0.is_empty() {
+        if entry.tail_table.is_none() {
+            entry.tail_table = tail_table_hp(p).map(|hp| hp as u32);
+        }
+        if entry.nickname.is_empty() {
             if let Some((_, s)) = wotb_replay_core::replay::combat::decode_type5_nickname(p) {
-                entry.0 = s.to_string();
+                entry.nickname = s.to_string();
             }
         }
     }
+    let entities: HashMap<u32, (String, u32)> = entities
+        .into_iter()
+        .map(|(eid, e)| (eid, (e.nickname, e.tail_table.or(e.first_offset51).unwrap_or(0))))
+        .collect();
 
     // 花名册：昵称 → (队伍, account_id)；account_id → tank_id
     let nick_team: HashMap<&str, (i32, u32)> = br
@@ -272,21 +290,11 @@ pub fn collect_player_loadouts(
     out
 }
 
-/// type=5 开局血量：尾部属性表 id13 优先（重广播包恒为开局值），旧客户端无尾部表
-/// 回退偏移 51 的 u16 满血锚点（该偏移在重广播包为当前血量，首包才等于开局值）。
-fn initial_hp_from_type5(p: &[u8]) -> u32 {
-    if let Some(hp) = tail_table_hp(p) {
-        return hp as u32;
-    }
-    if p.len() >= 53 {
-        return u16::from_le_bytes([p[51], p[52]]) as u32;
-    }
-    0
-}
-
 /// type=5 尾部属性表（>100B 车辆实体包；按 (属性 id u8)(定长值) 序列，值长随 id 定）。
 /// 血量 = id13；扫描尾部 `0c 00 0d ?? ?? 0e` 锚（id12=1B、id13=u16、id14=u16），
 /// 值域 100..10000 防误配；id11 = 匿名乱码名（长度前缀串）。
+/// **任意包上 id13 恒为开局值**（重广播语义），故优先于偏移 51（仅首见包有效，见
+/// `collect_player_loadouts` 的来源分级）。
 fn tail_table_hp(p: &[u8]) -> Option<u16> {
     if p.len() < 100 {
         return None;
@@ -342,15 +350,38 @@ mod tests {
         tail.extend_from_slice(&[0u8; 8]); // id15
         tail.extend_from_slice(&[0x10, 0x00, 0x11, 0x00]);
         p.extend_from_slice(&tail);
-        assert_eq!(initial_hp_from_type5(&p), 2792);
-        // 血量超值域 → 不认表，回退偏移 51
+        assert_eq!(tail_table_hp(&p), Some(2792));
+        // 血量超值域 → 不认表（来源分级由 collect_player_loadouts 承接：
+        // 尾表缺失时用首见包的偏移 51）
         let mut bad = p.clone();
         let off = bad.len() - tail.len() + 6;
         bad[off] = 0xff;
         bad[off + 1] = 0xff;
-        assert_eq!(initial_hp_from_type5(&bad), 0);
-        // 短包（旧格式无尾部表）→ 偏移 51
+        assert_eq!(tail_table_hp(&bad), None);
+        // 短包（旧格式无尾部表）→ None
         let legacy = [0u8; 53];
-        assert_eq!(initial_hp_from_type5(&legacy), 0);
+        assert_eq!(tail_table_hp(&legacy), None);
+    }
+
+    /// HP 来源分级：偏移 51 只取首见包（重广播包上是当前血量，不得覆盖/顶替）
+    #[test]
+    fn entity_hp_prefers_tail_table_and_first_packet_offset51() {
+        use super::EntityHp;
+        let mut e = EntityHp::default();
+        // 首见包：偏移 51 = 满血 1650，无尾表
+        e.first_offset51 = Some(1650);
+        // 重广播包：偏移 51 = 当前血量 1279（模拟），带尾表开局值 1650
+        e.tail_table = Some(1650);
+        assert_eq!(e.tail_table.or(e.first_offset51), Some(1650));
+        // 无尾表时用首见偏移 51（不是后到包的当前血量）
+        let e2 = EntityHp {
+            nickname: String::new(),
+            tail_table: None,
+            first_offset51: Some(1650),
+        };
+        assert_eq!(e2.tail_table.or(e2.first_offset51), Some(1650));
+        // 两者皆缺 → 0（unknown ≠ 值）
+        let e3 = EntityHp::default();
+        assert_eq!(e3.tail_table.or(e3.first_offset51), None);
     }
 }

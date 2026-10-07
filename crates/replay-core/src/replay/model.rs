@@ -84,6 +84,9 @@ pub struct Timeline {
     pub periods: Vec<ArenaPeriod>,
     /// 全部弹道（作者严格 + 他人宽松合并，按开火时刻排序）
     pub shots: Vec<ShotReplayData>,
+    /// true = shots 来自宽松降级路径（作者严格提取失败；provenance 契约见
+    /// `playback::collect_all_shots`）
+    pub shots_from_loose_path: bool,
     /// type=5 昵称表（eid → 昵称）
     pub entity_names: HashMap<u32, String>,
     /// 作者 Avatar 实体（0 = 未解析）
@@ -154,7 +157,26 @@ impl ReplayModel {
             .find(|p| p.account_id == input.author_account_id)
             .map(|p| p.nickname.clone())
             .unwrap_or_default();
-        let author_eid = combat::resolve_author_player_eid_by_nick(packets, &author_nickname);
+
+        // arena 流一次收集 {1,3,6}（comps/periods/kill_feed 三个消费方合用；
+        // 高频 RELOAD_TIME 等子类型在收集期即丢弃）——提前到作者解析之前：
+        // comp 条目的 account_id（P3 探针 field7 定案）是作者实体解析的精确键
+        let arena_updates = combat::collect_arena_updates_filtered(packets, |s| {
+            s == 1 || s == 3 || s == 6
+            // 装填相位（subtype 15/17）也在此收集：本方全队的装填开始/就绪/弹夹内间隔
+            || s == combat::ARENA_SUB_RELOAD_TIME
+            || s == combat::ARENA_SUB_RELOAD_TIME_UPDATE
+            || s == combat::ARENA_SUB_RELOAD_TIME_LIST
+        });
+        let valid_tanks: Vec<u32> = input.roster.iter().map(|p| p.tank_id).collect();
+        let comps = playback::comp_descriptors_from_updates(&arena_updates, &valid_tanks);
+        // 作者实体 = comps 条目 account_id 精确匹配（重名/匿名免疫），退回昵称匹配
+        let author_eid = comps
+            .values()
+            .find(|c| c.account_id != 0 && c.account_id == input.author_account_id as u64)
+            .map(|c| c.eid)
+            .filter(|e| *e != 0)
+            .unwrap_or_else(|| combat::resolve_author_player_eid_by_nick(packets, &author_nickname));
 
         // —— 共享扫描（契约"包流只扫一遍"）：位姿/炮塔/血量/名字/配件/发射等
         // 全部索引只建一份，弹道两路提取（collect_all_shots）与实体档案并表均从此取数。
@@ -165,15 +187,6 @@ impl ReplayModel {
         let hit_notices = combat::collect_hit_notices(packets);
         let prop3_health = combat::collect_prop3_health(packets);
         let counters = combat::collect_feedback_counters(packets);
-        // arena 流一次收集 {1,3,6}（comps/periods/kill_feed 三个消费方合用；
-        // 高频 RELOAD_TIME 等子类型在收集期即丢弃）
-        let arena_updates = combat::collect_arena_updates_filtered(packets, |s| {
-            s == 1 || s == 3 || s == 6
-            // 装填相位（subtype 15/17）也在此收集：本方全队的装填开始/就绪/弹夹内间隔
-            || s == combat::ARENA_SUB_RELOAD_TIME
-            || s == combat::ARENA_SUB_RELOAD_TIME_UPDATE
-            || s == combat::ARENA_SUB_RELOAD_TIME_LIST
-        });
         let kill_feed = combat::kill_feed_from_updates(&arena_updates);
         let periods = combat::parse_arena_periods(&arena_updates);
         // Supremacy 目标状态/点数（subtype48 wrapper12/13；非争霸场为空）——
@@ -248,12 +261,12 @@ impl ReplayModel {
             }
         }
 
-        // —— 弹道（作者严格 + 他人宽松合并；降级策略见 playback::collect_all_shots） ——
-        let shots = playback::collect_all_shots(&shared, author_eid, input.pitch_limits)?;
+        // —— 弹道（作者严格 + 他人宽松合并；降级策略与 provenance 见 playback::collect_all_shots） ——
+        let collected = playback::collect_all_shots(&shared, author_eid, input.pitch_limits)?;
+        let shots = collected.shots;
 
         // —— 实体档案并表（eid 并集 = 位姿 ∪ 炮塔 ∪ 名字 ∪ 锚点 ∪ 配件 ∪ 在场） ——
-        let valid_tanks: Vec<u32> = input.roster.iter().map(|p| p.tank_id).collect();
-        let comps = playback::comp_descriptors_from_updates(&arena_updates, &valid_tanks);
+        // （valid_tanks/comps 已在作者解析前构建——作者实体解析同源共用）
         let mut eids: Vec<u32> = shared
             .st10
             .keys()
@@ -267,15 +280,36 @@ impl ReplayModel {
         eids.sort_unstable();
         eids.dedup();
 
+        let comp_by_eid: HashMap<u32, &playback::CompDescriptor> = comps
+            .values()
+            .filter(|c| c.eid != 0)
+            .map(|c| (c.eid, c))
+            .collect();
         let mut entities = Vec::with_capacity(eids.len());
         for eid in eids {
             let nickname = ct.entity_names.get(&eid).cloned();
-            let joined = nickname
-                .as_ref()
-                .and_then(|n| input.roster.iter().find(|p| &p.nickname == n));
+            // 组成条目 account_id（field7，P3 探针实证）是花名册联表的精确键——
+            // 重名/匿名 "Anonyme" 免疫；退回昵称首条匹配（comps 未覆盖的实体）
+            let joined = comp_by_eid
+                .get(&eid)
+                .filter(|c| c.account_id != 0)
+                .and_then(|c| {
+                    input
+                        .roster
+                        .iter()
+                        .find(|p| p.account_id as u64 == c.account_id)
+                })
+                .or_else(|| {
+                    nickname
+                        .as_ref()
+                        .and_then(|n| input.roster.iter().find(|p| &p.nickname == n))
+                });
             // 组成 blob 昵称是原始 UTF-8（不经 ascii 过滤），与 type=5 名字表对非 ascii
-            // 昵称可能不交集——按昵称能联则联，联不上不猜
-            let comp = nickname.as_ref().and_then(|n| comps.get(n));
+            // 昵称可能不交集——按 eid 能联则联，联不上退昵称，再联不上不猜
+            let comp = comp_by_eid
+                .get(&eid)
+                .copied()
+                .or_else(|| nickname.as_ref().and_then(|n| comps.get(n)));
             let is_author = if author_eid != 0 {
                 eid == author_eid
             } else {
@@ -316,6 +350,7 @@ impl ReplayModel {
                 damage_progress,
                 periods,
                 shots,
+                shots_from_loose_path: collected.from_loose_path,
                 entity_names: ct.entity_names,
                 author_eid,
                 supremacy_bases,
@@ -360,13 +395,10 @@ impl ReplayModel {
                     wf.map(|k| k.killer_eid).unwrap_or(0)
                 },
                 victim_eid: *eid,
-                cause: if d.killer_eid != 0 {
-                    d.cause
-                } else if wf.is_some() {
-                    0
-                } else {
-                    3
-                },
+                // cause：method1 权威值仅在血量链 killer_eid 非零时可信；击杀播报只给
+                // 凶手身份、给不出 method1 cause——未获取一律 255（KillEvent.cause 契约
+                // 哨兵），不再合成 0/3（fail-closed，禁猜）
+                cause: if d.killer_eid != 0 { d.cause } else { 255 },
                 assister_eid: wf.and_then(|k| k.assister_eid),
                 death_reason: wf.and_then(|k| k.death_reason),
             });

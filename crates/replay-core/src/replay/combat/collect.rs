@@ -883,6 +883,8 @@ pub(crate) fn collect_terrain_impacts(
 
 /// type=32 警告包抵达成角解码与校验：
 /// 候选 = 受击者 eid 的警告、命中 ±3s 窗口（来袭警告覆盖未命中弹，含路过炮弹）；
+/// `prefer` = method8↔type32 hash6 令牌已精确绑定的警告（命中归属的副产品）——
+/// 通过同样的双重校验则直接采用，免去 ±3s 窗内多警告择优（2026-10 确定性收口）；
 /// 选取 = 解码来向方位角与位置推算方位角（受击者→射手）偏差最小者；偏差 >15° 弃用；
 /// |pitch|>30°（非直射抵达角）弃用。通过 = 该警告确属命中本车的炮弹，
 /// pitch 即"受击者反向瞄准射手的俯仰"（渲染炮口指向射手的炮管俯角）。
@@ -891,8 +893,20 @@ pub(crate) fn decoded_target_gun_pitch(
     victim: u32,
     end_time: f32,
     bearing: Option<f32>,
+    prefer: Option<&ArenaWarning32>,
 ) -> Option<(f32, f32)> {
     let bearing = bearing?;
+    if let Some(w) = prefer {
+        if w.eid == victim {
+            let err = ((w.inc_yaw - bearing + std::f32::consts::PI).rem_euclid(
+                std::f32::consts::TAU,
+            ) - std::f32::consts::PI)
+                .abs();
+            if err <= 0.262 && w.inc_pitch.to_degrees().abs() <= 30.0 {
+                return Some((w.inc_pitch, w.inc_yaw));
+            }
+        }
+    }
     let mut best: Option<(f32, f32, f32)> = None; // (yaw 偏差, pitch, yaw)
     for w in warnings32 {
         if w.eid != victim {

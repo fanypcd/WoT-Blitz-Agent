@@ -1152,6 +1152,7 @@ pub(crate) fn extract_shot_replays_from_shared(
         let mut hit_triangle: u16 = 0;
         let mut game_hit_result: u8 = 255;
         let mut hit_token: Option<String> = None;
+        let mut bound_warning: Option<&ArenaWarning32> = None;
         if let Some(teid) = target_eid {
             // 一次 Shot 可以在同一 victim/同钟产生多个装甲交互；只按 victim+time 会把
             // 合法的不同 type=32 segment 误判为歧义。作者路径与他人路径统一优先使用
@@ -1167,6 +1168,7 @@ pub(crate) fn extract_shot_replays_from_shared(
                     segment = first.segment;
                     game_hit_result = first.result;
                     hit_token = Some(first.hash6.iter().map(|b| format!("{:02x}", b)).collect());
+                    bound_warning = Some(first);
                     // segment 布局解码：[result][shell_global_id u24 LE（=(局部 id<<8)|国家基数）][00][X][Y][Z=armor_group]
                     let sb = segment.to_le_bytes();
                     // 全局弹种 id = B1B2B3 u24 LE（=(局部 id<<8)|国家基数），与 WI shell_id 同值
@@ -1388,7 +1390,13 @@ pub(crate) fn extract_shot_replays_from_shared(
             None
         };
         let server_gun_pitch = if hit {
-            decoded_target_gun_pitch(&warnings32, target_eid.unwrap_or(0), end_time, bearing)
+            decoded_target_gun_pitch(
+                &warnings32,
+                target_eid.unwrap_or(0),
+                end_time,
+                bearing,
+                bound_warning,
+            )
                 .map(|(p, _)| p)
         } else {
             None
@@ -1713,10 +1721,78 @@ pub struct OtherShotsExtraction {
     pub skipped_no_target_state: usize,
     /// 射手 type=10 缺失 → 炮口坐标兜底（未跳过，per-shot 另有 quality 标记）
     pub muzzle_fallback: usize,
+    /// 多候选 method8 几何判别不出（前后纵列/受击方位姿缺失）→ 回退时间最近绑定的
+    /// 次数（综合方案：完整性优先；旧实现此处无差别静默就近，可错配无痕迹）
+    pub ambiguous_time_fallback: usize,
+}
+
+/// method8 来向角自洽门的有效阈值（与 [`collect::decoded_target_gun_pitch`] 同源 15°）。
+const INC_YAW_TOL: f32 = 0.262;
+/// 多候选判别的胜出领先幅度（rad）：次优射线偏差须比最优差至少此值才绑定；
+/// 两候选同在弹道射线上（前后纵列车）判别不出 → None（fail-closed，禁就近猜）。
+const INC_YAW_MARGIN: f32 = 0.05;
+
+/// 多候选 method8 的几何判别。**hash6 来向角是命中事件的自洽属性**（每个 method8
+/// 都与其自身受击者几何一致，P2b 探针定案），故判别分两门：
+/// ① 自洽门——hash6[2..4] 来向角 vs (atan2(Δx,Δz) 受击者→发射点)，超 15° 的候选
+/// 剔除（受击方锚点漂移/数据错配防护）；② 射线门——发射速度方向 vs (受击方位置−
+/// 发射点) 水平夹角排序（一发炮弹沿射线飞行，首中目标必贴近射线；溅射第二目标
+/// 不在射线上即排除）。射线偏差领先 ≥ [`INC_YAW_MARGIN`] 才绑定；全部被剔/
+/// 领先不足 → (None, true)（fail-closed）。
+fn select_dhit_by_inc_yaw<'a>(
+    cands: &[&'a DirectHit8],
+    victim_pos_at: &dyn Fn(u32) -> Option<[f32; 3]>,
+    launch_point: [f32; 3],
+    launch_vel: [f32; 3],
+) -> (Option<&'a DirectHit8>, bool) {
+    let tau = std::f32::consts::TAU;
+    let mut scored: Vec<(&'a DirectHit8, f32)> = Vec::with_capacity(cands.len());
+    for d in cands {
+        let Some(vp) = victim_pos_at(d.victim) else {
+            continue;
+        };
+        // 门①：来向角自洽（受击者 → 发射点方位角）
+        let bearing = (launch_point[0] - vp[0]).atan2(launch_point[2] - vp[2]);
+        let inc = (u16::from_le_bytes([d.hash6[2], d.hash6[3]]) as f32 - 32768.0) / 32768.0
+            * std::f32::consts::PI;
+        let yaw_err =
+            ((bearing - inc + std::f32::consts::PI).rem_euclid(tau) - std::f32::consts::PI).abs();
+        if yaw_err > INC_YAW_TOL {
+            continue;
+        }
+        // 门②：弹道射线一致性（发射速度方向 vs 发射点→受击方，水平面）
+        let to_v = [vp[0] - launch_point[0], vp[2] - launch_point[2]];
+        let vdir = [launch_vel[0], launch_vel[2]];
+        let mv = (to_v[0] * to_v[0] + to_v[1] * to_v[1]).sqrt();
+        let ms = (vdir[0] * vdir[0] + vdir[1] * vdir[1]).sqrt();
+        if mv < 1e-3 || ms < 1e-3 {
+            continue;
+        }
+        let cos = (to_v[0] * vdir[0] + to_v[1] * vdir[1]) / (mv * ms);
+        let ray_err = cos.clamp(-1.0, 1.0).acos();
+        if ray_err <= INC_YAW_TOL {
+            scored.push((d, ray_err));
+        }
+    }
+    if scored.is_empty() {
+        return (None, true);
+    }
+    scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    let lead = scored
+        .get(1)
+        .map(|(_, e)| e - scored[0].1)
+        .unwrap_or(f32::INFINITY);
+    if lead >= INC_YAW_MARGIN {
+        (Some(scored[0].0), false)
+    } else {
+        (None, true)
+    }
 }
 
 /// 其他玩家（队友/敌方）射击的宽松提取：与 [`extract_shot_replays`] 同源数据，但 Avatar 专属包不可得，对应字段降级：
-/// method38 命中反馈（作者专属）→ hit_flags/crit/destroyed/modifiers 恒空，结果 = method8 result 枚举；目标 = method8 就近匹配（±0.05s）；
+/// method38 命中反馈（作者专属）→ hit_flags/crit/destroyed/modifiers 恒空，结果 = method8 result 枚举；
+/// 目标 = method8（±0.05s 命中窗；唯一候选直接绑定，多候选按几何判别
+/// [`select_dhit_by_inc_yaw`]，判别不出回退时间最近并计 `ambiguous_time_fallback`）；
 /// segment/弹种/装甲组 = method8 hash6 令牌 ↔ type=32 精确配对（同源），未配对时弹种回退
 /// 0x1b 地形命中广播的 shell_global_id（全局广播含所有玩家脱靶弹，shotId 配对）并置 shell_from_terrain；
 /// 伤害 = 血量链降幅（source=射手，cause=0）；双方炮管俯仰 = prop2 frac 解码（无锚定时射手回退发射速度向量、受击方回退车体 pitch）；
@@ -1836,6 +1912,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
     let mut skipped_no_endpoint = 0usize;
     let mut skipped_no_target_state = 0usize;
     let mut muzzle_fallback = 0usize;
+    let mut ambiguous_time_fallback = 0usize;
     for (li, l) in launches.iter().enumerate() {
         // ctx 仅在跳过/兜底打印时格式化（避免逐发无条件分配）
         let ctx = || {
@@ -1884,16 +1961,42 @@ pub(crate) fn extract_other_shot_replays_from_shared(
         };
         let fire_tick = tick_at(tick_timeline, l.t);
 
-        // 目标 = method8 就近匹配（窗口 ±0.05s，同作者路径命中窗口）
-        let dhit = direct_hits8
+        // 目标 = method8（同射手 ±0.05s 命中窗）：唯一候选直接绑定（语料 98%+，绑定
+        // 唯一即精确）；多候选先按几何判别（来向角自洽门 + 弹道射线门，见
+        // [`select_dhit_by_inc_yaw`]——溅射第二目标不在发射射线上即被排除），判别
+        // 不出 → 回退时间最近保完整性并计数（旧实现无差别静默就近，可错配无痕迹）
+        let cand_dhits: Vec<&DirectHit8> = direct_hits8
             .iter()
             .filter(|d| d.shooter == l.shooter && (d.t - end_time).abs() <= 0.05)
-            .min_by(|x, y| {
-                (x.t - end_time)
-                    .abs()
-                    .partial_cmp(&(y.t - end_time).abs())
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+            .collect();
+        let (dhit, ambiguous) = match cand_dhits.len() {
+            0 => (None, false),
+            1 => (Some(cand_dhits[0]), false),
+            _ => match select_dhit_by_inc_yaw(
+                &cand_dhits,
+                &|eid| anchor_at(eid, end_time).map(|(p, _, _, _)| p),
+                ball_a,
+                l.vel,
+            ) {
+                (Some(d), _) => (Some(d), false),
+                (None, true) => {
+                    // 几何判别不出（前后纵列/受击方位姿缺失）→ 回退时间最近保完整性
+                    //（窗口匹配本身准确率高），计数外露供质量评估
+                    ambiguous_time_fallback += 1;
+                    (
+                        cand_dhits.iter().copied().min_by(|x, y| {
+                            (x.t - end_time)
+                                .abs()
+                                .partial_cmp(&(y.t - end_time).abs())
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        }),
+                        true,
+                    )
+                }
+                (None, false) => unreachable!("几何判别只在剔空时返回 (None, true)"),
+            },
+        };
+        let _ = ambiguous;
         let target_eid = dhit.map(|d| d.victim);
         let hit = target_eid.is_some();
 
@@ -1906,6 +2009,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
         let mut hit_triangle: u16 = 0;
         let mut game_hit_result: u8 = dhit.map(|d| d.result).unwrap_or(255);
         let mut hit_token: Option<String> = None;
+        let mut bound_warning: Option<&ArenaWarning32> = None;
         if let Some(d) = dhit {
             hit_token = Some(d.hash6.iter().map(|b| format!("{:02x}", b)).collect());
             if let Some(teid) = target_eid {
@@ -1915,6 +2019,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
                 {
                     segment = w.segment;
                     game_hit_result = w.result;
+                    bound_warning = Some(w);
                     let sb = segment.to_le_bytes();
                     shell_id = (sb[1] as u32) | ((sb[2] as u32) << 8) | ((sb[3] as u32) << 16);
                     armor_group = sb[7];
@@ -2013,9 +2118,14 @@ pub(crate) fn extract_other_shot_replays_from_shared(
         } else {
             None
         };
-        let server_gun_pitch =
-            decoded_target_gun_pitch(warnings32, target_eid.unwrap_or(0), end_time, bearing)
-                .map(|(p, _)| p);
+        let server_gun_pitch = decoded_target_gun_pitch(
+            warnings32,
+            target_eid.unwrap_or(0),
+            end_time,
+            bearing,
+            bound_warning,
+        )
+        .map(|(p, _)| p);
 
         // 炮塔朝向（prop2 相对角 @ 命中通知时刻；method8 流序快照优先 = WI 逐位同基准，
         // 见 DirectHit8::victim_prop2；AoI 裁剪缺失时降级为车体朝向，不跳过）
@@ -2211,14 +2321,15 @@ pub(crate) fn extract_other_shot_replays_from_shared(
             server_part_index,
         });
     }
-    eprintln!("[replay_others] 其他玩家射击提取: {} 发（终点缺失跳过 {}、受击方状态缺失跳过 {}、射手状态炮口兜底 {}）",
-        out.len(), skipped_no_endpoint, skipped_no_target_state, muzzle_fallback);
+    eprintln!("[replay_others] 其他玩家射击提取: {} 发（终点缺失跳过 {}、受击方状态缺失跳过 {}、射手状态炮口兜底 {}、多目标歧义回退时间最近 {}）",
+        out.len(), skipped_no_endpoint, skipped_no_target_state, muzzle_fallback, ambiguous_time_fallback);
     OtherShotsExtraction {
         shots: out,
         total_launches: launches.len(),
         skipped_no_endpoint,
         skipped_no_target_state,
         muzzle_fallback,
+        ambiguous_time_fallback,
     }
 }
 
@@ -2304,5 +2415,99 @@ mod author_warning32_pairing_tests {
             .expect("相同 token + 相同 segment 的重复通知应去重语义")
             .expect("应选出命中段");
         assert_eq!(picked.segment, 0x1234);
+    }
+}
+
+#[cfg(test)]
+mod target_binding_tests {
+    use super::*;
+
+    fn dh(t: f32, victim: u32, inc_yaw_u16: u16) -> DirectHit8 {
+        DirectHit8 {
+            t,
+            shooter: 7,
+            victim,
+            result: 3,
+            component_index: Some(1),
+            hash6: [
+                0x11,
+                0x22,
+                inc_yaw_u16 as u8,
+                (inc_yaw_u16 >> 8) as u8,
+                0x80,
+                0x00,
+            ],
+            victim_state: None,
+            victim_prop2: None,
+        }
+    }
+
+    /// 来向角 u16 编码（与 collect.rs 解码式互逆）：yaw ∈ (−π, π] → (yaw/π+1)×32768
+    fn enc_yaw(yaw: f32) -> u16 {
+        ((yaw / std::f32::consts::PI + 1.0) * 32768.0).round() as u16
+    }
+
+    const SHOOTER: [f32; 3] = [0.0, 0.0, 0.0];
+
+    #[test]
+    fn two_candidates_bound_by_inc_yaw_geometry() {
+        // 射手在原点；受击 A 在 +x（受击→射手方位角 atan2(−100,0) = −π/2）、
+        // B 在 +z（atan2(0,−100) = +π ≡ u16 0）。hash6 来向角 = A 的 → 绑 A。
+        let a_yaw = (-std::f32::consts::FRAC_PI_2) as f32;
+        let a = dh(20.0, 100, enc_yaw(a_yaw));
+        let b = dh(20.0, 200, enc_yaw(std::f32::consts::PI));
+        let cands = vec![&a, &b];
+        let pos = |eid: u32| match eid {
+            100 => Some([100.0, 0.0, 0.0]),
+            200 => Some([0.0, 0.0, 100.0]),
+            _ => None,
+        };
+        let (picked, ambiguous) = select_dhit_by_inc_yaw(&cands, &pos, SHOOTER, [1.0, 0.0, 0.0]);
+        assert!(!ambiguous, "方位角互异的多候选必须可判别");
+        assert_eq!(picked.map(|d| d.victim), Some(100));
+    }
+
+    #[test]
+    fn colinear_candidates_stay_unbound() {
+        // 前后纵列（同方位角）：两候选 hash6 来向角一致 → 领先不足 → 不猜
+        let a = dh(20.0, 100, enc_yaw(-std::f32::consts::FRAC_PI_2));
+        let b = dh(20.05, 200, enc_yaw(-std::f32::consts::FRAC_PI_2));
+        let cands = vec![&a, &b];
+        let pos = |eid: u32| match eid {
+            100 => Some([100.0, 0.0, 0.0]),
+            200 => Some([200.0, 0.0, 0.0]),
+            _ => None,
+        };
+        let (picked, ambiguous) = select_dhit_by_inc_yaw(&cands, &pos, SHOOTER, [1.0, 0.0, 0.0]);
+        assert!(ambiguous, "同向纵列候选判别不出必须 fail-closed");
+        assert!(picked.is_none());
+    }
+
+    #[test]
+    fn all_candidates_off_tolerance_stay_unbound() {
+        // 唯一"可验"候选也超 15° 阈（hash6 与几何全不合）→ 不猜
+        let a = dh(20.0, 100, enc_yaw(0.0)); // 实际方位角 −π/2，偏差 90°
+        let cands = vec![&a];
+        let pos = |eid: u32| match eid {
+            100 => Some([100.0, 0.0, 0.0]),
+            _ => None,
+        };
+        let (picked, ambiguous) = select_dhit_by_inc_yaw(&cands, &pos, SHOOTER, [1.0, 0.0, 0.0]);
+        assert!(ambiguous && picked.is_none());
+    }
+
+    #[test]
+    fn unverifiable_candidate_does_not_block_verifiable_one() {
+        // B 无锚点不可验；A 唯一可验且通过 → 绑 A（领先 = ∞）
+        let a = dh(20.0, 100, enc_yaw(-std::f32::consts::FRAC_PI_2));
+        let b = dh(20.05, 200, enc_yaw(0.0));
+        let cands = vec![&a, &b];
+        let pos = |eid: u32| match eid {
+            100 => Some([100.0, 0.0, 0.0]),
+            _ => None,
+        };
+        let (picked, ambiguous) = select_dhit_by_inc_yaw(&cands, &pos, SHOOTER, [1.0, 0.0, 0.0]);
+        assert!(!ambiguous);
+        assert_eq!(picked.map(|d| d.victim), Some(100));
     }
 }

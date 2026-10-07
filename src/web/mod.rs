@@ -984,26 +984,6 @@ fn replay_shots_blocking(
     eprintln!("[replay_shots] packets={}", raw_packets.len());
     let timeline = crate::replay::combat::CombatTimeline::parse_packets(&raw_packets);
     eprintln!("[replay_shots] entities={}", timeline.entity_count);
-    let author_eid = *timeline
-        .entity_names
-        .iter()
-        .find(|(eid, _)| {
-            timeline.events.iter().any(|e| {
-                e.entity_id == **eid
-                    && matches!(
-                        e.event_type,
-                        crate::replay::combat::CombatEventType::DamageCounter { .. }
-                    )
-            })
-        })
-        .map(|(eid, _)| eid)
-        .unwrap_or(&0);
-    let shots = timeline.infer_shots(author_eid);
-    eprintln!(
-        "[replay_shots] author_eid={:08x} shots={}",
-        author_eid,
-        shots.len()
-    );
     // 作者昵称来自回放自身（battle_results author→花名册；meta.player_name 兜底），不依赖文件名
     let br = replay.read_battle_results().ok();
     let author_nick = br
@@ -1081,6 +1061,12 @@ fn replay_shots_blocking(
             others.muzzle_fallback
         ));
     }
+    if others.ambiguous_time_fallback > 0 {
+        extraction_notes.push(format!(
+            "其他玩家 {} 发同刻多目标命中无法几何判别，按时间最近归属",
+            others.ambiguous_time_fallback
+        ));
+    }
     all_shots.extend(others.shots);
     all_shots.sort_by(|a, b| a.time_s.partial_cmp(&b.time_s).unwrap());
     for (i, s) in all_shots.iter_mut().enumerate() {
@@ -1126,25 +1112,8 @@ fn replay_shots_blocking(
         Some((team, tank_by_account.get(&aid).copied().unwrap_or(0)))
     };
 
-    // —— 实际搭载配置（comp blob 确定性 → 发射弹种 → 初始血量 证据链，与实时回放共享；
-    //    comps 已在俯仰锚定表构建时收集）——
-    let initial_hp = crate::replay::combat::collect_initial_hp(&raw_packets);
-    let mut player_shells: HashMap<String, Vec<u32>> = HashMap::new();
-    for s in &all_shots {
-        if s.shell_id == 0 {
-            continue;
-        }
-        let v = player_shells.entry(s.shooter_name.clone()).or_default();
-        if !v.contains(&s.shell_id) {
-            v.push(s.shell_id);
-        }
-    }
-    let mut nick_hp: HashMap<String, u16> = HashMap::new();
-    for (eid, nick) in &timeline.entity_names {
-        if let Some((_, hp)) = initial_hp.get(eid) {
-            nick_hp.insert(nick.clone(), *hp);
-        }
-    }
+    // —— 实际搭载配置（comp blob 精确对号，与实时回放共享；comps 已在俯仰锚定表
+    //     构建时收集；弹种/血量启发式证据已退役，fail-closed）——
     let mut nick_cfg: HashMap<String, u64> = HashMap::new();
     if let Some(br) = br.as_ref() {
         for p in &br.players {
@@ -1155,13 +1124,16 @@ fn replay_shots_blocking(
             if tank == 0 {
                 continue;
             }
-            let comp = comps.get(nick).and_then(|c| {
-                ((c.tank_id & 0xFFFF) == (tank & 0xFFFF)).then_some((c.turret_local, c.gun_local))
-            });
-            let shells = player_shells.get(nick).map(|v| v.as_slice()).unwrap_or(&[]);
-            let hp = nick_hp.get(nick).copied().unwrap_or(0);
+            // comp 匹配 = account_id 主键（P3 定案，匿名/重名免疫），退回昵称键
+            let comp = comps
+                .values()
+                .find(|c| c.account_id != 0 && c.account_id == p.account_id as u64)
+                .or_else(|| comps.get(nick))
+                .and_then(|c| {
+                    ((c.tank_id & 0xFFFF) == (tank & 0xFFFF)).then_some((c.turret_local, c.gun_local))
+                });
             if let Some((idx, _, _)) =
-                crate::wargaming::tank_configs::resolve_config_index(tank, comp, shells, hp)
+                crate::wargaming::tank_configs::resolve_config_index(tank, comp)
             {
                 nick_cfg.insert(nick.clone(), idx as u64);
             }

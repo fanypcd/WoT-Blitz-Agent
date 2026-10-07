@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use wotb_agent::agent::Agent;
 use wotb_agent::models::config::{Config, TokenUsage};
 use wotb_agent::models::report::AggregatedReport;
-use wotb_agent::replay::combat::{CombatEventType, CombatTimeline};
+use wotb_agent::replay::combat::CombatTimeline;
 use wotb_agent::replay::scanner::{ReplayScanner, ScanFilter};
 use wotb_agent::wargaming::api_client::WgApiClient;
 use wotb_agent::wargaming::snapshot::SnapshotStore;
@@ -62,37 +62,6 @@ fn print_combat_timeline(tl: &CombatTimeline) {
         for (t, _, name, hp, dmg) in health.iter().filter(|(_, _, _, _, d)| *d > 100) {
             println!("    {:>7.1}s {:<25} -{:>8} {:>8}", t, name, dmg, hp);
         }
-    }
-}
-
-/// ShotEvent 推断结果的 CLI 打印。
-fn print_shot_inference(shots: &[wotb_agent::replay::combat::ShotEvent]) {
-    let hits = shots.iter().filter(|s| s.hit).count();
-    let kills = shots.iter().filter(|s| s.is_kill).count();
-    let total_dmg: u32 = shots.iter().map(|s| s.damage).sum();
-
-    println!();
-    println!("--- Shot Event Inference ---");
-    println!("  Shots (damage counter): {}", shots.len());
-    println!("  Hits (matched to HP decrease): {}", hits);
-    println!("  Kills: {}", kills);
-    println!("  Total damage: {}", total_dmg);
-    println!();
-    println!(
-        "  {:>7} {:>6} {:<25} {:>6} {:>6} {:>4}",
-        "Time", "Dmg", "Target", "TgtHP", "TgtDmg", "Kill"
-    );
-    println!("  {}", "-".repeat(60));
-    for s in shots {
-        let kill = if s.is_kill { "KILL" } else { "" };
-        let hp = s
-            .target_hp_after
-            .map(|h| h.to_string())
-            .unwrap_or_else(|| "-".to_string());
-        println!(
-            "  {:>6.1}s {:>6} {:<25} {:>6} {:>6} {:>4}",
-            s.timestamp, s.damage, s.target_name, hp, s.target_damage, kill
-        );
     }
 }
 
@@ -803,10 +772,27 @@ fn main() -> Result<()> {
             dataset.diagnostics.unsupported = un.into_iter().collect();
 
             // 质量降级聚合（作者 + 他人路径全部 ShotReplayData.quality）
-            let author_eid = wotb_agent::replay::combat::resolve_author_player_eid_by_nick(
+            // 作者实体 = comps 条目 account_id 精确匹配（P3 定案），退回昵称匹配
+            let valid_tanks: Vec<u32> = summary
+                .players
+                .iter()
+                .map(|p| p.tank_id)
+                .collect();
+            let comps = wotb_agent::replay::playback::collect_comp_descriptors(
                 &raw_packets,
-                &summary.author_nickname,
+                &valid_tanks,
             );
+            let author_eid = comps
+                .values()
+                .find(|c| c.account_id != 0 && c.account_id == summary.author_account_id as u64)
+                .map(|c| c.eid)
+                .filter(|e| *e != 0)
+                .unwrap_or_else(|| {
+                    wotb_agent::replay::combat::resolve_author_player_eid_by_nick(
+                        &raw_packets,
+                        &summary.author_nickname,
+                    )
+                });
             let pitch_limits = Default::default();
             let author_shots = wotb_agent::replay::combat::extract_shot_replays_auto_with_limits(
                 &raw_packets,
@@ -1530,18 +1516,6 @@ fn main() -> Result<()> {
 
             let timeline = CombatTimeline::parse_packets(&raw_packets);
 
-            let author_eid = *timeline
-                .entity_names
-                .iter()
-                .find(|(eid, _)| {
-                    timeline.events.iter().any(|e| {
-                        e.entity_id == **eid
-                            && matches!(e.event_type, CombatEventType::DamageCounter { .. })
-                    })
-                })
-                .map(|(eid, _)| eid)
-                .unwrap_or(&0);
-            let shots = timeline.infer_shots(author_eid);
             // 双方炮管俯仰的车型极限锚定表：battle_results × tank_cache.json（best-effort，
             // 缓存缺失时俯仰走回退路径并打质量标记）
             let br = replay.read_battle_results().ok();
@@ -1582,7 +1556,6 @@ fn main() -> Result<()> {
             if json {
                 let combined = serde_json::json!({
                     "timeline": timeline,
-                    "shots": shots,
                     "shot_replay": shot_replay,
                     "arena_updates": arena_updates,
                     "arena_periods": arena_periods,
@@ -1594,7 +1567,6 @@ fn main() -> Result<()> {
                 println!("========================================================");
                 print_combat_timeline(&timeline);
 
-                print_shot_inference(&shots);
                 println!("\n========================================================");
                 if let Some(path) = shots_json {
                     std::fs::write(&path, serde_json::to_string_pretty(&shot_replay)?)?;

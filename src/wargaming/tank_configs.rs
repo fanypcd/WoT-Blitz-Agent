@@ -678,80 +678,27 @@ pub fn resolve_shell_by_global_id(
         .find_map(|(ci, c)| pos_in(c).map(|(si, sh)| (ci, si, sh)))
 }
 
-/// 实际搭载配置解析（共享证据链，射击复现与实时回放同步使用）：
-/// 证据 0 = comp blob 局部 id（updateArena ARENA_INFO，确定性：炮塔/主炮 module_id>>8 直接对号）；
-/// 证据 1 = 发射弹种 ⊆ 配置弹表（shell_global_ids）；
-/// 证据 2 = 初始血量 vs 车体+炮塔 health（改进耐久 ×1.125，±2 容差）；
-/// 依次回退，多匹配取最后一档（顶级），全无 → None（调用方默认顶级）。
+/// 实际搭载配置解析（comp blob 精确对号，射击复现与实时回放共享）：
+/// 证据 = comp blob 局部 id（updateArena ARENA_INFO subtype=1，确定性：炮塔/主炮
+/// module_id>>8 直接对号），多匹配取最后一档（顶级档）。
+/// comp 缺失 / 对号失败 / configs 唯一 → None（消费端自选顶级配置为显示默认）。
+/// 旧的"发射弹种 ⊆ 弹表 / 初始血量 ±2 容差"两级启发式证据已于 2026-10 退役：
+/// P1 探针实证 ARENA_INFO 单条 update 携带全场玩家 comp blob（9/9 场，逐 blob 提取
+/// 后 turret_local/gun_local 覆盖 N/N），推断级证据不再有存在必要（fail-closed，禁猜）。
 /// 返回 = (build_configs 数组下标, turret_index, gun_index)。
-pub fn resolve_config_index(
-    tank_id: u32,
-    comp: Option<(u16, u16)>,
-    shell_ids: &[u32],
-    hp: u16,
-) -> Option<(usize, u32, u32)> {
+pub fn resolve_config_index(tank_id: u32, comp: Option<(u16, u16)>) -> Option<(usize, u32, u32)> {
+    let (cl, gl) = comp?;
     let configs = build_configs(tank_id);
     if configs.len() <= 1 {
         return None;
     }
-    // 证据 0：comp blob 确定性对号
-    if let Some((cl, gl)) = comp {
-        let exact: Vec<usize> = (0..configs.len())
-            .filter(|&i| {
-                configs[i]["turret_local"].as_u64() == Some(cl as u64)
-                    && configs[i]["gun_local"].as_u64() == Some(gl as u64)
-            })
-            .collect();
-        if !exact.is_empty() {
-            let i = *exact.last().unwrap();
-            return Some((
-                i,
-                configs[i]["turret_index"].as_u64().unwrap_or(0) as u32,
-                configs[i]["gun_index"].as_u64().unwrap_or(0) as u32,
-            ));
-        }
-    }
-    let fired: std::collections::HashSet<u32> = shell_ids.iter().copied().collect();
-    let gun_ok: Vec<bool> = configs
-        .iter()
-        .map(|c| {
-            fired.is_empty() || {
-                match c["shell_global_ids"].as_array() {
-                    Some(a) if !a.is_empty() => fired
-                        .iter()
-                        .all(|id| a.iter().any(|s| s.as_u64() == Some(*id as u64))),
-                    _ => true, // 弹表缺失（数据不全）→ 不以此排除
-                }
-            }
+    let exact: Vec<usize> = (0..configs.len())
+        .filter(|&i| {
+            configs[i]["turret_local"].as_u64() == Some(cl as u64)
+                && configs[i]["gun_local"].as_u64() == Some(gl as u64)
         })
         .collect();
-    let hp_val = hp as u32;
-    let hp_ok: Vec<bool> = configs
-        .iter()
-        .map(|c| {
-            if hp_val == 0 {
-                return true;
-            }
-            let base = c["hull_hp"].as_u64().unwrap_or(0) as u32
-                + c["turret_health"].as_u64().unwrap_or(0) as u32;
-            if base == 0 {
-                return true;
-            }
-            let boosted = ((base as f64) * 1.125).round() as u32;
-            hp_val.abs_diff(base) <= 2 || hp_val.abs_diff(boosted) <= 2
-        })
-        .collect();
-    let both: Vec<usize> = (0..configs.len())
-        .filter(|&i| gun_ok[i] && hp_ok[i])
-        .collect();
-    let mut cands = both;
-    if cands.is_empty() {
-        cands = (0..configs.len()).filter(|&i| gun_ok[i]).collect();
-    }
-    if cands.is_empty() {
-        cands = (0..configs.len()).filter(|&i| hp_ok[i]).collect();
-    }
-    let i = *cands.last()?;
+    let i = *exact.last()?;
     Some((
         i,
         configs[i]["turret_index"].as_u64().unwrap_or(0) as u32,

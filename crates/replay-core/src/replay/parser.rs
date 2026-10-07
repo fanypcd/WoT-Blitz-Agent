@@ -319,7 +319,7 @@ impl<'a> ReplayParser<'a> {
                 n_enemies_spotted: settlement.and_then(|s| s.n_enemies_spotted),
                 destruction_assistance: settlement.and_then(|s| s.destruction_assistance),
                 gun_marks: settlement.and_then(|s| s.gun_marks),
-                damage_received: settlement.and_then(|s| s.damage_received).unwrap_or(0),
+                damage_received: settlement.and_then(|s| s.damage_received),
                 victory_points_earned: settlement.and_then(|s| s.victory_points_earned),
                 victory_points_seized: settlement.and_then(|s| s.victory_points_seized),
                 hitpoints_left: settlement.and_then(|s| s.hitpoints_left),

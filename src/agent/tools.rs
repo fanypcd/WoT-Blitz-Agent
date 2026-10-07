@@ -1113,16 +1113,20 @@ impl AgentTools {
                 format!("--screenshot={}", fname_abs)
             };
             // 实际搭载配置（comp blob/弹种/血量证据链）：目标模型按其选炮塔/主炮变体；
-            // 射手配置（scfg）= 射手弹表域，shell 下标与 3D 端下拉同域对齐
+            // 射手配置（scfg）= 射手弹表域，shell 下标与 3D 端下拉同域对齐；
+            // 弹种链解析失败 → 无 &shell= 参数（3D 端按默认弹渲染，不猜槽位）
             let cfg_arg = target_cfg
                 .map(|c| format!("&config={}", c))
                 .unwrap_or_default();
             let scfg_arg = shooter_cfg
                 .map(|c| format!("&scfg={}", c))
                 .unwrap_or_default();
+            let shell_arg = shell_slot
+                .map(|s| format!("&shell={}", s))
+                .unwrap_or_default();
             let url = format!(
-                "http://127.0.0.1:{}/?headless=1&heatmap=1&clean=1&shot={}&shell={}{}{}&dist=9",
-                port, shot_no, shell_slot, cfg_arg, scfg_arg
+                "http://127.0.0.1:{}/?headless=1&heatmap=1&clean=1&shot={}{}{}{}&dist=9",
+                port, shot_no, shell_arg, cfg_arg, scfg_arg
             );
             let out = std::process::Command::new(&chrome)
                 .args([

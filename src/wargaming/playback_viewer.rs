@@ -202,46 +202,39 @@ fn annotate_vehicle_config_slice(
 ) {
     // 解析结果 = (build_configs 数组下标, turret_index, gun_index)；None = 证据不足
     type ResolvedConfig = (u32, u32, u32);
-    // 缓存键 = (tank_id, comp 局部 id 对)——只缓存 comp 确定性证据
     type CompCache = HashMap<(u32, Option<(u16, u16)>), Option<ResolvedConfig>>;
-    // 实际搭载解析统一走 tank_configs::resolve_config_index（comp blob → 弹种 → 血量
-    // 三级证据链，与射击复现共享同一实现）；返回 (build_configs 数组下标, turret_index,
-    // gun_index)。config_idx 与 shots 的 shooter_config_idx 同域；burst_size 直接给出
-    // 实际搭载主炮的弹夹容量（装填条弹容 N 的权威值，消费端无需再联表坦克数据）。
-    // 缓存只对 comp 确定性证据生效（key = tank_id + comp）：同 tank_id 的不同玩家可搭载
-    // 不同配置（实测多炮车 52 台），弹种/血量证据逐车不同，不可跨车共享。
+    // 实际搭载解析统一走 tank_configs::resolve_config_index（comp blob 精确对号，
+    // 与射击复现共享同一实现；旧弹种/血量启发式证据已退役）；返回 (build_configs
+    // 数组下标, turret_index, gun_index)。config_idx 与 shots 的 shooter_config_idx
+    // 同域；burst_size 直接给出实际搭载主炮的弹夹容量（装填条弹容 N 的权威值）。
+    // 缓存键 = (tank_id, comp 局部 id 对)：同 tank_id 的不同玩家可搭载不同配置
+    //（实测多炮车 52 台），逐车对号。
     let mut cache: CompCache = HashMap::new();
+    // comp 匹配 = eid 优先（条目 field1 精确键，P3 定案），退回昵称键
+    let comp_by_eid: HashMap<u32, &crate::replay::playback::CompDescriptor> = comps
+        .values()
+        .filter(|c| c.eid != 0)
+        .map(|c| (c.eid, c))
+        .collect();
     for v in vehicles.iter_mut() {
         if v.tank_id == 0 {
             continue;
         }
-        let comp = comps.get(&v.nickname).and_then(|c| {
-            ((c.tank_id & 0xFFFF) == (v.tank_id & 0xFFFF)).then_some((c.turret_local, c.gun_local))
-        });
-        let resolved = match comp {
-            Some(c) => *cache
-                .entry((v.tank_id, Some(c)))
-                .or_insert_with(|| {
-                    crate::wargaming::tank_configs::resolve_config_index(
-                        v.tank_id,
-                        Some(c),
-                        &v.shell_ids,
-                        v.max_hp,
-                    )
+        let comp = comp_by_eid
+            .get(&v.eid)
+            .copied()
+            .or_else(|| comps.get(&v.nickname))
+            .and_then(|c| {
+                ((c.tank_id & 0xFFFF) == (v.tank_id & 0xFFFF)).then_some((c.turret_local, c.gun_local))
+            });
+        let resolved = *cache
+            .entry((v.tank_id, comp))
+            .or_insert_with(|| {
+                crate::wargaming::tank_configs::resolve_config_index(v.tank_id, comp)
                     .map(|(ci, ti, gi)| (ci as u32, ti, gi))
-                }),
-            None => {
-                crate::wargaming::tank_configs::resolve_config_index(
-                    v.tank_id,
-                    None,
-                    &v.shell_ids,
-                    v.max_hp,
-                )
-                .map(|(ci, ti, gi)| (ci as u32, ti, gi))
-            }
-        };
+            });
         // 弹夹容量随配置走：命中 → 该配置的 burst_size；configs 唯一（无歧义）→ 该唯一配置；
-        // 其余（坦克数据缺失/证据矛盾）保持 None，消费端按单发处理、不猜。
+        // 其余（坦克数据缺失/comp 未命中）保持 None，消费端按单发处理、不猜。
         let configs = crate::wargaming::tank_configs::build_configs(v.tank_id);
         let burst_at = |i: usize| {
             configs.get(i).and_then(|c| c.get("burst_size")).and_then(|b| b.as_f64()).map(|b| b.round() as u32)
@@ -554,6 +547,8 @@ mod config_idx_tests {
                     nick.to_string(),
                     CompDescriptor {
                         nickname: nick.to_string(),
+                        eid: 0,
+                        account_id: 0,
                         tank_id: *tid,
                         turret_local: *tl,
                         gun_local: *gl,
@@ -612,15 +607,18 @@ mod config_idx_tests {
         }
     }
 
-    /// 无 comp 证据：resolve_config_index 的既定回退 = 顶级配置（末位 config），
-    /// config_idx 必须落这个下标（前端弹容 N 的回退口径与其一致）。
+    /// 无 comp 证据：fail-closed → config_idx = None（消费端自选顶级配置为显示默认）。
+    /// 2026-10 起"弹种 ⊆ 弹表 / 血量 ±2 容差"启发式回退已退役（P1 探针实证 comp blob
+    /// 覆盖全部玩家，推断级证据不再必要——禁猜）。
     #[test]
-    fn config_idx_falls_back_to_top_config_without_comp() {
+    fn config_idx_stays_none_without_comp() {
         let tank_id = 14625;
         let configs = crate::wargaming::tank_configs::build_configs(tank_id);
+        assert!(configs.len() > 1, "测试前提：多配置车");
         let mut vehicles = vec![vt(tank_id, "C")];
         annotate_vehicle_config_slice(&mut vehicles, &comps(&[]));
-        assert_eq!(vehicles[0].config_idx, Some((configs.len() - 1) as u32));
+        assert_eq!(vehicles[0].config_idx, None);
+        assert_eq!(vehicles[0].burst_size, None);
     }
 
     /// 单配置坦克（IS-7，单发炮）：无配置歧义，config_idx 不解析（与既有语义一致），

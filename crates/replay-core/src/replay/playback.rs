@@ -143,7 +143,8 @@ pub struct VehicleTrack {
     pub death_t: Option<f32>,
     /// 击杀者实体（method1 hp==0 事件 source；0 = 未知/环境）
     pub killer_eid: u32,
-    /// 该车发射过的弹种全局 id（去重，最多 16 个）——实际搭载配置推断证据
+    /// 该车发射过的弹种全局 id（去重，最多 16 个）——回放事实透传（消费端可自行
+    /// 比对弹表；曾用作配置推断证据，2026-10 起配置解析只认 comp blob 精确对号）
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shell_ids: Vec<u32>,
     /// 开局 loadout raw item 描述符（6×14B；item[0..2]=3 消耗品、item[3..5]=3 给养，
@@ -360,30 +361,43 @@ pub struct KillEvent {
     pub death_reason: Option<u32>,
 }
 
-/// 实际搭载配置描述符（updateArena subtype 1 ARENA_INFO 的 field 1.2 blob）：
-/// 15B = `[tank_id u16][chassis_local u16][engine_local u16][204 u32][turret_local u16][gun_local u16][00]`，
+/// 实际搭载配置描述符（updateArena subtype 1 ARENA_INFO 的玩家条目字段）：
+/// comp blob 15B = `[tank_id u16][chassis_local u16][engine_local u16][204 u32][turret_local u16][gun_local u16][00]`，
 /// local = item_defs 模块局部 id（module_id >> 8，与 tanks.pb module_id 同基）。确定性搭载证据。
+/// 条目为 protobuf 结构（P3 探针 84 条目实证）：`[f1=eid varint][f2=comp blob]
+/// [f3=昵称][f4/f5=标志][f7=account_id varint][f8=公会标签]…`——eid 与 account_id
+/// 是身份联表的**精确键**（重名/匿名昵称歧义的根除路径）。
 #[derive(Debug, Clone)]
 pub struct CompDescriptor {
-    /// blob 所属玩家昵称（同包 field 1.3，原始 UTF-8 不经 ascii 过滤）
+    /// blob 所属玩家昵称（条目 field 1.3，原始 UTF-8 不经 ascii 过滤）
     pub nickname: String,
+    /// 条目 field 1.1：该玩家实体 eid（0 = 条目起点未识别，退回昵称联表）
+    pub eid: u32,
+    /// 条目 field 1.7：account_id（0 = 未提取；与 battle_results 花名册精确联表，
+    /// 83/84 条目实证全命中，唯一 miss 恰为花名册截断样本）
+    pub account_id: u64,
     pub tank_id: u32,
     pub turret_local: u16,
     pub gun_local: u16,
 }
 
 impl CompDescriptor {
-    /// 从 ARENA_INFO args（去 [subtype][len] 头后的 protobuf）提取：field 1.2 = blob、field 1.3 = 昵称。
-    /// 容错扫描：blob 以 tank_id u16le 开头且长度 15、前置标记 `12 0f`——对分组/前缀等
-    /// 编码变体稳健。
-    fn parse_args(args: &[u8], valid_tanks: &[u32]) -> Option<Self> {
+    /// 从 ARENA_INFO args（去 [subtype][len] 头后的 protobuf）提取**全部**搭载描述符：
+    /// field 1.2 = blob、field 1.3 = 昵称、field 1.1 = eid、field 1.7 = account_id。
+    /// 单条 subtype=1 update 携带**全场玩家**的 comp blob（P1 探针 9 场实测：1 条
+    /// update / blob 数=花名册人数），必须逐 blob 收集而非取首个。容错扫描：blob 以
+    /// tank_id u16le 开头且长度 15、前置标记 `12 0f`——对分组/前缀等编码变体稳健。
+    fn parse_args(args: &[u8], valid_tanks: &[u32]) -> Vec<Self> {
+        let mut out = Vec::new();
         for i in 2..args.len().saturating_sub(14) {
             if args[i - 2] != 0x12 || args[i - 1] != 0x0f {
                 continue;
             }
             let blob = &args[i..i + 15];
+            // tank 白名单按低 16 位匹配（blob 只携带低 16 位 tank_id；全宽 id 的
+            // 国家位扩展不受影响——与各消费方的 masked 校验同式）
             let tank_id = u16::from_le_bytes([blob[0], blob[1]]) as u32;
-            if !valid_tanks.contains(&tank_id) {
+            if !valid_tanks.iter().any(|&t| (t & 0xFFFF) == tank_id) {
                 continue;
             }
             let turret_local = u16::from_le_bytes([blob[10], blob[11]]);
@@ -391,35 +405,98 @@ impl CompDescriptor {
             if turret_local == 0 || gun_local == 0 {
                 continue;
             }
-            // 昵称 = blob 之后首个 `1a <len> <可打印 UTF-8>`（3..30B）
+            // 昵称 = blob 之后首个 `1a <len> <可打印 UTF-8>`（长度域 1..=255 与 type=5
+            // 侧 a3efede 同域——超长 UTF-8 昵称在真实对局存在（实测 39B），旧 3..=30 窗
+            // 会静默丢 comp；60B 扫描窗实际覆盖 ~42B，同量级）；
+            // 返回 account 字段的扫描起点（昵称字段结束处；未识别昵称布局时从 blob 尾起）
             let mut nickname = String::new();
+            let mut scan_from = i + 15;
             for j in (i + 15)..args.len().min(i + 60) {
                 if args[j] != 0x1a {
                     continue;
                 }
                 let l = args[j + 1] as usize;
-                if !(3..=30).contains(&l) || j + 2 + l > args.len() {
+                if l == 0 || j + 2 + l > args.len() {
                     continue;
                 }
                 if let Ok(s) = std::str::from_utf8(&args[j + 2..j + 2 + l]) {
                     if s.chars().all(|c| !c.is_control()) {
                         nickname = s.to_string();
+                        scan_from = j + 2 + l;
                     }
                 }
                 break;
             }
-            return Some(Self {
+            let (eid, account_id) = Self::entry_identity(args, i, scan_from);
+            out.push(Self {
                 nickname,
+                eid,
+                account_id,
                 tank_id,
                 turret_local,
                 gun_local,
             });
         }
-        None
+        out
+    }
+
+    /// 条目身份字段提取（P3 探针定案，84 条目实证 account 83/84 与花名册精确相等）：
+    /// eid = 反向找条目起点 `[0a][LEN varint][08 <eid varint>]`（LEN 为 varint，
+    /// 带公会标签的条目 >127B 时 2 字节）；account = 从昵称后前向扫条目内 varint
+    /// 字段（tag 低 3 位 = 0 且 field 4..=10，取 field 7）。任一环节失败 → 0
+    ///（消费端 0 = 未识别，退回昵称联表，与全仓 author_eid=0 语义一致）。
+    fn entry_identity(args: &[u8], blob_at: usize, scan_from: usize) -> (u32, u64) {
+        let varint = |b: &[u8], o: usize| -> Option<(u64, usize)> {
+            let mut v = 0u64;
+            for k in 0..10 {
+                let byte = *b.get(o + k)?;
+                v |= ((byte & 0x7f) as u64) << (7 * k);
+                if byte & 0x80 == 0 {
+                    return Some((v, k + 1));
+                }
+            }
+            None
+        };
+        let mut eid = 0u32;
+        for back in 3..=12usize {
+            let Some(e) = blob_at.checked_sub(back) else {
+                continue;
+            };
+            if args[e] != 0x0a {
+                continue;
+            }
+            let Some((_, lenlen)) = varint(args, e + 1) else {
+                continue;
+            };
+            let cs = e + 1 + lenlen;
+            if cs < args.len() && args[cs] == 0x08 {
+                if let Some((v, _)) = varint(args, cs + 1) {
+                    eid = v as u32;
+                }
+                break;
+            }
+        }
+        let mut account_id = 0u64;
+        let mut j = scan_from;
+        while j < args.len().min(blob_at + 90) {
+            let tag = args[j];
+            if tag & 0x07 != 0 || !(4..=10).contains(&(tag >> 3)) {
+                break;
+            }
+            let Some((v, used)) = varint(args, j + 1) else {
+                break;
+            };
+            if tag >> 3 == 7 {
+                account_id = v;
+            }
+            j += 1 + used;
+        }
+        (eid, account_id)
     }
 }
 
-/// 收集全部玩家实际搭载描述符：subtype=1 的 updateArena（ARENA_INFO，每玩家一条广播）。
+/// 收集全部玩家实际搭载描述符：subtype=1 的 updateArena（ARENA_INFO，**单条 update
+/// 携带全场玩家的 comp blob**，P1 探针 9/9 场实证；逐 blob 提取，键=昵称）。
 /// `valid_tanks` = battle_results 里的 tank_id 全集（blob[0..2] 白名单，防误配）。
 pub fn collect_comp_descriptors(
     packets: &[(u32, f32, &[u8])],
@@ -443,7 +520,7 @@ pub fn comp_descriptors_from_updates(
         if u.subtype != 1 || u.payload.len() < 15 {
             continue;
         }
-        if let Some(d) = CompDescriptor::parse_args(&u.payload, &valid) {
+        for d in CompDescriptor::parse_args(&u.payload, &valid) {
             out.insert(d.nickname.clone(), d);
         }
     }
@@ -454,16 +531,26 @@ pub fn comp_descriptors_from_updates(
 /// **纯回放证据，无坦克数据依赖**——服务器与 WASM（客户端）路径共用：消费端用
 /// `configs[].turret_local`/`gun_local` 联表即可在无坦克数据注入的路径（浏览器 WASM）
 /// 钉定实际搭载配置（实际搭载配置解析的上游证据链见 tank_configs::resolve_config_index）。
-/// 匹配规则 = 昵称 + tank_id 低 16 位（与 [`collect_comp_descriptors`] 的键一致）。
+/// 匹配规则 = **eid 优先**（条目 field 1.1，精确键；P3 探针定案），退回昵称 +
+/// tank_id 低 16 位（eid 未识别的历史形态）。
 pub fn annotate_vehicle_comp_locals(
     vehicles: &mut [VehicleTrack],
     comps: &HashMap<String, CompDescriptor>,
 ) {
+    let by_eid: HashMap<u32, &CompDescriptor> = comps
+        .values()
+        .filter(|c| c.eid != 0)
+        .map(|c| (c.eid, c))
+        .collect();
     for v in vehicles.iter_mut() {
         if v.tank_id == 0 {
             continue;
         }
-        if let Some(c) = comps.get(&v.nickname) {
+        let matched = by_eid
+            .get(&v.eid)
+            .copied()
+            .or_else(|| comps.get(&v.nickname));
+        if let Some(c) = matched {
             if (c.tank_id & 0xFFFF) == (v.tank_id & 0xFFFF) {
                 v.turret_local = Some(c.turret_local);
                 v.gun_local = Some(c.gun_local);
@@ -537,6 +624,11 @@ pub struct PlaybackData {
     pub vehicles: Vec<VehicleTrack>,
     /// 按开火时刻排序（作者 + 他人全部射击）
     pub shots: Vec<PlaybackShot>,
+    /// true = 本场 shots 来自宽松降级路径（作者严格提取失败，缺 method38 增强字段；
+    /// is_author 按 shooter_eid 回填）。正常场次为 false 且不序列化——消费端应据此
+    /// 透出数据质量提示，不得当作严格路径产物展示。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shots_from_loose_path: bool,
     /// 按时刻排序的击杀事件
     pub kills: Vec<KillEvent>,
     pub periods: Vec<PeriodPoint>,
@@ -907,8 +999,10 @@ pub fn from_model(
             gun_index: None,
             config_idx: None,
             burst_size: None,
-            turret_local: None,
-            gun_local: None,
+            // comp blob 纯回放证据（无坦克数据依赖），随模型实体并表进入所有投影路径
+            //（WASM/在线/切面导出同源；config_idx 等坦克数据增值仍由注入方标注）
+            turret_local: rec.and_then(|r| r.turret_local),
+            gun_local: rec.and_then(|r| r.gun_local),
             coverage: build_coverage(&clocks),
             pose_kf: Some(pose_keyframes(&tl)),
         });
@@ -952,6 +1046,7 @@ pub fn from_model(
         meta,
         vehicles: vehicles_out,
         shots,
+        shots_from_loose_path: model.timeline.shots_from_loose_path,
         kills,
         periods: periods_out,
         visibility,
@@ -1032,15 +1127,24 @@ pub fn from_model(
     })
 }
 
+/// [`collect_all_shots`] 的产物：合并弹道 + 提取路径 provenance。
+pub(crate) struct CollectedShots {
+    pub shots: Vec<combat::ShotReplayData>,
+    /// true = 作者严格路径失败，本场 shots 全部来自宽松路径（含作者的 `is_author`
+    /// 按 shooter_eid 回填）。宽松路径没有 method38 增强字段，质量降级——消费端
+    /// 应透出该标记（PlaybackData.shots_from_loose_path），不得当作严格路径产物展示。
+    pub from_loose_path: bool,
+}
+
 /// 合并作者严格路径 + 他人宽松路径（共享扫描形态：预分析产物与渲染缓存两路复用，
 /// 见 [`combat::ShotScanShared`]）。作者严格路径是 fail-fast 设计（边界数据缺失即
 /// bail）——全场回放不应因此整场不可用：失败时降级为宽松路径提取**全部**发射
-/// （含作者，按 shooter_eid 补回 is_author 标记）。
+/// （含作者，按 shooter_eid 补回 is_author 标记），并以 `from_loose_path` 透出降级事实。
 pub(crate) fn collect_all_shots(
     shared: &combat::ShotScanShared,
     author_player_eid: u32,
     pitch_limits: &GunPitchLimits,
-) -> anyhow::Result<Vec<ShotReplayData>> {
+) -> anyhow::Result<CollectedShots> {
     // 滤波时间线缓存跨两路共享（按实体确定；段化 = D1，重入后炮口锚点从物化位开始）
     let mut render_cache: HashMap<u32, filter::SegmentedPoseTimeline> = HashMap::new();
     match combat::extract_shot_replays_from_shared(
@@ -1058,7 +1162,10 @@ pub(crate) fn collect_all_shots(
             );
             all.extend(others.shots);
             all.sort_by(|a, b| a.fire_time.partial_cmp(&b.fire_time).unwrap());
-            Ok(all)
+            Ok(CollectedShots {
+                shots: all,
+                from_loose_path: false,
+            })
         }
         Err(strict_err) => {
             eprintln!("[playback] 作者严格路径提取失败（{strict_err:#}），降级宽松全路径");
@@ -1075,7 +1182,10 @@ pub(crate) fn collect_all_shots(
                 }
             }
             all.sort_by(|a, b| a.fire_time.partial_cmp(&b.fire_time).unwrap());
-            Ok(all)
+            Ok(CollectedShots {
+                shots: all,
+                from_loose_path: true,
+            })
         }
     }
 }
@@ -1083,6 +1193,129 @@ pub(crate) fn collect_all_shots(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ARENA_INFO comp blob：`[tank_id u16][chassis u16][engine u16][204 u32][turret u16][gun u16][00]`。
+    fn comp_blob(tank: u16, turret: u16, gun: u16) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(&tank.to_le_bytes());
+        b.extend_from_slice(&7u16.to_le_bytes());
+        b.extend_from_slice(&9u16.to_le_bytes());
+        b.extend_from_slice(&204u32.to_le_bytes());
+        b.extend_from_slice(&turret.to_le_bytes());
+        b.extend_from_slice(&gun.to_le_bytes());
+        b.push(0);
+        assert_eq!(b.len(), 15);
+        b
+    }
+
+    #[test]
+    fn comp_descriptor_parses_all_blobs_in_one_arena_info() {
+        // P1 探针实证：单条 subtype=1 update 携带全场玩家的 blob（9/9 场，blob 数=花名册数）
+        let mut args = vec![0x12, 0x0f];
+        args.extend(comp_blob(4481, 3, 5));
+        args.push(0x1a);
+        args.push(4);
+        args.extend(b"Nick");
+        args.extend([0x12, 0x0f]);
+        args.extend(comp_blob(6225, 52, 29));
+        args.push(0x1a);
+        args.push(8);
+        args.extend(b"yuki0411");
+        let d = CompDescriptor::parse_args(&args, &[4481, 6225]);
+        assert_eq!(d.len(), 2, "两个 blob 都必须提取（旧实现取首个即 return）");
+        assert_eq!(d[0].nickname, "Nick");
+        assert_eq!((d[0].turret_local, d[0].gun_local), (3, 5));
+        assert_eq!(d[1].nickname, "yuki0411");
+        assert_eq!(
+            (d[1].tank_id, d[1].turret_local, d[1].gun_local),
+            (6225, 52, 29)
+        );
+    }
+
+    #[test]
+    fn comp_descriptor_rejects_unknown_tank_and_zero_locals() {
+        let mut args = vec![0x12, 0x0f];
+        args.extend(comp_blob(999, 1, 1)); // tank 白名单外
+        args.extend([0x12, 0x0f]);
+        args.extend(comp_blob(4481, 0, 5)); // turret_local=0
+        assert!(
+            CompDescriptor::parse_args(&args, &[4481]).is_empty(),
+            "白名单外与零局部 id 一律拒收"
+        );
+    }
+
+    /// P3 探针定案的条目结构：`[0a LEN][08 eid][12 0f blob][1a 昵称][20/28 标志]
+    /// [38 account][42 公会]…`——eid/account 是身份联表精确键（重名/匿名免疫）。
+    #[test]
+    fn comp_descriptor_extracts_eid_and_account_from_entry() {
+        let entry_inner = |eid: u32, tank: u16, turret: u16, gun: u16, nick: &[u8], account: u64| {
+            let mut e = Vec::new();
+            e.push(0x08);
+            // eid varint
+            let mut v = eid;
+            loop {
+                let b = (v & 0x7f) as u8;
+                v >>= 7;
+                if v == 0 {
+                    e.push(b);
+                    break;
+                }
+                e.push(b | 0x80);
+            }
+            e.push(0x12);
+            e.push(0x0f);
+            e.extend(comp_blob(tank, turret, gun));
+            e.push(0x1a);
+            e.push(nick.len() as u8);
+            e.extend(nick);
+            e.extend([0x20, 0x01, 0x28, 0x01]); // f4/f5 标志
+            e.push(0x38);
+            let mut a = account;
+            loop {
+                let b = (a & 0x7f) as u8;
+                a >>= 7;
+                if a == 0 {
+                    e.push(b);
+                    break;
+                }
+                e.push(b | 0x80);
+            }
+            e.extend([0x42, 0x04, b'G', b'A', b'R', b'N']); // f8 公会标签
+            e
+        };
+        let e1 = entry_inner(1892656, 9489, 3, 5, b"Anonyme", 2033684170);
+        let e2 = entry_inner(269839187, 6225, 7, 9, b"yuki0411", 2041831618);
+        let mut args = Vec::new();
+        for e in [&e1, &e2] {
+            args.push(0x0a);
+            args.push(e.len() as u8);
+            args.extend(e);
+        }
+        let d = CompDescriptor::parse_args(&args, &[9489, 6225]);
+        assert_eq!(d.len(), 2, "两个条目都须提取");
+        assert_eq!(d[0].nickname, "Anonyme");
+        assert_eq!(d[0].eid, 1892656);
+        assert_eq!(d[0].account_id, 2033684170);
+        assert_eq!(d[1].nickname, "yuki0411");
+        assert_eq!(d[1].eid, 269839187);
+        assert_eq!(d[1].account_id, 2041831618);
+    }
+
+    /// 裸 blob（无条目包装的历史/变体形态）：昵称照提，eid/account 优雅置 0
+    ///（消费端 0 = 退回昵称联表）。
+    #[test]
+    fn comp_descriptor_bare_blob_degrades_identity_to_zero() {
+        let mut args = vec![0x12, 0x0f];
+        args.extend(comp_blob(4481, 3, 5));
+        args.push(0x1a);
+        args.push(4);
+        args.extend(b"Nick");
+        let d = CompDescriptor::parse_args(&args, &[4481]);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].nickname, "Nick");
+        assert_eq!(d[0].eid, 0);
+        assert_eq!(d[0].account_id, 0);
+    }
 
     fn cov(pairs: &[&[f32]]) -> Vec<f32> {
         pairs.iter().flat_map(|p| p.iter().copied()).collect()
@@ -1440,8 +1673,9 @@ mod tests {
             // ShotReplayData（含 shooter_render + fire_time）
             let author_eid = pb.meta.author_eid;
             let shared = combat::build_shot_scan_shared(&packets, author_eid);
-            let shots_raw =
-                collect_all_shots(&shared, author_eid, &GunPitchLimits::new()).unwrap_or_default();
+            let shots_raw = collect_all_shots(&shared, author_eid, &GunPitchLimits::new())
+                .map(|c| c.shots)
+                .unwrap_or_default();
             let mut checked = 0usize;
             let mut worst = 0.0f32;
             let by_eid: HashMap<u32, &VehicleTrack> =

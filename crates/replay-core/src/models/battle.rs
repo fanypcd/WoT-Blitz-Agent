@@ -97,9 +97,9 @@ pub struct PlayerSummary {
     pub n_hits_dealt: u32,
     pub n_penetrations_dealt: u32,
     pub damage_dealt: u32,
-    /// 承受伤害（#301 f11；缺省即 0，0 为真实数值语义）
+    /// 承受伤害（#301 f11；None = 结算缺失或字段未下发——unknown ≠ 0，0 是真实数值）
     #[serde(default)]
-    pub damage_received: u32,
+    pub damage_received: Option<u32>,
     /// 争霸/积分模式获得点数（#301 f32；非该模式为 None）
     #[serde(default)]
     pub victory_points_earned: Option<u32>,
@@ -227,7 +227,7 @@ impl PlayerSummary {
             n_hits_dealt: 0,
             n_penetrations_dealt: 0,
             damage_dealt: 0,
-            damage_received: 0,
+            damage_received: None,
             victory_points_earned: None,
             victory_points_seized: None,
             hitpoints_left: None,
