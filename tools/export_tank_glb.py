@@ -76,7 +76,7 @@ except ImportError:  # 贴图解码需要
     imagecodecs = None
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageFilter
 except ImportError:
     Image = None
 
@@ -601,11 +601,20 @@ def _has_varying_alpha(arr: np.ndarray) -> bool:
 
 
 def _encode_webp(arr: np.ndarray, keep_alpha: bool = False) -> bytes:
-    """编码 webp。`keep_alpha` 时保留 RGBA——履带等 alphaTest 材质的镂空花纹就在 alpha 里，
-    丢掉它会把履带渲染成实心板。恒定不透明的 alpha 不保留（省体积、也与 BlitzKit 一致：
-    只有真有镂空的槽位那边才是 RGBA）。"""
-    mode = "RGBA" if (keep_alpha and arr.ndim == 3 and arr.shape[2] == 4) else "RGB"
-    img = Image.fromarray(arr, "RGBA" if arr.ndim == 3 and arr.shape[2] == 4 else "RGB").convert(mode)
+    """编码 webp。`keep_alpha` 时保留 RGBA，alpha 有两个消费方，都不能丢：
+    ① 履带等 alphaTest 材质的镂空就在 alpha 里，丢掉会渲染成实心板；
+    ② WotbTools 场景运行时把 baseColor 的 alpha 当 DAVA gloss 消费——alpha 一旦
+    整列变 1.0（丢 alpha 的 RGB webp 解码即如此），PBR 粗糙度跳到 0 变纯镜面，
+    没有环境反射可取，整车发黑（实测全车系变暗）。
+    但 libwebp 对 a=0 的像素不保 RGB（视为不可见优化掉，实测该区 RGB 均值偏差
+    39.2、不透明区仅 2~3，负重轮轮面整片 a=0 → 横向白条即此）。故保留 alpha 时
+    把 alpha 钳到 ≥1/255：gloss 语义不变（1/255≈0），RGB 全图保真（实测偏差 2.2）。"""
+    if keep_alpha and arr.ndim == 3 and arr.shape[2] == 4:
+        arr = arr.copy()
+        arr[:, :, 3] = np.maximum(arr[:, :, 3], 1)
+        img = Image.fromarray(arr, "RGBA")
+    else:
+        img = Image.fromarray(arr, "RGBA" if arr.ndim == 3 and arr.shape[2] == 4 else "RGB").convert("RGB")
     b = io.BytesIO()
     img.save(b, "WEBP", quality=92, method=4)
     return b.getvalue()
@@ -624,14 +633,25 @@ def _prep_texture(arr: np.ndarray, slot: str) -> np.ndarray | None:
         return np.dstack([rgb[:, :, 0], rgb[:, :, 1], (z * 127.5 + 127.5).astype(np.uint8)])
     if slot == "metallicRoughness":
         # DAVA 的 `baseRMMap` 是 BC5 **双通道**：ch0=粗糙度、ch1=金属度（解码后落在 R/G 位、
-        # B 位补零）。glTF 的 `metallicRoughnessTexture` 规定 **G=粗糙度、B=金属度**，
-        # 所以必须把这两个通道**搬到 G/B**——原样返回会让 glTF 拿 ch1 当粗糙度、
-        # 并把 R 位（glTF 不采样）当数据白扔。实测 BlitzKit 也是把 ch0 放进 G。
-        # 判定是否双通道：B 位恒 0（BC5 解码补零的特征，与 normal 同一判据）。
+        # B 位补零）。glTF 的 `metallicRoughnessTexture` 规定 **G=粗糙度、B=金属度**。
+        # 粗糙度直接线性搬运（corr( 本解码, BlitzKit 产物 )=+0.996）。
+        # 金属度**不能**线性搬运：BlitzKit 的 VFS 把 RM 解析到 PVR 无压缩源（authored
+        # 通道，逐块对照证明 DDS 色块无法复原它），其分布 p50≈5；而 DDS 硬件 BC5 ch1
+        # p50≈78——线性搬运会整车金属化、PBR 发黑（用户实测）。用双车合并拟合的单调
+        # LUT 做**实证标定**（使导出分布对齐 BlitzKit 可见输出），非规范语义。
         if arr.shape[2] >= 3 and arr[:, :, 2].max() == 0:
             out = np.zeros_like(rgb)
-            out[:, :, 1] = arr[:, :, 0]      # ch0 → G（粗糙度）
-            out[:, :, 2] = arr[:, :, 1]      # ch1 → B（金属度）
+            out[:, :, 1] = arr[:, :, 0]                                       # ch0 → G（粗糙度）
+            # 金属度标定：DDS 里没有金属度（色块是占位常数——BC1-G 解码恒为 ~28 且逐块
+            # 无结构；BlitzKit 的 VFS 把 RM 解析到 PVR 无压缩源才有 authored 通道）。硬件
+            # BC5 ch1 只是索引字节噪声（p25=0 的块级量化散点），线性/查表搬运都会渲染成
+            # "细碎杂乱、轮盘深浅不一"。做法：LUT 标定分布 + 高斯平滑压掉块级噪声。
+            metal_lut_x = (8, 24, 40, 56, 72, 88, 104, 120, 136, 152, 168, 184, 200, 216, 232, 248)
+            metal_lut_y = (3, 4, 5, 13, 13, 32, 41, 68, 79, 79, 82, 85, 87, 93, 132, 184)
+            metal = np.interp(arr[:, :, 1], metal_lut_x, metal_lut_y).astype(np.uint8)
+            radius = max(2, arr.shape[0] // 512)
+            metal = np.asarray(Image.fromarray(metal, "L").filter(ImageFilter.GaussianBlur(radius)))
+            out[:, :, 2] = metal
             return out
         return rgb  # 三通道来源（老式车的 images/<T>_RM）：通道语义未证实，原样保留
     if slot == "occlusion":
@@ -691,27 +711,37 @@ def export_visual(sc2_path: pathlib.Path, glb: Glb, tex: TexStore, mode: str, st
         if mode != "none":
             for glsl, cands in _slot_candidates(m, stem).items():
                 arr = fname = None
+                wrapped_normal = None  # 法线槽的 wrapped-BC5 垫底候选
                 for cp in cands:
                     if not cp:
                         continue
-                    arr, _tag, fname = tex.load(cp)
-                    if arr is not None:
-                        break
+                    arr, tag, fname = tex.load(cp)
+                    if arr is None:
+                        continue
+                    # DXT5-wrapped-BC5 的 NM 没有 Y 通道：alpha 块=X（与 legacy 法线
+                    # corr +0.999），色块是占位常数（BC1-G 恒 ~28、无结构）——游戏/BK
+                    # 的 Y 来自我们 PC 包里没有的数据。硬件 BC5 读出的 ch1 是索引噪声，
+                    # 渲染出来就是"材质细碎杂乱、轮盘深浅不一"。优先回退 legacy
+                    # `images/<T>_NM`（完整 DXT1 XYZ）；连它都没有时才垫底并拍平 Y。
+                    if glsl == "normalTexture" and tag == "DXT5-wrapped-BC5":
+                        if wrapped_normal is None:
+                            wrapped_normal = (arr, tag, fname)
+                        arr = None
+                        continue
+                    break
+                if arr is None and wrapped_normal is not None:
+                    arr = wrapped_normal[0].copy()
+                    arr[:, :, 1] = 128  # Y 拍平：保留真实 X + 重建 Z，不渲染噪声
+                    fname = wrapped_normal[2]
                 if arr is None:
                     if any(cands):
                         stats["tex_fail"].append(f"{glsl}:{cands[0]} (missing)")
                     continue
                 slot = _gltf_slot_name(glsl)
                 out = _prep_texture(arr, slot)
-                varying = _has_varying_alpha(out)
+                keep_alpha = _has_varying_alpha(out)
                 if glsl == "baseColorTexture":
-                    base_alpha_varies = varying
-                # alpha 只在 alphaTest 材质里会被 glTF 真正采样（履带镂空）。不透明材质
-                # 保留 alpha 是有害的：客户端把高光/选择遮罩这类**非视觉数据**放在 albedo
-                # 的 alpha 里，webp 编码器对 alpha=0 区域的 RGB 不保真（实测 Ch23_112 轮面
-                # 整片 alpha=0，编码后 RGB 均值偏差 39.2、不透明区域仅 2~3），渲染端忽略
-                # alpha 直接采 RGB 就露出编码垃圾（负重轮横向白条）。故不透明材质一律丢。
-                keep_alpha = varying and "alphatestThreshold" in (m.get("properties") or {})
+                    base_alpha_varies = keep_alpha
                 i = glb.image((fname, glsl, mode, keep_alpha),
                               _encode_webp(out, keep_alpha), "image/webp")
                 target = pbr if glsl in ("baseColorTexture", "metallicRoughnessTexture") else mat
