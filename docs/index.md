@@ -180,6 +180,22 @@ v0.3.12 可破坏地形 → v0.3.13 pose_kf+弹道折线 → v0.3.14 昵称修�
 `Shot.game_hit_result` 与对方 Java `primaryResultRaw` 同义；其中"未钳零原始 HP"已由 v0.3.5 的
 `hp_raw` 覆盖。
 
+**装甲查看器点击判定触发面勘误（2026-10-08）**：本仓工具说明曾把"末层被穿透即击穿
+（含只穿透履带/间隙甲）"直接等同于 *exactly like BlitzKit's armor inspector*——函数级
+parity 成立（`shoot()` 语义逐条一致，判定的 `allow_ricochet=false` 分支本就带"无 Primary
+即不判定"），但 BlitzKit 查看器把 `shoot()` 只挂在**主装甲（Primary）网格**的 `onClick` 上
+（spaced/外部模块网格挂的是空 handler，只为进入 `event.intersections`），射线未触达主装甲
+（只穿间隙甲屏幕、或只碰履带/炮管）根本**不发起判定**，查看器因此从不展示这类结论。消费方
+（WotbTools）原相机点击门槛只挡"纯外部模块"，于是只穿间隙甲的点击按末层规则判成
+`PENETRATION + 全额伤害`——实测 56TP 炮塔 `plate 12`（10mm + `vehicleDamageFactor=0.0`
+屏幕板）约四成点击方向只穿过屏幕、无主装甲参与，即报障现象。已修正：WotbTools
+`scene/tankViewer.js` 相机点击门槛改为"射线必须触达 Primary 板"（分类取自判定模块
+`scene/penetration.js` 的 `isPrimary`，唯一事实源），不构成判定时清掉上一次的结论面板/轨迹；
+夹具加 12mm 间隙甲屏幕板 + `test:browser-armor-aiming` 场景常驻（旧门槛下该场景复现
+`PENETRATION · 360`，可作 fail-first 证据）。本仓只同步两处工具说明措辞（`src/agent/tools.rs`：
+spaced 是角度等效层而非 flat 消耗层；末层规则的 parity 指向 `shoot()` 而非查看器展示），
+判定本体、数据面（`models.pb`/`spaced` 分类与 BlitzKit 线上逐字节一致）与切面均未变。
+
 **前端面收敛（2026-10-03）**：本项目不再维护自己的前端与桌面/移动端分发——
 Windows 便携包打包链与 Android（Tauri）形态已整体删除（见 [README §与 WotbTools 的关系](../README.md)），
 `frontend/` 冻结留档（目录级护栏见 [frontend/AGENTS.md](../frontend/AGENTS.md)）；

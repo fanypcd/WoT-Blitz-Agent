@@ -130,7 +130,7 @@ impl AgentTools {
                 def_type: "function".to_string(),
                 function: ToolFunction {
                     name: "get_tank_armor".to_string(),
-                    description: "Get a tank's full armor breakdown: hull/turret front-side-rear summary, per-plate thickness list with spaced-armor classification (plates classified spaced are flat consumption layers - penetrating them does NOT count as tank penetration), and the top-config gun's shells with formal types (AP/APCR/HEAT/HE), penetration near/far, damage, module damage and HE explosion radius. Call this before simulate_penetration to inspect available plates.".to_string(),
+                    description: "Get a tank's full armor breakdown: hull/turret front-side-rear summary, per-plate thickness list with spaced-armor classification (spaced plates are angle-effective layers like primary armor - only external modules such as tracks/gun barrel are flat; a shot that crosses nothing but spaced plates/external modules is not a tank penetration in BlitzKit's armor inspector), and the top-config gun's shells with formal types (AP/APCR/HEAT/HE), penetration near/far, damage, module damage and HE explosion radius. Call this before simulate_penetration to inspect available plates.".to_string(),
                     parameters: json!({
                         "type": "object",
                         "properties": {
@@ -144,7 +144,7 @@ impl AgentTools {
                 def_type: "function".to_string(),
                 function: ToolFunction {
                     name: "simulate_penetration".to_string(),
-                    description: "Simulate a shell penetration: shooter tank's shell vs target tank's armor, matching BlitzKit's judgment exactly (ricochet, normalization, overmatch, spaced plates, HEAT gap decay, HE splash, calibrated shells/enhanced armor; near penetration value only - no distance decay). Result follows the LAST layer's status: the shot is a PENETRATION (full armor damage) iff the final layer is penetrated - e.g. penetrating only a track/spaced plate also counts as penetration, exactly like BlitzKit's armor inspector. A ricochet keeps 75% penetration and the reflected ray is re-judged. Provide `aim` preset OR explicit `hits` (see get_tank_armor for available plates).".to_string(),
+                    description: "Simulate a shell penetration: shooter tank's shell vs target tank's armor, matching BlitzKit's shoot() judgment step by step (ricochet, normalization, overmatch, spaced plates, HEAT gap decay, HE splash, calibrated shells/enhanced armor; near penetration value only - no distance decay). Result follows the LAST layer's status: the shot is a PENETRATION (full armor damage) iff the final layer is penetrated - so a stack of only tracks/spaced plates yields PENETRATION (per BlitzKit's shoot() semantics; note BlitzKit's armor inspector UI only starts a judgment when the ray reaches main armor - hull/turret/gun - so it never displays that shot). A ricochet keeps 75% penetration and the reflected ray is re-judged. Provide `aim` preset OR explicit `hits` (see get_tank_armor for available plates).".to_string(),
                     parameters: json!({
                         "type": "object",
                         "properties": {
