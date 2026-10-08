@@ -127,7 +127,7 @@ Standard local test posture:
    backend on 8087, auth/capability probes fail — either start it or use
    `npm run dev:production-remote` (proxies `/api` to the production site for login).
 4. Open the local dev page with `admin=1` and drop a `.wotbreplay` into it, e.g.
-   `http://localhost:<port>/?view=agent-replay&agentViews=1&admin=1`. `admin=1` is a dev-only
+   `http://localhost:<port>/?view=agent-replay&admin=1`. `admin=1` is a dev-only
    visibility bypass (WotbTools `useAuth.js`): dev builds treat the `wotbtools-admin`/`HoF-admin`
    realm roles as held, which local accounts normally lack; production builds ignore it and the
    backend still enforces real auth.
