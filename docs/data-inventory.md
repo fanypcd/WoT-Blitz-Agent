@@ -210,7 +210,7 @@ BlitzKit（4 项）  #1 tanks.pb ─┐
 
 | 路径 | 作用 |
 |---|---|
-| `tools/wotbtools/wotb_sc2.py` | DAVA `SceneFileV2`(.sc2) + DVPL 解包（KeyedArchive 读取） |
+| `tools/wotbtools/wotb_sc2.py` | DAVA `SceneFileV2`(.sc2) + DVPL 解包（KeyedArchive 读取）。DVPL/LZ4 侧 fail-closed 口径与 Rust `dvpl.rs` 对齐，见 [game-data-sources.md](game-data-sources.md) §5.3；契约单测 `tools/test_dvpl_decode.py` |
 | `tools/wotbtools/wotb_scg.py` | DAVA `SCPG`(.scg) 几何解码（顶点流 / 索引 / 图元） |
 
 按提取目标的导出器（接线状态见 §1 / §3）：
@@ -228,7 +228,7 @@ BlitzKit（4 项）  #1 tanks.pb ─┐
 
 | 模块 | 作用 | 驱动命令 |
 |---|---|---|
-| `dvpl.rs` | DVPL 解码 + 装甲 XML / 碰撞 YAML 解析（`ArmorModel::parse_from_xml`、`CollisionData::parse_from_yaml`） | `parse-game`、`extract-game` |
+| `dvpl.rs` | DVPL 解码（**fail-closed**：编码长度 / 存储载荷 CRC32 / 解压长度三项核对，不符即 `Err`，见 [game-data-sources.md](game-data-sources.md) §5.3）+ 装甲 XML / 碰撞 YAML 解析（`ArmorModel::parse_from_xml`、`CollisionData::parse_from_yaml`） | `parse-game`、`extract-game` |
 | `game_extract.rs` | 批量提取 → `data/game_data/{id}.json`（含 `armor_model` / `collision`） | `extract-game --force`、`update-data` |
 | `map_assets.rs` | 与客户端同链解析地图注册表，提取底图 / 地形 / 小地图 | `fetch-terrain`、`fetch-minimaps`（运行期 `/api/playback/map`） |
 | `data_version.rs` | `data/data_version.json` 版本指纹（`game_version` 读 `Data/version.txt.dvpl`） | `update-data` |

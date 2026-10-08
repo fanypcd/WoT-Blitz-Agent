@@ -226,6 +226,24 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 | [docs/decoupling-status.md](decoupling-status.md) | **解耦的剩余决策与已定案差异**（2026-10-03 收敛；**2026-10-07 更新：GLB 自产管线已接线**——`data/cache/models/` 换为客户端解包导出，`cache/models` ≡ `local_models` 735/735）：已完成时间线；待决策口径（数据模型塌缩 / 25 辆无显示名 / `hull_traverse` 非同量）；封面图命名域与"换素材 ≠ 等价替换"（NCC 0.21）；已定案的 BlitzKit 侧差异清单；对外沟通材料。进度/接线/分发现状见 [data-inventory.md](data-inventory.md) |
 | [docs/local-model-export.md](local-model-export.md) | ✅ 已实施（2026-10-01，2026-10-02 补 §4 贴图实测）：报告 B 的几何替代做成 `tools/export_tank_glb.py`，验收口径从"按可达节点求和"收紧到**逐字节 + 节点顺序**——`collision.glb` **735/735**、`model.glb` **733/735** 等价（余 2 辆为 BlitzKit 侧行为，见该文 §5）；贴图槽位与 BlitzKit 完全对齐（731/735 图片数相同、无缺槽位）。§4 逐通道实测推翻了报告 B §3.3 的图源判断，并定下 `baseRMMap` 的**通道搬迁**（ch0→G 粗糙度、ch1→B 金属度）。**2026-10-07 起已替换运行期数据源**：`data/cache/models/` 换为本地导出（`cache/models` ≡ `local_models` 735/735，包与 COS 随发；见 [data-inventory.md](data-inventory.md) §3） |
 
+### 代码加固（2026-10-08，未发版）
+
+**DVPL 解码 fail-closed**（[src/wargaming/dvpl.rs](../src/wargaming/dvpl.rs)）：补上 footer 的
+编码长度 / 存储载荷 CRC32 / 解压长度三项校验，并把 LZ4 截断（含回引偏移越界）由"静默返回
+零填充 `Ok`"改为 `Err`。此前 `_crc32` 读出即丢弃、footer 自述长度被直接当切片边界（损坏会
+panic），而同仓库 Python 侧 `tools/wotbtools/wotb_sc2.py` 一直是三项全查——属"Python 侧
+fail-closed、Rust 侧 fail-open"的标准分裂；两个外部独立实现（`Jylpah/dvplc`、
+`vorlie/DAVA-Resource-Studio`）口径亦相同。
+
+- 证据：`extract-game --force` 全量 735 辆，改动前后 `data/game_data/*.json` **逐字节相同**；
+  全树探针 **45016 个 `.dvpl` / 20.3 GiB 零拒绝**；唯一触发 LZ4 零偏移的真机文件与参考实现
+  （lz4 C）比对 sha256 一致
+- **blast radius：无**——不改任何产物、契约字段或消费方；仅"损坏输入"由静默通过改为报错
+- 探针发现真机存在**非规范 LZ4 零偏移**（`offset = 0`，全树仅 1 例）：参考实现解成
+  match_len 个零字节，故两侧都按零处理而非拒绝；该文件的可达性已查清——位于被导出器
+  跳过的 `Skin_01` 配置里，**当前不可达**，属潜在陷阱，两端口径现已一致
+- 细节与判据见 [game-data-sources.md](game-data-sources.md) §5.3
+
 ## 约定
 
 - 逆向结论的**唯一权威**是 [docs/回放与射击逆向总集.md](回放与射击逆向总集.md)；其余文档与其冲突时，

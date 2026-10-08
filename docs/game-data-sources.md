@@ -285,6 +285,51 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
    **不等于**标注 commit 的原样工作区（见 [data-inventory.md](data-inventory.md) §2.1）
 8. 回滚素材：旧包状态的本地快照（`game_data/` + `tank/` + `manifest.json`），必要时原样传回
 
+### 5.3 DVPL 外壳的校验契约（fail-closed）
+
+提取链的每条读盘入口都过 `dvpl.rs`：装甲 XML / 碰撞 YAML（`extract-game`）、
+`version.txt.dvpl`（`update-data`）、小地图与 `maps.yaml` / `en.yaml`（`map_assets`）。
+
+footer 布局为 `decoded_size(4) + encoded_size(4) + crc32(4) + type(4) + "DVPL"(4)`，其中
+**crc32 覆盖存储载荷（压缩后字节），不是原始数据**。解码器核对三条不变量，任一不符即
+返回 `Err`：编码长度 == 实际载荷长度、存储载荷 CRC32、解压长度 == `decoded_size`。
+
+**2026-10-08 之前 Rust 侧三项全不校验**，属"Python 侧 fail-closed、Rust 侧 fail-open"的
+标准分裂——同仓库的 `tools/wotbtools/wotb_sc2.py` 一直三项全查。其中两处把损坏伪装成成功：
+
+- footer 的编码长度被直接当作切片边界，损坏时 **panic**（而非报错）
+- 自实现的 LZ4 块解压在输入截断 / 回引偏移非法时 `break` 出循环后返回**零填充的 `Ok`**
+  （实测 16/33 字节的合法 LZ4 块 → `Ok, len=4096, trailing_zero_bytes=2794`；空输入 → 全零 `Ok`）
+
+**LZ4 零偏移**：真机语料存在 `offset = 0` 的匹配序列，这不是规范 LZ4，但客户端确实产出、
+参考实现（lz4 C，即 Python `lz4.block`）也照样解开——回引位置就是当前写出位置、且该处尚未
+写出、缓冲区初值为零，等价于**写出 match_len 个零字节**。故两侧都按零处理而非拒绝（改前的
+Rust 旧实现恰好也给出零，行为未变）。全树 45016 个文件里仅 1 例：
+`3d/Tanks/France/images_pbr/F114_Projet_4_1_skin_MISC.dx11.dds.dvpl`。
+
+> **可达性已查清（2026-10-08）：当前不可达，属于潜在陷阱而非在线缺陷。**
+> 该文件只被一个场景引用（`3d/Tanks/France/F114_Projet_4_1.sc2.dvpl`，2487 个坦克场景全扫），
+> 且位于该材质的 **`configArchive_1` / `configName="Skin_01"`** 配置里——`MaterialLibrary::_flatten`
+> 只取 `configName == "Default"`（`configArchive_0` 的 `miscMap` 指向另一个文件
+> `F114_Projet_4_1_MISC.dx11.dds.dvpl`，它解码正常）。地图侧 85 个 `.sc2` 无引用。
+> 佐证：`export_tank_glb.py --tank F114_Projet_4_1` 全程成功，改前改后 `model.glb` /
+> `collision.glb` **逐字节相同**。两端已同时对齐该形态（Rust + Python 均按零处理），
+> 故若将来导出器开始支持皮肤配置，也不会撞上 `Sc2ParseError`。
+
+影响面止于解码器本身：**没有任何产物或消费方受影响**。2026-10-08 对齐后按真机语料复核：
+
+- `extract-game --force` 全量 735 辆，改动前后 `data/game_data/*.json` **逐字节相同**——新校验
+  在真实文件上不改变任何输出
+- 全树探针：本机客户端 `Data/` 的 **45016 个 `.dvpl` / 20.3 GiB 全部解码成功、零拒绝**
+  （压缩类型分布 `{0: 13538, 2: 31478}`，即全树只有"未压缩"与"LZ4"两种，无 zlib）
+- 上面那个零偏移文件另与参考实现逐字节比对：**sha256 相同**（1398256 字节）
+
+复跑同一探针：
+
+```
+WOTB_DVPL_PROBE=<Data 目录> cargo test dvpl_client_probe -- --ignored --nocapture
+```
+
 ---
 
 ## 六、本次故障复盘（2026-09-30 ~ 10-01）

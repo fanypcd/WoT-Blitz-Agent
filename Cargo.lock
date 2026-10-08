@@ -2437,6 +2437,7 @@ dependencies = [
  "axum",
  "chrono",
  "clap",
+ "crc32fast",
  "ctrlc",
  "flate2",
  "regex",

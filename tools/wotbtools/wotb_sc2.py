@@ -140,7 +140,7 @@ def lz4_block_decompress(payload: bytes, expected_size: int) -> bytes:
             raise Sc2ParseError("Missing LZ4 match offset")
         match_offset = int.from_bytes(source[cursor:cursor + 2], "little")
         cursor += 2
-        if match_offset <= 0 or match_offset > len(output):
+        if match_offset > len(output):
             raise Sc2ParseError(f"Invalid LZ4 match offset {match_offset}")
 
         match_length = token & 0x0F
@@ -154,6 +154,15 @@ def lz4_block_decompress(payload: bytes, expected_size: int) -> bytes:
                 if value != 255:
                     break
         match_length += 4
+
+        if match_offset == 0:
+            # 零偏移：回引位置就是当前写出位置，而该处尚未写出——等价于写出 match_length
+            # 个零字节。这不是规范 LZ4，但客户端确实产出（全树 45016 个 .dvpl 里 1 例：
+            # `3d/Tanks/France/images_pbr/F114_Projet_4_1_skin_MISC.dx11.dds.dvpl`），参考
+            # 实现（lz4 C）也照样解开，故按零处理而非拒绝。Rust 侧 `dvpl.rs::lz4_decompress`
+            # 同一口径——两侧必须一致，否则同一文件在两套解码器上结论相反。
+            output.extend(b"\x00" * match_length)
+            continue
 
         match_start = len(output) - match_offset
         for index in range(match_length):

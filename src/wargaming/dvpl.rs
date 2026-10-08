@@ -11,41 +11,76 @@ pub struct DvplFile {
 }
 
 impl DvplFile {
-    /// 读取并解码一个 DVPL 文件。末尾 20 字节 footer：
-    /// `input_size(4) + compressed_size(4) + crc32(4) + compression_type(4) + "DVPL"(4)`。
+    /// 读取并解码一个 DVPL 文件（`parse` 的 IO 外壳）。
     pub fn read(filepath: &std::path::Path) -> Result<Self> {
         let raw = std::fs::read(filepath)?;
-        if raw.len() < 20 {
+        Self::parse(&raw)
+    }
+
+    /// 解析 DVPL 字节流。末尾 20 字节 footer：
+    /// `decoded_size(4) + encoded_size(4) + crc32(4) + compression_type(4) + "DVPL"(4)`，
+    /// 其中 crc32 是**存储载荷（压缩后字节）**的 CRC32，非原始数据。
+    ///
+    /// fail-closed：footer 自述的编码长度、存储载荷 CRC、解压后长度逐项核对，任一不符即
+    /// 返回 Err。此前三项均不校验——损坏的 footer 长度会 panic，截断的 LZ4 流会静默产出
+    /// 零填充载荷，两者都把损坏伪装成成功。Python 侧 `tools/wotbtools/wotb_sc2.py` 一直
+    /// 是全校验的，此处与之对齐。
+    pub fn parse(raw: &[u8]) -> Result<Self> {
+        const FOOTER_LEN: usize = 20;
+        if raw.len() < FOOTER_LEN {
             return Err(anyhow!("File too small for DVPL footer"));
         }
 
-        let footer = &raw[raw.len() - 20..];
+        let footer = &raw[raw.len() - FOOTER_LEN..];
         let magic = &footer[16..20];
         if magic != b"DVPL" {
             return Err(anyhow!("Not a DVPL file (magic mismatch)"));
         }
 
-        let original_size =
+        let decoded_size =
             u32::from_le_bytes([footer[0], footer[1], footer[2], footer[3]]) as usize;
-        let comp_size = u32::from_le_bytes([footer[4], footer[5], footer[6], footer[7]]) as usize;
-        let _crc32 = u32::from_le_bytes([footer[8], footer[9], footer[10], footer[11]]);
+        let encoded_size =
+            u32::from_le_bytes([footer[4], footer[5], footer[6], footer[7]]) as usize;
+        let expected_crc = u32::from_le_bytes([footer[8], footer[9], footer[10], footer[11]]);
         let comp_type = u32::from_le_bytes([footer[12], footer[13], footer[14], footer[15]]);
 
-        let compressed = &raw[..comp_size];
+        let payload = &raw[..raw.len() - FOOTER_LEN];
+        // 先核对编码长度：它同时也是切片边界，footer 损坏时直接用会 panic 而非报错。
+        if encoded_size != payload.len() {
+            return Err(anyhow!(
+                "DVPL encoded-size mismatch: footer={encoded_size}, actual={}",
+                payload.len()
+            ));
+        }
+
+        let actual_crc = crc32fast::hash(payload);
+        if actual_crc != expected_crc {
+            return Err(anyhow!(
+                "DVPL CRC mismatch: expected={expected_crc:08x}, actual={actual_crc:08x}"
+            ));
+        }
 
         // 按压缩类型解压：0=未压缩、1/2=LZ4、3=zlib
         let data = match comp_type {
-            0 => compressed.to_vec(),
-            1 | 2 => lz4_decompress(compressed, original_size)?,
+            0 => payload.to_vec(),
+            1 | 2 => lz4_decompress(payload, decoded_size)?,
             3 => {
                 use std::io::Read;
-                let mut decoder = flate2::read::ZlibDecoder::new(compressed);
-                let mut buf = Vec::with_capacity(original_size);
+                let mut decoder = flate2::read::ZlibDecoder::new(payload);
+                let mut buf = Vec::with_capacity(decoded_size);
                 decoder.read_to_end(&mut buf)?;
                 buf
             }
             _ => return Err(anyhow!("Unknown compression type: {}", comp_type)),
         };
+
+        // 解压是最后一道：比 footer 短说明压缩流被截断，长说明 footer 或流不可信。
+        if data.len() != decoded_size {
+            return Err(anyhow!(
+                "DVPL decoded-size mismatch: footer={decoded_size}, actual={}",
+                data.len()
+            ));
+        }
 
         Ok(Self {
             data,
@@ -55,19 +90,28 @@ impl DvplFile {
 }
 
 /// 自实现的 LZ4 块解压（用于 compression_type 1 / 2）。
+///
+/// fail-closed：输入耗尽、回引偏移超出已产出长度、或长度越过输出边界一律返回 Err。旧实
+/// 现对这些情况 `break` 出循环后返回零填充的 `Ok`——一个截断的压缩流会变成"成功解压出
+/// 的"零数据，调用方无从分辨。（唯一的例外是零偏移，那是真机数据的既有形态，见下。）
 fn lz4_decompress(src: &[u8], output_size: usize) -> Result<Vec<u8>> {
     let mut dst = vec![0u8; output_size];
     let mut si = 0;
     let mut di = 0;
 
-    while si < src.len() && di < output_size {
-        let token = src[si];
+    while di < output_size {
+        // 序列头：1 字节 token，高 4 位 = 字面量长度，低 4 位 = 匹配长度 - 4
+        let token = *src
+            .get(si)
+            .ok_or_else(|| anyhow!("LZ4 truncated stream: missing sequence token"))?;
         si += 1;
 
         let mut lit_len = ((token >> 4) & 0x0f) as usize;
         if lit_len == 15 {
-            while si < src.len() {
-                let b = src[si];
+            loop {
+                let b = *src
+                    .get(si)
+                    .ok_or_else(|| anyhow!("LZ4 truncated stream: literal length"))?;
                 si += 1;
                 lit_len += b as usize;
                 if b != 255 {
@@ -76,29 +120,43 @@ fn lz4_decompress(src: &[u8], output_size: usize) -> Result<Vec<u8>> {
             }
         }
 
-        for _ in 0..lit_len {
-            if si >= src.len() || di >= output_size {
-                break;
-            }
-            dst[di] = src[si];
-            si += 1;
-            di += 1;
+        // 一律用减法比较：lit_len 由压缩流自述、按 255 递进可无上界累计，写法上的加法在
+        // 32 位目标上会溢出
+        if lit_len > src.len() - si {
+            return Err(anyhow!(
+                "LZ4 truncated stream: literal run needs {lit_len} bytes, {} left",
+                src.len() - si
+            ));
         }
+        if lit_len > output_size - di {
+            return Err(anyhow!(
+                "LZ4 literal run overruns output: at {di} + len {lit_len} > {output_size}"
+            ));
+        }
+        dst[di..di + lit_len].copy_from_slice(&src[si..si + lit_len]);
+        si += lit_len;
+        di += lit_len;
 
-        if si >= src.len() || di >= output_size {
+        // 末段只有字面量、不带匹配部分，输出填满即结束
+        if di == output_size {
             break;
         }
+
         if si + 2 > src.len() {
-            break;
+            return Err(anyhow!("LZ4 truncated stream: missing match offset"));
         }
-
         let offset = (src[si] as usize) | ((src[si + 1] as usize) << 8);
         si += 2;
+        if offset > di {
+            return Err(anyhow!("LZ4 invalid match offset {offset} at output {di}"));
+        }
 
         let mut match_len = ((token & 0x0f) as usize) + 4;
         if (token & 0x0f) == 15 {
-            while si < src.len() {
-                let b = src[si];
+            loop {
+                let b = *src
+                    .get(si)
+                    .ok_or_else(|| anyhow!("LZ4 truncated stream: match length"))?;
                 si += 1;
                 match_len += b as usize;
                 if b != 255 {
@@ -107,16 +165,22 @@ fn lz4_decompress(src: &[u8], output_size: usize) -> Result<Vec<u8>> {
             }
         }
 
-        for _ in 0..match_len {
-            if di >= output_size {
-                break;
-            }
-            if di < offset {
+        if match_len > output_size - di {
+            return Err(anyhow!(
+                "LZ4 match overruns output: at {di} + len {match_len} > {output_size}"
+            ));
+        }
+        if offset == 0 {
+            // 零偏移：回引位置就是当前写出位置，而该处尚未写出、缓冲区初值为零——等价于
+            // 写出 match_len 个零字节。这不是规范 LZ4，但真机数据确实存在（45016 个客户端
+            // 文件里 1 例，见 dvpl_client_probe），且参考实现（lz4 C）与旧实现都给出零，
+            // 故按零处理而非拒绝。
+            di += match_len;
+        } else {
+            for _ in 0..match_len {
+                dst[di] = dst[di - offset];
                 di += 1;
-                continue;
             }
-            dst[di] = dst[di - offset];
-            di += 1;
         }
     }
 
@@ -711,5 +775,258 @@ collision:
             Some(40.0)
         );
         assert_eq!(m.gun.expect("gun").plates.get("gun").copied(), Some(7.0));
+    }
+
+    // -----------------------------------------------------------------
+    //  DVPL 外壳解码：footer 三项校验 + LZ4 fail-closed
+    // -----------------------------------------------------------------
+
+    /// 按真实编码器的写法拼一个 DVPL：载荷 + `decoded_size/encoded_size/crc/type/"DVPL"`。
+    fn dvpl_blob(comp_type: u32, decoded_size: u32, payload: &[u8]) -> Vec<u8> {
+        let mut out = payload.to_vec();
+        out.extend_from_slice(&decoded_size.to_le_bytes());
+        out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        out.extend_from_slice(&crc32fast::hash(payload).to_le_bytes());
+        out.extend_from_slice(&comp_type.to_le_bytes());
+        out.extend_from_slice(b"DVPL");
+        out
+    }
+
+    /// 解析必须失败，并取回错误文本。不用 `Result::expect_err` 是因为它要求 `T: Debug`，
+    /// 而给 `DvplFile` 派生 `Debug` 会让失败输出把整块载荷字节倒出来。
+    fn parse_err(blob: &[u8]) -> String {
+        match DvplFile::parse(blob) {
+            Ok(_) => panic!("expected DVPL parse to fail, but it succeeded"),
+            Err(e) => e.to_string(),
+        }
+    }
+
+    /// zlib 压缩载荷（compression_type 3）。
+    fn zlib(payload: &[u8]) -> Vec<u8> {
+        use flate2::write::ZlibEncoder;
+        use std::io::Write;
+        let mut enc = ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        enc.write_all(payload).expect("zlib write");
+        enc.finish().expect("zlib finish")
+    }
+
+    /// 仅字面量的 LZ4 块（合法的最小序列：末段不带匹配部分）。
+    fn lz4_literals(data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        if data.len() < 15 {
+            out.push((data.len() as u8) << 4);
+        } else {
+            // 长度 ≥15 → token 低半字节置 15，余量按 255 递进
+            out.push(0xF0);
+            let mut rest = data.len() - 15;
+            while rest >= 255 {
+                out.push(255);
+                rest -= 255;
+            }
+            out.push(rest as u8);
+        }
+        out.extend_from_slice(data);
+        out
+    }
+
+    /// 「8 字节字面量 + 回引 4088 字节」的 LZ4 块，正好铺满 4096 字节。
+    fn lz4_literals_then_match() -> (Vec<u8>, Vec<u8>) {
+        let unit = b"ABCDEFGH";
+        let output_size = 4096usize;
+        let match_len = output_size - unit.len();
+        let mut block = vec![((unit.len() as u8) << 4) | 0x0f]; // 低 4 位=15 → 匹配长度走扩展
+        block.extend_from_slice(unit);
+        block.extend_from_slice(&(unit.len() as u16).to_le_bytes()); // offset = 8
+        let mut extra = match_len - 19; // 19 = 低 4 位 15 + 基准 4
+        while extra >= 255 {
+            block.push(255);
+            extra -= 255;
+        }
+        block.push(extra as u8);
+        let expected: Vec<u8> = unit.iter().copied().cycle().take(output_size).collect();
+        (block, expected)
+    }
+
+    #[test]
+    fn dvpl_decodes_uncompressed_payload() {
+        let payload = b"hello dvpl";
+        let f = DvplFile::parse(&dvpl_blob(0, payload.len() as u32, payload)).expect("parse");
+        assert_eq!(f.data, payload);
+        assert_eq!(f.compression_type, 0);
+    }
+
+    /// 字面量块与「字面量 + 长匹配回引」块都要逐字节还原——重写后的解压器
+    /// 不能只在整块全匹配的情形下正确。
+    #[test]
+    fn dvpl_decodes_lz4_blocks() {
+        let text: Vec<u8> = (0..300u32).map(|i| b"abcdefgh"[(i % 8) as usize]).collect();
+        let f = DvplFile::parse(&dvpl_blob(2, text.len() as u32, &lz4_literals(&text)))
+            .expect("parse literals");
+        assert_eq!(f.data, text, "仅字面量块");
+
+        let (block, expected) = lz4_literals_then_match();
+        let f = DvplFile::parse(&dvpl_blob(2, expected.len() as u32, &block)).expect("parse match");
+        assert_eq!(f.data, expected, "含匹配回引的块");
+    }
+
+    /// footer 的编码长度与实际载荷不符时返回 Err——此前直接据此切片，会 panic。
+    #[test]
+    fn dvpl_rejects_encoded_size_mismatch() {
+        let payload = b"payload bytes";
+        let mut blob = dvpl_blob(0, payload.len() as u32, payload);
+        let n = blob.len();
+        blob[n - 20 + 4..n - 20 + 8].copy_from_slice(&4096u32.to_le_bytes()); // 谎报编码长度
+        let err = parse_err(&blob);
+        assert!(
+            err.to_string().contains("encoded-size mismatch"),
+            "err = {err}"
+        );
+    }
+
+    /// 存储载荷被改动 → CRC 不符 → Err（footer 的 crc 覆盖压缩后字节，非原始数据）。
+    #[test]
+    fn dvpl_rejects_crc_mismatch() {
+        let payload = b"payload bytes";
+        let mut blob = dvpl_blob(0, payload.len() as u32, payload);
+        blob[0] ^= 0xff; // 改一个载荷字节
+        let err = parse_err(&blob);
+        assert!(err.to_string().contains("CRC mismatch"), "err = {err}");
+    }
+
+    /// 截断的 LZ4 流必须报错：旧实现在此返回零填充的 `Ok`，把损坏伪装成成功。
+    #[test]
+    fn dvpl_rejects_truncated_lz4() {
+        // 字面量流截去尾部：声明 300 字节，实际只剩 100 字节可用
+        let text: Vec<u8> = vec![b'A'; 300];
+        let block = lz4_literals(&text);
+        let truncated = &block[..block.len() - 200];
+        let blob = dvpl_blob(2, text.len() as u32, truncated);
+        let err = parse_err(&blob);
+        assert!(err.to_string().contains("truncated stream"), "err = {err}");
+
+        // 匹配段被截断（偏移已读到、匹配长度未读完）
+        let (full, _) = lz4_literals_then_match();
+        let cut = &full[..full.len() - 8];
+        let blob = dvpl_blob(2, 4096, cut);
+        let err = parse_err(&blob);
+        assert!(err.to_string().contains("truncated stream"), "err = {err}");
+    }
+
+    /// 压缩流解出的长度与 footer 不符 → Err（zlib 分支：解压长度由流本身决定，
+    /// 不依赖 footer 的 `decoded_size`，是这条校验真正可达的路径）。
+    #[test]
+    fn dvpl_rejects_decoded_size_mismatch() {
+        let text = b"zlib payload that decompresses to fewer bytes than the footer claims";
+        let blob = dvpl_blob(3, 4096, &zlib(text)); // footer 谎报 4096
+        let err = parse_err(&blob);
+        assert!(
+            err.to_string().contains("decoded-size mismatch"),
+            "err = {err}"
+        );
+
+        // 同一压缩流、footer 写对 → 正常解出（证明上面失败的是长度校验而非压缩流本身）
+        let ok = DvplFile::parse(&dvpl_blob(3, text.len() as u32, &zlib(text))).expect("parse");
+        assert_eq!(ok.data, text);
+    }
+
+    /// 回引偏移超出已产出长度 → Err，不再靠 `di < offset` 静默跳字节。
+    /// （零偏移是合法形态，见 `dvpl_offset_zero_writes_zeros`。）
+    #[test]
+    fn dvpl_rejects_invalid_match_offset() {
+        let mut block = vec![0x40 | 0x0f]; // 4 字节字面量 + 扩展匹配长度
+        block.extend_from_slice(b"wxyz");
+        block.extend_from_slice(&8u16.to_le_bytes()); // offset = 8 > 已产出 4 → 非法
+        block.push(200); // 匹配长度扩展
+        let blob = dvpl_blob(2, 4 + 19 + 200, &block);
+        let err = parse_err(&blob);
+        assert!(err.to_string().contains("invalid match offset"), "err = {err}");
+    }
+
+    /// 零偏移写零：真机数据存在 `offset = 0` 的匹配序列（45016 个客户端文件里 1 例，
+    /// `3d/Tanks/France/images_pbr/F114_Projet_4_1_skin_MISC.dx11.dds.dvpl`）。参考实现
+    /// （lz4 C）与改前的旧实现都解成 match_len 个零字节——回引位置尚未写出、缓冲区初值
+    /// 为零——故这里必须同样处理，不能按"非法偏移"拒绝。
+    #[test]
+    fn dvpl_offset_zero_writes_zeros() {
+        // token 0x41 = 4 字节字面量 + 匹配长度 1+4=5；随后 offset = 0
+        let mut block = vec![0x41];
+        block.extend_from_slice(b"wxyz");
+        block.extend_from_slice(&0u16.to_le_bytes());
+        let mut expected = b"wxyz".to_vec();
+        expected.extend_from_slice(&[0u8; 5]);
+
+        let f = DvplFile::parse(&dvpl_blob(2, expected.len() as u32, &block)).expect("parse");
+        assert_eq!(f.data, expected, "零偏移应写出 5 个零字节");
+    }
+
+    #[test]
+    fn dvpl_rejects_bad_footer() {
+        assert!(DvplFile::parse(b"too short").is_err(), "长度不足 20");
+        let mut blob = dvpl_blob(0, 3, b"abc");
+        let n = blob.len();
+        blob[n - 4..].copy_from_slice(b"XXXX"); // magic 损坏
+        assert!(DvplFile::parse(&blob).is_err(), "magic 不符");
+    }
+
+    /// 端到端探针：把校验后的解码器跑遍真实客户端 Data 树，确认新增的编码长度 /
+    /// CRC / 解压长度三项校验**不会误拒任何合法文件**——这是"fail-closed 但不过严"
+    /// 的唯一实证手段（样本是本地游戏目录，故排除在 CI 之外）。
+    ///
+    /// `WOTB_DVPL_PROBE=<Data 目录> cargo test dvpl_client_probe -- --ignored --nocapture`
+    #[test]
+    #[ignore = "端到端探针：WOTB_DVPL_PROBE=<Data 目录> cargo test dvpl_client_probe -- --ignored --nocapture"]
+    fn dvpl_client_probe() {
+        use std::path::{Path, PathBuf};
+
+        fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().and_then(|x| x.to_str()) == Some("dvpl") {
+                    out.push(p);
+                }
+            }
+        }
+
+        let dir = match std::env::var_os("WOTB_DVPL_PROBE") {
+            Some(d) => PathBuf::from(d),
+            None => match crate::wargaming::game_extract::resolve_game_dir(None) {
+                Ok(d) => d,
+                Err(e) => {
+                    println!("跳过：未找到客户端目录（{e}）——用 WOTB_DVPL_PROBE=<Data 目录> 指定");
+                    return;
+                }
+            },
+        };
+
+        let mut files = Vec::new();
+        walk(&dir, &mut files);
+        println!("DVPL 探针：{} 个文件 @ {}", files.len(), dir.display());
+
+        let mut ok = 0usize;
+        let mut failed: Vec<(PathBuf, String)> = Vec::new();
+        let mut by_type = std::collections::BTreeMap::<u32, usize>::new();
+        for (i, f) in files.iter().enumerate() {
+            match DvplFile::read(f) {
+                Ok(d) => {
+                    ok += 1;
+                    *by_type.entry(d.compression_type).or_default() += 1;
+                }
+                Err(e) => failed.push((f.clone(), e.to_string())),
+            }
+            if (i + 1) % 5000 == 0 {
+                println!("  [{}/{}] ok={ok} failed={}", i + 1, files.len(), failed.len());
+            }
+        }
+        println!("成功 {ok}，失败 {}，压缩类型分布 {by_type:?}", failed.len());
+        for (f, e) in failed.iter().take(10) {
+            println!("  FAIL {}: {e}", f.display());
+        }
+        assert!(ok > 0, "目录里没有可解码的 DVPL：{}", dir.display());
+        assert!(failed.is_empty(), "{} 个合法客户端文件被拒", failed.len());
     }
 }

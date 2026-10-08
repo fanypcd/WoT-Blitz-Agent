@@ -29,6 +29,9 @@ serde_json.workspace = true
 toml = "0.8"
 anyhow.workspace = true
 flate2 = "1"
+# DVPL footer 的存储载荷 CRC32 校验。crc32fast 本就在 crate 图里（flate2 经
+# miniz_oxide 传递引入），提为直接依赖不新增编译单元。
+crc32fast = "1"
 regex = "1"
 clap = { version = "4", features = ["derive", "env"] }
 chrono.workspace = true
