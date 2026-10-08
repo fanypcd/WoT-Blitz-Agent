@@ -257,9 +257,11 @@ BlitzKit（4 项）  #1 tanks.pb ─┐
 
 - **俯视渲染器**：消费方仓 `WotbTools/frontend/scripts/bake-ground-overhead.mjs`（headless
   Chrome + three.js，产物 `.rgba` 交 `tools/composite_overhead.py` 合成）。
-- **逆向探针**：`examples/*.rs`（17 个：`destructible_probe*` / `filter_*_probe` /
-  `m29_*_probe` / `p1_comp_probe` 等），`.gitignore` 覆盖、仅本机存在；`cargo test` 仍编译
-  本地副本，但**不入库**。
+- **逆向探针**：`examples/*.rs`（**18 个**：`destructible_probe*` / `filter_*_probe` /
+  `m29_*_probe` / `p1_comp_probe` / `dump_dvpl` 等），`.gitignore` 覆盖、仅本机存在；
+  `cargo test` 仍编译本地副本，但**不入库**。
+- **本机构建产物**：`frontend/public/wasm/`（`scripts/build-wasm.ps1` 产物，
+  **随包不随库**）——`.gitignore` 覆盖。
 
 **一句话记法**：地图 / 坦克 / 图标 / 车辆数值在 `tools/`（Python，底座是 `tools/wotbtools/`
 解 DAVA 容器）；装甲 / 碰撞 / 底图在 `src/wargaming/`（Rust，CLI 驱动）；
