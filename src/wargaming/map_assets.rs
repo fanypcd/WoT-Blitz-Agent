@@ -19,7 +19,7 @@
 
 use crate::data::{cache_path, data_path};
 use crate::wargaming::dvpl::DvplFile;
-use crate::wargaming::game_extract::resolve_game_dir;
+use crate::wargaming::game_extract::{resolve_client_path, resolve_game_dir};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
@@ -134,10 +134,10 @@ fn load_registry() -> Vec<MapEntry> {
     let Ok(game) = resolve_game_dir(None) else {
         return Vec::new();
     };
-    let Ok(maps_dvpl) = DvplFile::read(&game.join("maps.yaml.dvpl")) else {
+    let Ok(maps_dvpl) = DvplFile::read(&resolve_client_path(&game, "maps.yaml.dvpl")) else {
         return Vec::new();
     };
-    let Ok(en_dvpl) = DvplFile::read(&game.join("Strings").join("en.yaml.dvpl")) else {
+    let Ok(en_dvpl) = DvplFile::read(&resolve_client_path(&game, "Strings/en.yaml.dvpl")) else {
         return Vec::new();
     };
     let maps_text = String::from_utf8_lossy(&maps_dvpl.data);
@@ -547,7 +547,7 @@ fn parse_heightmap(raw: &[u8]) -> Option<TerrainGrid> {
 /// 从游戏目录解出高度图（landscape/ 下唯一 *heightmap*.dvpl，文件名各图不同）。
 fn extract_heightmap(space: &str) -> Option<TerrainGrid> {
     let game = resolve_game_dir(None).ok()?;
-    let dir = game.join("3d/Maps").join(space).join("landscape");
+    let dir = resolve_client_path(&game, &format!("3d/Maps/{space}/landscape"));
     let mut found = None;
     for e in std::fs::read_dir(&dir).ok()?.flatten() {
         let name = e.file_name().to_string_lossy().to_lowercase();

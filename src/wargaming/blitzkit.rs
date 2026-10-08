@@ -132,6 +132,11 @@ pub struct ShellData {
     pub id: u32,
     pub name: String,
     pub shell_type: String,
+    /// field9 = ShellType 枚举（0=AP / 1=APCR / 2=HEAT / 3=HE；proto3 语义下缺失即 0=AP）。
+    /// **弹种判定的权威来源**：`shell_type`（field7 的 `icon` 串）只是 BlitzKit 的显示标签，
+    /// 按其做词表映射存在"未知键静默落 HE"的隐患，故另存本字段备用。
+    #[serde(default)]
+    pub shell_type_id: Option<u32>,
     pub damage: f64,
     pub penetration: f64,
     pub module_damage: f64,
@@ -155,9 +160,13 @@ pub struct ShellData {
 pub struct GunData {
     pub module_id: u32,
     pub name: String,
-    /// 口径系数（如 26.25 对应 130mm；乘某因子得毫米）。
-    pub caliber_factor: f64,
-    pub shell_count: u32,
+    /// field5 = `rotation_speed`（炮管回转速度，deg/s；T-34 = 39.375）。曾误命名为
+    /// `caliber_factor`——proto `GunDefinition.rotation_speed = 5` 为权威定义。
+    pub rotation_speed: f64,
+    /// field9 = `tier`（该炮等级）。曾误读为 `shell_count`——真正的弹容在 field18。
+    pub tier: u32,
+    /// field18 = `shell_capacity`（弹容）。
+    pub shell_capacity: u32,
     /// 百米精度(散布)。
     pub dispersion: f64,
     /// 瞄准时间（秒）。
@@ -222,7 +231,12 @@ pub struct TankFullData {
     pub is_collector: bool,
     pub speed_forward: f64,
     pub speed_reverse: f64,
-    pub hull_traverse: f64,
+    /// field27 = `camouflage_still`（静止迷彩系数，0~1 的分数；proto 另有 28=moving、
+    /// 29=on_fire）。**曾长期被误读为"车体转速"**并按弧度换算（×180/π）透出——BlitzKit
+    /// `tank_definitions.proto:37` + 生成器 `1_tankDefinitions.ts:393`（取 XML
+    /// `invisibility.still`）双重确认其真身；车体转向的正当来源是 `tracks[].traverse_speed`
+    /// （field5，同 proto `TrackDefinition.traverse_speed`）。
+    pub camouflage_still: f64,
     pub weight: f64,
     pub turrets: Vec<TurretData>,
     pub engines: Vec<EngineData>,
@@ -411,7 +425,7 @@ fn parse_tank_main(sub: &[u8], tank_id: u32) -> Result<Option<TankFullData>> {
         is_collector: false,
         speed_forward: 0.0,
         speed_reverse: 0.0,
-        hull_traverse: 0.0,
+        camouflage_still: 0.0,
         weight: 0.0,
         turrets: Vec::new(),
         engines: Vec::new(),
@@ -483,7 +497,9 @@ fn parse_tank_main(sub: &[u8], tank_id: u32) -> Result<Option<TankFullData>> {
                 tank.speed_reverse = f32::from_le_bytes(sr.bytes(4)?.try_into().unwrap()) as f64;
             }
             (27, 5) => {
-                tank.hull_traverse = f32::from_le_bytes(sr.bytes(4)?.try_into().unwrap()) as f64;
+                // = camouflage_still（静止迷彩系数），**不是**车体转速。旧实现把它当转速
+                // 并在 tank_resolver 里 ×180/π 透出，已更正（hull_traverse 改取 tracks）。
+                tank.camouflage_still = f32::from_le_bytes(sr.bytes(4)?.try_into().unwrap()) as f64;
             }
             (31, 0) => tank.weight = sr.varint()? as f64,
             (32, 2) => {
@@ -612,8 +628,9 @@ fn parse_gun(gb: &[u8]) -> Result<Option<GunData>> {
     let mut gun = GunData {
         module_id: 0,
         name: String::new(),
-        caliber_factor: 0.0,
-        shell_count: 0,
+        rotation_speed: 0.0,
+        tier: 0,
+        shell_capacity: 0,
         dispersion: 0.0,
         aim_time: 0.0,
         shells: Vec::new(),
@@ -626,7 +643,7 @@ fn parse_gun(gb: &[u8]) -> Result<Option<GunData>> {
             burst_reloads: Vec::new(),
         },
     };
-    let mut saw_caliber = false;
+    let mut saw_rotation = false;
     let mut name_bytes: &[u8] = &[];
     while let Some(res5) = gr.tag() {
         let (f5, w5) = res5?;
@@ -706,16 +723,18 @@ fn parse_gun(gb: &[u8]) -> Result<Option<GunData>> {
             }
             (4, 0) => gun.module_id = gr.varint()? as u32,
             (5, 5) => {
-                gun.caliber_factor = f32::from_le_bytes(gr.bytes(4)?.try_into().unwrap()) as f64;
-                if gun.caliber_factor > 1.0 {
-                    saw_caliber = true;
+                gun.rotation_speed = f32::from_le_bytes(gr.bytes(4)?.try_into().unwrap()) as f64;
+                // 有效性闸门：无合法 rotation_speed 的记录视为占位条目（见下方 saw_* 判定）
+                if gun.rotation_speed > 1.0 {
+                    saw_rotation = true;
                 }
             }
             (8, 2) => {
                 let l = gr.varint()? as usize;
                 name_bytes = gr.bytes(l)?;
             }
-            (9, 0) => gun.shell_count = gr.varint()? as u32,
+            (9, 0) => gun.tier = gr.varint()? as u32, // field9 = tier（曾误读为 shell_count）
+            (18, 0) => gun.shell_capacity = gr.varint()? as u32, // field18 = 真正的弹容
             (10, 2) => {
                 let l = gr.varint()? as usize;
                 let sb = gr.bytes(l)?;
@@ -732,7 +751,7 @@ fn parse_gun(gb: &[u8]) -> Result<Option<GunData>> {
             _ => gr.skip_field(w5)?,
         }
     }
-    if !saw_caliber {
+    if !saw_rotation {
         return Ok(None);
     }
     gun.name = extract_name(name_bytes);
@@ -745,6 +764,7 @@ fn parse_shell(sb: &[u8]) -> Result<Option<ShellData>> {
         id: 0,
         name: String::new(),
         shell_type: String::new(),
+        shell_type_id: None,
         damage: 0.0,
         penetration: 0.0,
         module_damage: 0.0,
@@ -773,6 +793,9 @@ fn parse_shell(sb: &[u8]) -> Result<Option<ShellData>> {
                 let l = sr.varint()? as usize;
                 type_bytes = sr.bytes(l)?;
             }
+            // field9 = ShellType 枚举（0=AP/1=APCR/2=HEAT/3=HE）——弹种判定的权威来源。
+            // field7 的 icon 串（ap/ap_cr_premium/hc_premium/he…）只作显示标签保留。
+            (9, 0) => shell.shell_type_id = Some(sr.varint()? as u32),
             (8, 2) => {
                 let l = sr.varint()? as usize;
                 let pb = sr.bytes(l)?;
@@ -1650,5 +1673,130 @@ mod parse_tests {
                 assert_eq!(g.gun_spaced, vec![1, 2, 3], "T-34 gun spaced");
             }
         }
+    }
+}
+
+/// 弹种双路径等价性守护（独立模块，避免与既有 `parse_tests` 的内联断言混在一起）。
+#[cfg(test)]
+mod shell_type_tests {
+    use super::parse_tanks_pb;
+    use crate::wargaming::penetration::ShellType;
+
+    fn tag(s: &ShellType) -> &'static str {
+        match s {
+            ShellType::AP => "AP",
+            ShellType::APCR => "APCR",
+            ShellType::HEAT => "HEAT",
+            ShellType::HE => "HE",
+        }
+    }
+
+    /// tanks.pb 的 **field9（ShellType 枚举，权威）** 与 **field7（icon 串，显示标签）**
+    /// 必须在全量真实数据上给出同一弹种。
+    ///
+    /// 守护两件事：①`from_id` 的枚举映射无错位（错位会让弹道判定整体走错分支，且因
+    /// 弹种只影响分支、不影响数值形态，几乎不可能被看出来）；②icon 词表覆盖完整
+    /// （否则 `ShellType::from_str` 的未知兜底 HE 会被踩到——HE 会强制永不跳弹并走
+    /// 溅射分支，属"看起来正常、语义全错"的一类静默错误）。
+    ///
+    /// 样本量断言保证：数据文件缺失/截断时不会"零断言通过"。
+    #[test]
+    fn shell_type_id_agrees_with_icon() {
+        let bytes = std::fs::read(crate::data::data_path("tanks.pb")).unwrap();
+        let tanks = parse_tanks_pb(&bytes).unwrap();
+        let (mut checked, mut missing_id) = (0usize, 0usize);
+        for t in &tanks {
+            for turret in &t.turrets {
+                for gun in &turret.guns {
+                    for s in &gun.shells {
+                        let by_icon = ShellType::from_str(&s.shell_type);
+                        checked += 1;
+                        match s.shell_type_id {
+                            // proto3 语义：字段整段缺失即默认值 0 = AP
+                            None => {
+                                missing_id += 1;
+                                assert_eq!(
+                                    tag(&by_icon),
+                                    "AP",
+                                    "tank {} 弹种 {:?}：field9 缺失时应等价于 AP",
+                                    t.tank_id,
+                                    s.shell_type
+                                );
+                            }
+                            Some(id) => {
+                                let by_id = ShellType::from_id(id).unwrap_or_else(|| {
+                                    panic!("tank {}：未知 ShellType id {id}", t.tank_id)
+                                });
+                                assert_eq!(
+                                    tag(&by_id),
+                                    tag(&by_icon),
+                                    "tank {} 弹种 {:?}：field9={id} 与 icon 结论不一致",
+                                    t.tank_id,
+                                    s.shell_type
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        println!("弹种双路径等价：校验 {checked} 发（field9 缺失 {missing_id} 发）");
+        assert!(checked > 2000, "校验样本量过少（{checked}），数据可能缺失");
+    }
+}
+
+
+/// tanks.pb 字段语义守护：钉死"field27 = 迷彩分数、车体转向在履带"这一对事实。
+#[cfg(test)]
+mod field_semantics_tests {
+    use super::parse_tanks_pb;
+
+    /// field27（`camouflage_still`）是 0~1 的**分数**，不是转速。
+    ///
+    /// 旧实现把它当车体转速、还在 `tank_resolver` 里 ×180/π 透出（T-34 的 0.288 →
+    /// "16.5 deg/s"），消费方拿到的是一份语义完全错误的数据。本测试锁定：
+    /// ①`camouflage_still` 全库落在 (0, 1)；②车体转向在 `tracks[].traverse_speed`
+    /// 且量级为数十 deg/s。两者量级差两个数量级，任一侧被误读都会立刻失败。
+    #[test]
+    fn field27_is_camouflage_fraction_traverse_lives_on_tracks() {
+        let bytes = std::fs::read(crate::data::data_path("tanks.pb")).unwrap();
+        let tanks = parse_tanks_pb(&bytes).unwrap();
+        let mut with_camo = 0usize;
+        let mut with_tracks = 0usize;
+        for t in &tanks {
+            if t.camouflage_still > 0.0 {
+                with_camo += 1;
+                assert!(
+                    t.camouflage_still < 1.0,
+                    "tank {} 的 field27 = {} —— 迷彩是 0~1 分数，超过 1 说明字段读错",
+                    t.tank_id,
+                    t.camouflage_still
+                );
+            }
+            if let Some(trk) = t.tracks.last() {
+                with_tracks += 1;
+                assert!(
+                    trk.traverse_speed > 5.0 && trk.traverse_speed < 200.0,
+                    "tank {} 履带转向 {} deg/s 超出合理量级",
+                    t.tank_id,
+                    trk.traverse_speed
+                );
+            }
+        }
+        assert!(with_camo > 500, "有迷彩值的车过少: {with_camo}");
+        assert!(with_tracks > 500, "有履带数据的车过少: {with_tracks}");
+
+        // 具名断言：T-34 静止迷彩 ≈ 0.288（28.8%），顶级履带 46 deg/s
+        let t34 = tanks.iter().find(|t| t.tank_id == 1).expect("T-34");
+        assert!(
+            (t34.camouflage_still - 0.288).abs() < 0.02,
+            "T-34 field27 = {}（应 ≈0.288 静止迷彩）",
+            t34.camouflage_still
+        );
+        assert_eq!(
+            t34.tracks.last().map(|t| t.traverse_speed as i64),
+            Some(46),
+            "T-34 顶级履带转向应为 46 deg/s"
+        );
     }
 }

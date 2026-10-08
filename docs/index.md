@@ -244,6 +244,50 @@ fail-closed、Rust 侧 fail-open"的标准分裂；两个外部独立实现（`J
   跳过的 `Skin_01` 配置里，**当前不可达**，属潜在陷阱，两端口径现已一致
 - 细节与判据见 [game-data-sources.md](game-data-sources.md) §5.3
 
+### 外部仓库格式对照与修复（2026-10-08，未发版）
+
+对 GitHub 上 35 个 WoT Blitz 格式/解包相关仓库做了一轮系统对照（DAVA 引擎源码、SC2/SCG
+格式文档、14 个 DVPL 实现、纹理/模型工具、BlitzKit 上游定义），逐条与本仓实现核对后落地
+以下修复。**结论均以"外部权威定义 + 本机真实客户端实测"双向锁定**，非单侧推断。
+
+**活缺陷（改变输出）**
+
+| 项 | 事实与证据 |
+|---|---|
+| **DLC 覆盖层 `packs/` 未纳入读取路径** | 客户端把微更新写到 `%LOCALAPPDATA%\wotblitz\packs` 并**同相对路径覆盖** `Data/`。实测 45 个 packs 文件中 **5 个覆盖 Data 同名不同内容**——含坦克可视模型 `3d/Tanks/German/Ferdinand.sc2`（10458 vs 7832 B）与同车 `.scg`（**922191 vs 791385 B**）；另 40 个 Data 里根本没有（`G37_Ferdinand_skin` 皮肤资产）。修复：Rust `game_extract::packs_dir/resolve_client_path` + Python `tools/wotbtools/dlc_packs.py`，客户端资源读取改为 packs 优先、缺失回退。 |
+| **PVR3 头宽高读反** | PVR3 版式为 **height@24 / width@28**（DAVA `PVRFormatHelper.h` 结构体 + writer/reader 双向赋值），本仓读成 w@24/h@28。实测 1328 个 PVR 中 **5 张非方形**（`palm_trunk`/`a_sosna01`×2/`env_kr_cactus`/`monument`）被 reshape 成转置图；同资产 `palm_trunk` 的 DDS 副本为高 512×宽 256，与 `@24=512` 互证。修复后逐张比对：**1323 张一致、恰好这 5 张修正、零异常**。 |
+| **SpeedTree 叶卡判据按掩码而非 stride 硬编码** | 旧实现只认 56B/92B 两种 stride；实测含 `PIVOT4`(bit10) 的组共 **668 个 / 10 种掩码**，覆盖仅 420 个 → 248 组整组掉进静态路径（pivot 被忽略 → 叶片固定朝向）。改为掩码驱动（流序 = EVF 位号序，见 `PolygonGroup.cpp:49-166`）。新旧比对：**回归 0、原有 324 组输出逐项一致、新增覆盖 122 组**。 |
+| **弹种静默误判** | 弹种按 `icon` 串词表映射，未知键**静默落 HE**（HE 走溅射并强制永不跳弹）。按上游 proto 加权威来源 `field9 = ShellType 枚举`（0 AP/1 APCR/2 HEAT/3 HE），并加等价性测试**全量 4426 发**守护——首跑即抓出真实漏项 **`atgm_heat`（2 发）被误判为 HE**（应为 HEAT）。 |
+| **`hull_traverse` 取错字段** | 本仓读 tanks.pb field27 当车体转速并 ×180/π 透出；上游 `tank_definitions.proto:37` + 生成器确认 **field27 = `camouflage_still`（静止迷彩系数）**。修复：改取 `tracks[].traverse_speed`（T-34 顶级履带 46 deg/s），键名与语义不变、零契约变更。 |
+
+**稳健性 / 口径统一（不改变当前输出）**
+
+- **顶点位表按 DAVA 权威收口**：`EVF_*` 位定义 + `GetVertexSize`（`RenderBase.h:158-177,213-261`）
+  与两个独立外部实现三方一致；本仓表 bit9/10/12/13 四位全错（16/8/12/16 应为 4/16/4/8）且缺
+  5/6/11/14/15/16-19。旧表没出错的原因是偏移累加只遍历 bit0-2，恰好落在两表一致区间。
+  新表对**全部 43 种实测掩码**（地图 32 种 9751 组 + 坦克 25 种 66712 组）**零 stride 失配**。
+- **UV 偏移改为按置位累加**：旧实现对 bit4 硬编码 `low_off + 8`、默认 TEXCOORD0 必然存在；
+  mask `0x11`（只置 TEXCOORD1）的 **20 个组**UV 起点被算到 stride 之外而静默丢弃，修复后
+  20/20 恢复（坦克侧本就正确，两侧口径现已一致）。
+- **DXGI 表纠错**：85-90 曾映射为 BC6H/BC7（真值 B5G6R5/B5G5R5A1/B8G8R8A8 等非 BCn），
+  改为正确的 95-97/98-100；实测 DX10 只用 71/72/74/75/77/78，旧表从未触发，属埋雷。
+- **DDS 注释纠错**：`fourCC@84` / DX10 `dxgi@128` / 像素 `@148` **全是标准偏移**，原注释
+  "DAVA 整体 +4"是误读（行为本就正确，仅注释会误导后续维护者）。
+- 字段命名纠错：gun `field5` = `rotation_speed`（曾名 `caliber_factor`）、`field9` = `tier`
+  （曾误读 `shell_count`）、新增 `field18 = shell_capacity`。
+
+**blast radius**：改动触及资产提取链（Rust `extract-game`、Python 两个 GLB 导出器）与坦克
+数据导出面。**产物会变**——PVR / SpeedTree / 顶点表 / UV 修正都改变地图与坦克 GLB 的几何与
+贴图，属"会改 WotbTools 可见输出"的改动：需重导资产包并重烤俯视图，视觉终判按 AGENTS.md
+归用户。回放切面与 WASM 契约未触碰。
+
+**尚未落地（已定位、待排期）**：`export_tank_glb.py` 的 DXT5+位31 仍按 BC5 解（外部证据指向
+标准 DXT5nm：A=X/G=Y；实测 `x²+y²≤1` 占比 98.6% vs 当前 66.5%），属改法线/金属度观感的改动，
+需与 BlitzKit 对照 + 用户视觉验收；地图侧材质仍用 `compute_normals` 现算（坦克侧已用文件内
+authored NORMAL），属内部口径不一致；PVR3 单通道 L8/A8（1328 中 954 个）未解码（消费者待验）；
+`ShellType` 权威路径 field9 尚未接线进 `PenetrationRequest`；battle_results `117=damage_blocked` /
+`107=mm_rating` 与竞技场条目 `f4=队伍号` 未采用。
+
 ## 约定
 
 - 逆向结论的**唯一权威**是 [docs/回放与射击逆向总集.md](回放与射击逆向总集.md)；其余文档与其冲突时，

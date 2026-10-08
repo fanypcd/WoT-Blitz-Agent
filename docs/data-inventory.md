@@ -211,7 +211,8 @@ BlitzKit（4 项）  #1 tanks.pb ─┐
 | 路径 | 作用 |
 |---|---|
 | `tools/wotbtools/wotb_sc2.py` | DAVA `SceneFileV2`(.sc2) + DVPL 解包（KeyedArchive 读取）。DVPL/LZ4 侧 fail-closed 口径与 Rust `dvpl.rs` 对齐，见 [game-data-sources.md](game-data-sources.md) §5.3；契约单测 `tools/test_dvpl_decode.py` |
-| `tools/wotbtools/wotb_scg.py` | DAVA `SCPG`(.scg) 几何解码（顶点流 / 索引 / 图元） |
+| `tools/wotbtools/wotb_scg.py` | DAVA `SCPG`(.scg) 几何解码（顶点流 / 索引 / 图元）。顶点位偏移与 stride 按 DAVA `RenderBase.h` 权威位表（流序 = EVF 位号序），43 种实测掩码零失配 |
+| `tools/wotbtools/dlc_packs.py` | **DLC 覆盖层解析**：`client_path()` 让 `packs/<rel>` 优先于 `Data/<rel>`（微更新不落 `Data`，见 [game-data-sources.md](game-data-sources.md) §5.4）；单测 `tools/test_dlc_packs.py`。Rust 侧同义实现 `game_extract::resolve_client_path` |
 
 按提取目标的导出器（接线状态见 §1 / §3）：
 

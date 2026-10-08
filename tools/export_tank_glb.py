@@ -67,6 +67,7 @@ TOOLS_DIR = pathlib.Path(__file__).resolve().parent
 REPO_ROOT = TOOLS_DIR.parent
 sys.path.insert(0, str(TOOLS_DIR / "wotbtools"))
 
+from dlc_packs import client_path  # noqa: E402
 from wotb_sc2 import decode_dvpl, decode_bytes, read_sc2  # noqa: E402
 from wotb_scg import read_scg  # noqa: E402
 
@@ -243,7 +244,12 @@ def nested(container: dict) -> list[dict]:
 # bit 求和 == stride）。positions/normal 恒在 floats 0:6；**UV0 的偏移随格式变化**——
 # bits{0,1} → 24B（UV 在 float 6:8，如 E-100）；bits{0,1,2} → 28B（UV 在 float 7:9，
 # 中间那个 4 字节通道实测是 NaN，如 P44_Pantera）。硬编码 6:8 会整列错位。
-VERTEX_LAYOUT_BITS = {0: 12, 1: 12, 2: 4, 3: 8, 4: 8, 5: 8, 6: 8, 7: 12, 8: 12, 9: 16, 10: 8, 12: 12, 13: 16}
+# DAVA 顶点位表（权威来源：dava.engine RenderBase.h `EVF_*` :158-177 + `GetVertexSize`
+# :213-261）。此前 bit9/10/12/13 写成 16/8/12/16（四位全错）、并缺 11/14/15/16-19。
+# 与 export_map_glb.py 的同名表保持逐项一致。
+VERTEX_LAYOUT_BITS = {0: 12, 1: 12, 2: 4, 3: 8, 4: 8, 5: 8, 6: 8, 7: 12, 8: 12,
+                      9: 4, 10: 16, 11: 12, 12: 4, 13: 8, 14: 16, 15: 16,
+                      16: 12, 17: 12, 18: 12, 19: 12}
 # UV 集对应的 vertexFormat 位（0/1/2 是位置/法线/一个 4 字节通道，UV 从 bit3 起每集 8 字节）
 UV_BITS = (3, 4, 5)
 
@@ -860,7 +866,7 @@ def export_collision(sc2_path: pathlib.Path, scg_path: pathlib.Path, glb: Glb) -
 # 路径解析 / 单辆导出
 # ---------------------------------------------------------------------------
 def read_params_yaml(game_data: pathlib.Path, nation: str, stem: str) -> dict:
-    p = game_data / "3d" / "Tanks" / "Parameters" / nation / (stem + ".yaml.dvpl")
+    p = client_path(game_data, f"3d/Tanks/Parameters/{nation}/{stem}.yaml.dvpl")
     if not p.exists():
         return {}
     txt = decode_dvpl(p.read_bytes()).decode("utf-8", "replace")
@@ -875,20 +881,23 @@ def read_params_yaml(game_data: pathlib.Path, nation: str, stem: str) -> dict:
 
 
 def resolve_tank(game_data: pathlib.Path, nation: str, stem: str) -> dict:
-    """权威路径：yaml 的 blitzModelPath / collisionMesh；缺失时按目录约定回退。"""
+    """权威路径：yaml 的 blitzModelPath / collisionMesh；缺失时按目录约定回退。
+
+    所有路径经 `client_path()` 解析——DLC 覆盖层（`packs/`）同名路径优先于 `Data/`。
+    `.sc2` 与 `.scg` **各自独立解析**：客户端可能只覆盖其中之一。
+    """
     nd = NATION_DIR.get(nation, nation)
     info = read_params_yaml(game_data, nation, stem)
     res = {"nation": nation, "stem": stem, "nation_dir": nd, "yaml": bool(info)}
     bm = info.get("blitzModelPath")
-    sc2 = (game_data / "3d" / (bm + ".dvpl")) if bm else \
-        (game_data / "3d" / "Tanks" / nd / (stem + ".sc2.dvpl"))
-    res["model_sc2"] = sc2
-    res["model_scg"] = sc2.with_name(sc2.name.replace(".sc2.dvpl", ".scg.dvpl"))
+    sc2_rel = (f"3d/{bm}.dvpl") if bm else f"3d/Tanks/{nd}/{stem}.sc2.dvpl"
+    res["model_sc2"] = client_path(game_data, sc2_rel)
+    res["model_scg"] = client_path(game_data, sc2_rel.replace(".sc2.dvpl", ".scg.dvpl"))
     cm = info.get("collisionMesh")
-    csc2 = (game_data / "3d" / "Tanks" / (cm + ".dvpl")) if cm else \
-        (game_data / "3d" / "Tanks" / "CollisionMeshes" / f"{nation}-{stem}.sc2.dvpl")
-    res["coll_sc2"] = csc2
-    res["coll_scg"] = csc2.with_name(csc2.name.replace(".sc2.dvpl", ".scg.dvpl"))
+    csc2_rel = (f"3d/Tanks/{cm}.dvpl") if cm else \
+        f"3d/Tanks/CollisionMeshes/{nation}-{stem}.sc2.dvpl"
+    res["coll_sc2"] = client_path(game_data, csc2_rel)
+    res["coll_scg"] = client_path(game_data, csc2_rel.replace(".sc2.dvpl", ".scg.dvpl"))
     return res
 
 

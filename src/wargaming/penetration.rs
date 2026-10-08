@@ -44,17 +44,45 @@ impl ShellType {
     pub fn is_explosive_type(&self) -> bool {
         matches!(self, ShellType::HEAT | ShellType::HE)
     }
-    /// 从字符串解析弹种（tanks.pb 原始串：hc/hc_premium=HEAT、ap_cr*/apcr=APCR、ap_premium=AP、he_premium=HE）。
+    /// 从 **tanks.pb field9（ShellType 枚举）** 解析——弹种判定的**权威路径**。
+    /// Proto：0=AP / 1=APCR / 2=HEAT / 3=HE；proto3 语义下字段缺失即 0=AP，故
+    /// 调用方应在 `shell_type_id` 为 None 时按 `Some(0)` 处理（或走 icon 回退）。
+    pub fn from_id(id: u32) -> Option<Self> {
+        match id {
+            0 => Some(ShellType::AP),
+            1 => Some(ShellType::APCR),
+            2 => Some(ShellType::HEAT),
+            3 => Some(ShellType::HE),
+            _ => None,
+        }
+    }
+    /// 从 icon 串解析；未知串 → None（**不猜测**）。供 `from_str` 与测试使用。
+    ///
+    /// 词表 = tanks.pb field7 的**实测穷举**（4426 发全量枚举，9 种取值）：
+    /// `ap` / `ap_premium` / `apcr` / `ap_cr` / `ap_cr_premium` / `he` / `he_premium` /
+    /// `hc` / `hc_premium` / **`atgm_heat`**。最后一项是 2026-10-08 才发现的漏项——它是
+    /// 反坦克导弹的 HEAT 弹，旧词表未覆盖，导致其被兜底成 HE（白拿一份溅射语义）。
+    /// 词表完整性由 `blitzkit::shell_type_tests::shell_type_id_agrees_with_icon`
+    /// 全量守护：客户端新增任何 icon 都会让该测试立即失败，而不是静默误判。
+    pub fn try_from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "ap" | "ap_premium" => Some(ShellType::AP),
+            "apcr" | "ap_cr" | "ap_cr_premium" => Some(ShellType::APCR),
+            "he" | "he_premium" => Some(ShellType::HE),
+            "heat" | "hc" | "hc_premium" | "atgm_heat" => Some(ShellType::HEAT),
+            _ => None,
+        }
+    }
+    /// 从 icon 串（field7，BlitzKit 的**显示标签**）解析弹种。
+    ///
+    /// ⚠️ 未知串兜底为 `HE` —— 这是**最后手段**，不是判定依据：`HE` 会让跳弹被强制成
+    /// 90°（永不跳弹）且走溅射分支，等于给未知弹种一个"高爆"的错误语义。权威来源是
+    /// field9（见 `from_id`），`ShellData::shell_type_id` 已解析；当前单一路径
+    /// （`calculate` 只收字符串）尚未接线，故保留本兜底并在此显式记录。
+    /// `shell_type_id` 的存在性由 `tests::shell_type_id_agrees_with_icon` 全量守护。
     #[allow(clippy::should_implement_trait)] // 语义即 FromStr，但改名会牵动全库调用点
     pub fn from_str(s: &str) -> Self {
-        let s = s.to_lowercase();
-        match s.as_str() {
-            "ap" | "ap_premium" => ShellType::AP,
-            "apcr" | "ap_cr" | "ap_cr_premium" => ShellType::APCR,
-            "he" | "he_premium" => ShellType::HE,
-            "heat" | "hc" | "hc_premium" => ShellType::HEAT,
-            _ => ShellType::HE,
-        }
+        Self::try_from_str(s).unwrap_or(ShellType::HE)
     }
 }
 
