@@ -195,7 +195,15 @@ def decode_dds(d: bytes, max_dim: int = 0):
     else:
         bcn = FOURCC_TO_BCN.get(fourcc)
         if bcn == 3 and (pf_flags & 0x80000000):
-            bcn, tag = 5, "DXT5-wrapped-BC5"  # DAVA 双通道数据
+            # DAVA 的双通道数据是**标准 DXT5（BC3）容器**，不是 BC5：alpha 块存第一个通道、
+            # BC1 色块的 G 存第二个通道，R≡255 / B≡0 是占位。旧实现改按 BC5 解（把 BC1 块
+            # 当 BC5 的绿块），ch1 得到的是索引噪声——实测 corr(BC5.ch1, 真值) ≈ −0.0x，
+            # 而 corr(BC3.G, 真值) = +0.98~+0.99；法线 x²+y²≤1 占比 **0.988（BC3）vs
+            # 0.673（BC5）**（1180 对 legacy/wrapped 全量实测）。
+            # 故按 BC3 解，随后**重排成旧代码期望的布局**（ch0←alpha、ch1←BC1.G、B=0），
+            # 使下游 `_prep_texture` 的法线重建与 RM 通道搬运无需改动；标签改名同时让那段
+            # "误判该格式没有 Y 通道 → 丢弃文件数据 → 回退 legacy / 拍平 Y" 的绕行自动失效。
+            tag = "DXT5nm"
     if bcn is None:
         return None, "unsupported"
     need = (w // 4) * (h // 4) * BC_BLOCK[bcn]
@@ -207,7 +215,11 @@ def decode_dds(d: bytes, max_dim: int = 0):
     except Exception:
         return None, "decode-fail"
     arr = arr.reshape(h, w, ncomp)
-    if ncomp == 2:  # BC5：R/G 双通道
+    if tag == "DXT5nm":
+        # 双通道布局重排（见上）：BC3 解出的 alpha=第一通道、G=第二通道 → 落位 ch0/ch1
+        arr = np.dstack([arr[..., 3], arr[..., 1], np.zeros_like(arr[..., 0]),
+                         np.full_like(arr[..., 0], 255)])
+    elif ncomp == 2:  # BC5：R/G 双通道
         arr = np.dstack([arr[..., 0], arr[..., 1], np.zeros_like(arr[..., 0]),
                          np.full_like(arr[..., 0], 255)])
     elif ncomp == 1:
