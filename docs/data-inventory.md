@@ -250,7 +250,6 @@ BlitzKit（4 项）  #1 tanks.pb ─┐
 | `scripts/export_asset_pack.py` | 收拢上述产物为 `release/asset_pack/`（`index.json` / `manifest.json` + 逐文件 sha256） |
 | `tools/upload_asset_pack_cos.py` | 资产包 → COS 差分上传（`manifest.json` 最后强传；陷阱见 §2.1） |
 | `scripts/serve_asset_pack.mjs` | 本机 CORS 伺服 `release/asset_pack`（消费方 dev server 取用） |
-| `tools/preview_glb.html` | 本地 GLB 查看器（`.gitignore` 覆盖，不入库） |
 | `scripts/build-wasm.ps1` | WASM 回放解析产物构建（引擎侧，与资产提取无关） |
 
 ### 6.5 不在本仓 / 未跟踪
