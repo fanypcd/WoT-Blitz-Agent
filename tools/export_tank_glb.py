@@ -568,34 +568,57 @@ def decode_pvr(d: bytes, max_dim: int = 0):
 
 
 class TexStore:
-    """客户端 `.tex` 引用 → 解码后的 RGBA。路径按 **base 目录相对解析**。"""
+    """客户端 `.tex` 引用 → 解码后的 RGBA。
 
-    def __init__(self, base_dir: pathlib.Path, max_dim: int):
-        self.base, self.max_dim, self.cache = base_dir, max_dim, {}
+    `roots` 是**按优先级排列的多个根**。为什么必须多根：DLC 覆盖层（`packs/`）只覆盖
+    `.sc2/.scg` 本身，其引用的贴图仍住在 `Data/`——本机实测 Ferdinand 的 `.sc2/.scg`
+    被 packs 覆盖，但 packs 侧没有 `images_pbr/G37_Ferdinand_BC`（只有 `_skin_` 变体）。
+    单根解析会把这些贴图判成缺失（GLB 从 5.1MB 掉到 464KB、8 个槽位报 missing），
+    故逐根 × 逐后缀尝试。
+    """
 
-    def resolve(self, tex_path: str) -> pathlib.Path:
-        """`.tex` 路径 → 磁盘主干（不含扩展名）。
+    def __init__(self, roots, max_dim: int):
+        if isinstance(roots, (str, pathlib.Path)):
+            roots = [roots]
+        self.roots = [pathlib.Path(r) for r in roots]
+        self.max_dim, self.cache = max_dim, {}
+
+    def candidates(self, tex_path: str) -> list[pathlib.Path]:
+        """按根序展开的候选主干（不含扩展名）。
 
         `../` 是**相对 .sc2 所在目录**的跨目录引用（日本联动车复用德国贴图写作
-        `../German/images/Hetzer_GuP.tex`），必须按 base 归一化到真实目录；早期实现把
+        `../German/images/Hetzer_GuP.tex`），必须按各根归一化到真实目录；早期实现把
         前缀 `../` 直接剥掉，会拼出 `<Nation>/German/images/...` 这种不存在的路径，
         导致 196 辆跨目录引用贴图的车静默丢槽位。
         """
         stem = tex_path[:-4] if tex_path.lower().endswith(".tex") else tex_path
-        return pathlib.Path(os.path.normpath(os.path.join(str(self.base), stem.lstrip("/"))))
+        return [pathlib.Path(os.path.normpath(os.path.join(str(r), stem.lstrip("/"))))
+                for r in self.roots]
+
+    def resolve(self, tex_path: str) -> pathlib.Path:
+        """`.tex` 路径 → 首个**存在**的磁盘主干（不含扩展名）；都不存在则返回首根候选。"""
+        cands = self.candidates(tex_path)
+        for c in cands:
+            for suf in (".dx11.dds.dvpl", ".dds.dvpl", ".dx11.pvr.dvpl"):
+                if pathlib.Path(str(c) + suf).exists():
+                    return c
+        return cands[0]
 
     def load(self, tex_path: str):
         if tex_path in self.cache:
             return self.cache[tex_path]
-        base = self.resolve(tex_path)
         out = None
-        # 扩展名回退链：PC 的 BCn dds → 无前缀 dds → 移动端 PVR3（部分槽位只有它）
-        for suf, dec in ((".dx11.dds.dvpl", decode_dds), (".dds.dvpl", decode_dds),
-                         (".dx11.pvr.dvpl", decode_pvr)):
-            p = pathlib.Path(str(base) + suf)
-            if p.exists():
-                arr, tag = dec(decode_dvpl(p.read_bytes()), self.max_dim)
-                out = (arr, tag, p.name)
+        # 根序优先（packs → Data），根内按扩展名回退链：
+        # PC 的 BCn dds → 无前缀 dds → 移动端 PVR3（部分槽位只有它）
+        for base in self.candidates(tex_path):
+            for suf, dec in ((".dx11.dds.dvpl", decode_dds), (".dds.dvpl", decode_dds),
+                             (".dx11.pvr.dvpl", decode_pvr)):
+                p = pathlib.Path(str(base) + suf)
+                if p.exists():
+                    arr, tag = dec(decode_dvpl(p.read_bytes()), self.max_dim)
+                    out = (arr, tag, p.name)
+                    break
+            if out:
                 break
         self.cache[tex_path] = out or (None, "missing", "")
         return self.cache[tex_path]
@@ -898,6 +921,13 @@ def resolve_tank(game_data: pathlib.Path, nation: str, stem: str) -> dict:
         f"3d/Tanks/CollisionMeshes/{nation}-{stem}.sc2.dvpl"
     res["coll_sc2"] = client_path(game_data, csc2_rel)
     res["coll_scg"] = client_path(game_data, csc2_rel.replace(".sc2.dvpl", ".scg.dvpl"))
+    # 贴图搜索根（按优先级）：模型目录（可能是 packs）→ 同相对路径的 Data 目录。
+    # 必须多根：packs 只覆盖 .sc2/.scg，其引用的贴图仍住在 Data（见 TexStore docstring）。
+    roots = [res["model_sc2"].parent]
+    data_dir = game_data.joinpath(*pathlib.PurePosixPath(sc2_rel).parent.parts)
+    if data_dir != roots[0]:
+        roots.append(data_dir)
+    res["tex_roots"] = roots
     return res
 
 
@@ -914,7 +944,7 @@ def export_tank(game_data: pathlib.Path, tank_id: int, nation: str, stem: str,
         return st
     try:
         glb = Glb()
-        tex = TexStore(res["model_sc2"].parent, max_tex)
+        tex = TexStore(res["tex_roots"], max_tex)
         roots, s = export_visual(res["model_sc2"], glb, tex, mode, stem)
         data = glb.finish(roots, "wotb-agent local sc2 exporter")
         (out / "model.glb").write_bytes(data)
