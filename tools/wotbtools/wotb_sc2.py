@@ -198,6 +198,12 @@ def decode_dvpl(raw: bytes) -> bytes:
         result = payload
     elif compression in (1, 2):
         result = lz4_block_decompress(payload, unpacked_size)
+    elif compression == 3:
+        # zlib（RFC1950，带 zlib 包装与 Adler-32 尾部校验）。与 Rust 侧
+        # `src/wargaming/dvpl.rs` 同口径——此前只有 Rust 支持 type 3，Python 直接抛
+        # "unsupported"，两端对同一个文件会给出相反结论（本机 45016 个文件实测无 type 3，
+        # 故属潜在分歧而非在线缺陷）。
+        result = zlib.decompress(payload)
     else:
         raise Sc2ParseError(f"Unsupported DVPL compression type {compression}")
     if len(result) != unpacked_size:

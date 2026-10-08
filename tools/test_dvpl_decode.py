@@ -138,6 +138,22 @@ def test_dvpl_offset_zero_end_to_end():
     assert decode_dvpl(blob) == b"wxyz" + bytes(5)
 
 
+def test_dvpl_decodes_zlib_type3():
+    """type 3 = zlib（与 Rust 侧同口径）。此前 Python 直接抛 unsupported，两端对同一文件
+    会给出相反结论；本机 45016 个文件实测无 type 3，故属潜在分歧。"""
+    import zlib as _z
+    text = b"zlib payload for type 3 round trip" * 4
+    blob = dvpl_blob(3, len(text), _z.compress(text))
+    assert decode_dvpl(blob) == text
+
+
+def test_dvpl_rejects_unknown_type():
+    import zlib as _z
+    payload = _z.compress(b"x" * 10)
+    expect_error(lambda: decode_dvpl(dvpl_blob(4, 10, payload)),
+                 "Unsupported DVPL compression type 4")
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
