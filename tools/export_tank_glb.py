@@ -673,26 +673,23 @@ def _prep_texture(arr: np.ndarray, slot: str) -> np.ndarray | None:
         z = np.sqrt(np.clip(1 - x * x - y * y, 0, 1))
         return np.dstack([rgb[:, :, 0], rgb[:, :, 1], (z * 127.5 + 127.5).astype(np.uint8)])
     if slot == "metallicRoughness":
-        # DAVA 的 `baseRMMap` 是 BC5 **双通道**：ch0=粗糙度、ch1=金属度（解码后落在 R/G 位、
-        # B 位补零）。glTF 的 `metallicRoughnessTexture` 规定 **G=粗糙度、B=金属度**。
-        # 粗糙度直接线性搬运（corr( 本解码, BlitzKit 产物 )=+0.996）。
-        # 金属度**不能**线性搬运：BlitzKit 的 VFS 把 RM 解析到 PVR 无压缩源（authored
-        # 通道，逐块对照证明 DDS 色块无法复原它），其分布 p50≈5；而 DDS 硬件 BC5 ch1
-        # p50≈78——线性搬运会整车金属化、PBR 发黑（用户实测）。用双车合并拟合的单调
-        # LUT 做**实证标定**（使导出分布对齐 BlitzKit 可见输出），非规范语义。
+        # DAVA 的 `baseRMMap` 是**双通道**打包（DXT5 容器，见 decode_dds 的 DXT5nm 分支）：
+        # 第一通道在 alpha 块 = 粗糙度、第二通道在 BC1.G = 金属度；解码重排后落在 ch0/ch1，
+        # B 位为 0。glTF 的 `metallicRoughnessTexture` 规定 **G=粗糙度、B=金属度**。
+        #
+        # 2026-10-09 修正：此处原有一段"金属度不能线性搬运"的实证标定（单调 LUT + 高斯平滑），
+        # 其立论前提是**当时的误解码结论**——"色块是占位常数（BC1-G 恒 ~28、无结构）"、
+        # "硬件 BC5 ch1 只是索引字节噪声 p50≈78"。而该结论与法线槽是同一根因：旧实现把
+        # DXT5 容器按 BC5 解，ch1 取到的是索引噪声。按 BC3 解之后 ch1 就是**真实 G 通道**，
+        # 实测分布 p50=0 / p95=166~243 —— 本身就是一份形态合理的金属度图（多数像素非金属、
+        # 少数高值金属），与 BlitzKit 侧 p50≈5 的低中位数特征一致。
+        # 故：粗糙度照旧线性搬运（corr(本解码, BlitzKit 产物)=+0.996，未变），金属度改为
+        # **直接搬运真实通道**，LUT 与高斯平滑一并移除（平滑的作用是压块级噪声，真实数据
+        # 没有该噪声，继续平滑只会抹掉合法细节）。
         if arr.shape[2] >= 3 and arr[:, :, 2].max() == 0:
             out = np.zeros_like(rgb)
-            out[:, :, 1] = arr[:, :, 0]                                       # ch0 → G（粗糙度）
-            # 金属度标定：DDS 里没有金属度（色块是占位常数——BC1-G 解码恒为 ~28 且逐块
-            # 无结构；BlitzKit 的 VFS 把 RM 解析到 PVR 无压缩源才有 authored 通道）。硬件
-            # BC5 ch1 只是索引字节噪声（p25=0 的块级量化散点），线性/查表搬运都会渲染成
-            # "细碎杂乱、轮盘深浅不一"。做法：LUT 标定分布 + 高斯平滑压掉块级噪声。
-            metal_lut_x = (8, 24, 40, 56, 72, 88, 104, 120, 136, 152, 168, 184, 200, 216, 232, 248)
-            metal_lut_y = (3, 4, 5, 13, 13, 32, 41, 68, 79, 79, 82, 85, 87, 93, 132, 184)
-            metal = np.interp(arr[:, :, 1], metal_lut_x, metal_lut_y).astype(np.uint8)
-            radius = max(2, arr.shape[0] // 512)
-            metal = np.asarray(Image.fromarray(metal, "L").filter(ImageFilter.GaussianBlur(radius)))
-            out[:, :, 2] = metal
+            out[:, :, 1] = arr[:, :, 0]  # ch0 → G（粗糙度）
+            out[:, :, 2] = arr[:, :, 1]  # ch1 → B（金属度；旧为 LUT+平滑标定，见上）
             return out
         return rgb  # 三通道来源（老式车的 images/<T>_RM）：通道语义未证实，原样保留
     if slot == "occlusion":
