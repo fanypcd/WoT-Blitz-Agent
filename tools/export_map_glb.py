@@ -1482,8 +1482,7 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
                 st_tint = tuple(min(max(tcm[i] * tom[0] + too[0], 1e-3), 4.0) for i in range(3))
         else:
             st_tint = None
-        card_occ = (card["occ_mean"] if card is not None
-                    else (gen2["occ_mean"] if gen2 is not None else None))
+        card_occ = card["occ_mean"] if card is not None else None
         mat_key = (albedo_path, decal_path, mask_path, flat_rgb, has_alpha,
                    bool(img is not None), anim_layer and mask_path is not None,
                    is_water, st_tint, card_occ)
@@ -1499,7 +1498,7 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         # 共享几何（如 seabottom 海床/水面同 16 顶点四边形）必须各自建网格，
         # 否则先到的材质会套给全部实例（水面被渲染成海床）
         mesh_key = (datasource, material_index)
-        if gen2 is not None:
+        if card is not None and card["rigid"] is not None:
             mesh_key = (datasource, material_index, "gen2")
         if mesh_key in mesh_by_ds:
             existing = mesh_by_ds[mesh_key]
@@ -1508,21 +1507,11 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
             continue
 
         created = []
-        if card is not None:
-            # 叶卡：POSITION=锚点（树冠内固定点），_CORNER=角点偏移(+pivot.w)，
-            # COLOR_0=烘焙遮挡（灰度）——前端视空间重建叶卡朝向
-            mesh_index = glb.add_shared_mesh(
-                datasource, card["anchors"], card["indices"], card["uvs"], None,
-                material_index, extra_attrs=[
-                    {"name": "_CORNER", "type": "VEC4", "data": card["corners"]},
-                    {"name": "COLOR_0", "type": "VEC4", "data": card["colors"]},
-                ])
-            if mesh_index is not None:
-                created.append(mesh_index)
-        elif gen2 is not None:
-            # 新一代混合批：刚体余量（静态网格）+ 锚定叶簇（卡片网格）各建一个，
-            # 同一实例挂两节点（共享几何分别按 datasource+角色 去重）
-            rig = gen2["rigid"]
+        if card is not None and card["rigid"] is not None:
+            # 混合批（同一批内 w=1 锚定叶簇 + w=0 固定朝向叶片/刚体）：刚体余量走静态
+            # 网格、叶簇走卡片网格，各建一个，同一实例挂两节点（共享几何按
+            # datasource+角色 去重）。**必须先于纯卡批判断**——混合批同样满足 card 非 None。
+            rig = card["rigid"]
             if rig:
                 mi = glb.add_shared_mesh(
                     (datasource, "gen2rig"), rig["positions"], rig["indices"],
@@ -1533,13 +1522,24 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
                 if mi is not None:
                     created.append(mi)
             mi = glb.add_shared_mesh(
-                (datasource, "gen2card"), gen2["anchors"], gen2["indices"],
-                gen2["uvs"], None, material_index, extra_attrs=[
-                    {"name": "_CORNER", "type": "VEC4", "data": gen2["corners"]},
-                    {"name": "COLOR_0", "type": "VEC4", "data": gen2["colors"]},
+                (datasource, "gen2card"), card["anchors"], card["indices"],
+                card["uvs"], None, material_index, extra_attrs=[
+                    {"name": "_CORNER", "type": "VEC4", "data": card["corners"]},
+                    {"name": "COLOR_0", "type": "VEC4", "data": card["colors"]},
                 ])
             if mi is not None:
                 created.append(mi)
+        elif card is not None:
+            # 纯叶卡批：POSITION=锚点（树冠内固定点），_CORNER=角点偏移(+pivot.w)，
+            # COLOR_0=烘焙遮挡（灰度）——前端视空间重建叶卡朝向
+            mesh_index = glb.add_shared_mesh(
+                datasource, card["anchors"], card["indices"], card["uvs"], None,
+                material_index, extra_attrs=[
+                    {"name": "_CORNER", "type": "VEC4", "data": card["corners"]},
+                    {"name": "COLOR_0", "type": "VEC4", "data": card["colors"]},
+                ])
+            if mesh_index is not None:
+                created.append(mesh_index)
         else:
             mesh_index = glb.add_shared_mesh(datasource, positions, indices, uvs,
                                              compute_normals(positions, indices), material_index)
