@@ -22,7 +22,7 @@ pub enum ArmorSection {
     GunBarrel,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ShellType {
     AP,
@@ -157,6 +157,12 @@ pub struct PenetrationResult {
 #[derive(Debug, Clone, Deserialize)]
 pub struct PenetrationRequest {
     pub shell_type: String,
+    /// tanks.pb **field9** 的 ShellType 枚举（0=AP/1=APCR/2=HEAT/3=HE）——**权威**。
+    /// field9 是客户端 `<kind>` 语义枚举的翻译（4 值闭集）；而 `shell_type`（field7 的
+    /// `icon`）只是显示令牌，其词表是手工归纳的、客户端可自由新增变体。
+    /// `#[serde(default)]`：老调用方 / 外部请求不带本字段时自动落到 icon 路径，行为不变。
+    #[serde(default)]
+    pub shell_type_id: Option<u32>,
     pub penetration: f32,
     pub caliber: f32,
     pub view_dir: [f32; 3],
@@ -194,8 +200,20 @@ fn dist3(a: [f32; 3], b: [f32; 3]) -> f32 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
+/// 弹种解析：**BlitzKit 的 field9 枚举优先** → icon 串词表 → HE 兜底。
+///
+/// 三级顺序的语义：有权威 id 就**绝不看词表**（哪怕 icon 与 id 矛盾，以 id 为准）；
+/// 只在 id 缺失（老调用方 / 外部请求）时才回退到词表；两者都没命中才兜底 HE。
+/// `Some(0)` 是合法值（proto3 缺省 = AP），`from_id(0)` 给出 `Some(AP)`，不会被误当缺失。
+pub fn resolve_shell_type(shell_type_id: Option<u32>, shell_type: &str) -> ShellType {
+    shell_type_id
+        .and_then(ShellType::from_id)
+        .or_else(|| ShellType::try_from_str(shell_type))
+        .unwrap_or(ShellType::HE)
+}
+
 pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
-    let shell = ShellType::from_str(&req.shell_type);
+    let shell = resolve_shell_type(req.shell_type_id, &req.shell_type);
     let is_he = shell.is_explosive();
     let is_heat = matches!(shell, ShellType::HEAT);
     let caliber = req.caliber;
@@ -473,6 +491,7 @@ mod tests {
     fn req(shell_type: &str, pen: f32, caliber: f32, hits: Vec<ArmorHit>) -> PenetrationRequest {
         PenetrationRequest {
             shell_type: shell_type.into(),
+            shell_type_id: None, // 既有用例都走 icon 路径；id 路径由 resolve_shell_type 单测覆盖
             penetration: pen,
             caliber,
             view_dir: [0.0, 1.0, 0.0],
@@ -710,5 +729,45 @@ mod tests {
 
     fn r_result(rq: &PenetrationRequest) -> String {
         calculate(rq).result
+    }
+}
+
+/// 弹种解析三级优先的守护。
+#[cfg(test)]
+mod shell_type_resolve_tests {
+    use super::*;
+
+    /// id 与 icon 矛盾时**以 id 为准**（这正是"词表只是回退"的含义）。
+    #[test]
+    fn id_wins_over_conflicting_icon() {
+        assert_eq!(resolve_shell_type(Some(3), "atgm_heat"), ShellType::HE);
+        assert_eq!(resolve_shell_type(Some(2), "he"), ShellType::HEAT);
+        assert_eq!(resolve_shell_type(Some(1), "hc_premium"), ShellType::APCR);
+    }
+
+    /// `Some(0)` = AP，是**有效值**而非"缺失"。
+    #[test]
+    fn id_zero_means_ap() {
+        assert_eq!(resolve_shell_type(Some(0), "hc_premium"), ShellType::AP);
+        assert_eq!(resolve_shell_type(Some(0), ""), ShellType::AP);
+    }
+
+    /// 越界 id 不认，回退到 icon 路径（不静默兜 HE）。
+    #[test]
+    fn out_of_range_id_falls_through_to_icon() {
+        assert_eq!(resolve_shell_type(Some(99), "hc_premium"), ShellType::HEAT);
+    }
+
+    /// 无 id 时走词表（老调用方/外部请求的既有行为）。
+    #[test]
+    fn icon_path_used_when_id_absent() {
+        assert_eq!(resolve_shell_type(None, "ap_cr_premium"), ShellType::APCR);
+        assert_eq!(resolve_shell_type(None, "he"), ShellType::HE);
+    }
+
+    /// 两者都没命中才兜 HE——这是最后手段，不是判定依据。
+    #[test]
+    fn last_resort_is_he() {
+        assert_eq!(resolve_shell_type(None, "totally_unknown_shell"), ShellType::HE);
     }
 }

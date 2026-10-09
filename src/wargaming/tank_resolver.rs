@@ -64,6 +64,10 @@ pub struct ArmorData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShellData {
     pub shell_type: String,
+    /// tanks.pb field9 的弹种枚举（权威，0=AP/1=APCR/2=HEAT/3=HE）；透出给消费方，
+    /// 使其可走权威路径而不必依赖 `shell_type` 的 icon 词表。
+    #[serde(default)]
+    pub shell_type_id: Option<u32>,
     pub penetration: u32,
     /// HP（血量）伤害——穿透主装甲盒时对敌人血量造成的伤害
     pub damage: u32,
@@ -317,6 +321,7 @@ impl TankResolver {
                 for s in &gun.shells {
                     shells.push(ShellData {
                         shell_type: s.shell_type.clone(),
+                        shell_type_id: s.shell_type_id,
                         penetration: s.penetration.round() as u32,
                         damage: s.damage.round() as u32,
                         module_damage: s.module_damage.round() as u32,
