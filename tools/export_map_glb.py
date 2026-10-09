@@ -71,6 +71,7 @@ except ImportError:
     Image = None
 
 from wotb_sc2 import Reader, decode_dvpl, read_archive, read_sc2  # noqa: E402
+from wotb_scg import decode_polygon_normals  # noqa: E402
 from wotb_scg import (  # noqa: E402
     decode_bytes,
     decode_polygon_indices,
@@ -572,7 +573,18 @@ def collect_renderables(scene: dict) -> dict:
 
 
 # 顶点布局（SCG 交错顶点，实测 7 种 vertexFormat 反推，bit 求和 == stride）
-VERTEX_LAYOUT_BITS = {0: 12, 1: 12, 2: 4, 3: 8, 4: 8, 7: 12, 8: 12, 9: 16, 10: 8, 12: 12, 13: 16}
+# DAVA 顶点位表（权威来源：dava.engine `Sources/Internal/Render/RenderBase.h`
+# `EVF_*` 位定义 :158-177 + `GetVertexSize` :213-261）。逐位语义：
+#   0 VERTEX 12 | 1 NORMAL 12 | 2 COLOR 4       | 3-6 TEXCOORD0-3 各 8
+#   7 TANGENT 12 | 8 BINORMAL 12 | 9 HARD_JOINTINDEX 4 | 10 PIVOT4 16
+#   11 PIVOT_DEPRECATED 12 | 12 FLEXIBILITY 4 | 13 ANGLE_SIN_COS 8
+#   14 JOINTINDEX 16 | 15 JOINTWEIGHT 16 | 16-19 CUBETEXCOORD0-3 各 12
+# 此前本表 bit9/10/12/13 写成 16/8/12/16（四位全错）、并缺 5/6/11/14/15/16-19。
+# 之所以未曾出错：偏移累加只遍历 bit0-2（见 decode_group_uvs），恰好落在两表一致的
+# 区间。按权威表收口后，本表可用于 stride 校验与高位流定位。
+VERTEX_LAYOUT_BITS = {0: 12, 1: 12, 2: 4, 3: 8, 4: 8, 5: 8, 6: 8, 7: 12, 8: 12,
+                      9: 4, 10: 16, 11: 12, 12: 4, 13: 8, 14: 16, 15: 16,
+                      16: 12, 17: 12, 18: 12, 19: 12}
 
 
 def decode_group_uvs(group: dict):
@@ -602,20 +614,24 @@ def decode_group_uvs(group: dict):
     arr = np.frombuffer(payload, dtype=np.uint8).reshape(vc, stride)
     floats = arr.view("<f4")
     found = {}
+    # UV 偏移按"实际置位的 TEXCOORD 位"逐个累加（DAVA GetVertexSize 口径）。旧实现对
+    # bit4 硬编码 `low_off + 8`、默认 bit3 必然存在：mask 0x11（只置 TEXCOORD1、无
+    # TEXCOORD0，本机地图实测 20 个组）会把起点算到 stride 之外，被下面的长度守卫挡掉
+    # → 该组唯一的 UV 通道被静默丢弃。坦克侧（export_tank_glb.py:307）本就只在位存在时
+    # 累加，两侧口径现已一致。
+    uv_off = low_off
     for bit in (3, 4):
         if not (vf >> bit) & 1:
             continue
-        uv_off = low_off + (0 if bit == 3 else VERTEX_LAYOUT_BITS[3])
-        if uv_off + 8 > stride:
-            continue
-        u = floats[:, uv_off // 4]
-        v = floats[:, uv_off // 4 + 1]
-        # 只拒非有限值（偏移错位才会出 NaN/inf）。不可按幅值拒绝：平铺 UV 的
-        # 合法倍数没有上限（REPEAT 采样），铁轨条 v=-118 实测——旧幅值守卫
-        # (>64) 把真 TEXCOORD0 错选成位 4 备用对，铁轨整条拉成一段灰带
-        if not (np.isfinite(u).all() and np.isfinite(v).all()):
-            continue
-        found[bit] = list(zip(u.tolist(), v.tolist()))
+        if uv_off + 8 <= stride:
+            u = floats[:, uv_off // 4]
+            v = floats[:, uv_off // 4 + 1]
+            # 只拒非有限值（偏移错位才会出 NaN/inf）。不可按幅值拒绝：平铺 UV 的
+            # 合法倍数没有上限（REPEAT 采样），铁轨条 v=-118 实测——旧幅值守卫
+            # (>64) 把真 TEXCOORD0 错选成位 4 备用对，铁轨整条拉成一段灰带
+            if np.isfinite(u).all() and np.isfinite(v).all():
+                found[bit] = list(zip(u.tolist(), v.tolist()))
+        uv_off += VERTEX_LAYOUT_BITS[bit]
     if 3 in found:
         return found[3], found.get(4), 3
     if 4 in found:
@@ -623,104 +639,112 @@ def decode_group_uvs(group: dict):
     return None
 
 
-SPEEDTREE_CARD_STRIDE = 56
+def _vertex_offsets(vf: int) -> tuple[dict, int] | None:
+    """掩码 → {位号: 字节偏移} 与每顶点总尺寸。
 
-
-def decode_speedtree_card(group: dict):
-    """解 SpeedTree 叶卡批次（56B/顶点）为客户端 billboard 重建数据。
-
-    客户端 speedtree-materials-vp.sl：POSITION 是"锚点 pivot + 角点偏移"的展开态。
-    pivot.w=1 时渲染完全锚定 pivot——角点偏移（position−pivot）旋转风摆相位后在
-    【视空间】加回，叶卡恒面向相机（billboard）；COLOR0 是烘焙遮挡（灰度，
-    alpha=255）。56B 布局（fir/bush 等叶卡实测；树干 40B 常规布局返回 None）：
-        [0]pos(12) [12]COLOR0(UBYTE4) [16]uv0(8) [24]jointIndex(4)
-        [28]pivot.xyz(12) [40]pivot.w(4) [44]flexibility(4) [48]angleSinCos(8)
-    返回 dict(anchors/corners/colors/uvs/indices)；非卡片布局 → None。
+    DAVA 的 EVF 位分配**本身就是顶点流的内存顺序**：PolygonGroup.cpp:49-166 按
+    V→N→C→TC0..TC3→TANGENT→BINORMAL→HARD_JOINTINDEX→PIVOT4→PIVOT_DEPRECATED→
+    FLEXIBILITY→ANGLE_SIN_COS→JOINTINDEX→JOINTWEIGHT→CUBETEXCOORD0..3 逐位写入，
+    与位号升序一致（另见 RenderBase.h `GetVertexSize` 的逐位求和）。故某位的偏移
+    = 所有低于它的置位尺寸之和，任意掩码通用。
     """
+    off = {}
+    cur = 0
+    for b in range(20):
+        if not (vf >> b) & 1:
+            continue
+        sz = VERTEX_LAYOUT_BITS.get(b)
+        if sz is None:
+            return None
+        off[b] = cur
+        cur += sz
+    return off, cur
+
+
+def _subset_normals(f, off: dict, idx) -> list | None:
+    """按掩码偏移取出子集的 authored 法线（EVF_NORMAL）；缺失或模长异常 → None。
+
+    与静态路径同一条 fail-closed 门槛（中位模长 1±10%）：偏移算错或数据不是法线时
+    不给下游假数据，交由调用方回退到几何现算。
+    """
+    no_off = off.get(1)
+    if no_off is None or idx is None or len(idx) == 0:
+        return None
+    arr = f[idx][:, no_off // 4:no_off // 4 + 3]
+    if not np.isfinite(arr).all():
+        return None
+    lens = np.sqrt((arr.astype(np.float64) ** 2).sum(axis=1))
+    median_len = float(np.median(lens))
+    if not (0.9 <= median_len <= 1.1):
+        return None
+    return arr.tolist()
+
+
+def decode_speedtree_cards(group: dict):
+    """SpeedTree 叶卡解算：**掩码驱动**，取代原先按 stride 硬编码的 56B / 92B 两条路径。
+
+    判据只看掩码是否含 EVF_PIVOT4(bit10)，列偏移由掩码算出，故 56B(0x360d) / 92B(0x378f)
+    只是其中两种。批内按 `pivot.w` 双峰切分：
+      - w=1 → 锚定叶卡（billboard；客户端 speedtree-materials-vp.sl 在【视空间】用
+        pivot + 角点偏移重建，叶卡恒面向相机）
+      - w=0 → 固定朝向叶片 / 刚体，交静态路径照常导出
+    本机地图实测：含 bit10 共 **668 组 / 10 种掩码**，旧的两条硬编码路径只覆盖
+    0x360d 与 0x378f；其余（0x340d 94 组、0x358f 23、0x359f 4，以及 0x360d 里
+    混有 w=0 的组）会整组掉进静态路径 → pivot 被忽略 → 叶片固定朝向。
+    几何列（本机实测布局与位表推出的偏移一致）：
+      pos@off[0] · COLOR0 u8x4@off[2] · uv0@off[3] · pivot.xyz@off[10] · pivot.w@off[10]+12
+
+    返回 dict(anchors/corners/colors/occ_mean/uvs/indices/rigid)；rigid 为 None 表示
+    整组都是卡片（纯叶卡批）。守卫 fail-closed：无 bit0/2/3/10、w 非严格 0/1 双峰、
+    卡片顶点数为 0、三角形跨界（卡↔刚体共享顶点）、卡片无三角形 → None（整组走静态，
+    与原行为一致）。
+    """
+    vf = group.get("vertexFormat")
     vc = group.get("vertexCount")
     payload = decode_bytes(group.get("vertices"))
-    if not isinstance(vc, int) or vc <= 0 or payload is None:
+    if not isinstance(vf, int) or not isinstance(vc, int) or vc <= 0 or payload is None:
         return None
-    if len(payload) != vc * SPEEDTREE_CARD_STRIDE:
+    if not (vf >> 10) & 1:
         return None
-    arr = np.frombuffer(payload, dtype=np.uint8).reshape(vc, SPEEDTREE_CARD_STRIDE)
+    lo = _vertex_offsets(vf)
+    if lo is None:
+        return None
+    off, total = lo
+    if not all(b in off for b in (0, 2, 3, 10)):
+        return None
+    if len(payload) != vc * total:
+        return None
+    arr = np.frombuffer(payload, dtype=np.uint8).reshape(vc, total)
     f = arr.view("<f4")
-    # 守卫：pivot.w 列应全 ≈1（叶卡恒 1；常规几何不会满足）
-    wcol = f[:, 10]
-    if not bool(((wcol > 0.9) & (wcol < 1.1)).all()):
-        return None
-    # 有限性检查跳过 f3（COLOR0 字节的 float 视图，可为 NaN）
-    if not (np.isfinite(f[:, 0:3]).all() and np.isfinite(f[:, 4:6]).all()
-            and np.isfinite(f[:, 7:11]).all()):
-        return None
-    pos = f[:, 0:3]
-    piv = f[:, 7:10]
-    anchor = pos * (1.0 - wcol[:, None]) + piv * wcol[:, None]
-    corner = pos - anchor
-    indices = group_triangles(group, decode_polygon_indices(group))
-    if not indices:
-        return None
-    colors = arr[:, 12:16].astype(np.float32) / 255.0
-    return {
-        "anchors": anchor.tolist(),
-        "corners": np.concatenate([corner, wcol[:, None]], axis=1).reshape(-1).tolist(),
-        "colors": colors.reshape(-1).tolist(),
-        "occ_mean": round(float(colors[:, 0].mean()), 4),
-        "uvs": f[:, 4:6].tolist(),
-        "indices": indices,
-    }
-
-
-SPEEDTREE_GEN2_STRIDE = 92
-
-def decode_speedtree_card_gen2(group: dict):
-    """新一代 SpeedTree（92B/顶点）混合批解算：刚体几何(w=0) + 锚定叶簇(w=1)。
-
-    erlenberg Spruce/Linden/bush 实测（2026-10-06）：该世代批内混有两种顶点——
-    pivot.w=1 的顶点按 56B 世代同机制 billboard（speedtree-materials-vp.sl：
-    角点偏移在【视空间】加回 pivot；整片叶簇共享一个 pivot，每簇 4~66+ 顶点、
-    簇内多三角），w=0 的是带法线的刚体树枝/树干。列（32bit 槽）：
-        [0]pos(3) [3]normal(3) [6]COLOR0(UBYTE4) [7]uv0(2) [9]? (6)
-        [15]jointIndex(1) [16]pivot.xyz(3) [19]pivot.w(1) [20]? (3)
-    （? 列 = 风摆关节副值/第二相位，billboard 重建不需要，不识别不影响导出）
-    返回 dict(anchors/corners/colors/uvs/indices/occ_mean + rigid)：卡片子集 =
-    w=1 顶点重编索引（同 56B 同式）；rigid = w=0 子集的
-    {positions, indices, uvs, uvs1}（无则 None）交静态路径照常导出。
-    守卫 fail-closed：stride 不符 / w 非严格 0/1 双峰 / 三角形跨界（卡↔刚体
-    共享顶点）/ 卡片无三角形 → None（整组回退静态，与旧版行为一致）。
-    """
-    vc = group.get("vertexCount")
-    payload = decode_bytes(group.get("vertices"))
-    if not isinstance(vc, int) or vc <= 0 or payload is None:
-        return None
-    if len(payload) != vc * SPEEDTREE_GEN2_STRIDE:
-        return None
-    arr = np.frombuffer(payload, dtype=np.uint8).reshape(vc, SPEEDTREE_GEN2_STRIDE)
-    f = arr.view("<f4")
-    w = f[:, 19]
+    pos_off, col_off, uv_off, piv_off = off[0], off[2], off[3], off[10]
+    pos = f[:, pos_off // 4:pos_off // 4 + 3]
+    piv = f[:, piv_off // 4:piv_off // 4 + 3]
+    w = f[:, (piv_off + 12) // 4]
+    # pivot.w 实测严格双峰（0 或 1，无中间值）——非双峰说明偏移算错，fail-closed
     if not bool(((np.abs(w) < 1e-4) | (np.abs(w - 1) < 1e-4)).all()):
         return None
     card_idx = np.where(np.abs(w - 1) < 1e-4)[0]
     if len(card_idx) == 0:
+        return None
+    if not (np.isfinite(pos).all() and np.isfinite(piv).all()):
         return None
     tri = group_triangles(group, decode_polygon_indices(group))
     if not tri:
         return None
     card_set = set(card_idx.tolist())
     triplets = list(zip(tri[0::3], tri[1::3], tri[2::3]))
+    # 三角形不得跨界：卡↔刚体若共享顶点，billboard 重建与静态几何会互相撕裂
     if any((a in card_set) != (b in card_set) or (b in card_set) != (c in card_set)
            for a, b, c in triplets):
         return None
     card_tri = [i for t in triplets if t[0] in card_set for i in t]
     if not card_tri:
         return None
-    # 卡片子集重编索引；锚点/角点同 56B 同式（w=1 ⇒ anchor=pivot、corner=pos−pivot）
+    colors = arr[:, col_off:col_off + 4].astype(np.float32) / 255.0
     remap = {old: new for new, old in enumerate(card_idx.tolist())}
-    pos = f[:, 0:3]
-    piv = f[:, 16:19]
+    # 锚点/角点：w=1 ⇒ anchor=pivot、corner=pos−pivot（w 混合时按 w 插值，纯卡批等价）
     anchor = pos * (1.0 - w[:, None]) + piv * w[:, None]
     corner = pos - anchor
-    colors = arr[:, 24:28].astype(np.float32) / 255.0
     rigid_idx = np.where(np.abs(w) < 1e-4)[0]
     rigid = None
     if len(rigid_idx):
@@ -729,8 +753,11 @@ def decode_speedtree_card_gen2(group: dict):
             "positions": pos[rigid_idx].tolist(),
             "indices": [rigid_rem[i] for t in triplets
                         if t[0] not in card_set for i in t],
-            "uvs": f[rigid_idx][:, 7:9].tolist(),
+            "uvs": f[rigid_idx][:, uv_off // 4:uv_off // 4 + 2].tolist(),
             "uvs1": None,
+            # 刚体子集的 authored 法线（EVF_NORMAL，偏移由掩码算出）。与静态路径同一
+            # fail-closed 门槛：中位模长必须落在 1±10%，否则置 None 由调用方现算。
+            "normals": _subset_normals(f, off, rigid_idx),
             # COLOR_0 顶点遮挡必须随刚体子集导出：混合组（如 Spruce w=1 占比仅
             # 0.25）的 w=0 子集是【固定朝向叶片】而非树枝（三角形尺寸与卡片叶
             # 同量级、贴图同为叶图集）——客户端对两种叶片都乘 varVertexColor；
@@ -744,7 +771,7 @@ def decode_speedtree_card_gen2(group: dict):
         "corners": np.concatenate([corner[card_idx], w[card_idx][:, None]], axis=1).reshape(-1).tolist(),
         "colors": colors[card_idx].reshape(-1).tolist(),
         "occ_mean": round(float(colors[card_idx, 0].mean()), 4),
-        "uvs": f[card_idx][:, 7:9].tolist(),
+        "uvs": f[card_idx][:, uv_off // 4:uv_off // 4 + 2].tolist(),
         "indices": [remap[i] for i in card_tri],
         "rigid": rigid,
     }
@@ -820,9 +847,16 @@ def compute_normals(positions, indices):
 
 DDS_FOURCC_TO_BCN = {"DXT1": 1, "DXT3": 2, "DXT5": 3}
 # DX10 扩展头：DXGI_FORMAT → BCn（含 typeless/sRGB 变体）
+#
+# 编号按 dxgiformat.h：70-72 BC1、73-75 BC2、76-78 BC3、79-81 BC4、82-84 BC5、
+# **95-97 BC6H、98-100 BC7**。85-93 是 B5G6R5/B5G5R5A1/B8G8R8A8 等非 BCn 的
+# 未压缩格式，曾在此被误映射成 BC6H/BC7——本机 15386 个 dds 实测 DX10 只用
+# {71,72,74,75,77,78}，故该误映射从未触发；一旦出现 85-93 的 DX10 DDS，旧表会
+# 拿 B5G6R5 当 BC6H 解出错误像素而非报错。现按位宽真值表收口，未知码一律
+# fail-closed 返回 None（与 export_tank_glb.py 的口径一致）。
 DDS_DXGI_TO_BCN = {70: 1, 71: 1, 72: 1, 73: 2, 74: 2, 75: 2, 76: 3, 77: 3, 78: 3,
                    79: 4, 80: 4, 81: 4, 82: 5, 83: 5, 84: 5,
-                   85: 6, 86: 6, 87: 6, 88: 7, 89: 7, 90: 7}
+                   95: 6, 96: 6, 97: 6, 98: 7, 99: 7, 100: 7}
 
 
 def decode_dds(d: bytes, max_dim: int = 1024) -> Image.Image | None:
@@ -832,9 +866,10 @@ def decode_dds(d: bytes, max_dim: int = 1024) -> Image.Image | None:
     height = struct.unpack_from("<I", d, 12)[0]
     width = struct.unpack_from("<I", d, 16)[0]
     fourcc = d[84:88].decode(errors="replace")
-    # DAVA 写头的 DX10 变体整体比标准布局偏移 +4（fourCC 实测在 84 而非 80），
-    # 扩展头的 dxgi 码随之落在 128（标准为 124）——两处都试，落在已知区间者为准；
-    # 像素数据起点同步为 148（标准 144）。非 DX10 文件保持 fourCC@84 / 数据@128。
+    # 偏移说明（此前注释把标准布局误读成"DAVA 整体 +4"）：DDS 头在 4 字节 magic 之后，
+    # 故 dwFourCC 的标准绝对偏移本就是 84（而非 80），DDS_HEADER 结束于 128，DX10 的
+    # dxgiFormat 因此落在 128、像素落在 128+20=148——三者全是标准偏移，无任何 DAVA 偏移。
+    # 保留 (124, 144) 兜底只为容忍非标准写入方；命中即用，不命中则 fail-closed。
     if fourcc == "DX10":
         bcn = data_off = None
         for dxgi_off, off in ((128, 148), (124, 144)):
@@ -862,18 +897,26 @@ def decode_dds(d: bytes, max_dim: int = 1024) -> Image.Image | None:
 def decode_pvr3(d: bytes, max_dim: int = 1024) -> Image.Image | None:
     """DAVA 自有 PVR3 容器 → PIL RGBA。
 
-    布局（客户端多张纹理实测）：48B 头（PVR3/ver/'rgba'/bits[4]/0/0/w/h/1,1,1/mips/0x1f）
-    + PVR3 | 3 | 3 | 00 00 00 | PVR3 'CRC_' len crc | 像素（未压缩 mip 链，mip0 在前）。
-    像素起点按 CRC_ 子块定位；尺寸/位深按"载荷长度与 mip 链总量精确相等"校验，
-    头部尺寸字段与载荷不符时（如 TileTxRock 头写 512²、载荷实为 1024² 图集）
-    以 2 倍尺寸重试。
+    布局：**52B 头**（PVR3/ver/'rgba'/bits[4]/colourSpace/channelType/**height@24**/
+    **width@28**/depth/surfaces/faces/mips/**metaDataSize@48**）
+    + PVR3 版本字节 0x03 + 'CRC_' 元数据块（len + crc）| 像素（未压缩 mip 链，mip0 在前）。
+    像素起点按 CRC_ 子块定位（真字节含 0x03 版本字节，故匹配串是 `PVR` + 0x03 + `CRC_`）；
+    尺寸/位深按"载荷长度与 mip 链总量精确相等"校验，头部尺寸字段与载荷不符时
+    （如 TileTxRock 头写 512²、载荷实为 1024² 图集）以 2 倍尺寸重试。
+
+    尺寸字段序见 PVRFormatHelper.h 结构体：@24 是 height、@28 是 width（旧实现读反，
+    非方形贴图会被 reshape 成转置图；方形图宽度相同故长期未暴露）。
     """
     if d[:4] != b"PVR":
         return None
     fmt = d[8:12]
     bits = tuple(d[12:16])
-    w0 = struct.unpack_from("<I", d, 24)[0]
-    h0 = struct.unpack_from("<I", d, 28)[0]
+    # PVR3 头字段序：**height@24、width@28**（PVRFormatHelper.h 结构体顺序 + writer/reader
+    # 双向赋值确认）。旧实现读成 w@24/h@28——方形贴图无差别，非方形会按转置尺寸 reshape
+    # 而错切。本机 1328 个 PVR 中 5 张非方形（palm_trunk / a_sosna01×2 / env_kr_cactus /
+    # monument）；同一资产 palm_trunk 的 DDS 副本为高 512 × 宽 256，与 "PVR@24=512" 互证。
+    h0 = struct.unpack_from("<I", d, 24)[0]
+    w0 = struct.unpack_from("<I", d, 28)[0]
     mips = max(1, struct.unpack_from("<I", d, 44)[0])
     bpp = sum(bits) // 8 or 2
 
@@ -932,6 +975,22 @@ def decode_pvr3(d: bytes, max_dim: int = 1024) -> Image.Image | None:
     elif bits == (8, 8, 8, 8):
         arr = np.frombuffer(px[:w * h * 4], dtype=np.uint8).reshape(h, w, 4)
         channels = [arr[..., i] for i in range(4)]
+    elif bits == (8, 0, 0, 0) and fmt[:1] in (b"l", b"a"):
+        # 单通道 8bpp：'l' = 亮度、'a' = 纯 alpha。本机 1328 张 PVR 里 **954 张**属此类
+        # （584 'l' + 370 'a'，多为 3d/Tanks/<nation>/CamouflageMasks/*_CM 与 <tile>Mask），
+        # 此前一律 return None 被静默丢弃。格式字段实测：'l' → 6c000000/08000000、
+        # 'a' → 6100000008000000、对照 'rgba' → 7267626104040404（低 u32=ASCII、高 u32=位深），
+        # 故判据用 bits 即可、fmt 只区分 l/a。
+        # 翻转口径与其余 PVR 分支一致（本仓对 PVR 统一翻转，见 decode_pvr 的 13/13 实测）。
+        a8 = np.frombuffer(px[:w * h], dtype=np.uint8).reshape(h, w)
+        if fmt[:1] == b"l":
+            rgba = np.stack([a8, a8, a8, np.full_like(a8, 255)], axis=-1)
+        else:
+            rgba = np.stack([np.full_like(a8, 255)] * 3 + [a8], axis=-1)
+        img = Image.frombytes("RGBA", (w, h), rgba.tobytes()).transpose(Image.FLIP_TOP_BOTTOM)
+        if max(img.size) > max_dim:
+            img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+        return img
     else:
         return None
     rgba = np.stack(channels, axis=-1).astype(np.uint8)
@@ -948,8 +1007,9 @@ def decode_tiletx_planes(d: bytes):
     """
     if d[:4] != b"PVR":
         return None
-    w0 = struct.unpack_from("<I", d, 24)[0]
-    h0 = struct.unpack_from("<I", d, 28)[0]
+    # 同 decode_pvr3：**height@24、width@28**（旧实现读反，非方形贴图会错切）
+    h0 = struct.unpack_from("<I", d, 24)[0]
+    w0 = struct.unpack_from("<I", d, 28)[0]
     mips = max(1, struct.unpack_from("<I", d, 44)[0])
 
     def chain(tw, th):
@@ -1320,6 +1380,21 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         if not indices or len(indices) < 3:
             stats["decode_fail"] += 1
             continue
+        # 文件自带法线（EVF_NORMAL）优先：客户端按 authored 法线着色，现算平滑会抹掉
+        # 硬边与烘焙法线。**fail-closed 门槛**：条数必须对齐、且中位模长落在 1±10%
+        # 内（非单位长度说明偏移算错或数据不是法线），否则回落 compute_normals。
+        # 坦克侧一直如此（export_tank_glb.py 取 v[:,3:6]），地图侧此前只现算，属口径不一致。
+        authored_normals = decode_polygon_normals(group)
+        if len(authored_normals) != len(positions):
+            authored_normals = []
+        else:
+            lens = sorted((n[0] * n[0] + n[1] * n[1] + n[2] * n[2]) ** 0.5 for n in authored_normals)
+            median_len = lens[len(lens) // 2] if lens else 0.0
+            if not (0.9 <= median_len <= 1.1):
+                authored_normals = []
+                stats["normal_fallback"] = stats.get("normal_fallback", 0) + 1
+            else:
+                stats["normal_authored"] = stats.get("normal_authored", 0) + 1
         # SpeedTree 的远景 LOD 平贴卡片（z 向无厚度 + _low* LOD 贴图，如
         # a_bush1_low1-4/bush02_low1-2）：运行时按距离替换，静态导出会与 3D
         # 几何叠成毛团。仅当"平贴 且 贴图为 _low LOD 变体"时跳过——真水平
@@ -1347,22 +1422,20 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         # 前端着色器逐帧重建；非卡片布局（树干等）返回 None 走静态路径。
         # billboard 变换只存在于 speedtree-materials 着色器里——材质非该族
         # （Textured.material 等）时客户端就是静态几何，不做卡片重建
-        card = (decode_speedtree_card(group)
+        # 掩码驱动：凡掩码含 PIVOT4 的组都按 pivot.w 双峰切分（见 decode_speedtree_cards）。
+        # rigid 为 None = 整组纯叶卡；非 None = 混合批，刚体余量就地替换工作集
+        # （下游 uv1 烘焙/材质/网格全部一致使用子集）。
+        card = (decode_speedtree_cards(group)
                 if (st_family and cls == "SpeedTreeObject") else None)
         if card is not None:
-            stats["st_cards"] = stats.get("st_cards", 0) + 1
-        # 新一代（92B）混合批：切成「锚定叶簇（卡片路径）+ 刚体余量（静态路径，
-        # 工作集 positions/indices/uvs 就地替换为子集——下游 uv1 烘焙/材质/网格
-        # 全部一致使用子集）」。守卫不过 → None，行为与旧版（整组静态）相同
-        gen2 = (decode_speedtree_card_gen2(group)
-                if (st_family and cls == "SpeedTreeObject" and card is None) else None)
-        if gen2 is not None:
-            stats["st_cards_gen2"] = stats.get("st_cards_gen2", 0) + 1
-            if gen2["rigid"] is not None:
-                positions = gen2["rigid"]["positions"]
-                indices = gen2["rigid"]["indices"]
-                uvs = gen2["rigid"]["uvs"]
-                uvs1 = gen2["rigid"]["uvs1"]
+            if card["rigid"] is None:
+                stats["st_cards"] = stats.get("st_cards", 0) + 1
+            else:
+                stats["st_cards_gen2"] = stats.get("st_cards_gen2", 0) + 1
+                positions = card["rigid"]["positions"]
+                indices = card["rigid"]["indices"]
+                uvs = card["rigid"]["uvs"]
+                uvs1 = card["rigid"]["uvs1"]
                 stats["st_gen2_rigid"] = stats.get("st_gen2_rigid", 0) + 1
 
         mat_desc = materials.resolve(material_id)
@@ -1463,8 +1536,7 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
                 st_tint = tuple(min(max(tcm[i] * tom[0] + too[0], 1e-3), 4.0) for i in range(3))
         else:
             st_tint = None
-        card_occ = (card["occ_mean"] if card is not None
-                    else (gen2["occ_mean"] if gen2 is not None else None))
+        card_occ = card["occ_mean"] if card is not None else None
         mat_key = (albedo_path, decal_path, mask_path, flat_rgb, has_alpha,
                    bool(img is not None), anim_layer and mask_path is not None,
                    is_water, st_tint, card_occ)
@@ -1480,7 +1552,7 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         # 共享几何（如 seabottom 海床/水面同 16 顶点四边形）必须各自建网格，
         # 否则先到的材质会套给全部实例（水面被渲染成海床）
         mesh_key = (datasource, material_index)
-        if gen2 is not None:
+        if card is not None and card["rigid"] is not None:
             mesh_key = (datasource, material_index, "gen2")
         if mesh_key in mesh_by_ds:
             existing = mesh_by_ds[mesh_key]
@@ -1489,8 +1561,31 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
             continue
 
         created = []
-        if card is not None:
-            # 叶卡：POSITION=锚点（树冠内固定点），_CORNER=角点偏移(+pivot.w)，
+        if card is not None and card["rigid"] is not None:
+            # 混合批（同一批内 w=1 锚定叶簇 + w=0 固定朝向叶片/刚体）：刚体余量走静态
+            # 网格、叶簇走卡片网格，各建一个，同一实例挂两节点（共享几何按
+            # datasource+角色 去重）。**必须先于纯卡批判断**——混合批同样满足 card 非 None。
+            rig = card["rigid"]
+            if rig:
+                mi = glb.add_shared_mesh(
+                    (datasource, "gen2rig"), rig["positions"], rig["indices"],
+                    rig["uvs"],
+                    rig.get("normals") or compute_normals(rig["positions"], rig["indices"]),
+                    material_index,
+                    extra_attrs=([{"name": "COLOR_0", "type": "VEC4", "data": rig["colors"]}]
+                                 if rig.get("colors") else None))
+                if mi is not None:
+                    created.append(mi)
+            mi = glb.add_shared_mesh(
+                (datasource, "gen2card"), card["anchors"], card["indices"],
+                card["uvs"], None, material_index, extra_attrs=[
+                    {"name": "_CORNER", "type": "VEC4", "data": card["corners"]},
+                    {"name": "COLOR_0", "type": "VEC4", "data": card["colors"]},
+                ])
+            if mi is not None:
+                created.append(mi)
+        elif card is not None:
+            # 纯叶卡批：POSITION=锚点（树冠内固定点），_CORNER=角点偏移(+pivot.w)，
             # COLOR_0=烘焙遮挡（灰度）——前端视空间重建叶卡朝向
             mesh_index = glb.add_shared_mesh(
                 datasource, card["anchors"], card["indices"], card["uvs"], None,
@@ -1500,30 +1595,10 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
                 ])
             if mesh_index is not None:
                 created.append(mesh_index)
-        elif gen2 is not None:
-            # 新一代混合批：刚体余量（静态网格）+ 锚定叶簇（卡片网格）各建一个，
-            # 同一实例挂两节点（共享几何分别按 datasource+角色 去重）
-            rig = gen2["rigid"]
-            if rig:
-                mi = glb.add_shared_mesh(
-                    (datasource, "gen2rig"), rig["positions"], rig["indices"],
-                    rig["uvs"], compute_normals(rig["positions"], rig["indices"]),
-                    material_index,
-                    extra_attrs=([{"name": "COLOR_0", "type": "VEC4", "data": rig["colors"]}]
-                                 if rig.get("colors") else None))
-                if mi is not None:
-                    created.append(mi)
-            mi = glb.add_shared_mesh(
-                (datasource, "gen2card"), gen2["anchors"], gen2["indices"],
-                gen2["uvs"], None, material_index, extra_attrs=[
-                    {"name": "_CORNER", "type": "VEC4", "data": gen2["corners"]},
-                    {"name": "COLOR_0", "type": "VEC4", "data": gen2["colors"]},
-                ])
-            if mi is not None:
-                created.append(mi)
         else:
-            mesh_index = glb.add_shared_mesh(datasource, positions, indices, uvs,
-                                             compute_normals(positions, indices), material_index)
+            mesh_index = glb.add_shared_mesh(
+                datasource, positions, indices, uvs,
+                authored_normals or compute_normals(positions, indices), material_index)
             if mesh_index is not None:
                 created.append(mesh_index)
         if not created:

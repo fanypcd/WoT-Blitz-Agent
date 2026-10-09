@@ -214,3 +214,39 @@ def position_aabb(
         "min": [min(position[axis] for position in positions) for axis in range(3)],
         "max": [max(position[axis] for position in positions) for axis in range(3)],
     }
+
+
+EVF_NORMAL = 1 << 1  # DAVA EVF_NORMAL（dava.engine RenderBase.h:159）
+
+
+def decode_polygon_normals(group: dict[str, Any]) -> list[tuple[float, float, float]]:
+    """Decode the DAVA EVF_NORMAL float3, or return [] when absent.
+
+    DAVA 的顶点流内存顺序**就是 EVF 位号升序**（PolygonGroup.cpp 按
+    V→N→C→TC0..3→TANGENT→BINORMAL→… 逐位写入流，与位号一致），故 EVF_NORMAL 紧跟
+    EVF_VERTEX：偏移 = EVF_VERTEX 的尺寸 = 3*float32 = 12。
+
+    位未置位 / 数据异常一律返回**空列表**（调用方据此回退到几何现算法线），
+    不抛异常——与 decode_polygon_positions 的"位置必须有"不同，法线是**可选**流。
+    """
+    vertex_format = group.get("vertexFormat")
+    if not isinstance(vertex_format, int):
+        return []
+    if not (vertex_format & EVF_VERTEX) or not (vertex_format & EVF_NORMAL):
+        return []
+
+    vertex_count = group.get("vertexCount")
+    if not isinstance(vertex_count, int) or vertex_count <= 0:
+        return []
+    payload = decode_bytes(group.get("vertices"))
+    if payload is None:
+        return []
+
+    stride = polygon_group_vertex_stride(group)
+    normals: list[tuple[float, float, float]] = []
+    for index in range(vertex_count):
+        normal = struct.unpack_from("<fff", payload, index * stride + 12)
+        if not all(math.isfinite(value) for value in normal):
+            return []
+        normals.append(normal)
+    return normals

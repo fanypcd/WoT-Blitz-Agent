@@ -448,10 +448,10 @@ fn main() -> Result<()> {
             let mut found = false;
 
             for nation in &nations {
-                let filepath = game_dir.join(format!(
-                    "3d/Tanks/Parameters/{}/{}.yaml.dvpl",
-                    nation, dev_name
-                ));
+                let filepath = wotb_agent::wargaming::game_extract::resolve_client_path(
+                    &game_dir,
+                    &format!("3d/Tanks/Parameters/{}/{}.yaml.dvpl", nation, dev_name),
+                );
                 if filepath.exists() {
                     eprintln!("Found: {}", filepath.display());
                     let dvpl = DvplFile::read(&filepath)?;
@@ -536,10 +536,10 @@ fn main() -> Result<()> {
             }
 
             for nation in &nations {
-                let xml_path = game_dir.join(format!(
-                    "XML/item_defs/vehicles/{}/{}.xml.dvpl",
-                    nation, dev_name
-                ));
+                let xml_path = wotb_agent::wargaming::game_extract::resolve_client_path(
+                    &game_dir,
+                    &format!("XML/item_defs/vehicles/{}/{}.xml.dvpl", nation, dev_name),
+                );
                 if xml_path.exists() {
                     eprintln!("\nFound XML: {}", xml_path.display());
                     let dvpl = DvplFile::read(&xml_path)?;

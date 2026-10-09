@@ -330,6 +330,32 @@ Rust 旧实现恰好也给出零，行为未变）。全树 45016 个文件里�
 WOTB_DVPL_PROBE=<Data 目录> cargo test dvpl_client_probe -- --ignored --nocapture
 ```
 
+### 5.4 DLC 覆盖层（`packs/`）——读取优先级
+
+客户端把 DLC 微更新写到 **`%LOCALAPPDATA%\wotblitz\packs`**，以**相同的相对路径覆盖**
+游戏 `Data/` 下的同名文件（第三方 mod 工具文档明写 "its files override the base ones"）。
+**微更新不落在 `Data/`**，所以只读 `Data/` 会拿到 DLC 应用前的旧版本。
+
+2026-10-08 本机实测（packs 下 45 个 `.dvpl`）：
+
+| 类别 | 数量 | 例 |
+|---|---|---|
+| 与 `Data/` 同名、内容不同 | **5** | `3d/Tanks/German/Ferdinand.sc2.dvpl`（10458 vs 7832 B）、同车 `.scg.dvpl`（**922191 vs 791385 B**）、`XML/item_defs/vehicles/common/camouflages.xml.dvpl`、`camouflages.yaml.dvpl`、`3d/Customization.yaml.dvpl` |
+| `Data/` 里根本没有 | **40** | 全是 `G37_Ferdinand_skin` 皮肤资产：`Customization/Skin_G37_Ferdinand_*.sc2/.scg`、`German/images_pbr/G37_Ferdinand_skin_*.dds`、`CamouflageMasks/*.pvr`、`Animations/*.anim`、`Gfx/UI/BigTankIcons/germany-G37_Ferdinand_skin.packed.webp` 等 |
+
+**约定：所有客户端资源读取都经统一解析器，packs 优先、缺失回退 `Data/`**：
+
+- Rust：`src/wargaming/game_extract.rs` 的 `packs_dir()` / `resolve_client_path()`；已接入
+  车辆 XML/YAML 定位、`version.txt.dvpl`、`maps.yaml` / `Strings/en.yaml`、地图 landscape 目录。
+- Python：`tools/wotbtools/dlc_packs.py` 的 `packs_dir()` / `client_path()`；已接入
+  `export_tank_glb.py` 的模型/碰撞/参数路径解析。回归测试 `tools/test_dlc_packs.py`。
+
+注：本机被覆盖的文件里 Rust 提取链实际消费的是车辆 XML 一类（未被覆盖），故 Rust 侧改动
+目前是**行为等价的健壮性铺路**；**真正受影响的是 Python 坦克 GLB 导出**——它读的
+`3d/Tanks/<Nation>/<model>.sc2/.scg` 正在被覆盖之列（Ferdinand 差 13 万字节几何）。
+
+非 Windows / 无 `packs` 目录（WSL、纯净检出）时自动退回只读 `Data/`，行为不变。
+
 ---
 
 ## 六、本次故障复盘（2026-09-30 ~ 10-01）

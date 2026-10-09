@@ -43,6 +43,26 @@ impl DvplFile {
             u32::from_le_bytes([footer[4], footer[5], footer[6], footer[7]]) as usize;
         let expected_crc = u32::from_le_bytes([footer[8], footer[9], footer[10], footer[11]]);
         let comp_type = u32::from_le_bytes([footer[12], footer[13], footer[14], footer[15]]);
+        // 类型**先判**：未知类型的 footer 长度/CRC 不具权威性（外部资料：type 4 = 分块 LZ4，
+        // 其 footer 的 encoded_size 与 CRC 恒为 0），先报"不支持"才不会被下面的长度/CRC
+        // 校验报成误导性的"文件损坏"。本机 45016 个文件只出现 0/2，type 3 亦无，
+        // 故这是诊断质量改进而非在线缺陷。
+        if comp_type > 3 {
+            return Err(anyhow!(
+                "Unsupported DVPL compression type {comp_type} (footer sizes/CRC not authoritative for it)"
+            ));
+        }
+
+        // 解压分配上限（fail-closed 加固）：`decoded_size` 由 footer 自述，直接拿去
+        // `vec![0u8; n]` 等于把分配量交给文件内容。本机 45016 个真实文件实测最大
+        // 42.7 MiB（holland 的 tileMask PVR），**0 个超过 512 MiB**，故 512 MiB 有约
+        // 10 倍余量；外部实现同类上限为 512 MiB（Weirenshanxia）/ 1 GiB（qirashi dvpl_go）。
+        const MAX_DECODED_SIZE: usize = 512 * 1024 * 1024;
+        if decoded_size > MAX_DECODED_SIZE {
+            return Err(anyhow!(
+                "DVPL decoded size {decoded_size} exceeds cap {MAX_DECODED_SIZE}"
+            ));
+        }
 
         let payload = &raw[..raw.len() - FOOTER_LEN];
         // 先核对编码长度：它同时也是切片边界，footer 损坏时直接用会 panic 而非报错。
@@ -71,6 +91,7 @@ impl DvplFile {
                 decoder.read_to_end(&mut buf)?;
                 buf
             }
+            // 上面的 comp_type > 3 已拦掉未知类型，此处为穷尽性兜底
             _ => return Err(anyhow!("Unknown compression type: {}", comp_type)),
         };
 
@@ -1028,5 +1049,98 @@ collision:
         }
         assert!(ok > 0, "目录里没有可解码的 DVPL：{}", dir.display());
         assert!(failed.is_empty(), "{} 个合法客户端文件被拒", failed.len());
+    }
+}
+
+/// 未知 DVPL 压缩类型的诊断守护：必须报"不支持"，不得被下游的长度/CRC 校验报成"损坏"。
+#[cfg(test)]
+mod dvpl_type_tests {
+    use super::*;
+
+    fn blob(comp_type: u32, decoded_size: u32, payload: &[u8]) -> Vec<u8> {
+        let mut out = payload.to_vec();
+        out.extend_from_slice(&decoded_size.to_le_bytes());
+        out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        out.extend_from_slice(&crc32fast::hash(payload).to_le_bytes());
+        out.extend_from_slice(&comp_type.to_le_bytes());
+        out.extend_from_slice(b"DVPL");
+        out
+    }
+
+    /// type 4（外部资料：分块 LZ4）的 footer 长度/CRC 不具权威性——先判类型，
+    /// 报 "Unsupported DVPL compression type"，而不是 encoded-size/CRC mismatch。
+    #[test]
+    fn unknown_type_reports_unsupported_not_corrupt() {
+        // 故意把 encoded_size 写错成 4096，模拟真实 type 4 的 footer 形态
+        let payload = b"payload bytes";
+        let mut b = blob(4, 9, payload);
+        let n = b.len();
+        b[n - 20 + 4..n - 20 + 8].copy_from_slice(&4096u32.to_le_bytes());
+        // 不用 expect_err：它要求 T: Debug，而 DvplFile 不派生 Debug（避免失败输出
+        // 把整块载荷字节倒出来）——加个显式分支
+        let msg = match DvplFile::parse(&b) {
+            Ok(_) => panic!("type 4 应被拒，实际解出成功"),
+            Err(e) => e.to_string(),
+        };
+        assert!(
+            msg.contains("Unsupported DVPL compression type 4"),
+            "应报不支持类型，实际: {msg}"
+        );
+        // 判据是"不得出现长度/CRC **不匹配**"这类误导性结论（消息里的解释文字本身含
+        // "CRC" 字样，不能按单词判）
+        assert!(
+            !msg.contains("mismatch"),
+            "不得报成误导性的长度/CRC 错: {msg}"
+        );
+    }
+
+    /// 已知类型不受影响：type 3 走 zlib，正常解出。
+    #[test]
+    fn known_types_still_decode() {
+        use flate2::write::ZlibEncoder;
+        use std::io::Write;
+        let text = b"zlib payload for type 3 round trip";
+        let mut e = ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        e.write_all(text).unwrap();
+        let z = e.finish().unwrap();
+        let f = DvplFile::parse(&blob(3, text.len() as u32, &z)).expect("type 3 应解出");
+        assert_eq!(f.data, text);
+    }
+}
+
+/// 解压分配上限守护。
+#[cfg(test)]
+mod dvpl_cap_tests {
+    use super::*;
+
+    fn blob(comp_type: u32, decoded_size: u32, payload: &[u8]) -> Vec<u8> {
+        let mut out = payload.to_vec();
+        out.extend_from_slice(&decoded_size.to_le_bytes());
+        out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        out.extend_from_slice(&crc32fast::hash(payload).to_le_bytes());
+        out.extend_from_slice(&comp_type.to_le_bytes());
+        out.extend_from_slice(b"DVPL");
+        out
+    }
+
+    /// footer 自述的 decoded_size 超过 512 MiB 上限 → 拒绝，且**在分配之前**拒绝。
+    /// 本机 45016 个真实文件实测最大 42.7 MiB、0 个超 512 MiB，故上限有约 10 倍余量。
+    #[test]
+    fn decoded_size_over_cap_is_rejected() {
+        let payload = b"tiny";
+        let b = blob(0, u32::MAX, payload); // 自述 4 GiB
+        let msg = match DvplFile::parse(&b) {
+            Ok(_) => panic!("超过上限应被拒"),
+            Err(e) => e.to_string(),
+        };
+        assert!(msg.contains("exceeds cap"), "err = {msg}");
+    }
+
+    /// 上限之内的正常文件不受影响（含 type 0 直通）。
+    #[test]
+    fn size_within_cap_still_decodes() {
+        let payload = b"within cap";
+        let f = DvplFile::parse(&blob(0, payload.len() as u32, payload)).expect("应解出");
+        assert_eq!(f.data, payload);
     }
 }

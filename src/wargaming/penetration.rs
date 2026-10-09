@@ -22,7 +22,7 @@ pub enum ArmorSection {
     GunBarrel,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ShellType {
     AP,
@@ -44,17 +44,45 @@ impl ShellType {
     pub fn is_explosive_type(&self) -> bool {
         matches!(self, ShellType::HEAT | ShellType::HE)
     }
-    /// 从字符串解析弹种（tanks.pb 原始串：hc/hc_premium=HEAT、ap_cr*/apcr=APCR、ap_premium=AP、he_premium=HE）。
+    /// 从 **tanks.pb field9（ShellType 枚举）** 解析——弹种判定的**权威路径**。
+    /// Proto：0=AP / 1=APCR / 2=HEAT / 3=HE；proto3 语义下字段缺失即 0=AP，故
+    /// 调用方应在 `shell_type_id` 为 None 时按 `Some(0)` 处理（或走 icon 回退）。
+    pub fn from_id(id: u32) -> Option<Self> {
+        match id {
+            0 => Some(ShellType::AP),
+            1 => Some(ShellType::APCR),
+            2 => Some(ShellType::HEAT),
+            3 => Some(ShellType::HE),
+            _ => None,
+        }
+    }
+    /// 从 icon 串解析；未知串 → None（**不猜测**）。供 `from_str` 与测试使用。
+    ///
+    /// 词表 = tanks.pb field7 的**实测穷举**（4426 发全量枚举，9 种取值）：
+    /// `ap` / `ap_premium` / `apcr` / `ap_cr` / `ap_cr_premium` / `he` / `he_premium` /
+    /// `hc` / `hc_premium` / **`atgm_heat`**。最后一项是 2026-10-08 才发现的漏项——它是
+    /// 反坦克导弹的 HEAT 弹，旧词表未覆盖，导致其被兜底成 HE（白拿一份溅射语义）。
+    /// 词表完整性由 `blitzkit::shell_type_tests::shell_type_id_agrees_with_icon`
+    /// 全量守护：客户端新增任何 icon 都会让该测试立即失败，而不是静默误判。
+    pub fn try_from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "ap" | "ap_premium" => Some(ShellType::AP),
+            "apcr" | "ap_cr" | "ap_cr_premium" => Some(ShellType::APCR),
+            "he" | "he_premium" => Some(ShellType::HE),
+            "heat" | "hc" | "hc_premium" | "atgm_heat" => Some(ShellType::HEAT),
+            _ => None,
+        }
+    }
+    /// 从 icon 串（field7，BlitzKit 的**显示标签**）解析弹种。
+    ///
+    /// ⚠️ 未知串兜底为 `HE` —— 这是**最后手段**，不是判定依据：`HE` 会让跳弹被强制成
+    /// 90°（永不跳弹）且走溅射分支，等于给未知弹种一个"高爆"的错误语义。权威来源是
+    /// field9（见 `from_id`），`ShellData::shell_type_id` 已解析；当前单一路径
+    /// （`calculate` 只收字符串）尚未接线，故保留本兜底并在此显式记录。
+    /// `shell_type_id` 的存在性由 `tests::shell_type_id_agrees_with_icon` 全量守护。
     #[allow(clippy::should_implement_trait)] // 语义即 FromStr，但改名会牵动全库调用点
     pub fn from_str(s: &str) -> Self {
-        let s = s.to_lowercase();
-        match s.as_str() {
-            "ap" | "ap_premium" => ShellType::AP,
-            "apcr" | "ap_cr" | "ap_cr_premium" => ShellType::APCR,
-            "he" | "he_premium" => ShellType::HE,
-            "heat" | "hc" | "hc_premium" => ShellType::HEAT,
-            _ => ShellType::HE,
-        }
+        Self::try_from_str(s).unwrap_or(ShellType::HE)
     }
 }
 
@@ -129,6 +157,12 @@ pub struct PenetrationResult {
 #[derive(Debug, Clone, Deserialize)]
 pub struct PenetrationRequest {
     pub shell_type: String,
+    /// tanks.pb **field9** 的 ShellType 枚举（0=AP/1=APCR/2=HEAT/3=HE）——**权威**。
+    /// field9 是客户端 `<kind>` 语义枚举的翻译（4 值闭集）；而 `shell_type`（field7 的
+    /// `icon`）只是显示令牌，其词表是手工归纳的、客户端可自由新增变体。
+    /// `#[serde(default)]`：老调用方 / 外部请求不带本字段时自动落到 icon 路径，行为不变。
+    #[serde(default)]
+    pub shell_type_id: Option<u32>,
     pub penetration: f32,
     pub caliber: f32,
     pub view_dir: [f32; 3],
@@ -166,8 +200,20 @@ fn dist3(a: [f32; 3], b: [f32; 3]) -> f32 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
+/// 弹种解析：**BlitzKit 的 field9 枚举优先** → icon 串词表 → HE 兜底。
+///
+/// 三级顺序的语义：有权威 id 就**绝不看词表**（哪怕 icon 与 id 矛盾，以 id 为准）；
+/// 只在 id 缺失（老调用方 / 外部请求）时才回退到词表；两者都没命中才兜底 HE。
+/// `Some(0)` 是合法值（proto3 缺省 = AP），`from_id(0)` 给出 `Some(AP)`，不会被误当缺失。
+pub fn resolve_shell_type(shell_type_id: Option<u32>, shell_type: &str) -> ShellType {
+    shell_type_id
+        .and_then(ShellType::from_id)
+        .or_else(|| ShellType::try_from_str(shell_type))
+        .unwrap_or(ShellType::HE)
+}
+
 pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
-    let shell = ShellType::from_str(&req.shell_type);
+    let shell = resolve_shell_type(req.shell_type_id, &req.shell_type);
     let is_he = shell.is_explosive();
     let is_heat = matches!(shell, ShellType::HEAT);
     let caliber = req.caliber;
@@ -445,6 +491,7 @@ mod tests {
     fn req(shell_type: &str, pen: f32, caliber: f32, hits: Vec<ArmorHit>) -> PenetrationRequest {
         PenetrationRequest {
             shell_type: shell_type.into(),
+            shell_type_id: None, // 既有用例都走 icon 路径；id 路径由 resolve_shell_type 单测覆盖
             penetration: pen,
             caliber,
             view_dir: [0.0, 1.0, 0.0],
@@ -682,5 +729,45 @@ mod tests {
 
     fn r_result(rq: &PenetrationRequest) -> String {
         calculate(rq).result
+    }
+}
+
+/// 弹种解析三级优先的守护。
+#[cfg(test)]
+mod shell_type_resolve_tests {
+    use super::*;
+
+    /// id 与 icon 矛盾时**以 id 为准**（这正是"词表只是回退"的含义）。
+    #[test]
+    fn id_wins_over_conflicting_icon() {
+        assert_eq!(resolve_shell_type(Some(3), "atgm_heat"), ShellType::HE);
+        assert_eq!(resolve_shell_type(Some(2), "he"), ShellType::HEAT);
+        assert_eq!(resolve_shell_type(Some(1), "hc_premium"), ShellType::APCR);
+    }
+
+    /// `Some(0)` = AP，是**有效值**而非"缺失"。
+    #[test]
+    fn id_zero_means_ap() {
+        assert_eq!(resolve_shell_type(Some(0), "hc_premium"), ShellType::AP);
+        assert_eq!(resolve_shell_type(Some(0), ""), ShellType::AP);
+    }
+
+    /// 越界 id 不认，回退到 icon 路径（不静默兜 HE）。
+    #[test]
+    fn out_of_range_id_falls_through_to_icon() {
+        assert_eq!(resolve_shell_type(Some(99), "hc_premium"), ShellType::HEAT);
+    }
+
+    /// 无 id 时走词表（老调用方/外部请求的既有行为）。
+    #[test]
+    fn icon_path_used_when_id_absent() {
+        assert_eq!(resolve_shell_type(None, "ap_cr_premium"), ShellType::APCR);
+        assert_eq!(resolve_shell_type(None, "he"), ShellType::HE);
+    }
+
+    /// 两者都没命中才兜 HE——这是最后手段，不是判定依据。
+    #[test]
+    fn last_resort_is_he() {
+        assert_eq!(resolve_shell_type(None, "totally_unknown_shell"), ShellType::HE);
     }
 }

@@ -67,6 +67,7 @@ TOOLS_DIR = pathlib.Path(__file__).resolve().parent
 REPO_ROOT = TOOLS_DIR.parent
 sys.path.insert(0, str(TOOLS_DIR / "wotbtools"))
 
+from dlc_packs import client_path  # noqa: E402
 from wotb_sc2 import decode_dvpl, decode_bytes, read_sc2  # noqa: E402
 from wotb_scg import read_scg  # noqa: E402
 
@@ -194,7 +195,15 @@ def decode_dds(d: bytes, max_dim: int = 0):
     else:
         bcn = FOURCC_TO_BCN.get(fourcc)
         if bcn == 3 and (pf_flags & 0x80000000):
-            bcn, tag = 5, "DXT5-wrapped-BC5"  # DAVA 双通道数据
+            # DAVA 的双通道数据是**标准 DXT5（BC3）容器**，不是 BC5：alpha 块存第一个通道、
+            # BC1 色块的 G 存第二个通道，R≡255 / B≡0 是占位。旧实现改按 BC5 解（把 BC1 块
+            # 当 BC5 的绿块），ch1 得到的是索引噪声——实测 corr(BC5.ch1, 真值) ≈ −0.0x，
+            # 而 corr(BC3.G, 真值) = +0.98~+0.99；法线 x²+y²≤1 占比 **0.988（BC3）vs
+            # 0.673（BC5）**（1180 对 legacy/wrapped 全量实测）。
+            # 故按 BC3 解，随后**重排成旧代码期望的布局**（ch0←alpha、ch1←BC1.G、B=0），
+            # 使下游 `_prep_texture` 的法线重建与 RM 通道搬运无需改动；标签改名同时让那段
+            # "误判该格式没有 Y 通道 → 丢弃文件数据 → 回退 legacy / 拍平 Y" 的绕行自动失效。
+            tag = "DXT5nm"
     if bcn is None:
         return None, "unsupported"
     need = (w // 4) * (h // 4) * BC_BLOCK[bcn]
@@ -206,7 +215,11 @@ def decode_dds(d: bytes, max_dim: int = 0):
     except Exception:
         return None, "decode-fail"
     arr = arr.reshape(h, w, ncomp)
-    if ncomp == 2:  # BC5：R/G 双通道
+    if tag == "DXT5nm":
+        # 双通道布局重排（见上）：BC3 解出的 alpha=第一通道、G=第二通道 → 落位 ch0/ch1
+        arr = np.dstack([arr[..., 3], arr[..., 1], np.zeros_like(arr[..., 0]),
+                         np.full_like(arr[..., 0], 255)])
+    elif ncomp == 2:  # BC5：R/G 双通道
         arr = np.dstack([arr[..., 0], arr[..., 1], np.zeros_like(arr[..., 0]),
                          np.full_like(arr[..., 0], 255)])
     elif ncomp == 1:
@@ -243,7 +256,12 @@ def nested(container: dict) -> list[dict]:
 # bit 求和 == stride）。positions/normal 恒在 floats 0:6；**UV0 的偏移随格式变化**——
 # bits{0,1} → 24B（UV 在 float 6:8，如 E-100）；bits{0,1,2} → 28B（UV 在 float 7:9，
 # 中间那个 4 字节通道实测是 NaN，如 P44_Pantera）。硬编码 6:8 会整列错位。
-VERTEX_LAYOUT_BITS = {0: 12, 1: 12, 2: 4, 3: 8, 4: 8, 5: 8, 6: 8, 7: 12, 8: 12, 9: 16, 10: 8, 12: 12, 13: 16}
+# DAVA 顶点位表（权威来源：dava.engine RenderBase.h `EVF_*` :158-177 + `GetVertexSize`
+# :213-261）。此前 bit9/10/12/13 写成 16/8/12/16（四位全错）、并缺 11/14/15/16-19。
+# 与 export_map_glb.py 的同名表保持逐项一致。
+VERTEX_LAYOUT_BITS = {0: 12, 1: 12, 2: 4, 3: 8, 4: 8, 5: 8, 6: 8, 7: 12, 8: 12,
+                      9: 4, 10: 16, 11: 12, 12: 4, 13: 8, 14: 16, 15: 16,
+                      16: 12, 17: 12, 18: 12, 19: 12}
 # UV 集对应的 vertexFormat 位（0/1/2 是位置/法线/一个 4 字节通道，UV 从 bit3 起每集 8 字节）
 UV_BITS = (3, 4, 5)
 
@@ -562,34 +580,57 @@ def decode_pvr(d: bytes, max_dim: int = 0):
 
 
 class TexStore:
-    """客户端 `.tex` 引用 → 解码后的 RGBA。路径按 **base 目录相对解析**。"""
+    """客户端 `.tex` 引用 → 解码后的 RGBA。
 
-    def __init__(self, base_dir: pathlib.Path, max_dim: int):
-        self.base, self.max_dim, self.cache = base_dir, max_dim, {}
+    `roots` 是**按优先级排列的多个根**。为什么必须多根：DLC 覆盖层（`packs/`）只覆盖
+    `.sc2/.scg` 本身，其引用的贴图仍住在 `Data/`——本机实测 Ferdinand 的 `.sc2/.scg`
+    被 packs 覆盖，但 packs 侧没有 `images_pbr/G37_Ferdinand_BC`（只有 `_skin_` 变体）。
+    单根解析会把这些贴图判成缺失（GLB 从 5.1MB 掉到 464KB、8 个槽位报 missing），
+    故逐根 × 逐后缀尝试。
+    """
 
-    def resolve(self, tex_path: str) -> pathlib.Path:
-        """`.tex` 路径 → 磁盘主干（不含扩展名）。
+    def __init__(self, roots, max_dim: int):
+        if isinstance(roots, (str, pathlib.Path)):
+            roots = [roots]
+        self.roots = [pathlib.Path(r) for r in roots]
+        self.max_dim, self.cache = max_dim, {}
+
+    def candidates(self, tex_path: str) -> list[pathlib.Path]:
+        """按根序展开的候选主干（不含扩展名）。
 
         `../` 是**相对 .sc2 所在目录**的跨目录引用（日本联动车复用德国贴图写作
-        `../German/images/Hetzer_GuP.tex`），必须按 base 归一化到真实目录；早期实现把
+        `../German/images/Hetzer_GuP.tex`），必须按各根归一化到真实目录；早期实现把
         前缀 `../` 直接剥掉，会拼出 `<Nation>/German/images/...` 这种不存在的路径，
         导致 196 辆跨目录引用贴图的车静默丢槽位。
         """
         stem = tex_path[:-4] if tex_path.lower().endswith(".tex") else tex_path
-        return pathlib.Path(os.path.normpath(os.path.join(str(self.base), stem.lstrip("/"))))
+        return [pathlib.Path(os.path.normpath(os.path.join(str(r), stem.lstrip("/"))))
+                for r in self.roots]
+
+    def resolve(self, tex_path: str) -> pathlib.Path:
+        """`.tex` 路径 → 首个**存在**的磁盘主干（不含扩展名）；都不存在则返回首根候选。"""
+        cands = self.candidates(tex_path)
+        for c in cands:
+            for suf in (".dx11.dds.dvpl", ".dds.dvpl", ".dx11.pvr.dvpl"):
+                if pathlib.Path(str(c) + suf).exists():
+                    return c
+        return cands[0]
 
     def load(self, tex_path: str):
         if tex_path in self.cache:
             return self.cache[tex_path]
-        base = self.resolve(tex_path)
         out = None
-        # 扩展名回退链：PC 的 BCn dds → 无前缀 dds → 移动端 PVR3（部分槽位只有它）
-        for suf, dec in ((".dx11.dds.dvpl", decode_dds), (".dds.dvpl", decode_dds),
-                         (".dx11.pvr.dvpl", decode_pvr)):
-            p = pathlib.Path(str(base) + suf)
-            if p.exists():
-                arr, tag = dec(decode_dvpl(p.read_bytes()), self.max_dim)
-                out = (arr, tag, p.name)
+        # 根序优先（packs → Data），根内按扩展名回退链：
+        # PC 的 BCn dds → 无前缀 dds → 移动端 PVR3（部分槽位只有它）
+        for base in self.candidates(tex_path):
+            for suf, dec in ((".dx11.dds.dvpl", decode_dds), (".dds.dvpl", decode_dds),
+                             (".dx11.pvr.dvpl", decode_pvr)):
+                p = pathlib.Path(str(base) + suf)
+                if p.exists():
+                    arr, tag = dec(decode_dvpl(p.read_bytes()), self.max_dim)
+                    out = (arr, tag, p.name)
+                    break
+            if out:
                 break
         self.cache[tex_path] = out or (None, "missing", "")
         return self.cache[tex_path]
@@ -632,26 +673,23 @@ def _prep_texture(arr: np.ndarray, slot: str) -> np.ndarray | None:
         z = np.sqrt(np.clip(1 - x * x - y * y, 0, 1))
         return np.dstack([rgb[:, :, 0], rgb[:, :, 1], (z * 127.5 + 127.5).astype(np.uint8)])
     if slot == "metallicRoughness":
-        # DAVA 的 `baseRMMap` 是 BC5 **双通道**：ch0=粗糙度、ch1=金属度（解码后落在 R/G 位、
-        # B 位补零）。glTF 的 `metallicRoughnessTexture` 规定 **G=粗糙度、B=金属度**。
-        # 粗糙度直接线性搬运（corr( 本解码, BlitzKit 产物 )=+0.996）。
-        # 金属度**不能**线性搬运：BlitzKit 的 VFS 把 RM 解析到 PVR 无压缩源（authored
-        # 通道，逐块对照证明 DDS 色块无法复原它），其分布 p50≈5；而 DDS 硬件 BC5 ch1
-        # p50≈78——线性搬运会整车金属化、PBR 发黑（用户实测）。用双车合并拟合的单调
-        # LUT 做**实证标定**（使导出分布对齐 BlitzKit 可见输出），非规范语义。
+        # DAVA 的 `baseRMMap` 是**双通道**打包（DXT5 容器，见 decode_dds 的 DXT5nm 分支）：
+        # 第一通道在 alpha 块 = 粗糙度、第二通道在 BC1.G = 金属度；解码重排后落在 ch0/ch1，
+        # B 位为 0。glTF 的 `metallicRoughnessTexture` 规定 **G=粗糙度、B=金属度**。
+        #
+        # 2026-10-09 修正：此处原有一段"金属度不能线性搬运"的实证标定（单调 LUT + 高斯平滑），
+        # 其立论前提是**当时的误解码结论**——"色块是占位常数（BC1-G 恒 ~28、无结构）"、
+        # "硬件 BC5 ch1 只是索引字节噪声 p50≈78"。而该结论与法线槽是同一根因：旧实现把
+        # DXT5 容器按 BC5 解，ch1 取到的是索引噪声。按 BC3 解之后 ch1 就是**真实 G 通道**，
+        # 实测分布 p50=0 / p95=166~243 —— 本身就是一份形态合理的金属度图（多数像素非金属、
+        # 少数高值金属），与 BlitzKit 侧 p50≈5 的低中位数特征一致。
+        # 故：粗糙度照旧线性搬运（corr(本解码, BlitzKit 产物)=+0.996，未变），金属度改为
+        # **直接搬运真实通道**，LUT 与高斯平滑一并移除（平滑的作用是压块级噪声，真实数据
+        # 没有该噪声，继续平滑只会抹掉合法细节）。
         if arr.shape[2] >= 3 and arr[:, :, 2].max() == 0:
             out = np.zeros_like(rgb)
-            out[:, :, 1] = arr[:, :, 0]                                       # ch0 → G（粗糙度）
-            # 金属度标定：DDS 里没有金属度（色块是占位常数——BC1-G 解码恒为 ~28 且逐块
-            # 无结构；BlitzKit 的 VFS 把 RM 解析到 PVR 无压缩源才有 authored 通道）。硬件
-            # BC5 ch1 只是索引字节噪声（p25=0 的块级量化散点），线性/查表搬运都会渲染成
-            # "细碎杂乱、轮盘深浅不一"。做法：LUT 标定分布 + 高斯平滑压掉块级噪声。
-            metal_lut_x = (8, 24, 40, 56, 72, 88, 104, 120, 136, 152, 168, 184, 200, 216, 232, 248)
-            metal_lut_y = (3, 4, 5, 13, 13, 32, 41, 68, 79, 79, 82, 85, 87, 93, 132, 184)
-            metal = np.interp(arr[:, :, 1], metal_lut_x, metal_lut_y).astype(np.uint8)
-            radius = max(2, arr.shape[0] // 512)
-            metal = np.asarray(Image.fromarray(metal, "L").filter(ImageFilter.GaussianBlur(radius)))
-            out[:, :, 2] = metal
+            out[:, :, 1] = arr[:, :, 0]  # ch0 → G（粗糙度）
+            out[:, :, 2] = arr[:, :, 1]  # ch1 → B（金属度；旧为 LUT+平滑标定，见上）
             return out
         return rgb  # 三通道来源（老式车的 images/<T>_RM）：通道语义未证实，原样保留
     if slot == "occlusion":
@@ -860,7 +898,7 @@ def export_collision(sc2_path: pathlib.Path, scg_path: pathlib.Path, glb: Glb) -
 # 路径解析 / 单辆导出
 # ---------------------------------------------------------------------------
 def read_params_yaml(game_data: pathlib.Path, nation: str, stem: str) -> dict:
-    p = game_data / "3d" / "Tanks" / "Parameters" / nation / (stem + ".yaml.dvpl")
+    p = client_path(game_data, f"3d/Tanks/Parameters/{nation}/{stem}.yaml.dvpl")
     if not p.exists():
         return {}
     txt = decode_dvpl(p.read_bytes()).decode("utf-8", "replace")
@@ -875,20 +913,30 @@ def read_params_yaml(game_data: pathlib.Path, nation: str, stem: str) -> dict:
 
 
 def resolve_tank(game_data: pathlib.Path, nation: str, stem: str) -> dict:
-    """权威路径：yaml 的 blitzModelPath / collisionMesh；缺失时按目录约定回退。"""
+    """权威路径：yaml 的 blitzModelPath / collisionMesh；缺失时按目录约定回退。
+
+    所有路径经 `client_path()` 解析——DLC 覆盖层（`packs/`）同名路径优先于 `Data/`。
+    `.sc2` 与 `.scg` **各自独立解析**：客户端可能只覆盖其中之一。
+    """
     nd = NATION_DIR.get(nation, nation)
     info = read_params_yaml(game_data, nation, stem)
     res = {"nation": nation, "stem": stem, "nation_dir": nd, "yaml": bool(info)}
     bm = info.get("blitzModelPath")
-    sc2 = (game_data / "3d" / (bm + ".dvpl")) if bm else \
-        (game_data / "3d" / "Tanks" / nd / (stem + ".sc2.dvpl"))
-    res["model_sc2"] = sc2
-    res["model_scg"] = sc2.with_name(sc2.name.replace(".sc2.dvpl", ".scg.dvpl"))
+    sc2_rel = (f"3d/{bm}.dvpl") if bm else f"3d/Tanks/{nd}/{stem}.sc2.dvpl"
+    res["model_sc2"] = client_path(game_data, sc2_rel)
+    res["model_scg"] = client_path(game_data, sc2_rel.replace(".sc2.dvpl", ".scg.dvpl"))
     cm = info.get("collisionMesh")
-    csc2 = (game_data / "3d" / "Tanks" / (cm + ".dvpl")) if cm else \
-        (game_data / "3d" / "Tanks" / "CollisionMeshes" / f"{nation}-{stem}.sc2.dvpl")
-    res["coll_sc2"] = csc2
-    res["coll_scg"] = csc2.with_name(csc2.name.replace(".sc2.dvpl", ".scg.dvpl"))
+    csc2_rel = (f"3d/Tanks/{cm}.dvpl") if cm else \
+        f"3d/Tanks/CollisionMeshes/{nation}-{stem}.sc2.dvpl"
+    res["coll_sc2"] = client_path(game_data, csc2_rel)
+    res["coll_scg"] = client_path(game_data, csc2_rel.replace(".sc2.dvpl", ".scg.dvpl"))
+    # 贴图搜索根（按优先级）：模型目录（可能是 packs）→ 同相对路径的 Data 目录。
+    # 必须多根：packs 只覆盖 .sc2/.scg，其引用的贴图仍住在 Data（见 TexStore docstring）。
+    roots = [res["model_sc2"].parent]
+    data_dir = game_data.joinpath(*pathlib.PurePosixPath(sc2_rel).parent.parts)
+    if data_dir != roots[0]:
+        roots.append(data_dir)
+    res["tex_roots"] = roots
     return res
 
 
@@ -905,7 +953,7 @@ def export_tank(game_data: pathlib.Path, tank_id: int, nation: str, stem: str,
         return st
     try:
         glb = Glb()
-        tex = TexStore(res["model_sc2"].parent, max_tex)
+        tex = TexStore(res["tex_roots"], max_tex)
         roots, s = export_visual(res["model_sc2"], glb, tex, mode, stem)
         data = glb.finish(roots, "wotb-agent local sc2 exporter")
         (out / "model.glb").write_bytes(data)

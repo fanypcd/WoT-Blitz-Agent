@@ -64,6 +64,10 @@ pub struct ArmorData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShellData {
     pub shell_type: String,
+    /// tanks.pb field9 的弹种枚举（权威，0=AP/1=APCR/2=HEAT/3=HE）；透出给消费方，
+    /// 使其可走权威路径而不必依赖 `shell_type` 的 icon 词表。
+    #[serde(default)]
+    pub shell_type_id: Option<u32>,
     pub penetration: u32,
     /// HP（血量）伤害——穿透主装甲盒时对敌人血量造成的伤害
     pub damage: u32,
@@ -303,7 +307,12 @@ impl TankResolver {
             } else {
                 None
             };
-            let hull_traverse = Some((tank.hull_traverse * 180.0 / std::f64::consts::PI) as f32);
+            // 车体转向速度（deg/s）：取**顶级履带**的 traverse_speed（与下方 turrets.last()
+            // 同口径）。旧实现读 tanks.pb field27 并 ×180/π——field27 实为 camouflage_still
+            // （静止迷彩系数 0~1 的分数），被误当弧度换算成"转速"透出给消费方；
+            // BlitzKit `tank_definitions.proto:37` + 生成器（取 XML `invisibility.still`）
+            // 双重确认，已更正为履带真值（T-34 顶级履带 = 46 deg/s）。
+            let hull_traverse = tank.tracks.last().map(|t| t.traverse_speed as f32);
 
             // 弹种：取**顶级炮塔的顶级主炮**的 shells——与详情页 `configs[]`（按炮逐项展开）
             // 和 models.pb 的 `turrets.last() × guns.last()` 同档。
@@ -312,6 +321,7 @@ impl TankResolver {
                 for s in &gun.shells {
                     shells.push(ShellData {
                         shell_type: s.shell_type.clone(),
+                        shell_type_id: s.shell_type_id,
                         penetration: s.penetration.round() as u32,
                         damage: s.damage.round() as u32,
                         module_damage: s.module_damage.round() as u32,

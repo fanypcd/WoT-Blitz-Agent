@@ -188,7 +188,7 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
                 .iter()
                 .map(|s| {
                     json!({
-                        "type": s.shell_type,
+                        "type": s.shell_type, "type_id": s.shell_type_id,
                         "penetration": s.penetration,
                         "damage": s.damage,
                         "module_damage": s.module_damage,
@@ -533,7 +533,7 @@ fn build_configs_uncached(tank_id: u32) -> Vec<Value> {
                 .iter()
                 .map(|s| {
                     json!({
-                        "type": s.shell_type,
+                        "type": s.shell_type, "type_id": s.shell_type_id,
                         "penetration": s.penetration,
                         "penetration_far": s.penetration_far,
                         "damage": s.damage,

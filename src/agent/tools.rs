@@ -803,6 +803,7 @@ impl AgentTools {
         let distance = args["distance_m"].as_f64().unwrap_or(100.0) as f32;
         let req = PenetrationRequest {
             shell_type: shell.shell_type.clone(),
+            shell_type_id: shell.shell_type_id, // field9 权威；词表仅作回退
             penetration: shell.penetration as f32,
             caliber: shell.caliber as f32,
             view_dir: view,

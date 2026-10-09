@@ -89,6 +89,37 @@ pub fn resolve_game_dir(explicit: Option<&Path>) -> Result<PathBuf> {
     anyhow::bail!("No game data directory found. Pass --game-dir explicitly.")
 }
 
+/// DLC 覆盖层目录：`%LOCALAPPDATA%\wotblitz\packs`。
+///
+/// 客户端把 DLC 微更新写在这里，**以相同的相对路径覆盖**游戏 `Data/` 下的同名文件
+/// （第三方 mod 工具文档明写 "its files override the base ones"）。本机实测：
+/// packs 下 45 个 `.dvpl` 中 **5 个与 Data 同名不同内容**——`3d/Tanks/German/Ferdinand.sc2`
+/// （10458 vs 7832 B）、同车 `.scg`（922191 vs 791385 B）、`XML/item_defs/vehicles/common/camouflages.xml`、
+/// `camouflages.yaml`、`3d/Customization.yaml`；另 **40 个 Data 里根本没有**（全是
+/// `G37_Ferdinand_skin` 皮肤资产，含 `Customization/*.sc2/.scg`、`images_pbr/*.dds`、
+/// `Gfx/UI/BigTankIcons/germany-G37_Ferdinand_skin.packed.webp`）。
+///
+/// 非 Windows / 无该目录（如 WSL、纯净检出）时返回 None，行为退回只读 `Data/`。
+pub fn packs_dir() -> Option<PathBuf> {
+    let base = std::env::var_os("LOCALAPPDATA")?;
+    let p = PathBuf::from(base).join("wotblitz").join("packs");
+    p.is_dir().then_some(p)
+}
+
+/// 客户端资源路径解析：**优先 DLC 覆盖层 `packs/<rel>`，缺失才回退 `Data/<rel>`**。
+///
+/// 所有对客户端资源的读取都应经此函数。直接 `data_dir.join(rel)` 会读到 DLC 应用前的
+/// 旧版本（tank 侧实测：Ferdinand 的 `.scg` 旧版 791385 B vs 覆盖版 922191 B，差 13 万字节）。
+pub fn resolve_client_path(data_dir: &Path, rel: &str) -> PathBuf {
+    if let Some(packs) = packs_dir() {
+        let cand = packs.join(rel);
+        if cand.exists() {
+            return cand;
+        }
+    }
+    data_dir.join(rel)
+}
+
 /// 归一化用于文件名比较：去掉所有非字母数字并转小写（如 "GB91_Super_Conqueror" → "gb91superconqueror"）。
 fn norm_file_name(s: &str) -> String {
     s.chars()
@@ -109,44 +140,57 @@ fn resolve_vehicle_file(
     dev_name: &str,
     ext: &str,
 ) -> Option<PathBuf> {
-    let dir = game_dir.join(rel).join(nation);
-    let exact = dir.join(format!("{}{}", dev_name, ext));
-    if exact.exists() {
-        return Some(exact);
+    // DLC 覆盖层优先参与匹配（见 `packs_dir` / `resolve_client_path` 的说明）
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(packs) = packs_dir() {
+        dirs.push(packs.join(rel).join(nation));
+    }
+    dirs.push(game_dir.join(rel).join(nation));
+
+    for dir in &dirs {
+        let exact = dir.join(format!("{}{}", dev_name, ext));
+        if exact.exists() {
+            return Some(exact);
+        }
     }
     let target = norm_file_name(dev_name);
     if target.is_empty() {
         return None;
     }
-    let entries = std::fs::read_dir(&dir).ok()?;
-    // (rank, tie, path)：rank 越小越优先；tie 在 rank 内部决定次序
-    let mut cands: Vec<(u8, usize, PathBuf)> = Vec::new();
-    for e in entries.flatten() {
-        let name = e.file_name();
-        let Some(name) = name.to_str() else { continue };
-        if !name.ends_with(ext) {
-            continue;
-        }
-        let base = &name[..name.len() - ext.len()];
-        // 排除 tutorial/bot 等衍生变体
-        let base_lower = base.to_lowercase();
-        if base_lower.contains("tutorial") || base_lower.contains("bot") {
-            continue;
-        }
-        let norm = norm_file_name(base);
-        let (rank, tie) = if norm == target {
-            (0u8, 0usize)
-        } else if norm.contains(&target) {
-            (1, base.len()) // 正向：最短（最接近 dev_name）优先
-        } else if target.starts_with(&norm) || target.ends_with(&norm) {
-            (2, usize::MAX - norm.len()) // 反向：最长（最具体）优先
-        } else {
+    // (dir_rank, rank, tie, path)：dir_rank 让 packs 整体优先于 Data；同目录内保持原语义
+    // （rank 越小越优先；tie 在 rank 内部决定次序）
+    let mut cands: Vec<(u8, u8, usize, PathBuf)> = Vec::new();
+    for (dir_rank, dir) in dirs.iter().enumerate() {
+        let Ok(entries) = std::fs::read_dir(dir) else {
             continue;
         };
-        cands.push((rank, tie, e.path()));
+        for e in entries.flatten() {
+            let name = e.file_name();
+            let Some(name) = name.to_str() else { continue };
+            if !name.ends_with(ext) {
+                continue;
+            }
+            let base = &name[..name.len() - ext.len()];
+            // 排除 tutorial/bot 等衍生变体
+            let base_lower = base.to_lowercase();
+            if base_lower.contains("tutorial") || base_lower.contains("bot") {
+                continue;
+            }
+            let norm = norm_file_name(base);
+            let (rank, tie) = if norm == target {
+                (0u8, 0usize)
+            } else if norm.contains(&target) {
+                (1, base.len()) // 正向：最短（最接近 dev_name）优先
+            } else if target.starts_with(&norm) || target.ends_with(&norm) {
+                (2, usize::MAX - norm.len()) // 反向：最长（最具体）优先
+            } else {
+                continue;
+            };
+            cands.push((dir_rank as u8, rank, tie, e.path()));
+        }
     }
-    cands.sort_by_key(|&(rank, tie, _)| (rank, tie));
-    cands.into_iter().next().map(|(_, _, p)| p)
+    cands.sort_by_key(|&(dir_rank, rank, tie, _)| (dir_rank, rank, tie));
+    cands.into_iter().next().map(|(_, _, _, p)| p)
 }
 
 /// 批量提取全部坦克的装甲/碰撞数据到 `game_data/`（`extract-game` 命令）。
@@ -336,7 +380,7 @@ pub struct ExtractStats {
 /// "10.30.0.903 release/11.20.0 WOTB_Win7-"，优先取 release/X.Y.Z 段）。
 /// 读不到或解码失败时返回 None。
 pub fn game_version(game_dir: &Path) -> Option<String> {
-    let dvpl = DvplFile::read(&game_dir.join("version.txt.dvpl")).ok()?;
+    let dvpl = DvplFile::read(&resolve_client_path(game_dir, "version.txt.dvpl")).ok()?;
     let content = String::from_utf8_lossy(&dvpl.data);
     let content = content.trim();
     if content.is_empty() {
