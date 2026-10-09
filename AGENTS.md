@@ -81,8 +81,10 @@ testing** happen in the WotbTools repository (https://github.com/A158Coke/WotbTo
 - **Asset-data changes must be re-synced to COS** (bucket `wotbtools-assets-1478073677` — the
   production origin proxied by tx Caddy): map re-export, ground rebake, texture/material fixes.
   Note `scripts/export_asset_pack.py` **overwrites overhead-baked grounds**, so after an export
-  re-run `python tools/composite_overhead.py --all --write` (renders cache in
-  `release/overhead-bake/`), then upload the delta:
+  re-run the composite reading the pre-composite bases and the render cache:
+  `python tools/composite_overhead.py --pack release/asset_pack --all --write --render-dir release/overhead-bake --base-dir data/cache/maps`
+  (orientation is the fixed contract constant `YX`; `--verify` reads back what a pack actually
+  baked — see [docs/game-data-sources.md](docs/game-data-sources.md) §5.5), then upload the delta:
   `COS_SECRET_ID=… COS_SECRET_KEY=… python tools/upload_asset_pack_cos.py --local release/asset_pack`.
   Credentials are env-var only, never committed.
 - Background: [README §与 WotbTools 的关系](README.md), [docs/index.md](docs/index.md) §前端面收敛,
@@ -176,8 +178,11 @@ map/tooling changes land (each step overwrites the previous one's output):
 ```bash
 python scripts/export_asset_pack.py --map-index map_index.json   # rebuild pack (overwrites
                                                                  # overhead-baked grounds!)
-python tools/composite_overhead.py --all --write                 # re-bake overhead views
-                                                                 # (renders cached in release/overhead-bake/)
+python tools/composite_overhead.py --pack release/asset_pack --all --write \
+    --render-dir release/overhead-bake --base-dir data/cache/maps  # re-bake overhead views
+                                                                   # (orientation = fixed YX;
+                                                                   #  --base-dir avoids double-baking
+                                                                   #  on the already-composited files)
 # COS re-upload if production users must see it (see §Asset-data changes above)
 ```
 

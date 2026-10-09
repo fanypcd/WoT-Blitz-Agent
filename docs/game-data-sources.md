@@ -324,7 +324,7 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
 桶：`wotbtools-assets-1478073677`（ap-shanghai），布局与 `release/asset_pack/` 逐项对应，
 根 `manifest.json` 含全量 sha256（**4167 条**，2026-10-09；⚠️ **例外 36 张** `map/*/ground.webp`
 ——条目记的是**俯视合成前**的哈希，打包器先于合成器、合成器不刷 manifest，逐文件按 manifest
-校验这 36 项必然失配）。**首选工具**：
+校验这 36 项必然失配；朝向契约、重烘与读回校验见 §5.5）。**首选工具**：
 [tools/upload_asset_pack_cos.py](../tools/upload_asset_pack_cos.py)（差分比对 + 并发上传 +
 `manifest.json` 强传 + Cache-Control 策略）；下列要点同时是手工流程的检查单：
 
@@ -444,6 +444,57 @@ WOTB_DVPL_PROBE=<Data 目录> cargo test dvpl_client_probe -- --ignored --nocapt
 `3d/Tanks/<Nation>/<model>.sc2/.scg` 正在被覆盖之列（Ferdinand 差 13 万字节几何）。
 
 非 Windows / 无 `packs` 目录（WSL、纯净检出）时自动退回只读 `Data/`，行为不变。
+
+### 5.5 俯视合成（均衡档地面）的朝向契约与重烘（2026-10-09）
+
+**契约：朝向是常量 `YX`（两轴各翻一次 = 180°），不搜索、不逐图特判。** 推导两侧都是固定
+代码（与地图数据无关）：
+
+- **渲染侧** `WotbTools/frontend/scripts/bake-ground-overhead.mjs`：`group.rotation` =
+  qFrame `Ry(π)·Rx(−π/2)`，把游戏系 `(x,y,z)` 映到场景系 `(−x, z, y)`；正交相机
+  `position(0,1000,0)` + `up(0,0,−1)` 俯视 ⇒ 屏幕右 = `+X_scene`、屏幕上 = `−Z_scene`，
+  `readPixels` 再翻成图像行序 ⇒ **渲染图左列 = −X_scene、顶行 = −Z_scene**。
+- **底图侧** `ground.webp` 契约（`tools/export_map_glb.py` 分层注释「前端采样
+  `uv = (0.5−X/s, 0.5−Z/s)`」；`playbackScene` 的分层 ShaderMaterial 与均衡档
+  `PlaneGeometry` + `TextureLoader`(flipY=true) 两路同式）⇒ **底图左列 = +X_scene、
+  顶行 = +Z_scene（北）**，即「上=+z/北」。
+
+两者相差 180° ⇒ 合成时对渲染图恒取 `YX`（`tools/composite_overhead.py` 的 `ORIENT`）。
+
+**故障与根因（2026-10-09）**：旧版对 8 朝向做梯度相关取 argmax。在低信号图上该判决退化成
+噪声 argmax——`himmelsdorf` 的 8 个候选全落在 |score| ≤ 0.12 的噪声带（winner `xY` margin
+0.0124），把俯视层烘成了**上下镜像**；均衡档（mid，读这张图）因此显示镜像的建筑层，3D 档
+（ultra，读 GLB + 分层地表，不读本图）不受影响。同一病灶当时距翻车仅 0.0054
+（`erlenberg_old`，碰巧选中正确候选）。判据与证据：
+
+- **反解重建**（按合成式 `out = base×(1−0.92a) + render×0.92a` 逐候选重建、与包内成品在覆盖区
+  比对）：36 图中 35 张实际烘入 = `YX`（corr 0.993–0.997），仅 `himmelsdorf` = `xY`
+  （corr 0.9966 / margin 0.64）；按 `xY` 重建的"旧件"与问题文件**逐字节相同**
+  （sha256 `bac8d3bb…`）⇒ 诊断闭合。
+- **独立判据**：客户端小地图（游戏内北朝上绘制，与底图共用同一平面/uv 契约）vs 渲染覆盖掩膜
+  33/36 图选 `YX`（余 3 张信号弱到噪声水平）；小地图 vs 底图 33/36 选恒等（含 himmelsdorf，
+  margin 0.0459 —— 底图本身没歪）；用户报障「港湾小镇（`port`）朝向正确」= `YX`，与推导互证。
+
+**重烘（安全口径）**——重烘前**必须**让合成读**合成前底图**，否则会在已合成的图上二次合成：
+
+```bash
+python tools/composite_overhead.py --pack release/asset_pack --map himmelsdorf --write \
+    --render-dir release/overhead-bake --base-dir data/cache/maps
+```
+
+`--render-dir` 直接读 `release/overhead-bake/` 缓存（不必把 64MB/图 的 `.rgba` 复制进包；
+包内出现 `overhead/` 时上传工具会连它一起传，见 §5.2 第 4 条）。**重烘后读回校验**（应全为
+`YX`、`ok=true`；负向对照：拿旧的镜像件跑同一命令会报 `applied=xY, ok=false`）：
+
+```bash
+python tools/composite_overhead.py --pack release/asset_pack --render-dir release/overhead-bake \
+    --base-dir data/cache/maps --all --verify
+```
+
+**blast radius**：均衡档地面（`map/<key>/ground.webp`）单一资产面；2026-10-09 重烘仅
+`himmelsdorf` 一个对象（`a142e94e…`，7080664 B），其余 35 张内容未变——**等价性复核**：修复
+后的代码以 `--base-dir data/cache/maps` 重跑全量 36 图，产物与现盘**逐字节相同 36/36**
+（回归 0）；`manifest.json` 对这 36 张记的仍是合成前哈希的语义**未变**（见 §5.2 文首例外）。
 
 ---
 

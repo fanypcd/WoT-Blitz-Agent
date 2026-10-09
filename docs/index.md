@@ -296,6 +296,35 @@ authored NORMAL），属内部口径不一致；PVR3 单通道 L8/A8（1328 中 
 `ShellType` 权威路径 field9 尚未接线进 `PenetrationRequest`；battle_results `117=damage_blocked` /
 `107=mm_rating` 与竞技场条目 `f4=队伍号` 未采用。
 
+### 俯视合成朝向改契约常量（2026-10-09，未发版）
+
+**触发**：用户报障——均衡档（mid）地面在部分地图呈现镜像（3D/极致档正常），例：锡默尔斯多夫。
+
+**根因**：`tools/composite_overhead.py` 旧版对 8 朝向做梯度相关取 argmax 定朝向。在
+"底图与渲染层无共同结构"的图上该判决退化为**噪声 argmax**：`himmelsdorf`（城市地面底图
+vs 屋顶渲染）8 个候选全落在 |score| ≤ 0.12 的噪声带、winner `xY` margin 0.0124，把俯视层
+烘成了**上下镜像**（同病灶 `erlenberg_old` margin 0.0054，只是碰巧选中正确候选）。
+
+**修复**：朝向改为**契约常量**——渲染侧（`bake-ground-overhead.mjs`：qFrame
+`Ry(π)·Rx(−π/2)` + 正交相机 `up(0,0,−1)` ⇒ 渲染图左列 = `−X_scene`、顶行 = `−Z_scene`）
+与底图侧（`ground.webp` 契约 `uv = (0.5−X/s, 0.5−Z/s)`、flipY=true ⇒ 左列 = `+X_scene`、
+顶行 = 北）相差 180° ⇒ **恒取 `YX`，任何地图都不需要特殊处理**；8 朝向相关降级为 `audit`
+诊断项（不影响写盘，选中别的候选时在报告里标注）。新增 `--verify` 读回校验（按合成式反解
+包内实际烘入朝向）、`--render-dir`/`--base-dir`（重烘直读 `release/overhead-bake/` 与
+`data/cache/maps/`，避免把渲染复制进包、避免在已合成件上二次合成）。
+
+- 证据：①反解重建 36 图中 35 张实际烘入 = `YX`（corr 0.993–0.997），仅 `himmelsdorf`
+  = `xY`（corr 0.9966）；按 `xY` 重建的旧件与问题文件**逐字节相同**（`bac8d3bb…`）；
+  ②客户端小地图（北朝上）独立判据：渲染 vs 小地图 33/36 选 `YX`，底图 vs 小地图 33/36 选
+  恒等（含 himmelsdorf，margin 0.0459 ⇒ 底图本身没歪）；③用户锚点：港湾小镇（`port`，朝向
+  正确）= `YX`，与推导互证；④**全量重烘等价性**：以 `--base-dir data/cache/maps` 重跑 36 图，
+  产物与现盘**逐字节相同 36/36**（回归 0），`--verify` 全包 `ok=true`
+- **blast radius**：均衡档地面单一资产（`map/<key>/ground.webp`）。本地包仅重烘
+  `himmelsdorf`（`a142e94e…`，7080664 B），其余 35 张内容未变；`manifest.json` 对 36 张 ground
+  记"合成前哈希"的语义未变（见 [data-inventory.md](data-inventory.md) §2.1）。
+  **COS 尚未同步**——delta = 1 个对象，待随下次差分上传覆盖（旧件 `bac8d3bb…` 仍是线上内容）
+- 契约推导、重烘口径与读回校验命令见 [game-data-sources.md](game-data-sources.md) §5.5
+
 ## 约定
 
 - 逆向结论的**唯一权威**是 [docs/回放与射击逆向总集.md](回放与射击逆向总集.md)；其余文档与其冲突时，

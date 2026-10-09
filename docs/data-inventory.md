@@ -114,7 +114,9 @@ tanks.pb 未动）。
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测：**4168 个文件 / 3757.5 MiB（约 3940 MB）**）。`manifest.json` 的
+包内布局（本地实测 **2026-10-09**：**4168 个文件 / 3675.5 MiB（约 3854.1 MB）**；其中
+`map/himmelsdorf/ground.webp` 为当日朝向修正重烘件 7080664 B，见
+[game-data-sources.md](game-data-sources.md) §5.5）。`manifest.json` 的
 `upstream_commit` / `worktree_dirty` / `generated` 是包内容的溯源锚点——`worktree_dirty=false`
 表示该 commit 的**原样工作区**即可复现整包（语义见打包器 `git_provenance()`）；**现值以包内
 manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 的历史脉络：资产重传时 =
@@ -149,19 +151,25 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
 
 ⚠️ 上传工具会遍历包目录下**全部**文件：俯视烘焙的渲染中间产物（`<pack>/overhead/*.rgba`，
 按图 64MB）必须在上传前移出，约定缓存在 `release/overhead-bake/`，否则会随包传上 COS
-（2026-10-07 曾误传 73 个对象 / ~2.4GB，已清理）。
+（2026-10-07 曾误传 73 个对象 / ~2.4GB，已清理）。合成器重烘已可直接
+`--render-dir release/overhead-bake` 读缓存（不必再复制进包，见 [game-data-sources.md](game-data-sources.md) §5.5）。
 
 ⚠️ **`manifest.json` 对 36 张 `map/*/ground.webp` 记的是"合成前"哈希**（2026-10-09 核验入档）：
 流程顺序是打包器（生成 manifest）→ `composite_overhead.py --write`（写回合成底图），合成器
 不刷 manifest、打包器也没有仅重算 manifest 的开关 → 这 36 项的条目 == `data/cache/maps/*.ground.webp`
 原始导出哈希，而包内/COS 实际是俯视合成产物（本地与线上一致地如此，不是上传漂移）。**逐文件
 按 manifest 校验会在这 36 项上失配**；修法（合成器回刷条目 / 上传前重算 manifest）待定。
+2026-10-09 朝向修正重烘后语义不变：himmelsdorf 的条目仍是其合成前哈希 `741b772f…`，
+而包内实际内容是重烘件（`a142e94e…`）——同属本例外。
 
 > ✔️ **盘上这份包与源一致**（全量重导 + 重打包 + COS 同步回验）：包内 `game_data`
 > 735 个、地图 36 张，与 `data/` 源目录同版（抽样 15 项逐字节核对；manifest 除上述 36 张
 > ground 外全量自洽；线上 manifest 与本地逐字节一致、抽样 9 个对象回拉一致）。2026-10-03
 > 记的 field32 陈旧包警告已解除。判断包是否陈旧以 `manifest.json` 的逐文件 sha256 为准
 > （打包器只做拷贝 + 哈希，**不做来源一致性校验**），**唯一例外是上述 36 张 ground**。
+> **2026-10-09 朝向修正后**：`map/himmelsdorf/ground.webp` 本地已重烘（`a142e94e…`，
+> 7080664 B），**COS 该对象仍是旧镜像件**、待随下次差分上传覆盖（delta = 1 个对象；
+> 其余 35 张 ground 本轮未动）。
 
 **不进包的**：`data/cache/local_*`（见第三节）、`data/replay_samples/`、
 `data/sessions/`、`data/snapshots/`、`data/token_usage.json`。
@@ -273,7 +281,7 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
 | 坦克模型（`model.glb` + `collision.glb`） | `tools/export_tank_glb.py` | `data/cache/local_models/<id>/`（10-07 起同步进 `cache/models/`） | ✅ |
 | 坦克封面图 / 图标 | `tools/export_tank_icons.py` | `data/cache/local_tank_icons/`（735/735） | ⚠️ 未接线 |
 | 车辆数值（`tanks.pb` / `models.pb` 等价物） | `tools/extract_vehicles.py`（+ `data/tank_id_bridge.json`） | `data/cache/local_pb/`（735 辆全量） | ⚠️ 未接线 |
-| 俯视地面合成 | `tools/composite_overhead.py`（现役）/ `tools/bake_ground_roofs.py`（旧软光栅，已退役） | 写回 `<pack>/map/<key>/ground.webp`（**不刷 manifest**——36 张 ground 的条目因此是合成前哈希，见 §2.1） | ✅ |
+| 俯视地面合成 | `tools/composite_overhead.py`（现役；**朝向 = 契约常量 `YX`**，8 朝向相关只作 `audit` 诊断，见 [game-data-sources.md](game-data-sources.md) §5.5）/ `tools/bake_ground_roofs.py`（旧软光栅，已退役） | 写回 `<pack>/map/<key>/ground.webp`（**不刷 manifest**——36 张 ground 的条目因此是合成前哈希，见 §2.1）；重烘须 `--base-dir data/cache/maps`（缺省读包内件会在已合成图上二次合成）；`--verify` 反解读回实际烘入朝向 | ✅ |
 
 ### 6.2 Rust 侧解包（`src/wargaming/`，由 CLI 子命令驱动）
 
