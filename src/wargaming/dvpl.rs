@@ -53,6 +53,17 @@ impl DvplFile {
             ));
         }
 
+        // 解压分配上限（fail-closed 加固）：`decoded_size` 由 footer 自述，直接拿去
+        // `vec![0u8; n]` 等于把分配量交给文件内容。本机 45016 个真实文件实测最大
+        // 42.7 MiB（holland 的 tileMask PVR），**0 个超过 512 MiB**，故 512 MiB 有约
+        // 10 倍余量；外部实现同类上限为 512 MiB（Weirenshanxia）/ 1 GiB（qirashi dvpl_go）。
+        const MAX_DECODED_SIZE: usize = 512 * 1024 * 1024;
+        if decoded_size > MAX_DECODED_SIZE {
+            return Err(anyhow!(
+                "DVPL decoded size {decoded_size} exceeds cap {MAX_DECODED_SIZE}"
+            ));
+        }
+
         let payload = &raw[..raw.len() - FOOTER_LEN];
         // 先核对编码长度：它同时也是切片边界，footer 损坏时直接用会 panic 而非报错。
         if encoded_size != payload.len() {
@@ -1094,5 +1105,42 @@ mod dvpl_type_tests {
         let z = e.finish().unwrap();
         let f = DvplFile::parse(&blob(3, text.len() as u32, &z)).expect("type 3 应解出");
         assert_eq!(f.data, text);
+    }
+}
+
+/// 解压分配上限守护。
+#[cfg(test)]
+mod dvpl_cap_tests {
+    use super::*;
+
+    fn blob(comp_type: u32, decoded_size: u32, payload: &[u8]) -> Vec<u8> {
+        let mut out = payload.to_vec();
+        out.extend_from_slice(&decoded_size.to_le_bytes());
+        out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        out.extend_from_slice(&crc32fast::hash(payload).to_le_bytes());
+        out.extend_from_slice(&comp_type.to_le_bytes());
+        out.extend_from_slice(b"DVPL");
+        out
+    }
+
+    /// footer 自述的 decoded_size 超过 512 MiB 上限 → 拒绝，且**在分配之前**拒绝。
+    /// 本机 45016 个真实文件实测最大 42.7 MiB、0 个超 512 MiB，故上限有约 10 倍余量。
+    #[test]
+    fn decoded_size_over_cap_is_rejected() {
+        let payload = b"tiny";
+        let b = blob(0, u32::MAX, payload); // 自述 4 GiB
+        let msg = match DvplFile::parse(&b) {
+            Ok(_) => panic!("超过上限应被拒"),
+            Err(e) => e.to_string(),
+        };
+        assert!(msg.contains("exceeds cap"), "err = {msg}");
+    }
+
+    /// 上限之内的正常文件不受影响（含 type 0 直通）。
+    #[test]
+    fn size_within_cap_still_decodes() {
+        let payload = b"within cap";
+        let f = DvplFile::parse(&blob(0, payload.len() as u32, payload)).expect("应解出");
+        assert_eq!(f.data, payload);
     }
 }
