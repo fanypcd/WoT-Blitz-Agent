@@ -351,6 +351,12 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
 9. ⚠️ **凭据字节要干净**：Windows 下经管道/命令替换传 `COS_SECRET_*` 时注意尾部 `\r`
    （python 文本模式的换行转换会把 `\r` 带进 SecretKey ⇒ 比对与上传**全部** `SignatureDoesNotMatch`；
    2026-10-09 曾空跑一次——上传阶段全失败即先核对凭据长度是否与源文件一致，多 1 字节即此坑）
+10. ⚠️ **发布后"客户端仍显示旧图"先查缓存窗口**：二进制资产带 `Cache-Control: max-age=3600`
+   （有意折中，见 `tools/upload_asset_pack_cos.py` 注释）⇒ 浏览器在新鲜期内**不回源**，改图后
+   最多约 1 小时才可见。诊断三步：①带 `?v=` 查询串另开一页对照（换缓存键 ⇒ 必为服务端现内容）；
+   ②DevTools → Network 看 `ground.webp` 的 `(disk cache)` 与 `Content-Length`/`Last-Modified`；
+   ③需要精确判定就 `fetch(url, {cache:'no-store'})` 算 sha256 与本地件比对。App 端不同：
+   Native 代理（`AgentAssetProxy.kt`）每次请求都带 `If-None-Match` 条件重取 ⇒ 换内容即时生效。
 
 ### 5.2b 本机解包 → pb 编码器（**未接线**，2026-10-09 试接后回退）
 
