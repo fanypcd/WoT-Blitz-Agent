@@ -71,6 +71,7 @@ except ImportError:
     Image = None
 
 from wotb_sc2 import Reader, decode_dvpl, read_archive, read_sc2  # noqa: E402
+from wotb_scg import decode_polygon_normals  # noqa: E402
 from wotb_scg import (  # noqa: E402
     decode_bytes,
     decode_polygon_indices,
@@ -660,6 +661,25 @@ def _vertex_offsets(vf: int) -> tuple[dict, int] | None:
     return off, cur
 
 
+def _subset_normals(f, off: dict, idx) -> list | None:
+    """按掩码偏移取出子集的 authored 法线（EVF_NORMAL）；缺失或模长异常 → None。
+
+    与静态路径同一条 fail-closed 门槛（中位模长 1±10%）：偏移算错或数据不是法线时
+    不给下游假数据，交由调用方回退到几何现算。
+    """
+    no_off = off.get(1)
+    if no_off is None or idx is None or len(idx) == 0:
+        return None
+    arr = f[idx][:, no_off // 4:no_off // 4 + 3]
+    if not np.isfinite(arr).all():
+        return None
+    lens = np.sqrt((arr.astype(np.float64) ** 2).sum(axis=1))
+    median_len = float(np.median(lens))
+    if not (0.9 <= median_len <= 1.1):
+        return None
+    return arr.tolist()
+
+
 def decode_speedtree_cards(group: dict):
     """SpeedTree 叶卡解算：**掩码驱动**，取代原先按 stride 硬编码的 56B / 92B 两条路径。
 
@@ -735,6 +755,9 @@ def decode_speedtree_cards(group: dict):
                         if t[0] not in card_set for i in t],
             "uvs": f[rigid_idx][:, uv_off // 4:uv_off // 4 + 2].tolist(),
             "uvs1": None,
+            # 刚体子集的 authored 法线（EVF_NORMAL，偏移由掩码算出）。与静态路径同一
+            # fail-closed 门槛：中位模长必须落在 1±10%，否则置 None 由调用方现算。
+            "normals": _subset_normals(f, off, rigid_idx),
             # COLOR_0 顶点遮挡必须随刚体子集导出：混合组（如 Spruce w=1 占比仅
             # 0.25）的 w=0 子集是【固定朝向叶片】而非树枝（三角形尺寸与卡片叶
             # 同量级、贴图同为叶图集）——客户端对两种叶片都乘 varVertexColor；
@@ -952,6 +975,22 @@ def decode_pvr3(d: bytes, max_dim: int = 1024) -> Image.Image | None:
     elif bits == (8, 8, 8, 8):
         arr = np.frombuffer(px[:w * h * 4], dtype=np.uint8).reshape(h, w, 4)
         channels = [arr[..., i] for i in range(4)]
+    elif bits == (8, 0, 0, 0) and fmt[:1] in (b"l", b"a"):
+        # 单通道 8bpp：'l' = 亮度、'a' = 纯 alpha。本机 1328 张 PVR 里 **954 张**属此类
+        # （584 'l' + 370 'a'，多为 3d/Tanks/<nation>/CamouflageMasks/*_CM 与 <tile>Mask），
+        # 此前一律 return None 被静默丢弃。格式字段实测：'l' → 6c000000/08000000、
+        # 'a' → 6100000008000000、对照 'rgba' → 7267626104040404（低 u32=ASCII、高 u32=位深），
+        # 故判据用 bits 即可、fmt 只区分 l/a。
+        # 翻转口径与其余 PVR 分支一致（本仓对 PVR 统一翻转，见 decode_pvr 的 13/13 实测）。
+        a8 = np.frombuffer(px[:w * h], dtype=np.uint8).reshape(h, w)
+        if fmt[:1] == b"l":
+            rgba = np.stack([a8, a8, a8, np.full_like(a8, 255)], axis=-1)
+        else:
+            rgba = np.stack([np.full_like(a8, 255)] * 3 + [a8], axis=-1)
+        img = Image.frombytes("RGBA", (w, h), rgba.tobytes()).transpose(Image.FLIP_TOP_BOTTOM)
+        if max(img.size) > max_dim:
+            img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+        return img
     else:
         return None
     rgba = np.stack(channels, axis=-1).astype(np.uint8)
@@ -1341,6 +1380,21 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         if not indices or len(indices) < 3:
             stats["decode_fail"] += 1
             continue
+        # 文件自带法线（EVF_NORMAL）优先：客户端按 authored 法线着色，现算平滑会抹掉
+        # 硬边与烘焙法线。**fail-closed 门槛**：条数必须对齐、且中位模长落在 1±10%
+        # 内（非单位长度说明偏移算错或数据不是法线），否则回落 compute_normals。
+        # 坦克侧一直如此（export_tank_glb.py 取 v[:,3:6]），地图侧此前只现算，属口径不一致。
+        authored_normals = decode_polygon_normals(group)
+        if len(authored_normals) != len(positions):
+            authored_normals = []
+        else:
+            lens = sorted((n[0] * n[0] + n[1] * n[1] + n[2] * n[2]) ** 0.5 for n in authored_normals)
+            median_len = lens[len(lens) // 2] if lens else 0.0
+            if not (0.9 <= median_len <= 1.1):
+                authored_normals = []
+                stats["normal_fallback"] = stats.get("normal_fallback", 0) + 1
+            else:
+                stats["normal_authored"] = stats.get("normal_authored", 0) + 1
         # SpeedTree 的远景 LOD 平贴卡片（z 向无厚度 + _low* LOD 贴图，如
         # a_bush1_low1-4/bush02_low1-2）：运行时按距离替换，静态导出会与 3D
         # 几何叠成毛团。仅当"平贴 且 贴图为 _low LOD 变体"时跳过——真水平
@@ -1515,7 +1569,8 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
             if rig:
                 mi = glb.add_shared_mesh(
                     (datasource, "gen2rig"), rig["positions"], rig["indices"],
-                    rig["uvs"], compute_normals(rig["positions"], rig["indices"]),
+                    rig["uvs"],
+                    rig.get("normals") or compute_normals(rig["positions"], rig["indices"]),
                     material_index,
                     extra_attrs=([{"name": "COLOR_0", "type": "VEC4", "data": rig["colors"]}]
                                  if rig.get("colors") else None))
@@ -1541,8 +1596,9 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
             if mesh_index is not None:
                 created.append(mesh_index)
         else:
-            mesh_index = glb.add_shared_mesh(datasource, positions, indices, uvs,
-                                             compute_normals(positions, indices), material_index)
+            mesh_index = glb.add_shared_mesh(
+                datasource, positions, indices, uvs,
+                authored_normals or compute_normals(positions, indices), material_index)
             if mesh_index is not None:
                 created.append(mesh_index)
         if not created:

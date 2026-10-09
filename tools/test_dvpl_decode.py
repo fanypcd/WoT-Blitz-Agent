@@ -154,6 +154,34 @@ def test_dvpl_rejects_unknown_type():
                  "Unsupported DVPL compression type 4")
 
 
+def test_pvr3_single_channel_l8_a8_decodes():
+    """PVR3 单通道（bits=(8,0,0,0)，'l' 亮度 / 'a' 纯 alpha）必须解出——本机 1328 张
+    PVR 里 954 张属此类，此前一律 return None 被静默丢弃。无客户端时跳过。"""
+    import pathlib as _pl
+    import sys as _sys
+    data = _pl.Path(r"D:/SteamLibrary/steamapps/common/World of Tanks Blitz/Data")
+    if not data.is_dir():
+        print("  （跳过：本机无客户端）")
+        return
+    _sys.path.insert(0, str(_pl.Path(__file__).resolve().parent))
+    import export_map_glb as _M
+    from wotb_sc2 import decode_dvpl as _dd
+    n = 0
+    for p in data.rglob("*.pvr.dvpl"):
+        try:
+            d = _dd(p.read_bytes())
+        except Exception:
+            continue
+        if d[:4] != b"PVR" or tuple(d[12:16]) != (8, 0, 0, 0):
+            continue
+        img = _M.decode_pvr3(d)
+        assert img is not None, f"单通道 PVR 应解出: {p}"
+        assert img.size[0] == img.size[1], f"本批实测皆为方图: {img.size}"
+        n += 1
+    assert n > 100, f"样本量过少: {n}"
+    print(f"  单通道 PVR 解出 {n} 张")
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
