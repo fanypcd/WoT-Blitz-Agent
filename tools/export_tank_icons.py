@@ -106,7 +106,8 @@ ICON_ALIAS = {
     "T2_med": "usa-T2_MT.packed.webp.dvpl",
     "T7_Combat_Car": "usa-T7-cc.packed.webp.dvpl",                            # cc = combat car
     # ussr
-    "ST_I": "ussr-R63_ST_IBD.packed.webp.dvpl",                               # R63 = ST-I 内部代号
+    "ST_I": "ussr-ST-1.packed.webp.dvpl",       # 声明源即 ussr-ST-1；曾误挂 ussr-R63_ST_IBD
+                                                # （那是 T-2020 / 20993 的档），2026-10-10 审计纠正
     "R132_T100LT": "ussr-R132_VNII_100LT.packed.webp.dvpl",
     "R116_ISU122C_Berlin": "ussr-ISU122_Berlin.packed.webp.dvpl",
     # germany
