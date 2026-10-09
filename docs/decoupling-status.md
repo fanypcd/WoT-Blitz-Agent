@@ -52,7 +52,9 @@
 * 残差 **2 条**（两种来源都没有、BK 自建名）：1 枪（`_90mm_KwK_E_L56`，Tank 881 Edelweiss）
   + 1 履带（`chassis_WZ-135G_FT`，Tank 2161 WZ Blaze）→ 由补充表兜底。
 * 依赖注记：覆盖层是 **per-user 运行时缓存**（需客户端登录同步过；新装/未同步时会缺），
-  提取链对缺名保持软失败 + XML 标签回退。
+  提取链对缺名保持软失败 + XML 标签回退。客户端 `cache/` 下另有
+  `dynamicContentLocalizations/<lang>.yaml`（**活动/offer 文案**，键形 `2025-tank-N/Title`；
+  实测不含车辆/模块名——名字残差的 2 条在其与 localizations 两处都没有）。
 
 **本轮修的 4 处提取缺陷**（此前把这些误算成"客户端缺失"）：
 1. **段前缀按字面查**：客户端条目的 userString 段前缀 ≠ pb 国家名（uk 的 list.xml/shells 用

@@ -49,9 +49,14 @@
      元素自带的完整前缀键字面查**（`gb_vehicles` 450 键与 `uk_vehicles` 478 键并存、逐条
      不同；裸键回退会跨系相撞），值里的 YAML 转义（`ä`→ä、` `）需解码、值捕获须
      转义感知（`"` 正则会 被 `\"` 截断），A/B 尾字母重复条目的名字可回退其基础键；
-  2. **运行时本地化覆盖层**（此前漏掉、2026-10-10 发现）：客户端从 CDN 下载并缓存在
-     `%LOCALAPPDATA%/wotblitz/DAVAProject/cache/localizations/<lang>.yaml`（带 `.etag` HTTP
-     缓存；`Data/server_config_urls.yaml` 指向 conf CDN）。**随包 strings 不含上线后新增的
+  2. **运行时本地化覆盖层**（此前漏掉、2026-10-10 发现）：客户端从 CDN 下载并缓存到
+     `%LOCALAPPDATA%/wotblitz/DAVAProject/cache/`——共两处、用途不同（全盘 token 扫描
+     31300 个文件定界）：
+     * `localizations/<lang>.yaml`（**车辆/模块名**所在，带 `.etag` HTTP 缓存；
+       `Data/server_config_urls.yaml` 指向 conf CDN）；
+     * `dynamicContentLocalizations/<lang>.yaml`（**活动/offer 文案**，键形如
+       `2025-tank-12/Title`；实测**不含**车辆/模块名——名字面剩余的 2 条枪/履带名在
+       两处都没有）。**随包 strings 不含上线后新增的
      活动/BP 车与模块名**——BP 车在 `camouflages.yaml` 注册、名字键（`<stem>_Custom[_short]`）
      只在覆盖层里——这就是"游戏能正常显示名字、而只读 `Data/` 的解包查不到"的原因。
      覆盖层按客户端语言缓存（实测机为 zh-Hans），但**专名跨语言同形**（Turbo/Magnate/
@@ -81,6 +86,9 @@
 （`<shell>shared<price>…`），个别车引用的弹种族与共享定义不同（`J24_Type_57`：内联 base 族在
 客户端无任何弹道数据 → 穿深 0；共享 A 族 = 218/260/65 与 BlitzKit 一致）。解析规则：按共享
 `<shots>` 列表迭代，内联同标签条目合并覆盖其余字段。
+
+**其它名称/参数相关文件**（扫描所见，暂未接入）：`hangarBaseParamsPrecomputedData_generated.yaml`
+（车库预计算表，含各车参数与 stem）、`DAVAProject/cef_data/cache/`（内嵌浏览器新闻缓存，噪声）。
 
 ### 2.3 models.pb 的内容 ← 游戏 XML + 几何
 
