@@ -168,8 +168,8 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
 > 记的 field32 陈旧包警告已解除。判断包是否陈旧以 `manifest.json` 的逐文件 sha256 为准
 > （打包器只做拷贝 + 哈希，**不做来源一致性校验**），**唯一例外是上述 36 张 ground**。
 > **2026-10-09 朝向修正后**：`map/himmelsdorf/ground.webp` 本地已重烘（`a142e94e…`，
-> 7080664 B），**COS 该对象仍是旧镜像件**、待随下次差分上传覆盖（delta = 1 个对象；
-> 其余 35 张 ground 本轮未动）。
+> 7080664 B）**并已同步 COS**（delta = 1 个对象 + `manifest.json` 强传；上传后回拉逐字节
+> 一致、读回朝向 = `YX`，旧镜像件 `bac8d3bb…` 已被覆盖；其余 35 张 ground 本轮未动）。
 
 **不进包的**：`data/cache/local_*`（见第三节）、`data/replay_samples/`、
 `data/sessions/`、`data/snapshots/`、`data/token_usage.json`。

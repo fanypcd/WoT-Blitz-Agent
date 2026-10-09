@@ -322,7 +322,8 @@ vs 屋顶渲染）8 个候选全落在 |score| ≤ 0.12 的噪声带、winner `x
 - **blast radius**：均衡档地面单一资产（`map/<key>/ground.webp`）。本地包仅重烘
   `himmelsdorf`（`a142e94e…`，7080664 B），其余 35 张内容未变；`manifest.json` 对 36 张 ground
   记"合成前哈希"的语义未变（见 [data-inventory.md](data-inventory.md) §2.1）。
-  **COS 尚未同步**——delta = 1 个对象，待随下次差分上传覆盖（旧件 `bac8d3bb…` 仍是线上内容）
+  **已同步 COS**——delta = 1 个对象 + manifest 强传，上传后回拉逐字节一致、读回朝向 = `YX`
+  （旧镜像件 `bac8d3bb…` 曾是线上内容，已被覆盖）
 - 契约推导、重烘口径与读回校验命令见 [game-data-sources.md](game-data-sources.md) §5.5
 
 ## 约定

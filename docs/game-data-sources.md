@@ -348,6 +348,9 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
    另：`worktree_dirty=true` 的包**不等于**标注 commit 的原样工作区（见
    [data-inventory.md](data-inventory.md) §2.1）
 8. 回滚素材：旧包状态的本地快照（`game_data/` + `tank/` + `manifest.json`），必要时原样传回
+9. ⚠️ **凭据字节要干净**：Windows 下经管道/命令替换传 `COS_SECRET_*` 时注意尾部 `\r`
+   （python 文本模式的换行转换会把 `\r` 带进 SecretKey ⇒ 比对与上传**全部** `SignatureDoesNotMatch`；
+   2026-10-09 曾空跑一次——上传阶段全失败即先核对凭据长度是否与源文件一致，多 1 字节即此坑）
 
 ### 5.2b 本机解包 → pb 编码器（**未接线**，2026-10-09 试接后回退）
 
