@@ -231,7 +231,7 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 
 | 文档 | 状态 |
 |---|---|
-| [docs/decoupling-status.md](decoupling-status.md) | **解耦的剩余决策与已定案差异**（2026-10-03 收敛；**2026-10-07 更新：GLB 自产管线已接线**——`data/cache/models/` 换为客户端解包导出，`cache/models` ≡ `local_models` 735/735）：已完成时间线；待决策口径（数据模型塌缩 / 25 辆无显示名 / `hull_traverse` 非同量）；封面图命名域与"换素材 ≠ 等价替换"（NCC 0.21）；已定案的 BlitzKit 侧差异清单；对外沟通材料。进度/接线/分发现状见 [data-inventory.md](data-inventory.md) |
+| [docs/decoupling-status.md](decoupling-status.md) | **解耦的剩余决策与已定案差异**（2026-10-03 收敛；**2026-10-07 更新：GLB 自产管线已接线**——`data/cache/models/` 换为客户端解包导出，`cache/models` ≡ `local_models` 735/735）：已完成时间线；待决策口径（数据模型塌缩 / 25 辆无显示名 / `hull_traverse` 非同量）；封面图与 BK 复核为**同源同画**（旧 NCC 0.21/非同一幅画结论已撤销）；已定案的 BlitzKit 侧差异清单；对外沟通材料。进度/接线/分发现状见 [data-inventory.md](data-inventory.md) |
 | [docs/local-model-export.md](local-model-export.md) | ✅ 已实施（2026-10-01，2026-10-02 补 §4 贴图实测）：报告 B 的几何替代做成 `tools/export_tank_glb.py`，验收口径从"按可达节点求和"收紧到**逐字节 + 节点顺序**——`collision.glb` **735/735**、`model.glb` **733/735** 等价（余 2 辆为 BlitzKit 侧行为，见该文 §5）；贴图槽位与 BlitzKit 完全对齐（731/735 图片数相同、无缺槽位）。§4 逐通道实测推翻了报告 B §3.3 的图源判断，并定下 `baseRMMap` 的**通道搬迁**（ch0→G 粗糙度、ch1→B 金属度）。**2026-10-07 起已替换运行期数据源**：`data/cache/models/` 换为本地导出（`cache/models` ≡ `local_models` 735/735，包与 COS 随发；见 [data-inventory.md](data-inventory.md) §一 #8） |
 
 ### 代码加固（2026-10-08，未发版）

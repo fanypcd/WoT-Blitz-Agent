@@ -12,20 +12,22 @@
   * `Data/Gfx/UI/BattleScreenHUD/SmallTankIcons/<name>.packed.webp.dvpl`（1474 个）128×32，作兜底。
 
 **匹配策略：客户端声明源优先、精确等值——不做部分串匹配**（2026-10-10 重写）：
-按下列**有序**候选查名（全部来自客户端自己的声明，命中即归一化后的整键相等）：
+按下列**有序**候选查名（全部来自客户端自己的声明）：
 
-  1. `registry` —— `camouflages.yaml` 皮肤注册表的 `previewWith: "<nation>:<stem>"` +
-     `iconBig: "~res:/Gfx/UI/BigTankIcons/<icon>.tex"` 配对（客户端**自己引用**图标名的地方，
-     含 BP/联动车：`R71_IS_2B`→`ussr-IS_2_Berlin`）；
-  2. `short` / `full` —— 车辆 `list.xml` 的 `shortUserString`/`userString` **字面键**取
-     `Strings` ∪ **运行时本地化覆盖层**（`T1_hvy` 的短名 `T1 Heavy` → `usa-T1Heavy`；BP 车
-     的名字只在覆盖层里）；
-  3. `stem` / `stem_prefix` —— 模型名本身与去 `XxNN_`/`Xy_`/`WH_` 前缀的短名；
-  4. `alias` —— 人工核对别名表（客户端用内部代号/缩写，拼不出来；每条实测确认同车）。
+  1. `iconPath` —— **逐车参数文件** `3d/Tanks/Parameters/<nation>/<stem>.yaml.dvpl` 的
+     `bigIconPath: "~res:/Gfx/UI/BigTankIcons/<名>"`（755 份逐车文件全含）：按**整文件名
+     （含国家标签）精确解析**——`ussr-IS_2` 必须命中苏联图标、不得归一化撞上 `china-IS2`；
+     声明名带资源变体后缀（实测唯一一例：`ussr-KV_1s_BP.china`）而磁盘缺该名时，去尾后缀
+     再精确一次；
+  2. 备选链路（声明缺失时才出场）：`registry` —— `camouflages.yaml` 皮肤注册表的
+     `previewWith: "<nation>:<stem>"` + `iconBig` 配对 → `short`/`full` —— `list.xml` 的
+     `shortUserString`/`userString` 字面键取 `Strings` ∪ 运行时本地化覆盖层 → `stem` 及去
+     `XxNN_`/`Xy_`/`WH_` 前缀变体 → 人工别名表。弱来源带**唯一性护栏**（被 >1 辆车声明的
+     键弃用——`T34_hvy` 的全名 "T34" 会撞他车）。
 
-覆盖实测（2026-10-10）：声明源 718/735，其余 17 由别名表覆盖 → **735/735**。
+覆盖实测（2026-10-10）：**735/735，全部由 `iconPath` 命中**（`match_src` 逐车可审）。
 选择优先级（同一键内）：**大图基础 > 大图皮肤变体 > 小图标**；`_export_status.json` 的
-`grade`（big / big-skin / small）与 `match_src`（上面四个来源）逐条可审。
+`grade`（big / big-skin / small）与 `match_src` 逐条可查。
 
 用法：
     python tools/export_tank_icons.py --all                    # 全量 735 辆（大图基础档）
@@ -85,7 +87,8 @@ _ESC_SUB_RE = re.compile(r"\\(x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|n|
 #
 # 客户端图标名有时用内部代号/缩写/另一套拼法，声明源拼不出来（`R63_ST_IBD`、`Renault_D1`…）。
 # 这张表**只收实测确认是同一辆车的**，宁可缺失也不猜——错挂别的车的图标比缺图更糟。
-# 每条依据写在行尾，便于复核。声明源已覆盖 718/735，本表补其余 17 辆。
+# 每条依据写在行尾，便于复核。2026-10-10 接入逐车 iconPath 后 735/735 全部由声明源命中，
+# 本表休眠为兜底（仅在声明源缺失的车上才会出场）。
 ICON_ALIAS = {
     # uk：客户端用 Medium_N / Cruiser_N / Churchill_GC 等短名，模型名走 GB 编号
     "GB01_Medium_Mark_I": "britsh-Medium_I.packed.webp.dvpl",
@@ -169,6 +172,11 @@ def icon_key(filename: str) -> str:
     return normalize(n)
 
 
+def base_name(filename: str) -> str:
+    """图标文件 → 整文件名（去 `@2x` 与 `.packed.webp.dvpl`，含国家标签，原样大小写）。"""
+    return filename.replace("@2x", "")[: -len(".packed.webp.dvpl")]
+
+
 def _strip_extra(name: str) -> str:
     """剥离皮肤后缀与内部编号前缀，得到"纯车型名"（索引侧对称归一化用）。
 
@@ -189,12 +197,18 @@ def _strip_extra(name: str) -> str:
 
 
 def build_index(ui_dir: pathlib.Path) -> dict:
-    """→ {归一化键: [{file, sub, x2, skin, derived}]}。
+    """→ {"key": {归一化键: [条目]}, "name": {整文件名(去扩展/@2x): [条目]}}。
+
+    * `key`：归一化键（大小写/下划线/国家标签差异全部吸收）——用于弱来源（stem/短名等）；
+    * `name`：**整文件名精确表（含国家标签）**——用于 `iconPath` 这类客户端逐车声明：
+      `~res:/Gfx/UI/BigTankIcons/ussr-IS_2` 必须命中 `ussr-IS_2.packed.webp.dvpl`，不能
+      归一化后撞上同键的 `china-IS2`（跨车误挂，2026-10-10 实测）。
 
     每个文件名登记**精确键**与**派生键**（剥皮肤/内部编号）；派生键若与别车图标的精确键
     撞键且非同车则丢弃（防把 A 车图标挂到 B 车）。
     """
     index: dict = {}
+    by_name: dict = {}
     derived: dict = {}
     for sub in ("BigTankIcons", "BattleScreenHUD/SmallTankIcons"):
         d = ui_dir / sub
@@ -210,6 +224,7 @@ def build_index(ui_dir: pathlib.Path) -> dict:
             ent = {"file": n, "sub": sub, "x2": "@2x" in n,
                    "skin": bool(re.search(r"_skin\d*(@2x)?\.packed", n, re.I))}
             index.setdefault(key, []).append({**ent, "derived": False})
+            by_name.setdefault(base_name(n), []).append({**ent, "derived": False})
             base = n.replace("@2x", "")[: -len(".packed.webp.dvpl")]
             dk = normalize(_strip_extra(base))
             if dk and dk != key:
@@ -222,7 +237,7 @@ def build_index(ui_dir: pathlib.Path) -> dict:
         if dk in index and not all(same_vehicle(e["file"]) == dk for e in index[dk]):
             continue     # 撞上别车的精确键 → 丢弃，宁缺勿错
         index.setdefault(dk, []).extend({**e, "derived": True} for e in ents)
-    return index
+    return {"key": index, "name": by_name}
 
 
 def read_tank_table(pb_path: pathlib.Path) -> dict:
@@ -289,7 +304,25 @@ def build_icon_context(game_data: pathlib.Path, lang: str) -> dict:
     * `strings`：`Data/Strings/<lang>.yaml` ∪ **运行时本地化覆盖层**（客户端从 CDN 下载并缓存在
       `%LOCALAPPDATA%/wotblitz/DAVAProject/cache/localizations/`；只收拉丁值，避免混入译名）。
     """
-    ctx = {"registry": {}, "list_keys": {}, "strings": {}}
+    ctx = {"declared": {}, "registry": {}, "list_keys": {}, "strings": {}}
+    # **最高优先级：车辆自己的图标声明**——`3d/Tanks/Parameters/<nation>/<stem>.yaml.dvpl`
+    # 的 `bigIconPath` / `smallIconPath`（客户端自己引用图标名的地方，逐车一份；
+    # 实测 764 份参数文件中 755 份为逐车文件且全含此字段，另 9 份为国家级默认）
+    params_dir = game_data / "3d" / "Tanks" / "Parameters"
+    if params_dir.is_dir():
+        for nat_dir in params_dir.iterdir():
+            if not nat_dir.is_dir():
+                continue
+            for f in nat_dir.glob("*.yaml.dvpl"):
+                try:
+                    txt = decode_dvpl(f.read_bytes()).decode("utf-8", "replace")
+                except Exception:
+                    continue
+                big = re.search(r"bigIconPath:\s*\"~res:/Gfx/UI/BigTankIcons/([^\"]+)\"", txt)
+                small = re.search(r'smallIconPath:\s*"~res:/Gfx/UI/BattleScreenHUD/SmallTankIcons/([^"]+)"', txt)
+                if big or small:
+                    ctx["declared"][(nat_dir.name, f.name[: -len(".yaml.dvpl")])] = (
+                        big.group(1) if big else None, small.group(1) if small else None)
     cam_path = game_data / "camouflages.yaml.dvpl"
     if cam_path.exists():
         cam = decode_dvpl(cam_path.read_bytes()).decode("utf-8", "replace")
@@ -358,6 +391,13 @@ def declared_candidates(stem: str, nation: str, ctx: dict, ambiguous: set | None
     每项都是 `(来源标签, 归一化键)`；命中即**整键相等**——不做部分串匹配。
     """
     out = []
+    decl = ctx["declared"].get((nation, stem))
+    if decl and decl[0]:
+        out.append(("iconPath", decl[0]))      # 整文件名（含国家标签）——按精确表解析
+        # 声明名可带资源变体后缀（实测唯一一例：`ussr-KV_1s_BP.china`，磁盘上是
+        # `ussr-KV_1s_BP`）——变体名缺失时按**去尾后缀**精确回退，仍不做部分串匹配
+        if "." in decl[0]:
+            out.append(("iconPath", decl[0].rsplit(".", 1)[0]))
     icon = ctx["registry"].get((nation, stem))
     if icon:
         out.append(("registry", normalize(icon)))
@@ -390,7 +430,7 @@ def declared_candidates(stem: str, nation: str, ctx: dict, ambiguous: set | None
     for src, k in out:
         if not k or k in seen:
             continue
-        if ambiguous and k in ambiguous and src not in ("stem", "stem_prefix"):
+        if ambiguous and k in ambiguous and src not in ("iconPath", "stem", "stem_prefix"):
             continue      # 弱来源的歧义键 → 弃用（宁缺勿错）
         seen.add(k)
         uniq.append((src, k))
@@ -414,18 +454,21 @@ def pick_icon(index: dict, stem: str, display: str, use_2x: bool, allow_small: b
     同一键内排序：大图档位优先（128×32 小图只作兜底）→ 精确键优于派生键 → 基础档优于皮肤
     变体 → 与请求档位（1x/@2x）越接近越好。
     """
+    by_name = index.get("name") or {}
     # 声明源：**全部候选都收集**（同一辆车可能同时命中"基础档"与"皮肤档"——注册表条目多为
     # 皮肤），随后按统一排序（非皮肤优先）挑，`match_src` 记录**获胜项**的来源。
+    key_index = index.get("key") or index
     got = []      # [(entry, 来源标签)]
     for src, k in (declared or []):
-        got += [(e, src) for e in index.get(k, [])]
+        table = by_name if src == "iconPath" else key_index
+        got += [(e, src) for e in table.get(k, [])]
     if stem in ICON_ALIAS:
         # 别名**始终参与竞争**（手核表：确认为同车的基础档图标）——声明源可能只命中共车的
         # 皮肤派生键或小图标（19985 / 64561 实测），此时别名的基础档必须能赢。
-        got += [(e, "alias") for e in index.get(icon_key(ICON_ALIAS[stem]), [])]
+        got += [(e, "alias") for e in key_index.get(icon_key(ICON_ALIAS[stem]), [])]
     if not got:
         for k in candidate_keys(stem):
-            got += [(e, "heuristic") for e in index.get(k, [])]
+            got += [(e, "heuristic") for e in key_index.get(k, [])]
         if not allow_small and not any(e[0]["sub"] == "BigTankIcons" for e in got):
             got = []
     if not got:
@@ -434,8 +477,8 @@ def pick_icon(index: dict, stem: str, display: str, use_2x: bool, allow_small: b
     want_x2 = 1 if use_2x else 0
     # 来源优先级：**基础名（stem/short/full）> 去前缀短名 > 注册表风格档 > 别名/启发式**。
     # 注册表条目多为皮肤/风格（`Maus_Skin`），只有基础图不存在时才应中选。
-    src_rank = {"stem": 0, "short": 0, "full": 0, "stem_prefix": 1, "stem_name": 2,
-                "stem_noise": 3, "alias": 4, "registry": 5, "heuristic": 6}
+    src_rank = {"iconPath": 0, "stem": 1, "short": 1, "full": 1, "stem_prefix": 2,
+                "stem_name": 3, "stem_noise": 4, "alias": 5, "registry": 6, "heuristic": 7}
     ranked = sorted(
         got,
         key=lambda p: (prio[p[0]["sub"]] if allow_small else 0,   # ① 大图档位
@@ -528,18 +571,20 @@ def main() -> int:
         return 2
     table = read_tank_table(args.pb)
     index = build_index(ui)
+    key_index = index["key"]
     ctx = build_icon_context(game_data, args.lang)
     # 别名表自检：目标必须在客户端索引里真的存在。写错文件名立刻炸——否则别名会静默退化成缺图。
-    bad_alias = [(s, f) for s, f in ICON_ALIAS.items() if icon_key(f) not in index]
+    bad_alias = [(s, f) for s, f in ICON_ALIAS.items() if icon_key(f) not in key_index]
     if bad_alias:
         for s, f in bad_alias:
             print(f"!! ICON_ALIAS 目标不存在于客户端: {s} -> {f}", file=sys.stderr)
         return 2
     ambiguous = ambiguous_keys(table, ctx)
-    n_x2 = sum(1 for v in index.values() for e in v if e["x2"])
-    print(f"图标索引：归一化键 {len(index)} 个（条目 {sum(len(v) for v in index.values())}，"
-          f"@2x {n_x2}）｜声明源：注册表 {len(ctx['registry'])} 键、"
-          f"list.xml {len(ctx['list_keys'])} 辆、字符串 {len(ctx['strings'])} 条")
+    n_x2 = sum(1 for v in key_index.values() for e in v if e["x2"])
+    print(f"图标索引：归一化键 {len(key_index)} 个 / 整文件名 {len(index['name'])} 个"
+          f"（@2x {n_x2}）｜声明源：逐车 iconPath {len(ctx['declared'])} 辆、"
+          f"注册表 {len(ctx['registry'])} 键、list.xml {len(ctx['list_keys'])} 辆、"
+          f"字符串 {len(ctx['strings'])} 条")
 
     if args.all:
         targets = [(tid, t["stem"], t["nation"]) for tid, t in sorted(table.items())]

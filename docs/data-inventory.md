@@ -27,7 +27,7 @@
 | 6 | `data/tank_data/{id}.json`（→ 包 `tank/{id}.json`） | **混合三源**：models.pb（板/spaced/履带/原点/限位/bbox）+ tanks.pb（数值/弹种）+ game_data（primary、chassis/gun bbox） | 客户端三源齐备 | 🟡 数据 ~95% / 接线 0% | 缺口同 ①②；`configs[]` 的节点数/索引已走客户端 GLB（`model.glb` 节点名）✅；⚠️ 43 辆无炮塔 TD 的 `collision_boxes.turret` 为 null——**两侧都只有空心占位**（客户端 YAML 无 turret 段，models.pb 是 4 字节空 bbox），非缺数据，见 [game-data-sources.md](game-data-sources.md) §2.3 |
 | 7 | 弹种反解表（全局 shell id → 弹种数据） | 本机自产（`ShellKindTable::from_tanks_pb` + CLI `dump-shell-kinds`，输入为现役 BlitzKit pb） | 客户端 `shells.xml <kind>`（4 值闭集，已实测；提取器与编码器均已支持，未接线） | 🟢 数据 100% / 接线 0% | `atgm_heat`→HOLLOW_CHARGE 验证一致；接线随 #1 |
 | 8 | `data/cache/models/{id}/*.glb` | **客户端解包（现役，2026-10-07 换源）**；BlitzKit CDN 退为缺失兜底（`web/assets.rs::ensure_glb_bytes` / `wargaming/model_fetch.rs`，当前休眠） | 它本身就是 | ✅ 100/100 | 735/735、包与 COS 一致（§2.1 ✔️） |
-| 9 | `data/cache/tank_images/{id}.webp` | **BlitzKit CDN**（离线 `download_all_icons` + 运行期懒下载 `web/assets.rs:235`） | `tools/export_tank_icons.py` → `local_tank_icons/` **735/735**（2026-10-10 改为**客户端声明源确定性匹配**：注册表/短名/全名/模型名/别名 + 唯一性护栏；档位 `big` 732 / `big-skin` 2 / `small` 1——两辆只存在皮肤大图，1 辆仅小图） | ⚪ 数据 100%（接线待观感决策） | 与 BK 非同一幅画（NCC 中位 0.21，见 [decoupling-status.md](decoupling-status.md) §3.4）→ 需观感决策 |
+| 9 | `data/cache/tank_images/{id}.webp` | **BlitzKit CDN**（离线 `download_all_icons` + 运行期懒下载 `web/assets.rs:235`） | `tools/export_tank_icons.py` → `local_tank_icons/` **735/735**（2026-10-10 改为**逐车 `bigIconPath` 声明**精确匹配——764 份参数文件中 755 份逐车文件全含、按整文件名含国家标签解析；备选链=注册表/短名/全名/模型名/别名 + 唯一性护栏） | ⚪ 数据 100%（接线待做；同源美术、接近视觉无损） | 与 BK **同源同画**（1:1 像素、左上角对齐、BK 画布为裁剪后小画布；轮廓 IoU 中位 0.986；旧 NCC 0.21 结论已撤销，见 [decoupling-status.md](decoupling-status.md) §3.4） |
 | 10 | `data/cache/maps/`、`data/cache/terrain/` | **客户端解包（现役）** `.sc2`/`.scg`、heightmap、colormap；地面再经 `tools/composite_overhead.py` 叠俯视合成（渲染缓存 `release/overhead-bake/`） | 它本身就是 | ✅ 100/100 | 2026-10-09 全量重导随包（§2.1） |
 | 10a | `data/cache/maps/{key}/destructibles.json`（可破坏物清单） | **客户端解包（现役）** `.sc2` + `XML/destructibles.xml.dvpl` | 它本身就是 | ✅ 100/100 | 消费方与回放切面 `destructible_events` 联表（逆向总集 §5.4） |
 | 11 | `data/data_version.json` | 本机自产（`game_version` 取客户端 `Data/version.txt.dvpl`） | 它本身就是 | ✅ 100/100 | `blitzkit_updated_at` 仅溯源戳 |
@@ -213,8 +213,9 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
 - **名字表**：已收敛到 **2 条**（1 枪 + 1 履带，两种字符串源都没有；BK 自建名）→ 由补充表
   兜底。此前"145 处客户端无源"是漏了**运行时本地化覆盖层**所致的误判，见
   [game-data-sources.md](game-data-sources.md) §2.2。
-- **封面图观感决策**（§一 #9）：与 BlitzKit 封面非同一幅画（NCC 中位 0.21），换素材前需先过
-  观感判定。
+- **封面图判定已降级为抽查**（§一 #9）：与 BlitzKit 封面为**同源同画**（1:1 像素、左上角
+  对齐；旧 NCC 中位 0.21/非同一幅画结论系对照方法伪影，已撤销），换源预期接近视觉无损——
+  接线前抽查 `local_tank_icons/_vs_blitzkit.png` 即可。
 
 ## 五、完成度汇总
 
@@ -232,7 +233,7 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
   🟡 有缺口        换源验证：122 处差异待最终确认（119 枪序＝口径、1 处 explosion_radius＝
                    BK 错值、2 条名字＝补表兜底）；桥表维护流程（新车补给未固化）
 
-  ⚪ 阻塞          #9 封面图（735/735 已解出、0 缺；接线待观感决策，NCC 中位 0.21）
+  ⚪ 阻塞          #9 封面图（735/735 已解出、0 缺；同源同画，接线前提降级为抽查对照图）
 
   ➖ 无需替代      WG API（战绩） · tank_id 命名空间（只能固化桥表） · BlitzKit 交叉校验角色
 
@@ -245,7 +246,7 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
 **一句话结论**：运行期 12 个数据条目中 6 条已由本机解包承接（装甲碰撞 / GLB / 地图 / 版本戳
 / 解包底座），4 条"数据就绪、**未接线**"（`tanks.pb`/`models.pb`/派生面——2026-10-09 试接后
 已回退为 BlitzKit 现役版本，本地解包版本验证未完成前不得直接使用），1 条有缺口（`tank/{id}.json`
-随 ①②），1 条待观感决策（封面图）。外部依赖仍是 BlitzKit 的 3 个下载入口（`tanks.pb` /
+随 ①②），1 条换源待做（封面图——复核为**同源同画**、接线前提降级为对照抽查）。外部依赖仍是 BlitzKit 的 3 个下载入口（`tanks.pb` /
 `models.pb` / 封面图）与 WG 战绩 API。引擎产物（WASM Release）不含任何 pb。
 
 ## 六、本地提取工具索引
@@ -289,7 +290,7 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
 ### 6.3 对照 / 验证（同目录，非导出源）
 
 `tools/compare_tank_glb.py`（本地导出 vs BlitzKit 逐辆几何对照）、`tools/compare_tank_icons.py`
-（封面图 NCC 对照）、`tools/compare_vehicle_data.py`（车辆数值逐字段对照）、
+（封面图逐像素对齐对照）、`tools/compare_vehicle_data.py`（车辆数值逐字段对照）、
 `tools/test_export_variants.py`（变体标签单测）、`tools/probe_switch.py`（.sc2 状态开关解剖）、
 `tools/decode_experiment.py`（可破坏物候选物理解码实验）。
 
