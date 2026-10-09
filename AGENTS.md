@@ -151,6 +151,18 @@ build only ever loads its own pin:
 bash scripts/fetch-agent-wasm.sh        # downloads, sha256+fingerprint verifies, unpacks
 ```
 
+**A pin bump is not just the fetch script.** WotbTools' AI-projection goldens
+(`common/fixtures/ai-projection/*.json.gz`) embed the pin's provenance
+(`projection.engine.agentRelease` / `agentCommit`), so a pin bump must regenerate them in the
+final branch state —
+`WOTB_UPDATE_AI_PROJECTION_GOLDEN=1 npx vitest run src/replay-local/ai/toClientAiReviewProjection.test.ts`
+— and the regenerated goldens must be committed in the same PR, with `battle`/`projection`
+verified field-for-field identical (only provenance changes). Skip it and
+`toClientAiReviewProjection.test.ts` fails on 3 fixtures with a provenance mismatch that names
+only release/commit — easy to misread as a WASM behavior regression; when in doubt, compare the
+two releases' `wotb_replay_wasm_bg.wasm` sha256 (they can be byte-identical: a version-only
+release changes no parser behavior).
+
 To test **unreleased local parser changes**, either publish a release first
 (bump `workspace.metadata.release.version` → release workflow) or build from source with
 `scripts/build-agent-wasm.sh` (fallback path). Symptom of a stale pin after `source.json`
