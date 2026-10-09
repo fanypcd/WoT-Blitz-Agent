@@ -7,8 +7,11 @@
 > 复算，不复用前一轮脚本；每项都给出样本量、命中数与反例。脚本见 §8。
 >
 > **2026-10-03 整理注记**（以最新实测为准，详见 [decoupling-status.md](decoupling-status.md) §2 C2）：
-> ① §2 表中"uk 的前缀是 `gb_vehicles`"**有误**——实测 `Strings/en.yaml` 里 uk 车同样用
-> `uk_vehicles` 段（`#uk_vehicles:GB19_Sherman_Firefly`）；按 `gb_vehicles` 查询会**漏掉整个英系**。
+> ① §2 表中"uk 的前缀是 `gb_vehicles`"与后文"uk 用 `uk_vehicles`"**各自只对一半**
+> （2026-10-10 复核）：`Strings/en.yaml` 里 `#gb_vehicles:`（450 键）与 `#uk_vehicles:`（478 键）
+> **并存**，且客户端条目的 userString 前缀逐条不同（uk 的 `list.xml`/`shells.xml` 多用
+> `gb_vehicles:`）。正确做法：**按元素自带的完整前缀键字面查**（`Names.display` 已如此），
+> 裸键回退会跨系相撞。
 > ② §7 "24 辆车 en.yaml 无本地化名键"——经 `list.xml` 的 userString 键复核为 **25 辆**；
 > 且该键与模型名不一致的有 **7 例**（`AMX_50B`→`AMX_50_68t`、`Object252`→`IS-6`、
 > `Oth06_Sega_Lupus`→`Sega_Lupus` 等），本地化查询必须用 list 的键而不是模型名。

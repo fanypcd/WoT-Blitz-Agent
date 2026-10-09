@@ -41,7 +41,9 @@ tank_id 桥：`--emit-bridge` 从 `data/tanks.pb` 一次性导出
 from __future__ import annotations
 
 import argparse
+import glob
 import json
+import os
 import pathlib
 import re
 import sys
@@ -65,6 +67,8 @@ GAME_DIR_CANDIDATES = [
 NATION_LOW = {"ussr": 1, "germany": 17, "usa": 33, "china": 49, "france": 65,
               "uk": 81, "japan": 97, "other": 113, "european": 129}
 CLASS_WORDS = ("lightTank", "mediumTank", "heavyTank", "AT-SPG")
+# shells.xml `<kind>` 语义枚举 → BlitzKit tanks.pb field9 的 4 值闭集（0=AP/1=APCR/2=HEAT/3=HE）
+KIND_ID = {"ARMOR_PIERCING": 0, "ARMOR_PIERCING_CR": 1, "HOLLOW_CHARGE": 2, "HIGH_EXPLOSIVE": 3}
 
 
 def default_game_data() -> pathlib.Path:
@@ -119,6 +123,36 @@ def _pb_fields(b: bytes) -> list[tuple[int, int, object]]:
 def struct_unpack_f(b: bytes, i: int) -> float:
     import struct
     return struct.unpack_from("<f", b, i)[0]
+
+
+def emit_bridge_from_client(game_data: pathlib.Path, out_path: pathlib.Path) -> int:
+    """**纯客户端**生成 tank_id 桥接表（不读 tanks.pb）。
+
+    实测（2026-10-10）：`list.xml` 每个车辆条目的 `<id>` 是国家内局部 id，全局 tank_id =
+    `(局部 id << 8) | 国家基数`（与 guns/shells 同一编码）——735/735 与 pb 导出的桥表
+    stem/nation 逐条一致。`slug`（BlitzKit 专有）留空：全仓无消费者（文件定位一律用 stem）。
+    """
+    table: dict[str, dict] = {}
+    for nation, low in NATION_LOW.items():
+        p = game_data / "XML/item_defs/vehicles" / nation / "list.xml.dvpl"
+        if not p.exists():
+            continue
+        txt = decode_dvpl(p.read_bytes()).decode("utf-8", "replace")
+        # 逐行扫描：条目形如 `<Stem>` 换行 `<id>NN</id>`（不用跨行正则，避免转义层踩坑）
+        lines = txt.splitlines()
+        for i, ln in enumerate(lines):
+            m = re.match(r"^[ \t]*<([A-Za-z0-9_.\-]+)>[ \t]*$", ln)
+            if not m or i + 1 >= len(lines):
+                continue
+            m2 = re.match(r"^[ \t]*<id>(\d+)</id>[ \t]*$", lines[i + 1])
+            if not m2:
+                continue
+            stem, lid = m.group(1), int(m2.group(1))
+            table[str((lid << 8) | low)] = {"nation": nation, "stem": stem, "slug": ""}
+    out_path.write_text(json.dumps(table, ensure_ascii=False, sort_keys=True, indent=1),
+                        encoding="utf-8")
+    print(f"桥接表（客户端 list.xml）{len(table)} 条 → {out_path}")
+    return len(table)
 
 
 def emit_bridge(pb_path: pathlib.Path, out_path: pathlib.Path) -> int:
@@ -222,11 +256,12 @@ class DefResolver:
         return last_child(self.inline, tag) if self.inline is not None else None
 
     def user_key(self) -> str | None:
-        """userString 的 KEY（`#germany_vehicles:Turret_2_E-100` → `Turret_2_E-100`）。"""
+        """userString 的**原文键**（含段前缀，去 `#`）：`#gb_vehicles:_47mm_3pdrAP` →
+        `gb_vehicles:_47mm_3pdrAP`。名字解析按原文键查（段前缀 ≠ pb 国家名，见 Names.display）。"""
         for tag in ("userString", "shortUserString"):
             t = self.text(tag)
             if t:
-                return t.split(":", 1)[1] if ":" in t else t
+                return t[1:] if t.startswith("#") else t
         return None
 
 
@@ -274,7 +309,58 @@ class Components:
 
 
 class Names:
-    """`Strings/en.yaml` 的 `#<nation>_vehicles:<KEY>` → 显示名。"""
+    """`Strings/en.yaml` 的 `#<nation>_vehicles:<KEY>` → 显示名。
+
+    **第二字符串源（2026-10-10）**：客户端运行时会从 CDN 下载**本地化覆盖层**到
+    `%LOCALAPPDATA%/wotblitz/DAVAProject/cache/localizations/<lang>.yaml`（带 `.etag` 的
+    HTTP 缓存）。随包的 `Data/Strings/*.yaml` 是构建时的基础快照，**不含**上线后新增的
+    活动/BP 车与模块名——这正是"客户端能正常显示、而本地 Data 查不到"的原因。覆盖层只按
+    客户端语言缓存（本机为 zh-Hans），但**专名跨语言同形**（Turbo/Magnate/Panlong…），
+    故：仅作**缺失键的回退**、且只接受**拉丁值**（避免把中文译名灌进英文数据）。
+    """
+
+    # YAML 双引号串的转义（客户端文件里真实出现：`\xe4`→ä、`\u00A0`→NBSP、`\n`）
+    _ESC = re.compile(r"\\(x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|n|t|\"|\\|/)")
+
+    # 运行时本地化覆盖层（客户端语言缓存；仅回退用，见类注释）
+    OVERLAY_DIRS = (
+        "%LOCALAPPDATA%/wotblitz/DAVAProject/cache/localizations",
+        "~/wotblitz/DAVAProject/cache/localizations",
+    )
+
+    @classmethod
+    def _unescape(cls, s: str) -> str:
+        def sub(m):
+            e = m.group(1)
+            if e[0] in "xuU":
+                try:
+                    return chr(int(e[1:], 16))
+                except ValueError:
+                    return m.group(0)
+            return {"n": "\n", "t": "\t", '"': '"', "\\": "\\", "/": "/"}.get(e, e)
+        return cls._ESC.sub(sub, s)
+
+    @staticmethod
+    def _load_overlay() -> dict:
+        """运行时本地化覆盖层 → {原文键: 值}（只收拉丁值）。缺失/不可读时返回空表。"""
+        out: dict[str, str] = {}
+        for d in Names.OVERLAY_DIRS:
+            root = os.path.expandvars(d)
+            if not os.path.isdir(root):
+                continue
+            for p in sorted(glob.glob(os.path.join(root, "*.yaml"))):
+                try:
+                    txt = open(p, encoding="utf-8", errors="replace").read()
+                except OSError:
+                    continue
+                for m in re.finditer(
+                        r'"#?([A-Za-z0-9_\-]+_vehicles:[A-Za-z0-9_.\-]+)"\s*:\s*"((?:[^"\\]|\\.)*)"',
+                        txt):
+                    v = Names._unescape(m.group(2))
+                    # 只接受拉丁值：覆盖层是本机客户端语言的译名，中文值不能灌进英文数据
+                    if v and all(ord(c) < 0x2E80 or c in "·—–'’" for c in v):
+                        out.setdefault(m.group(1), v)
+        return out
 
     def __init__(self, game_data: pathlib.Path, lang: str = "en"):
         p = game_data / "Strings" / f"{lang}.yaml.dvpl"
@@ -283,17 +369,54 @@ class Names:
             return
         txt = decode_dvpl(p.read_bytes()).decode("utf-8", "replace")
         self.bare: dict[str, str] = {}
-        for m in re.finditer(r'"#(\w+)_vehicles:([A-Za-z0-9_.\-]+)"\s*:\s*"([^"]*)"', txt):
-            if m.group(3):
-                self.map[(m.group(1), m.group(2))] = m.group(3)
-                self.bare.setdefault(m.group(2), m.group(3))
+        self.full: dict[str, str] = {}   # 原文键（含段前缀）→ 值，按客户端字面查
+        for m in re.finditer(
+                r'"#(\w+)_vehicles:([A-Za-z0-9_.\-]+)"\s*:\s*"((?:[^"\\]|\\.)*)"', txt):
+            v = self._unescape(m.group(3))
+            if v:
+                self.map[(m.group(1), m.group(2))] = v
+                self.bare.setdefault(m.group(2), v)
+                self.full.setdefault(f"{m.group(1)}_vehicles:{m.group(2)}", v)
+        # 运行时本地化覆盖层：**只作缺失键的回退**（随包 strings 优先，避免覆盖已知英文值）
+        for k, v in self._load_overlay().items():
+            prefix, key = k.split(":", 1)
+            self.full.setdefault(k, v)
+            self.map.setdefault((prefix, key), v)
+            self.bare.setdefault(key, v)
+
+    def _lookup(self, nation: str, key: str) -> str | None:
+        return self.map.get((nation, key)) or self.bare.get(key)
 
     def display(self, nation: str, key: str | None) -> str | None:
         if not key:
             return None
-        # list.xml 的 userString 段前缀（uk 车是 gb_vehicles）与 en.yaml 的段名（uk_vehicles）
-        # 可能不同，故 (nation,key) 未命中时回退裸键（车键跨系基本唯一）
-        return self.map.get((nation, key)) or self.bare.get(key)
+        k = key[1:] if key.startswith("#") else key
+        prefix = None
+        if ":" in k:
+            # 带段前缀的原文键：**按客户端字面查**优先——段前缀与 pb 国家名不一致
+            # （uk 车/弹用 `gb_vehicles`），而裸键跨系会撞（`_47mm_3pdrAP` 在 usa 段是
+            # 字面 "None"，uk 段才是 'QF AP Mk. IIIT'）。2026-10-10 实测修复。
+            v = self.full.get(k)
+            if v:
+                return v
+            prefix, k2 = k.split(":", 1)
+            v = self.map.get((prefix, k2))
+            if v:
+                return v
+            key = k2
+        v = self._lookup(nation, key)
+        if v:
+            return v
+        # 变体回退：客户端的重复弹/枪条目常用尾字母区分（`_75mm_M61AB` 无字符串、其基础
+        # 条目 `_75mm_M61` 有）——**仅在基础键真实存在时才回退**，不发明名字。
+        stripped = key
+        while len(stripped) > 2 and stripped[-1].isascii() and stripped[-1].isupper():
+            stripped = stripped[:-1]
+            v = (self.full.get(prefix + ":" + stripped) if prefix else None) or \
+                self._lookup(nation, stripped)
+            if v:
+                return v
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -412,13 +535,18 @@ class Extractor:
             tags = (last_text(list_el, "tags") or "").split()
             collectible = "collectible" in tags
             tier = fint(list_el, "level")
-            cls = next((w for w in CLASS_WORDS if any(w in t for t in tags)), None)
+            # 先精确 token 匹配（tags 里存在 lightTankArtefacts_User 这类**含车种词的复合
+            # token**，子串匹配会把它误判成 lightTank——GB01_Medium_Mark_I 实测 tags 同时
+            # 含 mediumTank 与 lightTankArtefacts_User）；再按 token 序子串兜底
+            # （复合 token 如 mediumAT-SPG）。
+            cls = (next((t for t in tags if t in CLASS_WORDS), None)
+                   or next((w for t in tags for w in CLASS_WORDS if w in t), None))
         else:
             cls = None
         tank_type = cls or "lightTank"
 
-        name = (self.names.display(nation, _key_of(list_el, "shortUserString"))
-                or self.names.display(nation, _key_of(list_el, "userString"))
+        name = (self.names.display(nation, user_key_text(list_el, "shortUserString"))
+                or self.names.display(nation, user_key_text(list_el, "userString"))
                 or stem)  # pb 车名 = 短名（'Pz. IV G'），非全名
 
         turrets: list[dict] = []
@@ -436,8 +564,10 @@ class Extractor:
                         gshared = comp.shared_def("guns", g_el.tag)
                         gr = DefResolver(g_el, gshared)
                         guns.append(self.extract_gun(nation, low, comp, gr, g_el))
-                    # pb 的 guns[] 按模块 id 升序（E-100: 150mm(1050) 在 128mm(1052) 前，与 XML 文档序相反）
-                    guns.sort(key=lambda g: g["module_id"])
+                    # 保持 XML 文档序 = 游戏研发序（顶级 = 末位），与 tanks.pb 逐辆一致
+                    # （2026-10-09 实测 735/735）。此前按 module_id 升序排序是错误启发式：
+                    # 它把末位换成"最大模块 id"，与研发序顶级主炮在 91 辆车上不符。
+
                 turrets.append({
                     "module_id": mid(nation, tlocal) if tlocal is not None else 0,
                     "name": self.disp(nation, tr) or tname,
@@ -490,6 +620,8 @@ class Extractor:
             "speed_forward": ffloat(speed, "forward"),
             "speed_reverse": ffloat(speed, "backward"),
             "hull_traverse": 0.0,  # field27 与客户端非同量，不提取（比较时跳过）
+            # field27 的真身：静止迷彩系数（车辆 XML `<invisibility><still>`；BK 同源）
+            "camouflage_still": ffloat(last_child(root, "invisibility"), "still"),
             "weight": ffloat(hull, "weight"),
             "turrets": turrets,
             "engines": engines,
@@ -534,23 +666,27 @@ class Extractor:
         # 无弹道字段）。逐弹合并：键序取内联（缺则共享），弹道字段内联 last-wins 回退共享。
         inline_shots = gr.inline_elem("shots")
         shared_shots = last_child(gr.shared, "shots") if gr.shared is not None else None
-        order = inline_shots if inline_shots is not None else shared_shots
+        # 弹药列表的权威来源是**共享炮定义**的 <shots>——弹道/穿深（piercingPower）只在那里；
+        # 车辆内联 <shots> 是价格/可用性叠加，个别车引用的弹种族与共享定义不同
+        # （J24_Type_57 实测：内联 base 族在客户端无任何弹道数据 → 穿深 0；共享 A 族
+        # =218/260/65 与 BlitzKit 一致）。按共享列表迭代，内联同标签条目合并覆盖其余字段。
+        order = shared_shots if shared_shots is not None else inline_shots
         if order is not None:
             for shot in order:
-                if inline_shots is not None:
-                    counterpart = last_child(shared_shots, shot.tag) if shared_shots is not None else None
-                    traj = DefResolver(shot, counterpart)
-                else:
-                    traj = DefResolver(None, shot)
+                counterpart = last_child(inline_shots, shot.tag) if inline_shots is not None else None
+                traj = DefResolver(counterpart, shot)
                 shell_def = comp.shared_def("shells", shot.tag)
                 s_el = shell_def
                 sid = comp.local_id("shells", shot.tag)
                 pp = (traj.text("piercingPower") or "").split()
                 shells.append({
                     "id": mid(nation, sid) if sid is not None else 0,
-                    "name": (self.names.display(nation, _key_of_el(s_el, "userString"))
+                    "name": (self.names.display(nation, user_key_text(s_el, "userString"))
                              or shot.tag),
                     "shell_type": last_text(s_el, "icon") or "",
+                    # field9 的客户端原语：`<kind>` 4 值闭集（icon 只是显示令牌，词表会漏项——
+                    # atgm_heat 即此例）；两者实测 9 国 2093 发零矛盾
+                    "shell_type_id": KIND_ID.get((last_text(s_el, "kind") or "").strip()),
                     "damage": 0.0,
                     "penetration": float(pp[0]) if pp else 0.0,
                     "module_damage": 0.0,
@@ -678,6 +814,17 @@ class Extractor:
                     track_thickness = float(lt)
                 track_origin = parse_vec_text(cr.text("hullPosition")) or [0.0, 0.0, 0.0]
 
+        # 炮塔初始姿态：车辆 XML `<turretInitialRotation><yaw>/<pitch>/<roll>`（度）。
+        # 2026-10-10 实测：与 BlitzKit models.pb field3 逐值一致（4 辆意系 SPG 非零、其余
+        # 无元素 = BK 的 None）；此前误判为"在 .sc2 节点变换内"——.sc2 的 TransformComponent
+        # 全是单位阵，真源就是这一节。
+        initial_rot = None
+        tir = last_child(hull, "turretInitialRotation")
+        if tir is not None:
+            vals = {k: float((last_text(tir, k) or "0").strip() or 0) for k in ("yaw", "pitch", "roll")}
+            if any(abs(v) > 1e-6 for v in vals.values()):
+                initial_rot = vals
+
         return {
             "tank_id": 0,
             "hull_spaced": hull_spaced,
@@ -686,9 +833,21 @@ class Extractor:
             "track_thickness": track_thickness,
             "turret_origin": turret_origin,
             "track_origin": track_origin,
-            "initial_turret_rotation": None,  # 在 .sc2 节点变换内，客户端 XML 无
+            "initial_turret_rotation": initial_rot,
             "turrets": turrets,
         }
+
+
+def user_key_text(list_el: ET.Element | None, tag: str) -> str | None:
+    """userString 的**原文键**（保留段前缀，去前导 `#`）：`gb_vehicles:_47mm_3pdrAP`。
+
+    段前缀与 pb 的国家名不一致（uk 车/弹常用 `gb_vehicles`），而裸键跨系会撞
+    （`_47mm_3pdrAP` 在 usa 段的值是字面 "None"）——名字解析必须按原文键查。
+    """
+    t = last_text(list_el, tag) if list_el is not None else None
+    if not t:
+        return None
+    return t[1:] if t.startswith("#") else t
 
 
 def _key_of(list_el: ET.Element | None, tag: str) -> str | None:
@@ -731,12 +890,18 @@ def main() -> int:
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--all-local", action="store_true",
                     help="连桥外车辆（开发/超测/未实装）一起提取，tank_id 记负数序号")
-    ap.add_argument("--emit-bridge", action="store_true")
+    ap.add_argument("--emit-bridge", action="store_true",
+                    help="导出 tank_id 桥接表（默认从 data/tanks.pb，加 --from-client 则纯客户端）")
+    ap.add_argument("--from-client", action="store_true",
+                    help="--emit-bridge 时改从客户端 list.xml 生成（不读 pb；slug 留空）")
     args = ap.parse_args()
 
     game_data = args.game_data or default_game_data()
     if args.emit_bridge:
-        emit_bridge(args.pb, args.bridge)
+        if args.from_client:
+            emit_bridge_from_client(args.game_data or default_game_data(), args.bridge)
+        else:
+            emit_bridge(args.pb, args.bridge)
         return 0
 
     if not args.bridge.exists():

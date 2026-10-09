@@ -44,7 +44,19 @@
 - 车辆定义 `vehicles/{nation}/{model_name}.xml.dvpl`（约 790 个）
 - 共享模块 `vehicles/{nation}/components/{guns,shells,turrets,chassis,engines,radios,fuelTanks}.xml.dvpl`（72 个）
 - tier：`Data/Configs/TechTree/{nation}_tree.yaml.dvpl` 的 `position[0]`
-- 名称：`Data/Strings/en.yaml.dvpl` 的 `#<nation>_vehicles:<KEY>`
+- 名称（**两个字符串源**，2026-10-10 勘误）：
+  1. 随包基础快照 `Data/Strings/<lang>.yaml.dvpl` 的 `#<nation>_vehicles:<KEY>`——**必须按
+     元素自带的完整前缀键字面查**（`gb_vehicles` 450 键与 `uk_vehicles` 478 键并存、逐条
+     不同；裸键回退会跨系相撞），值里的 YAML 转义（`ä`→ä、` `）需解码、值捕获须
+     转义感知（`"` 正则会 被 `\"` 截断），A/B 尾字母重复条目的名字可回退其基础键；
+  2. **运行时本地化覆盖层**（此前漏掉、2026-10-10 发现）：客户端从 CDN 下载并缓存在
+     `%LOCALAPPDATA%/wotblitz/DAVAProject/cache/localizations/<lang>.yaml`（带 `.etag` HTTP
+     缓存；`Data/server_config_urls.yaml` 指向 conf CDN）。**随包 strings 不含上线后新增的
+     活动/BP 车与模块名**——BP 车在 `camouflages.yaml` 注册、名字键（`<stem>_Custom[_short]`）
+     只在覆盖层里——这就是"游戏能正常显示名字、而只读 `Data/` 的解包查不到"的原因。
+     覆盖层按客户端语言缓存（实测机为 zh-Hans），但**专名跨语言同形**（Turbo/Magnate/
+     Panlong 等 24/24 与 BlitzKit 英文名逐字一致）；提取器把它作**缺失键回退、只接受拉丁值**。
+     依赖注记：per-user 运行时缓存（需客户端登录同步过；新装/未同步时会缺）
 
 **定位陷阱**：共享弹种定义不在 `vehicles/` 顶层，按文件名搜 `*shell*` 会一无所获；
 正确做法是解码整个 zip 后全文检索弹种名，命中 `components/shells.xml`。
@@ -55,13 +67,20 @@
 |---|---|
 | `penetration` / `penetration_far` | `guns.xml` 的 `<shots><X><piercingPower>85 72</piercingPower>`——一个标签两个值，近/远 |
 | `damage` / `module_damage` | `shells.xml` 的 `<damage><armor>140</armor><devices>105</devices></damage>` |
-| `shell_type`（`ap`/`hc_premium`/…） | 同 shell 的 `<icon>` 或 `<kind>`（`ARMOR_PIERCING`/`HOLLOW_CHARGE`） |
+| `shell_type`（`ap`/`hc_premium`/…，field7） | 同 shell 的 `<icon>`（9 值显示令牌） |
+| 弹种权威枚举（field9） | 同 shell 的 `<kind>` → 0=AP/1=APCR/2=HEAT/3=HE（4 值闭集；与 icon 交叉表零矛盾，`atgm_heat`→HOLLOW_CHARGE 即 field9 修复的坑） |
 | `velocity` / `range` | `guns.xml` 的 `<speed>` / `<maxDistance>` |
 | `caliber` / `normalization` / `ricochet` / `explosion_radius` | `shells.xml` 的 `<caliber>` / `<normalizationAngle>` / `<ricochetAngle>` / `<explosionRadius>` |
 | 装填/瞄准/散布/弹鼓/连发 | gun 级 `<reloadTime>` `<aimingTime>` `<shotDispersionRadius>` `<clip>` `<burst>` |
 | `hp` | 车体 `<maxHealth>` + 炮塔 `<maxHealth>` |
 | 机动 | `<speedLimits>`、chassis 的 `<rotationSpeed>` |
 | shell `id` | `shells.xml` 的 `<id>`，经 `loadout::blitzkit_shell_global_id` 换算到回放/BlitzKit 的全局弹种域 |
+
+**弹药列表的权威来源是共享炮定义**（2026-10-09 核订）：`vehicles/{nation}/components/guns.xml`
+的 `<shots><shell_tag><piercingPower>` 带弹道与穿深；车辆 XML 内联 `<shots>` 是价格/可用性叠加
+（`<shell>shared<price>…`），个别车引用的弹种族与共享定义不同（`J24_Type_57`：内联 base 族在
+客户端无任何弹道数据 → 穿深 0；共享 A 族 = 218/260/65 与 BlitzKit 一致）。解析规则：按共享
+`<shots>` 列表迭代，内联同标签条目合并覆盖其余字段。
 
 ### 2.3 models.pb 的内容 ← 游戏 XML + 几何
 
@@ -74,7 +93,24 @@
 | 射界 `yaw` | turret 的 `<yawLimits>-180 180` |
 | 炮塔/主炮→模型节点号 | 碰撞 `.sc2` 的节点名（`hull` / `turret_01` / `gun_01`） |
 | 碰撞盒 / 原点 | 碰撞模型几何（需 DAVA 解析） |
+| 炮塔初始姿态 `initial_turret_rotation` | 车辆 XML `<turretInitialRotation><yaw>/<pitch>/<roll>`（度）——2026-10-10 实测与 models.pb field3 逐值一致（4 辆意系 SPG 非零；.sc2 的 TransformComponent 全是单位阵，不是来源） |
 | 履带厚度 | chassis 段 |
+
+**枪序口径（2026-10-09 核订）**：顶塔主炮列表按 **XML 文档序 = 游戏研发序**（末位 = 顶级
+主炮）导出；BlitzKit 的 models.pb 是**模块 id 升序**（与研发序在 105 辆上序不同——91 辆末位
+主炮不同，其中 15 辆末位主炮板集实际不同）。客户端 XML 每个 gun/turret 条目带 `<level>` 研发
+等级与 `<unlocks>` 研发图，可作为交叉校验。
+
+**空心碰撞盒口径（2026-10-09 核订）**：43 辆无炮塔 TD（AT-SPG，固定战斗室车，如 StuG III G /
+SU-85 / Hetzer / JPanther / Tortoise / T110E3）的**炮塔**碰撞盒两侧都只有空占位——客户端参数
+YAML 无 `turret_NN` 段（实测 SU-85：`turret_` / `gun_` 0 处），item_defs XML 的炮塔 bbox 为全 0，
+BlitzKit models.pb 也只有 **4 字节空消息**（`0a 00 12 00`，min/max 两个空 Vec3）。因此判据统一
+为：**min/max 双双为空消息 = 无数据**，不是"零盒"。Rust 严格解析（`parse_vec3` 空 → `None`）
+把它落成 `null`（包内这 43 辆 `collision_boxes.turret` = null，其余 chassis/hull/gun 三盒
+735/735 齐备）；Python 对照器与 `extract_vehicles.py` 为对齐 pb 序列化而保留全 0
+（该文件注明"全 0 bbox 不省略——实测 43 个炮塔"）。⚠️ 换源/对照时不得把空心读成实值。
+`gun_bbox` 不在此列：735/735 有值，历史上 154 辆为空的缺口是 2026-09-30 field32 冻结故障
+所致、已修复（见 §六）。
 
 ### 2.4 GLB 几何 ← 客户端模型文件
 
@@ -115,9 +151,14 @@
 3. 有些用**内部代号/缩写**，单靠拼名字推不出（`ST_I` → `ussr-R63_ST_IBD`、
    `Pro_Ag_A` → `germany-Leopard_PT_A`、`M2_med` → `usa-M2_MT`）。
 
-第 3 类走 `ICON_ALIAS` **人工核对别名表**（宁可缺失也不猜——错挂别车的图标比缺图更糟）。
-对照诊断用 `tools/compare_tank_icons.py`。当前覆盖率：**730/735**，余 5 辆客户端确无大图
-（`T1_hvy`/`Indien_Panzer`/`R71_IS_2B`/`F68_AMX_Chasseur_de_char_46`/`PzVI_GuP`）。
+第 3 类走 `ICON_ALIAS` **人工核对别名表**（宁可缺失也不猜——错挂别车的图标比缺图更糟）；
+别名表**优先**于启发式匹配（表内每条实测确认同车且为基础档）。2026-10-10 修复三处提取缺陷后
+（① 索引侧对称归一化：剥 `_skinN` 与内部编号，此前候选侧剥、索引侧不剥，导致同车不同皮肤
+后缀的图标永远匹配不上；② 小图标命中会压掉更好的大图/别名候选；③ 别名表缺 3 条），
+覆盖率 **735/735**（`big` 732 / `big-skin` 2 / `small` 1——结果按档位分级记录在
+`_export_status.json` 的 `grade`）。余 2 辆客户端两种尺寸都无：`T1_hvy`、`R71_IS_2B`；
+`Churchill_LL`（S 系 Churchill III）仅小图 64×32。
+对照诊断用 `tools/compare_tank_icons.py`。
 
 ### 2.6 客户端关键路径速查
 
@@ -132,7 +173,16 @@
 
 ---
 
-## 三、唯一缺口：`tank_id` ↔ 游戏模型名的桥
+## 三、`tank_id` ↔ 游戏模型名的桥（**已可由客户端重建**，2026-10-10）
+
+`tank_id` 在客户端**并非不可得**：`Data/XML/item_defs/vehicles/<nation>/list.xml` 每个车辆
+条目的 `<id>` 是国家内局部 id，全局 id = `(局部 id << 8) | 国家基数`（与 guns/shells 同一
+编码，国家基数见 `tools/extract_vehicles.py::NATION_LOW`）。全量实测：735/735 与 pb 导出的
+桥表 stem/nation 逐条一致，另多出 **20 辆** BK 没有的车（教程 bot、超测/开发车）。工具入口：
+`python tools/extract_vehicles.py --emit-bridge --from-client`。`slug`（BK 专有）无消费者，
+可留空——文件定位一律用 `stem`（游戏模型名）。
+
+（历史记录：本节原述"游戏本地任何文本资源都不含此表"，经 2026-10-10 复核为误判。）
 
 ### 3.1 为什么绕不开
 
@@ -263,7 +313,9 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
 ### 5.2 资产面（COS）增量发布流程
 
 桶：`wotbtools-assets-1478073677`（ap-shanghai），布局与 `release/asset_pack/` 逐项对应，
-根 `manifest.json` 含全量 sha256（**4167 条**，2026-10-07）。**首选工具**：
+根 `manifest.json` 含全量 sha256（**4167 条**，2026-10-09；⚠️ **例外 36 张** `map/*/ground.webp`
+——条目记的是**俯视合成前**的哈希，打包器先于合成器、合成器不刷 manifest，逐文件按 manifest
+校验这 36 项必然失配）。**首选工具**：
 [tools/upload_asset_pack_cos.py](../tools/upload_asset_pack_cos.py)（差分比对 + 并发上传 +
 `manifest.json` 强传 + Cache-Control 策略）；下列要点同时是手工流程的检查单：
 
@@ -278,12 +330,40 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
 4. ⚠️ **上传会遍历包目录下全部文件**：俯视烘焙的渲染中间产物 `<pack>/overhead/*.rgba`
    （按图 64 MB，非包内资产）必须提前移出，约定缓存在 `release/overhead-bake/`；2026-10-07
    曾误传 73 个对象 / ~2.4 GB（已清理）
-5. **上传后回拉校验**：逐对象下载比对 sha256
+5. **上传后回拉校验**：逐对象下载与**本地包文件**比对 sha256（不拿 manifest 条目当基准——
+   36 张 ground 的条目是合成前哈希，见文首例外）
 6. **不设 Content-Type**：桶内既有对象均未设置，保持一致以免引入元数据漂移
-7. `manifest.json` 的 `generated` 是本次更新时刻，可能与 `index.json`（地图资产未变）不同步；
-   若需两者一致须重跑 `export_asset_pack.py` 全量重打包。另：`worktree_dirty=true` 的包
-   **不等于**标注 commit 的原样工作区（见 [data-inventory.md](data-inventory.md) §2.1）
+7. `manifest.json` 的 `generated` 是本次更新时刻，可能与 `index.json`（地图资产未变）不同步
+   （2026-10-09 即此例：COS 的 `index.json` 溯源戳停在 10-07，与本地同尺寸不同内容被第 3 条的
+   判据跳过，36 个地图条目逐条相同）；若需两者一致须重跑 `export_asset_pack.py` 全量重打包。
+   另：`worktree_dirty=true` 的包**不等于**标注 commit 的原样工作区（见
+   [data-inventory.md](data-inventory.md) §2.1）
 8. 回滚素材：旧包状态的本地快照（`game_data/` + `tank/` + `manifest.json`），必要时原样传回
+
+### 5.2b 本机解包 → pb 编码器（**未接线**，2026-10-09 试接后回退）
+
+> ⚠️ **当前不生效**：`data/tanks.pb` / `data/models.pb` 是 BlitzKit 现役版本；本节记录的是
+> **已备好但未接线**的换源能力与试接批的验证结果，供验证完成后复用。本地解包版本未完成
+> 验证前，不得直接替换 `data/*.pb`（试接批的实际差异见下）。
+
+工具链（在库，不影响现役数据）：
+
+1. `python tools/extract_vehicles.py --all` → `data/cache/local_pb/{tanks,models}.json`
+2. `python tools/emit_vehicle_pb.py --emit-supplement` → `data/local_pb_supplement.json`
+   （客户端无对应概念/数据的字段集中登记：`dev_name` 735（BK slug）与**名字 2 条**
+   ——1 枪 + 1 履带，两种字符串源都没有；`initial_turret_rotation` 已客户端化不再需要）
+3. `python tools/emit_vehicle_pb.py` → 编码为同格式 pb（只写 `blitzkit.rs` 运行期读取的字段；
+   弹鼓按 field1×N + field2/3；全 0 向量/空心盒不写）
+4. 对照/回归：`python tools/compare_vehicle_data.py [--pb-dir data/cache/blitzkit_pb_snapshot]`
+   （换源前 pb 快照在 `data/cache/blitzkit_pb_snapshot/`，随时可复现 BK↔客户端对照）
+
+**试接批实测（2026-10-09，已回退）**：`tank_cache.json` 重建与换源前仅 1 行差异（`10625`
+explosion_radius 0.0→0.1，客户端值）；`tank_data` 18 辆差异 = 15 辆顶塔末位主炮板集（研发序）
++ 2 辆 explosion_radius + 1 辆形状；`game_data` 零重导。待验证项：`7009`/`12929` 各 3 发弹种 id
+常量偏移（+0x2000/+0x5100）**经查为 BK 侧按 gun module 塌缩 + 孤儿弹种族所致**——客户端数据
+自洽（换共享炮 `<shots>` 为权威后 0 配对失败）；名字已由"随包 Strings ∪ 运行时覆盖层"两源
+收敛到 2 条；`initial_turret_rotation` 已客户端化。**BK↔客户端剩余差异共 122 处**（119 枪序
+＝研发序口径、1 explosion_radius＝BK 错值、2 名字＝补表兜底）。
 
 ### 5.3 DVPL 外壳的校验契约（fail-closed）
 

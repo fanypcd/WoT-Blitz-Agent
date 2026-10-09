@@ -12,7 +12,7 @@
 | [docs/wotbtools-cross-reference.md](wotbtools-cross-reference.md) | 与 WotbTools 逆向结论的逐条裁决记录（采纳/驳回/互证），防止误采或回退已定案；**文末附面向消费方切面的最新进展** |
 | [docs/architecture-debt.md](architecture-debt.md) | 架构债与长期改动方案：已完成项（combat.rs 拆分、双路径合并）与仍留存的 tankViewer 目录拆分 |
 | [docs/game-data-sources.md](game-data-sources.md) | **数据来源权威表**：每份数据取自 BlitzKit / 本机客户端 / WG API / 自产；本地提取可行性评估；间隙甲 spaced 判定规则；提取链与 COS 资产面发布流程；2026-10 game_data 冻结故障复盘 |
-| [docs/data-inventory.md](data-inventory.md) | **数据面清单（谁在用 / 谁维护 / 怎么分发）**：运行期实际读取的 11 项数据及其来源与维护代码；三条分发渠道（COS 资产包 / GitHub Release 引擎 / 消费方前端常量）与包内布局；已备好但未接线的替换来源及其阻塞项；尚无代码的缺口（**2026-10-07 刷新**：包统计与逐目录清单、地图导出 + 俯视合成链路、上传工具的"同尺寸漏传 / 渲染产物随包"两个陷阱、陈旧包警告解除） |
+| [docs/data-inventory.md](data-inventory.md) | **数据面清单 / 运行所需数据总账（来源 · 可替代性 · 完成度）**：运行期 11 项核心数据的逐项"目前来源 / 可替代来源 / 替代完成度"（✅ 已接线 · 🟢 数据就绪未接线 · 🟡 有缺口 · ⚪ 阻塞，2026-10-09 两轮全量对照实测）+ 派生/注入数据（WASM 三张注入表、`tank_names`、tank_id 桥等间接面）+ 非数据类外部依赖；三条分发渠道（COS 资产包 / GitHub Release 引擎 / 消费方前端常量）与包内布局；尚无代码的缺口与非代码障碍；完成度汇总（**2026-10-09 改版为总账形式**：客户端解包→同格式 pb 编码器已备（**试接后回退，未接线**）、manifest↔36 张 ground 语义偏差、弹种 `<kind>`/枪序口径核验；此前 2026-10-07：包统计与逐目录清单、地图导出 + 俯视合成链路、上传工具两个陷阱） |
 
 ## 方案文档（已执行完毕，留档）
 
@@ -40,7 +40,7 @@
 | v0.3.7 | AI 切面透出**原始未滤波**位姿（type=10）与炮塔观测（prop2）——切面 0.1s 网格是渲染滤波输出，不能当位置证据 |
 | v0.3.8 | 结算阵容完整性 `roster_complete` 与录像者车辆代号 `author_vehicle_codename` |
 | v0.3.9 | **装填数据补齐**：`PlaybackData.reloads` 相位语义定稿（m0x30 subtype 15/16/17：f2=1/3/4/5/6/7 与 f4 = 服务器剩余弹数快照）+ 新增 additive 字段 `reload_effective`（方法 0x23 = 当前生效完整装填配置时长）；上游同步对方 `baseStatus` 攻防基地 canonical 0 → idle |
-| v0.4.1 | **数据面与资产管线修正 + 弹种权威化**：①地图几何改用文件内 authored 法线（静态 8985/9751 组 + SpeedTree 刚体子集 18/54 组；fail-closed 门槛不过则回退现算）；②PVR3 单通道 L8/A8 解码补全（954 张此前被静默丢弃；其中 18 张经地图 `alphamask` 被消费、934 张无消费方）；③`PenetrationRequest` 新增 additive `shell_type_id`、`tank/{id}.json` 新增 `type_id`——弹种判定改走 BlitzKit field9（客户端 `shells.xml <kind>` 语义枚举的翻译，4 值闭集），icon 词表降级为回退；④DVPL 解压分配上限 512 MiB；⑤其余为此前轮次的资产管线修正（DLC `packs/` 覆盖层读取、PVR3 宽高、SpeedTree 掩码判据、DXT5nm 法线、RM 金属度真实通道、地图导出器 gen2 悬空引用、坦克贴图双根回退）。**切面契约未变**（PlaybackData v2 / AiReviewFacet v1 不变），消费方无需适配。 |
+| v0.4.1 | **数据面与资产管线修正 + 弹种权威化**：①地图几何改用文件内 authored 法线（静态 8985/9751 组 + SpeedTree 刚体子集 18/54 组；fail-closed 门槛不过则回退现算）；②PVR3 单通道 L8/A8 解码补全（954 张此前被静默丢弃；其中 18 张经地图 `alphamask` 被消费、934 张无消费方）；③`PenetrationRequest` 新增 additive `shell_type_id`、`tank/{id}.json` 新增 `type_id`——弹种判定改走 BlitzKit field9（客户端 `shells.xml <kind>` 语义枚举的翻译，4 值闭集），icon 词表降级为回退；④DVPL 解压分配上限 512 MiB；⑤其余为此前轮次的资产管线修正（DLC `packs/` 覆盖层读取、PVR3 宽高、SpeedTree 掩码判据、DXT5nm 法线、RM 金属度真实通道、地图导出器 gen2 悬空引用、坦克贴图双根回退）；资产面随本轮全量重导重建并已同步 COS（2026-10-09 回拉核验：线上 manifest 与本地逐字节一致；manifest↔grounds 语义偏差见 [data-inventory.md](data-inventory.md) §2.1）。**切面契约未变**（PlaybackData v2 / AiReviewFacet v1 不变），消费方无需适配。 |
 | v0.4.0 | **回放解析确定性收口（语义/契约变更，消费方需 v0.4.0 适配——WotbTools PR #555 已同步）**：①`damage_received` 语义修正——**无证据 = `null`**（≠ 0，此前两者不可区分；Rust `Option<u32>`，旧版恒为数字）；②击杀原因统一 **255 = 未知/其他哨兵**（唯一可判定的规范值，此前未知可能落成任意缺省值）；③`infer_shots` 推断路径删除（无证据不产出）；④`PlaybackData.shots_from_loose_path` additive provenance 字段（炮弹来自宽松路径时置位）；⑤method38 权威配靶下 subtype=1 ARENA_INFO 全场 comp blob 修正——`turret_local`/`gun_local` 覆盖率 1/N → **N/N**；⑥#7–#12 遗留清零：HP seed 来源分级、comp 昵称窗放宽 1..=255、tank 白名单低 16 位 masked 匹配、decoded_target_gun_pitch 令牌优先、viewer 身份联表 eid 化（`tank_of_eid`/`comp_by_eid`）；type=28 槽位兜底 fail-closed。9 场语料全量重跑零回归 |
 | v0.3.15 | **实际搭载配置透出（弹容 N 权威化）+ AoI 重入段化滤波（D1 卡顿修复）**：①`vehicles[]` additive 新增 `config_idx`（`resolve_config_index` 三级证据链钉定的 `configs[]` 下标，与 shots 的 `shooter_config_idx` 同域）/`burst_size`（该配置弹夹容量原值，0=单发；configs 唯一时无歧义直接给出）/`turret_local`+`gun_local`（comp blob 模块局部 id，纯回放证据，服务器与 WASM 双路径产出）——多炮坦克各炮弹容不同（资产包 735 台中 52 台跨配置不一致），装填条弹容 N 的唯一权威 = 实际搭载配置，禁跨配置取最大/剩余弹数+1 推断；附带修复 annotate 解析缓存键（原按 tank_id 单键共享，同车不同玩家不同炮互相串值）；②位置滤波器按 AoI 在场段独立实例化（客户端 `onEnterAoI → setFilterOnEntity()` 每次新建，原整场单实例——重入车辆先钉上一段末位 ~1s 再滑移 ~1.5s 收敛，即 3D 回放「追赶滑移」卡顿），段首以 Type5 物化快照为种子，`visibility[]` additive 新增 `pose`（pos@14/yaw@26/pitch@30）；`vehicles[].pos/hull_yaw/pose_kf` 与 shots 炮口锚点在重入车辆上数值修正（9 场 79 次重入实测：重入帧渲染位 vs 真值 med 28.4m → **0.4m**），消费端零改动；附带更正 indexes.rs 两处 0x1440C70 注释（D2 翻案：越末帧=硬保持无外推分支，0.9=稀疏 bracket 跨度阈值因子） |
 | v0.3.14 | **type=5 昵称去掉 30 字节上限**（超长昵称阵营/车型联表失败修复）：真实对局存在 >30 字节的长 UTF-8 昵称（13 全角字符 = 39 字节，S16 Kranvagn 实测样本），旧 `1..=30` 长度域把合法昵称整条拒掉 → 实体无昵称 → 按昵称联花名册失败 → 该车 `team`/`tank_id` 落 0（fail-closed，前端表现为"阵营无法识别"）；长度域放宽到 u8 前缀全域 `1..=255`，保留 len==0 拒绝 + 载荷边界 + 合法 UTF-8 + 控制字符校验，fail-closed 语义不变；纯解码修复，无契约字段变化 |
@@ -50,6 +50,13 @@
 | v0.3.10 | **射击复现多 interaction 关联修复**：`unique shotId = 一次开火 = 一个 Shot`；作者严格路径在同 victim / 同钟出现多个 type=32 segment 时，优先用 `method8.hash6 ↔ type32.hash6` 确定关联；重复 method8 广播按 hash 去重，证据不足时继续 fail-fast，不猜选 |
 
 切面字段均为**附加**（`AiReviewFacet` v1 / `PlaybackData` v2 版本不变）。
+
+**数据面换源：已备未接线（2026-10-09 试接后回退）**：客户端解包 → 同格式 pb 的编码器
+（`tools/extract_vehicles.py` → `tools/emit_vehicle_pb.py`）已就绪并跑通回归（试接批
+`tank_cache` 重建仅 1 行差异），但**本地解包版本的验证未完成**，`data/tanks.pb` /
+`data/models.pb` 已回退为 BlitzKit 现役版本、暂不使用。待验证项与复用方法见
+[game-data-sources.md](game-data-sources.md) §5.2b、[data-inventory.md](data-inventory.md)
+§一注/§四。
 
 **工作区已合入、待发版的契约变更（2026-10-06，解析确定性改造第一批）**——目标：
 全部解析输出改为回放数据确定性导出或 fail-closed（None/哨兵），移除启发式匹配与无标记降级：
@@ -225,7 +232,7 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 | 文档 | 状态 |
 |---|---|
 | [docs/decoupling-status.md](decoupling-status.md) | **解耦的剩余决策与已定案差异**（2026-10-03 收敛；**2026-10-07 更新：GLB 自产管线已接线**——`data/cache/models/` 换为客户端解包导出，`cache/models` ≡ `local_models` 735/735）：已完成时间线；待决策口径（数据模型塌缩 / 25 辆无显示名 / `hull_traverse` 非同量）；封面图命名域与"换素材 ≠ 等价替换"（NCC 0.21）；已定案的 BlitzKit 侧差异清单；对外沟通材料。进度/接线/分发现状见 [data-inventory.md](data-inventory.md) |
-| [docs/local-model-export.md](local-model-export.md) | ✅ 已实施（2026-10-01，2026-10-02 补 §4 贴图实测）：报告 B 的几何替代做成 `tools/export_tank_glb.py`，验收口径从"按可达节点求和"收紧到**逐字节 + 节点顺序**——`collision.glb` **735/735**、`model.glb` **733/735** 等价（余 2 辆为 BlitzKit 侧行为，见该文 §5）；贴图槽位与 BlitzKit 完全对齐（731/735 图片数相同、无缺槽位）。§4 逐通道实测推翻了报告 B §3.3 的图源判断，并定下 `baseRMMap` 的**通道搬迁**（ch0→G 粗糙度、ch1→B 金属度）。**2026-10-07 起已替换运行期数据源**：`data/cache/models/` 换为本地导出（`cache/models` ≡ `local_models` 735/735，包与 COS 随发；见 [data-inventory.md](data-inventory.md) §3） |
+| [docs/local-model-export.md](local-model-export.md) | ✅ 已实施（2026-10-01，2026-10-02 补 §4 贴图实测）：报告 B 的几何替代做成 `tools/export_tank_glb.py`，验收口径从"按可达节点求和"收紧到**逐字节 + 节点顺序**——`collision.glb` **735/735**、`model.glb` **733/735** 等价（余 2 辆为 BlitzKit 侧行为，见该文 §5）；贴图槽位与 BlitzKit 完全对齐（731/735 图片数相同、无缺槽位）。§4 逐通道实测推翻了报告 B §3.3 的图源判断，并定下 `baseRMMap` 的**通道搬迁**（ch0→G 粗糙度、ch1→B 金属度）。**2026-10-07 起已替换运行期数据源**：`data/cache/models/` 换为本地导出（`cache/models` ≡ `local_models` 735/735，包与 COS 随发；见 [data-inventory.md](data-inventory.md) §一 #8） |
 
 ### 代码加固（2026-10-08，未发版）
 

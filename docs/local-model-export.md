@@ -4,7 +4,7 @@
 > `data/cache/models/` 仍是 Web/查看器的来源，本管线写到 `data/cache/local_models/` 并存
 > 逐辆对照）；**2026-10-07 已改为替换**：`data/cache/models/` 整体换为本地导出，与
 > `local_models/` 逐辆逐字节一致（735/735），包与 COS 随发——现状与接线证据见
-> [data-inventory.md](data-inventory.md) §3。可行性依据见
+> [data-inventory.md](data-inventory.md) §一 #8 与 §三。可行性依据见
 > [feasibility-glb-local-export.md](feasibility-glb-local-export.md)（报告 B）。
 
 ## 0. 结论

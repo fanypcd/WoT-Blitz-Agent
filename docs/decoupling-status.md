@@ -1,8 +1,9 @@
 # 解耦：剩余决策、封面图细节与已定案差异（BlitzKit → 本机客户端自产）
 
 > 2026-10-03 整理（自 2026-10-02 版收敛）。**现状 / 接线 / 分发**已并入
-> [data-inventory.md](data-inventory.md)（其 §三"已备好未接入"、§四"尚无代码的缺口"、
-> §五"接入状态一览"是当前的权威口径）；GLB 管线的实现铁律与逐维度差异见
+> [data-inventory.md](data-inventory.md)（其 §一/§1b 的数据总账——每项"目前来源 / 可替代
+> 来源 / 替代完成度"、§四"尚无代码的缺口与非代码障碍"、§五"完成度汇总"是当前的权威口径，
+> 2026-10-09 改版为总账形式）；GLB 管线的实现铁律与逐维度差异见
 > [local-model-export.md](local-model-export.md)；数据来源与逐字段映射见
 > [game-data-sources.md](game-data-sources.md)。
 >
@@ -15,9 +16,9 @@
 |---|---|---|
 | `game_data` 冻结故障修复（field2→field32） | ✅ 已在 main（`e3b22c3`；原分支载体已删） | [game-data-sources.md](game-data-sources.md) §6 |
 | 两处 pb 字段号 bug（引擎起火率 / 履带阻力） | ✅ 已提交 `5032251` | 报告 A §8；`data/tank_data/*.json` 重生成 |
-| **GLB 自产管线** | ✅ **已接线（2026-10-07）** | `data/cache/models/` 已整体换为自产导出：735 辆的 `model.glb` + `collision.glb` 全量 generator = `wotb-agent local sc2 exporter`，与 `data/cache/local_models/` 逐辆逐字节一致（735/735），包与 COS 已随发（[data-inventory.md](data-inventory.md) §3）；工具 `tools/export_tank_glb.py` + `tools/compare_tank_glb.py`；原等价性口径：`collision` **735/735**、`model` **733/735** 逐字节等价（含 UV0/1/2 与节点顺序），规则见 [local-model-export.md](local-model-export.md) §3 |
-| **封面图自产管线** | ✅ 可用，未接线（包内仍 BlitzKit 源，抽样 80/80 命中） | `tools/export_tank_icons.py`；**730/735**（详见 §3） |
-| **`tanks.pb`/`models.pb` 本机解析器** | ✅ 可用，未接线 | `tools/extract_vehicles.py`（客户端 XML/components/yaml/en.yaml → 同构 JSON）+ `tools/compare_vehicle_data.py`（pb→同形 dict 逐字段对照）；`data/tank_id_bridge.json` 735 条已固化。全量对照（2026-10-04）：**全部数值字段 0 不一致**，残差仅 BK 侧枪序（238，非规范）、客户端无本地化的模块/车名（≈145，BK 用自家 DB 补齐）、4 辆 BK 弹种集合不同、1 辆类别词缺失（见 §2 C5） |
+| **GLB 自产管线** | ✅ **已接线（2026-10-07）** | `data/cache/models/` 已整体换为自产导出：735 辆的 `model.glb` + `collision.glb` 全量 generator = `wotb-agent local sc2 exporter`，与 `data/cache/local_models/` 逐辆逐字节一致（735/735），包与 COS 已随发（[data-inventory.md](data-inventory.md) §一 #8）；工具 `tools/export_tank_glb.py` + `tools/compare_tank_glb.py`；原等价性口径：`collision` **735/735**、`model` **733/735** 逐字节等价（含 UV0/1/2 与节点顺序），规则见 [local-model-export.md](local-model-export.md) §3 |
+| **封面图自产管线** | ✅ 可用，未接线（包内仍 BlitzKit 源，抽样 80/80 命中） | `tools/export_tank_icons.py`；**735/735**（2026-10-10 改为客户端声明源确定性匹配后；详见 §3） |
+| **`tanks.pb`/`models.pb` 本机解析器** | ✅ 可用，未接线 | `tools/extract_vehicles.py`（客户端 XML/components/yaml/en.yaml → 同构 JSON）+ `tools/compare_vehicle_data.py`（pb→同形 dict 逐字段对照）+ `tools/emit_vehicle_pb.py`（同格式 pb 编码器）。`data/tank_id_bridge.json` 735 条已固化，**并已证明可纯客户端重建**。全量对照（2026-10-04 首轮）：**全部数值字段 0 不一致**；**2026-10-10 复测**：与 BK 剩余差异共 **122 处**且全部定性——119 枪序（研发序口径）、2 条名字（客户端两源皆无，补表兜底）、1 处 `10625` explosion_radius（BK 错值）、1 辆类别词（`81`，已改为精确 token 判定修掉）；弹种集合"差异"经查为 BK 按 gun module 塌缩（见 §2 C5） |
 | `baseRMMap` 通道搬迁（MR 槽） | ✅ 已提交 `923144d` | ch0→G（粗糙度）、ch1→B（金属度）；修后与 BlitzKit 的 G 通道一致 **1010/1011**；[local-model-export.md](local-model-export.md) §4.1 |
 | UV1/UV2 / `doubleSided` 对齐 | ✅ | TEXCOORD_1/2（139/18 辆）；`customCullMode==0`（1598/1598 零反例）——均见 [local-model-export.md](local-model-export.md) §3 |
 
@@ -36,11 +37,32 @@
 
 ### C2 车辆/模块本地化名的客户端缺口（2026-10-04 全量对照后的精确口径）
 
-`tools/compare_vehicle_data.py` 对 735 辆交集的对照结果：
-* **24 辆车**的短名不在客户端 `en.yaml`（Turbo/M41D/Spark/Magnate…，联动/BP 车为主）——
-  提取器回退模型名，BlitzKit 用自家 DB 补齐；
-* **≈73 个弹种 + ≈46 个模块**的显示名客户端侧缺失或为脏值（字面 `"None"`、通用名
-  "APCR Shell"），BK 侧均为专名——模块/弹种本地化不能完全来自客户端；
+**2026-10-10 复测与勘误（对照口径 `compare_vehicle_data.py`）**：与 BK 的**名称**差异
+**145 → 77 → 2**，过程如下（对照总差异 122 处 = 名称 2 + 枪序 119［口径］+ explosion_radius 1
+［BK 错值］，见 [data-inventory.md](data-inventory.md) §一注）：
+* 145 → 77：修 4 处提取缺陷（见下）；
+* 77 → 2：接入**第二字符串源**——客户端运行时下载的**本地化覆盖层**
+  （`%LOCALAPPDATA%/wotblitz/DAVAProject/cache/localizations/<lang>.yaml`，带 `.etag`）。
+  **此前"24 辆车 + 34 模块客户端确无"的结论是错的**：它们都在覆盖层里，随包
+  `Data/Strings/*.yaml` 只是构建时的基础快照、不含上线后新增的活动车与模块名（BP 车在
+  `camouflages.yaml` 注册、名字键 `<stem>_Custom[_short]` 只在覆盖层里）——这正是"游戏能正常
+  显示名字而只读 `Data/` 的解包查不到"的原因。覆盖层只缓存客户端语言（实测机为 zh-Hans），
+  但专名跨语言同形（Turbo/Magnate/Panlong 等 24/24 与 BK 英文名逐字一致）；提取器把它作
+  **缺失键回退、只接受拉丁值**。
+* 残差 **2 条**（两种来源都没有、BK 自建名）：1 枪（`_90mm_KwK_E_L56`，Tank 881 Edelweiss）
+  + 1 履带（`chassis_WZ-135G_FT`，Tank 2161 WZ Blaze）→ 由补充表兜底。
+* 依赖注记：覆盖层是 **per-user 运行时缓存**（需客户端登录同步过；新装/未同步时会缺），
+  提取链对缺名保持软失败 + XML 标签回退。
+
+**本轮修的 4 处提取缺陷**（此前把这些误算成"客户端缺失"）：
+1. **段前缀按字面查**：客户端条目的 userString 段前缀 ≠ pb 国家名（uk 的 list.xml/shells 用
+   `gb_vehicles:`，en.yaml 里 `gb_vehicles` 450 键与 `uk_vehicles` 478 键**并存**——历史结论
+   "uk 就是 uk_vehicles"与"uk 用 gb_vehicles"都只对一半，正确做法是按元素自带的前缀字面查）；
+   裸键回退会跨系相撞（`_47mm_3pdrAP` 在 usa 段的值是字面 "None"，uk 段才是 'QF AP Mk. IIIT'）；
+2. **A/B 变体回退**：重复条目的尾字母变体（`_75mm_M61AB`）无字符串，回退其基础键（仅在基础键
+   真实存在时）；
+3. **YAML 转义解码**：值里的 `ä`/` ` 等未被解码（3 个名字带字面反斜杠）；
+4. **转义感知的值捕获**：`"..."` 正则被转义引号截断（`Maybach HL 295.003 \"Somua\"`）。
 * **1 辆**（GB01 Medium Mark I）的 list.xml tags 缺类别词，BK 侧为 mediumTank。
 历史口径（报告 A 记 24、按 userString 全名口径测量）与此处 24 辆短名口径一致。
 
@@ -91,10 +113,26 @@
 
 ### 3.3 覆盖与残差
 
-**730/735**（3 个退到小图标兜底）。未命中 5 辆：`3361 T1_hvy`、`13841 Indien_Panzer`、
-`59137 R71_IS_2B`、`63553 F68_AMX_Chasseur_de_char_46`、`63585 PzVI_GuP`——客户端大/小图标目录
-均无以模型名或显示名可确定对应的条目。**刻意不启用模糊匹配**：实验里模糊匹配会落到**别的车**
-（`PzV_PzIV`→`PzIV`、`GB24_Centurion_Mk3`→`Oth41_Centurion_Mk3_S2`），宁可留空也不串车。
+**735/735**（`big` 732 / `big-skin` 2 / `small` 1，档位与命中来源记在 `_export_status.json` 的
+`grade`/`match_src`）。**匹配已改为客户端声明源的确定性对应**（不再用名字部分串匹配）：按
+**注册表**（`camouflages.yaml` 的 `previewWith`→`iconBig`，客户端自己引用图标名）→ **短名**
+（`list.xml` 的 `shortUserString` 字面键 → `Strings` ∪ 运行时本地化覆盖层）→ **全名** →
+**模型名**（含去 `XxNN_`/`Xy_`/`WH_` 前缀的变体）→ **stem＋显示名词**（两段声明名的确定性拼接）
+→ **人工别名表** 的顺序取候选，命中即归一化后整键相等；并加**唯一性护栏**（被多辆车声明的
+弱来源键弃用——`T34_hvy` 的全名 "T34"、`Chi_Ha` 的短名都会撞他车）、索引侧对称归一化与
+"小图不压大图"排序。实测来源分布：stem 416 / short 129 / full 122 / stem_prefix 42 /
+alias 18 / registry 5 / stem_noise 1 / stem_name 2。
+未命中 2 辆：`3361 T1_hvy`、`59137 R71_IS_2B`——客户端大/小图标目录均无以模型名或显示名可
+确定对应的条目；`51713 Churchill_LL`（S 系 Churchill III）仅 64×32 小图。
+
+2026-10-10 另修三处提取缺陷（当时 730/735、5 辆缺）：① 索引侧对称归一化——候选侧会剥
+`XxNN_` 前缀与皮肤后缀，索引侧却不剥，导致"同车不同皮肤/带内部编号"的图标永远匹配不上
+（`IS-4` 只有 `_skin` 大图、`Indien_Panzer` 只有 `G88_Indien_Panzer_skin`）；② 小图标命中会
+压掉更好的候选（`112 Glacial` 的 128×32 条带压掉了 `china-112_event` 大图）；③ 补 3 条别名
+（`F68_..._Chasseur_de_char_46`→`france-CDC`、`Ch23_112`→`china-112_event`、`PzVI_GuP`→
+`japan-Tiger_I_GuP`）。**仍刻意不启用模糊匹配**：实验里模糊匹配会落到**别的车**
+（`PzV_PzIV`→`PzIV`、`GB24_Centurion_Mk3`→`Oth41_Centurion_Mk3_S2`），宁可留空也不串车；
+派生键另加"剥编号须留 ≥2 词"约束（`T34_hvy`→`hvy` 会误撞 `T1_hvy`）与撞键同车校验。
 
 ### 3.4 ⚠️ 与 BlitzKit 封面不是同一幅画
 

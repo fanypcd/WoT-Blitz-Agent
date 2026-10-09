@@ -11,8 +11,11 @@
   * 交集内逐字段比对才是重点：浮点相对容差 1e-6（pb 是 f32，客户端 XML 十进制 → f64）；
     None/[]/{} 与"键缺失"视为相等（serde 的 skip_serializing_if 语义）。
   * 豁免字段：`dev_name`（BlitzKit 的 slug，客户端无此概念）、`hull_traverse`（field27
-    与客户端非同量）、`initial_turret_rotation`（在 .sc2 节点变换内）、`turrets[].name`
-    （Rust 解析器跳过了 pb 的炮塔名块，恒为空串）。
+    是静止迷彩、与"车体转速"非同量）、`turrets[].name`（Rust 解析器跳过 pb 的炮塔名块，
+    恒为空串）。`initial_turret_rotation` 自 2026-10-10 起有客户端源（XML
+    `<turretInitialRotation>`），已纳入比对。
+  * **空心包围盒 = 无数据**：min/max 全 0（或 pb 里的空 Vec3 消息，如 43 辆无炮塔 TD 的
+    炮塔 bbox，`0a 00 12 00`）两侧都归一成 None，不算"零盒"（见 `is_hollow_bbox`）。
 
 用法：
     python tools/compare_vehicle_data.py                 # 全量对照
@@ -261,7 +264,8 @@ def parse_tanks(buf: bytes) -> list[dict]:
             elif (f, w) == (26, 5):
                 t["speed_reverse"] = round(float(v2), 6)
             elif (f, w) == (27, 5):
-                t["hull_traverse"] = round(float(v2), 6)
+                # field27 的真身是静止迷彩系数（旧实现误当转速；见 blitzkit.rs 注释）
+                t["camouflage_still"] = round(float(v2), 6)
             elif (f, w) == (31, 0):
                 t["weight"] = float(v2)
             elif (f, w) == (32, 2):
@@ -346,9 +350,10 @@ def _pb_gun(b: bytes) -> dict | None:
 
 
 def _pb_shell(b: bytes) -> dict:
-    s = {"id": 0, "name": "", "shell_type": "", "damage": 0.0, "penetration": 0.0,
-         "module_damage": 0.0, "velocity": 0.0, "range": 0.0, "penetration_far": 0.0,
-         "caliber": 0.0, "normalization": 0.0, "ricochet": 0.0, "explosion_radius": 0.0}
+    s = {"id": 0, "name": "", "shell_type": "", "shell_type_id": None, "damage": 0.0,
+         "penetration": 0.0, "module_damage": 0.0, "velocity": 0.0, "range": 0.0,
+         "penetration_far": 0.0, "caliber": 0.0, "normalization": 0.0, "ricochet": 0.0,
+         "explosion_radius": 0.0}
     name_b = b""
     for f, w, v in fields(b):
         if (f, w) == (1, 0):
@@ -379,6 +384,8 @@ def _pb_shell(b: bytes) -> dict:
             s["explosion_radius"] = round(float(v), 6)
         elif (f, w) == (13, 0):
             s["range"] = float(v)
+        elif (f, w) == (9, 0):
+            s["shell_type_id"] = v
     s["name"] = extract_name(name_b)
     return s
 
@@ -491,17 +498,44 @@ def _pb_model_gun(b: bytes) -> dict:
 # ---------------------------------------------------------------------------
 # diff
 # ---------------------------------------------------------------------------
-SKIP_PATHS = {"dev_name", "hull_traverse", "initial_turret_rotation"}
+SKIP_PATHS = {"dev_name", "hull_traverse"}  # initial_turret_rotation 自 2026-10-10 有客户端源，纳入比对
 
 
 def is_emptyish(v) -> bool:
     return v is None or v == [] or v == {}
 
 
+def is_hollow_bbox(v) -> bool:
+    """全 0 包围盒 = 空心占位（无数据），归一成 None 参与比较。
+
+    实测 43 辆无炮塔 TD 的炮塔 bbox 在两侧都是空占位：客户端 YAML 无 turret 段、XML 为全 0，
+    BlitzKit 的 pb 是 4 字节空消息（min/max 空 Vec3）；Rust 严格解析（parse_vec3 空 → None）
+    落成 null，而本工具的宽松解析会把空 Vec3 读成 [0,0,0]。统计口径统一为
+    「空消息 / 全 0 盒 = 无数据」，避免把空心算成"双方都是零盒"而掩盖它。
+    """
+    if not isinstance(v, dict) or set(v) != {"min", "max"}:
+        return False
+    mn, mx = v["min"], v["max"]
+    return (isinstance(mn, list) and isinstance(mx, list)
+            and all(x == 0 for x in mn) and all(x == 0 for x in mx))
+
+
+def _is_zero_vec(v) -> bool:
+    """全 0 三维向量 = 无值（BK 对全 0 的原点向量直接省略；`J24` 类 TD 的 gunPosition 即 0）。"""
+    return (isinstance(v, list) and len(v) == 3
+            and all(isinstance(x, (int, float)) and x == 0 for x in v))
+
+
 def norm(v):
     """None/[]/{} 统一成 None；浮点按 pb f32 精度取整比较（1e-6 相对容差在树遍历时做）。"""
+    if is_hollow_bbox(v):
+        return None
+    if isinstance(v, dict) and "shell_type_id" in v and v["shell_type_id"] is None:
+        # proto3 零值省略：field9 缺失 == 0 == AP（penetration.rs 同口径）
+        v = {**v, "shell_type_id": 0}
     if isinstance(v, dict):
-        return {k: norm(x) for k, x in v.items() if not is_emptyish(x)}
+        return {k: (None if k.endswith("origin") and _is_zero_vec(x) else norm(x))
+                for k, x in v.items() if not is_emptyish(x)}
     if isinstance(v, list):
         return [norm(x) for x in v]
     return v
@@ -610,8 +644,7 @@ def main() -> int:
         if bt and lt and bt["name"] != lt["name"]:
             name_mis.append((tid, bt["name"], lt["name"]))
 
-    print(f"\n=== 交集 {compared} 辆的逐字段差异（豁免 dev_name/hull_traverse/"
-          f"initial_turret_rotation/turrets[].name）===")
+    print(f"\n=== 交集 {compared} 辆的逐字段差异（豁免 dev_name/hull_traverse/turrets[].name）===")
     total = sum(out.values())
     for path, n in out.most_common(40):
         print(f"  {n:6d}  {path}")
