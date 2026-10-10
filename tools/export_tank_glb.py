@@ -21,12 +21,35 @@
      fourcc 里的情形，`pfFlags` bit31 置位）；编码 `image/webp`。
 
 BlitzKit 契约要点（对照基准）：
-  * 所有节点变换为 identity（姿态由前端运行时写矩阵）；
+  * 所有节点变换为 identity（姿态由前端运行时写矩阵）；**非姿态节点的静态变换烘进顶点**，
+    见下 §静态变换与状态开关（2026-10-10 修正，与 BlitzKit 的有意分歧）；
   * mesh 挂在名为批次号（`0000`/`0001`）的子节点上；mesh 名恒为 `RenderBatch`；
   * 排除 `HP_*` 特效锚点、`*_crash_*`、`chassis_chassis_*`、`*lod<d>ummy*` 烘焙占位；
   * 每个部件的 LOD0 批次里**丢弃 `Shadow_Material` 烘焙阴影**，再取剩余候选；
   * `collision.glb` 按**装甲板号连续 run** 切节点（命名 `<part>_armor_<N>`），与客户端三角序一致；
   * NaN 规范化为 `0x7fc00000`；索引按最大索引自适应 uint16/uint32。
+
+静态变换与状态开关（2026-10-10）——两条**超出 BlitzKit 契约**的修正，依据均来自客户端数据：
+
+  * **静态变换烘进顶点**：客户端渲染施加每个实体的 TransformComponent（祖先累乘；`.sc2`
+    里 `tc.world*` 是客户端已烘好的同值）。除**运行期姿态节点**外，把累计静态变换烘进
+    POSITION/NORMAL 两段（GLB 节点仍全 identity，消费方零改动）。姿态节点 =
+    `hull` / `turret_NN` / `gun_NN` / `gun_NN_mask` / `chassis_*`（tank 组件每帧写矩阵
+    覆盖其作者变换）。**实证**：Pershing 的 `gun_01` 作者变换 = `[0,0,0.4779]`，而其原始
+    顶点已对齐炮盾中心（碰撞 gun 盒 + gun 原点 == 视觉 bbox）——施加反而把炮管抬穿炮盾
+    顶 0.46 m；Rhm.Pzw.（28689）的 `gun_01_mask_cap` 反向：自身 local=0、`world=[0,1.855,
+    2.278]≠0`，不施加就贴在车底地面（用户在装甲查看器看到的正是这块）。**场景根**
+    （车体锚点/scene placement）同样不烘：视觉、碰撞与 `models.pb` 原点同处"根前"空间
+    （M-5-Y 根 +0.8207 y，turret 原点仍与原始炮塔 bbox 中心对齐），烘根会把三者拆散。
+    判据用**局部 TRS 累乘**而非 `world*` 直取：`world*` 含姿态祖先的作者残值，而运行期
+    覆盖的正是那些节点——装饰件相对的是"被覆盖后"的父帧。
+  * **StateSwitcher 容器按初始态过滤**：容器（`state_entity_NN` 等）的 `ssc.activeState`
+    索引 `ssc.stateN` 名对应的子实体，只导激活那个；**越界（-1）= 整容器关闭**（客户端
+    初始态没有可激活的 stateN）。不滤会让开/闭两套形态叠加（Oth92_JagdPantherII_Titan
+    的护盾：`state_entity_01` 的 close 几何与 00 的 open 几何同屏）。`*_hide_elements*`
+    容器是**产品决策例外**（拆件/皮肤变体全渲染，用户要求完整模型），不参与过滤。
+    碰撞场景的 `*_state_NN` 变体**不在**此列：碰撞 `.sc2` 不带 StateSwitcher，初始态不可
+    判定（详见 docs/local-model-export.md §静态变换）。
 
 贴图槽位口径（`--texture-mode`）：
   * `semantic`（缺省，推荐）：按 PBR 语义正确装配——
@@ -54,6 +77,7 @@ import argparse
 import concurrent.futures
 import io
 import json
+import math
 import os
 import pathlib
 import re
@@ -703,6 +727,120 @@ def _gltf_slot_name(glsl: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# 静态变换 / 状态开关（2026-10-10 修正，依据与口径见模块 docstring 同名小节）
+# ---------------------------------------------------------------------------
+# 运行期被姿态系统覆盖变换的节点：tank 组件每帧写矩阵（车体朝向、炮塔偏转、炮管俯仰、
+# 炮盾跟随、行动装置），其作者变换一律无效。
+POSE_NODE_RE = re.compile(r"^(?:hull|turret_\d+|gun_\d+|gun_\d+_mask|chassis_\w+)$")
+# 局部变换的"视为单位"阈值：低于此只可能是浮点噪声，不烘（保住与 BlitzKit 的逐字节一致）。
+# 1e-5 = 0.01 mm / 2e-5 rad——全库实测噪声量级：Oth52_Toxique 的 turret_01_nc 平移
+# [-1.04e-06, -3.18e-06, 0]、旋转 1.2e-5 rad（作者工具往返的舍入残渣）；而真正要修的
+# 最小作者值是 0.002 m（Caernarvon 5.5 mm）起——两档相差两个数量级，阈值落在中间。
+IDENTITY_EPS = 1e-5
+# 产品决策例外：拆件/皮肤变体容器不参与状态过滤（全渲染，用户要求完整模型）
+STATE_KEEP_ALL_MARK = "hide_elements"
+
+
+def is_pose_node(name: str) -> bool:
+    """运行期姿态系统覆盖变换的节点（车体/炮塔/炮管/炮盾/行动装置）。"""
+    return bool(POSE_NODE_RE.match(name))
+
+
+def quat_mat(q) -> np.ndarray:
+    """DAVA 四元数 (x, y, z, w) → 3x3 旋转矩阵（f64，与客户端同约定）。"""
+    x, y, z, w = (float(v) for v in q)
+    n = math.sqrt(x * x + y * y + z * z + w * w) or 1.0
+    x, y, z, w = x / n, y / n, z / n, w / n
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]], dtype=np.float64)
+
+
+def local_trs(tc: dict | None) -> np.ndarray | None:
+    """实体自身局部变换（4x4）；缺组件或**视为单位**（< IDENTITY_EPS）→ None。
+
+    None 即"无需烘焙"，让调用方走字节不变的快路径——这是与 BlitzKit 逐字节对照
+    仍成立的前提（全库 735 辆里只有 19 辆视觉模型带非单位静态变换）。
+    """
+    if not isinstance(tc, dict):
+        return None
+    t = tc.get("tc.localTranslation") or (0.0, 0.0, 0.0)
+    q = tc.get("tc.localRotation") or (0.0, 0.0, 0.0, 1.0)
+    s = tc.get("tc.localScale") or (1.0, 1.0, 1.0)
+    if (max(abs(float(v)) for v in t) < IDENTITY_EPS
+            and abs(float(q[3]) - 1.0) < IDENTITY_EPS
+            and max(abs(float(v)) for v in q[:3]) < IDENTITY_EPS
+            and max(abs(float(v) - 1.0) for v in s) < IDENTITY_EPS):
+        return None
+    m = np.eye(4)
+    m[:3, :3] = quat_mat(q) * np.asarray(s, dtype=np.float64)[None, :]
+    m[:3, 3] = np.asarray(t, dtype=np.float64)
+    return m
+
+
+def compose_static(acc: np.ndarray | None, tc: dict | None) -> np.ndarray | None:
+    """把实体的局部变换并入累计静态变换（None = 恒等；父在前、子在后）。"""
+    local = local_trs(tc)
+    if local is None:
+        return acc
+    return local if acc is None else acc @ local
+
+
+def matrix_is_identity(m: np.ndarray) -> bool:
+    """累计变换是否（在 IDENTITY_EPS 内）为恒等——抵消对会走到这里。
+
+    典型：`*_cap_pivot`(+t) → 子件(−t)（F119_Projet_Murat 等）、`Socket_node-*` 下的
+    枪痕（Van_Helsing/Oth25_HWT20_FalconFire）。乘积为恒等 ⇒ 烘了也不变字节，直接跳过，
+    让 `static_baked` 统计与**真实受影响集**一致。
+    """
+    return (np.abs(m[:3, 3]).max() < IDENTITY_EPS
+            and np.abs(m[:3, :3] - np.eye(3)).max() < IDENTITY_EPS)
+
+
+def bake_vertices(v: np.ndarray, m: np.ndarray) -> np.ndarray:
+    """把静态变换烘进交错顶点流的 POSITION(0:3)/NORMAL(3:6)，其余通道不动。
+
+    法线走逆转置（含缩放）并归一化；**纯平移不重写 NORMAL 段**——避免只挪位置时
+    给法线引入无谓的末位扰动。NaN 不必特殊处理：下游 `canon_nan` 会统一规范化。
+    """
+    out = np.array(v, dtype="<f4", copy=True)
+    out[:, 0:3] = (out[:, 0:3].astype(np.float64) @ m[:3, :3].T + m[:3, 3]).astype("<f4")
+    if not np.allclose(m[:3, :3], np.eye(3), atol=IDENTITY_EPS):
+        nrm = out[:, 3:6].astype(np.float64) @ np.linalg.inv(m[:3, :3]).T
+        ln = np.linalg.norm(nrm, axis=1, keepdims=True)
+        ln[ln == 0] = 1.0
+        out[:, 3:6] = (nrm / ln).astype("<f4")
+    return out
+
+
+def state_keep_children(sw: dict | None, container_name: str,
+                        child_names: list[str]) -> tuple[bool, set[str] | None]:
+    """StateSwitcherComponent → (容器是否导出, 允许的子实体名集合 | None = 全保留)。
+
+    客户端进场状态 = `ssc.activeState`（作者态；与 tools/export_map_glb.py 的
+    "开关态取 StateSwitcherComponent.activeState 初始值"同一口径）。`ssc.state{N}`
+    给出该状态对应的子实体名，只有那一个参与渲染；**越界（-1）= 容器整体关闭**。
+    容器上的非状态子实体（FX 等）保留——只丢确定是"非激活态形态"的那些。
+    激活名不在子实体里（形态未见过）→ fail-open 全保留（宁可多、不可少）。
+    """
+    if not isinstance(sw, dict):
+        return True, None
+    if STATE_KEEP_ALL_MARK in (container_name or ""):
+        return True, None
+    active = sw.get("ssc.activeState", 0)
+    if not isinstance(active, int):
+        active = 0
+    if active < 0:
+        return False, None
+    names = {v for k, v in sw.items() if k.startswith("ssc.state") and isinstance(v, str) and v}
+    active_name = sw.get(f"ssc.state{active}")
+    if not isinstance(active_name, str) or active_name not in child_names:
+        return True, None
+    return True, {n for n in child_names if n not in names} | {active_name}
+
+
+# ---------------------------------------------------------------------------
 # 导出
 # ---------------------------------------------------------------------------
 def _excluded(name: str) -> bool:
@@ -728,6 +866,30 @@ def _excluded(name: str) -> bool:
 
 _STATE_RE = re.compile(r"State ?[1-9]")
 _LOD_SUFFIX_RE = re.compile(r"_lod\d")
+
+
+def missing_mr_factors(m: dict) -> tuple[float, float]:
+    """**无 `metallicRoughnessTexture`** 时该写的 `(metallicFactor, roughnessFactor)`。
+
+    ⚠️ 背景（2026-10-09 用户"真实坦克模型看起来发白"报障）：glTF 规范里这两个字段的
+    **默认值是 1.0/1.0**——不写就是"全金属 + 全粗糙"，金属没有漫反射，整块只剩被 albedo
+    染色的环境反射 ⇒ 在逐图 IBL 的场景里发白。而老式车（约 270 辆，内联槽名是 legacy
+    `albedo`/`normalmap`）**在客户端根本没有 `_RM`/`_MISC` 文件**（40 辆 / 2996 个材质实测
+    0/2996 存在），它们的作者属性是 `inGlossiness`（实测 0.5 ×2899、0.4 ×84、0.3 ×13）
+    与 `inSpecularity 0.5`，**没有任何金属度属性**（0/2996）——即客户端把它们当
+    **涂装钢铁（电介质）**渲染。故：金属度取 0（若确有 `metallic`/`metalness` 属性则照用），
+    粗糙度取 `1 − inGlossiness`（缺省 glossiness 0.5 → 粗糙 0.5）。
+    对照：有 MR 贴图的现代车那侧数据正常（粗糙均值 142–178、金属均值 22–86，仅 3–14% 像素
+    >200），不受此改动影响。
+    """
+    props = m.get("properties") or {}
+    metal = 0.0
+    for k in ("metallic", "metalness", "metalAmount"):
+        if k in props:
+            metal = float(prop_floats(m, k, (0.0,))[0])
+            break
+    gloss = float(prop_floats(m, "inGlossiness", (0.5,))[0]) if "inGlossiness" in props else 0.5
+    return max(0.0, min(1.0, metal)), max(0.0, min(1.0, 1.0 - gloss))
 
 
 def export_visual(sc2_path: pathlib.Path, glb: Glb, tex: TexStore, mode: str, stem: str) -> tuple[list[int], dict]:
@@ -784,6 +946,12 @@ def export_visual(sc2_path: pathlib.Path, glb: Glb, tex: TexStore, mode: str, st
                               _encode_webp(out, keep_alpha), "image/webp")
                 target = pbr if glsl in ("baseColorTexture", "metallicRoughnessTexture") else mat
                 target[glsl] = {"index": i}
+        # 无 MR 贴图 → **必须显式写因子**：glTF 的默认值是 metal 1 / rough 1（全金属），
+        # 会让这批老式车只剩环境反射（见 missing_mr_factors 的实测依据）
+        if "metallicRoughnessTexture" not in pbr:
+            mf, rf = missing_mr_factors(m)
+            pbr["metallicFactor"] = mf
+            pbr["roughnessFactor"] = rf
         # alphaTest 材质（履带/镂空）→ MASK + cutoff。判据是**两个条件同时成立**：
         #   ① 材质带 `alphatestThreshold` 属性（车体没有、履带有）；cutoff 直接取该属性值
         #      （实测与 BlitzKit 逐值相等：0.3/0.05/0.5/0.03 全对）；
@@ -806,10 +974,19 @@ def export_visual(sc2_path: pathlib.Path, glb: Glb, tex: TexStore, mode: str, st
         stats["materials"] = len(glb.materials)
         return mat_cache[name]
 
-    def build(e: dict):
+    def build(e: dict, m_acc: np.ndarray | None, is_root: bool = False):
         comps = entity_components(e)
         name = e.get("name") or e.get("##name") or "node"
         rc = comps.get("RenderComponent")
+        # 静态变换累计：场景根（车体锚点）与运行期姿态节点不贡献自身变换（见模块 docstring）
+        m = m_acc if (is_root or is_pose_node(name)) else compose_static(m_acc, comps.get("TransformComponent"))
+        # StateSwitcher 容器：非激活态子树不导出（hide_elements 例外，见 state_keep_children）
+        child_names = [k.get("name") for k in nested(e)]
+        keep_container, keep_names = state_keep_children(
+            comps.get("StateSwitcherComponent"), name, child_names)
+        if not keep_container:
+            stats["state_containers_off"] = stats.get("state_containers_off", 0) + 1
+            return None
         mesh_nodes: list[int] = []
         # 注：坦克**不做**实体可见位过滤——客户端进场隐藏的皮肤/开关态子树（visibility=2）
         # BlitzKit 产物里是保留的（已实证 hull_hide_elements_skin3 vis=2）。这与
@@ -843,18 +1020,28 @@ def export_visual(sc2_path: pathlib.Path, glb: Glb, tex: TexStore, mode: str, st
                 if ds is None or ds not in geo.groups:
                     continue
                 v = geo.verts(ds)
+                if m is not None and not matrix_is_identity(m):
+                    v = bake_vertices(v, m)
+                    stats["static_baked"] = stats.get("static_baked", 0) + 1
                 idx = geo.indices(ds)
                 mesh_nodes.append(glb.node(bk, mesh=glb.mesh(
                     v[:, 0:3], v[:, 3:6], geo.uv_sets(ds), idx, material_for(nm))))
                 stats["meshes"] += 1
                 stats["tris"] += len(idx) // 3
-        kids = [c for c in (build(k) for k in nested(e)) if c is not None]
+        kids = []
+        for k in nested(e):
+            if keep_names is not None and k.get("name") not in keep_names:
+                stats["state_nodes_dropped"] = stats.get("state_nodes_dropped", 0) + 1
+                continue
+            c = build(k, m)
+            if c is not None:
+                kids.append(c)
         if not mesh_nodes and not kids:
             return None
         stats["nodes"] += 1
         return glb.node(name, children=mesh_nodes + kids)
 
-    roots = [n for n in (build(e) for e in nested(scene)) if n is not None]
+    roots = [n for n in (build(e, None, True) for e in nested(scene)) if n is not None]
     return roots, stats
 
 
@@ -863,15 +1050,25 @@ def export_collision(sc2_path: pathlib.Path, scg_path: pathlib.Path, glb: Glb) -
     geo = Geometry(scg_path)
     roots, stats = [], {"plates": 0, "tris": 0}
     for e in nested(scene):
-        rc = entity_components(e).get("RenderComponent")
+        comps = entity_components(e)
+        rc = comps.get("RenderComponent")
         if not rc:
             continue
-        part = e.get("name")
+        part = e.get("name") or "part"
+        # 与视觉侧同一静态变换口径：根/姿态节点不烘（碰撞模块的局部件由装甲查看器
+        # 按 models.pb 原点装配、运行期按模块姿态覆盖；实测 735 辆全为姿态名 → 恒等，
+        # 与现状逐字节一致）。碰撞 `*_state_NN` 变体不做状态过滤（碰撞 .sc2 不带
+        # StateSwitcher，初始态不可判定——见模块 docstring）。
+        m = None if is_pose_node(part) else compose_static(None, comps.get("TransformComponent"))
         for b in (rc.get("rc.renderObj") or {}).get("ro.batches", {}).values():
             ds = ka_id(b.get("rb.datasource"))
             if ds is None or ds not in geo.groups:
                 continue
             v = geo.verts(ds)
+            baked = m is not None and not matrix_is_identity(m)
+            if baked:
+                v = bake_vertices(v, m)
+                stats["static_baked"] = stats.get("static_baked", 0) + 1
             pos, nrm = v[:, 0:3], v[:, 3:6]
             plate_of = np.rint(v[:, v.shape[1] - 1]).astype(int)
             idx = geo.indices(ds)
@@ -887,7 +1084,8 @@ def export_collision(sc2_path: pathlib.Path, scg_path: pathlib.Path, glb: Glb) -
             if cur:
                 runs.append(cur)
             for plate, ridx in runs:
-                mi = glb.mesh(pos, nrm, None, ridx, None, share_key=("collision", part, ds))
+                mi = glb.mesh(pos, nrm, None, ridx, None,
+                              share_key=("collision", part, ds, baked))
                 roots.append(glb.node(f"{part}_armor_{plate}", mesh=mi))
                 stats["plates"] += 1
                 stats["tris"] += len(ridx) // 3
@@ -958,6 +1156,10 @@ def export_tank(game_data: pathlib.Path, tank_id: int, nation: str, stem: str,
         data = glb.finish(roots, "wotb-agent local sc2 exporter")
         (out / "model.glb").write_bytes(data)
         st.update({k: s[k] for k in ("nodes", "meshes", "tris", "materials")})
+        # 2026-10-10 修正的足迹（静态变换烘焙/状态过滤只在少数车非零，见模块 docstring）
+        for k in ("static_baked", "state_containers_off", "state_nodes_dropped"):
+            if s.get(k):
+                st[k] = s[k]
         st["tex_fail"] = s["tex_fail"]
         st["model_bytes"] = len(data)
     except Exception as e:  # noqa: BLE001

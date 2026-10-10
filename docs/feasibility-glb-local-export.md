@@ -10,6 +10,8 @@
 > ① **已实施**：`tools/export_tank_glb.py` 落地，验收口径从"按可达节点求和"收紧到
 > **逐字节 + 节点顺序**——`collision` **735/735**、`model` **733/735**；§5.0 的 35 辆
 > "4 类规则缺口"已由 `LodComponent` 判据、全批次导出等规则收敛（见该文 §3）。
+> ⚠️ 2026-10-10 起其中 **23 辆为有意分歧**（静态变换烘焙 / 状态过滤），等价数变
+> **710/735**——见 [local-model-export.md](local-model-export.md) §5.1。
 > ② **§3.3 的槽位指派结论已被逐通道实测推翻**：BlitzKit 的 `normal` 实为 legacy
 > `images/<T>_NM`（DXT1，非"miscMap.R 灰度"）；`metallicRoughness` 的 **G** 实为
 > `baseRMMap` 通道 0（粗糙度，非"legacy normalmap"）；`occlusion` 与 `miscMap.R`
@@ -51,7 +53,7 @@
 | 节点命名 | 客户端 `.sc2` 实体树直译：`hull`、`turret_02`、`gun_04`、`gun_04_mask`、`chassis_track_L`、`chassis_wheel_L_01`…，mesh 挂在名为 `0000`/`0001` 的批次子节点上 | **扁平**，命名 `<part>_armor_<N>`（`hull_armor_1..13,16`、`turret_02_armor_*`、`gun_04_armor_1..5`） |
 | mesh 属性 | `POSITION`/`NORMAL`/`TEXCOORD_0` + 索引 | 仅 `POSITION`/`NORMAL`，**无材质无贴图** |
 | mesh 名 | 恒为 `RenderBatch` | — |
-| 变换 | **所有节点 identity**（姿态由前端运行时写矩阵） | identity |
+| 变换 | **所有节点 identity**（姿态由前端运行时写矩阵）⚠️ 2026-10-10 起超出该契约：**非姿态节点**的静态变换烘进顶点（节点仍全 identity），见 [local-model-export.md](local-model-export.md) §3 铁律 14 | identity |
 | 材质 | 名 = 材质继承链的**根** `materialName`（`E_100_mtr`、`G56_E_100_upd_track_mtr`），含 `alphaMode:MASK`/`alphaCutoff:0.03`/`doubleSided` | 无 |
 | `userData` | **为空**（装甲分类由前端用节点名 + `models.pb` 厚度合成） | 同 |
 

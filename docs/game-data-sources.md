@@ -180,6 +180,12 @@ T1_hvy / R71_IS_2B 图标"的结论均已撤销：声明分别为 `usa-T1Heavy`�
 | 坦克图标 | `Data/Gfx/UI/BigTankIcons/`、`.../BattleScreenHUD/SmallTankIcons/` |
 | 客户端版本号 | `Data/version.txt.dvpl`（`update-data` 的版本感知依据） |
 
+逐车 yaml 的 `suspension:` 块（逐轮 12 B 数组 + 履带折线 + 弯曲/铺放系数，730/764 辆有）
+已由 `tools/export_tank_suspension.py` 导出为包内 `suspension/<tank_id>.json`（additive，
+725/735 辆）；字节结构、节点绑定契约与未定项见
+[tank-suspension-client-re.md](tank-suspension-client-re.md)；接线状态见
+[data-inventory.md](data-inventory.md) §四。
+
 ---
 
 ## 三、`tank_id` ↔ 游戏模型名的桥（**已可由客户端重建**，2026-10-10）
@@ -322,29 +328,38 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
 ### 5.2 资产面（COS）增量发布流程
 
 桶：`wotbtools-assets-1478073677`（ap-shanghai），布局与 `release/asset_pack/` 逐项对应，
-根 `manifest.json` 含全量 sha256（**4167 条**，2026-10-09；⚠️ **例外 36 张** `map/*/ground.webp`
-——条目记的是**俯视合成前**的哈希，打包器先于合成器、合成器不刷 manifest，逐文件按 manifest
-校验这 36 项必然失配；朝向契约、重烘与读回校验见 §5.5）。**首选工具**：
+根 `manifest.json` 含全量 sha256（**4239 条**，2026-10-10 重算）。此前"36 张 `map/*/ground.webp`
+的条目记**合成前**哈希"的偏差已闭：打包器新增 `--refresh-manifest`（不重打包、按包内容重算
+全部条目），发布链固定为**合成之后、上传之前**跑一次
+`python scripts/export_asset_pack.py --refresh-manifest`；朝向契约、重烘与读回校验见 §5.5。
+**首选工具**：
 [tools/upload_asset_pack_cos.py](../tools/upload_asset_pack_cos.py)（差分比对 + 并发上传 +
-`manifest.json` 强传 + Cache-Control 策略）；下列要点同时是手工流程的检查单：
+`manifest.json` 强传 + Cache-Control 策略；`--only <prefix>` = **局部发布**——只传匹配前缀的
+文件，且 manifest 改为**拉远端清单就地补丁**、只登记本次上传的条目，多会话共用一个包目录时
+不会把他人在飞的改动宣布为线上内容。2026-10-10 坦克件批次即用此模式：`--only glb/` 上传
+294 件 / 583.8 MB，桶内 manifest 4167 条中只更新了这 294 条，回拉 1470/1470 glb 一致）；
+下列要点同时是手工流程的检查单：
 
 1. **先做一致性安全检查**：比对桶内 `manifest.json` 与本地旧包快照的 sha256，并抽查若干
    对象核对清单哈希——确认桶处于预期状态，避免覆盖他人改动
 2. **按 manifest 差分上传**，只传真正变化的：`新增 + 内容变更` 的对象，外加 `manifest.json`
    本身（2026-10-02 那轮 479 个对象 / 2.58 MB；2026-10-07 全量重导那轮 72 个对象 / 751.6 MB，
    其余 4096 个未触碰）
-3. ⚠️ **判据是 `Content-Length`、不是哈希**：内容变了但字节数恰好相同的对象会被静默跳过
-   （2026-10-07 的 `map/lagoon/ground.webp` 即此例）。第 5 步的逐对象回拉校验能把这类漏网
-   捞出来，确认后须用 SDK `put_object` 强制覆盖
+3. **跳过判定 = 桶内 `manifest.json` 的逐文件 sha256**（2026-10-10 起；旧实现只比
+   `Content-Length`，把"内容变了但字节数恰好相同"的对象静默跳过——2026-10-07 的
+   `map/lagoon/ground.webp` 即此例，当时须用 SDK `put_object` 强制覆盖；2026-10-10 的坦克
+   顶点烘焙同属此类：只改顶点浮点、不改字节数）。远端 manifest 缺该条目（首传/旧对象）时
+   回退尺寸比对；取不到远端 manifest 则整体回退并告警——此时第 5 步的逐对象回拉校验是唯一兜底
 4. ⚠️ **上传会遍历包目录下全部文件**：俯视烘焙的渲染中间产物 `<pack>/overhead/*.rgba`
    （按图 64 MB，非包内资产）必须提前移出，约定缓存在 `release/overhead-bake/`；2026-10-07
    曾误传 73 个对象 / ~2.4 GB（已清理）
-5. **上传后回拉校验**：逐对象下载与**本地包文件**比对 sha256（不拿 manifest 条目当基准——
-   36 张 ground 的条目是合成前哈希，见文首例外）
+5. **上传后回拉校验**：逐对象下载与**本地包文件**比对 sha256（manifest 条目现与包内容自洽，
+   可当基准；仍建议抽样回拉以防传输侧意外）
 6. **不设 Content-Type**：桶内既有对象均未设置，保持一致以免引入元数据漂移
 7. `manifest.json` 的 `generated` 是本次更新时刻，可能与 `index.json`（地图资产未变）不同步
-   （2026-10-09 即此例：COS 的 `index.json` 溯源戳停在 10-07，与本地同尺寸不同内容被第 3 条的
-   判据跳过，36 个地图条目逐条相同）；若需两者一致须重跑 `export_asset_pack.py` 全量重打包。
+   （2026-10-09 曾出现：COS 的 `index.json` 溯源戳停在 10-07，与本地同尺寸不同内容被旧第 3 条
+   判据跳过）；若需两者一致须重跑 `export_asset_pack.py` 全量重打包（或按第 3 条新判据重传
+   `index.json`）。
    另：`worktree_dirty=true` 的包**不等于**标注 commit 的原样工作区（见
    [data-inventory.md](data-inventory.md) §2.1）
 8. 回滚素材：旧包状态的本地快照（`game_data/` + `tank/` + `manifest.json`），必要时原样传回
@@ -505,6 +520,18 @@ python tools/composite_overhead.py --pack release/asset_pack --render-dir releas
 后的代码以 `--base-dir data/cache/maps` 重跑全量 36 图，产物与现盘**逐字节相同 36/36**
 （回归 0）；`manifest.json` 对这 36 张记的仍是合成前哈希的语义**未变**（见 §5.2 文首例外）。
 
+⚠️ **渲染缓存的年份与它限制的观感（2026-10-09 复核，勿当成"当前材质的样子"）**：
+`release/overhead-bake/*.rgba` 是 **09:49 版**渲染——**早于当日"光照/水面对齐批"**
+（烘焙光照图、逐图 IBL、环境反射、逐图太阳、水面 LOW 档，均在其后落地）。故俯视层里的
+建筑是按**当时**的材质渲的（Lambert 时代观感），不是现役着色器；本批水面改动**不影响**
+俯视层（`bake-ground-overhead.mjs` 的剔除表按名丢掉 `sky/dome/water/sea/river/lake/plane`
+等节点，水面从不进俯视渲染），且地面烘焙与渲染缓存本批均未改动（`git diff` 无
+`export_ground`/`bake_ground` 命中）——本批以**同一缓存** + 重导后的合成前底图重跑全量 36 图，
+`--verify` 读回 **36/36 `orient=YX, ok=true`**（本次未留存上一版合成日志，故不主张"逐字节相同"）。
+刷新俯视到现役观感需在 WotbTools 侧重跑
+`node frontend/scripts/bake-ground-overhead.mjs --pack <pack> --all`（headless Chrome +
+SwiftShader）**再**执行上面的合成命令——**本批未做**（属当日光照批的遗留，非本批引入）。
+
 ---
 
 ## 六、本次故障复盘（2026-09-30 ~ 10-01）
@@ -555,3 +582,18 @@ BlitzKit 把游戏模型名从 `tanks.pb` **field 2 移到 field 32**，field 2 
 
 从游戏文件提取的数据（装甲数值、模型、图标）版权归 Wargaming，README 已有声明。
 解除 BlitzKit 依赖只把来源从"第三方整理"换成"第一手提取"，**不改变权属**。
+
+## 地形让位掩码（`cover.u16.bin`）的生成与分发
+
+- **生成**：`python tools/bake_terrain_cover.py [--map KEY]… [--stats]`（约 4 s/图，36 图 2m36s）。
+  输入 = 包内 `map/<key>/scenery.glb` + `terrain.u16.bin` + `terrain.json`（size/span/zmin/zmax）；
+  缓存优先取 `data/cache/maps/<space>.glb`。烘焙期常量（非渲染期开关）：贴地带
+  `[地形−0.15 m, 地形+0.5 m]`、压低上限 0.5 m、**几何间隙 0.1 m**（压到结构面上会共面闪烁）、收尾 20 texel。
+- **产出**：包内 `map/<key>/cover.u16.bin`（512² u16 LE；`0` = 无覆盖，否则结构面高度量化 +1）
+  + `terrain.json` 的 `cover` / `coverStats`；同时写 `data/cache/maps/<space>.cover.u16.bin`，
+  供 `export_asset_pack.py` 随包复制（**重打包不会丢**：脚本按缓存名复制并在 `terrain.json` 声明）。
+- **消费**：前端 `terrainCover.js` 把**渲染用**高度场夹到天花板之下；查询/放置（`sampleHeight`）
+  必须继续用真值高度场（守卫锁）。缺掩码/旧包 ⇒ fail-open（按无掩码渲染）。
+- **发布**：与其它包内资产同链路——本地重建包后 `COS_SECRET_ID=… COS_SECRET_KEY=… python
+  tools/upload_asset_pack_cos.py --local release/asset_pack`（可 `--only map/<key>/` 逐图发）。
+  掩码是**渲染资产**，不进回放数据面（不改 replay 契约）。

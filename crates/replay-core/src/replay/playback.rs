@@ -796,6 +796,28 @@ pub fn build_playback_data(input: &PlaybackInput) -> anyhow::Result<PlaybackData
     from_model(&model, &render)
 }
 
+/// 车辆实体筛选：`st10 ∧ prop2 ∧ 采样数达标`（BTreeMap 保证确定性顺序）。
+///
+/// **prop2 全局缺失时退化为仅 `st10 ∧ 采样数达标`**（保留 fail-closed：退化后仍空 ⇒ 调用方照旧
+/// bail）。依据（2026-10-10 用户报障样本 `20261010_1212__Anonyme_R132_T100LT_…`，训练房 7 s）：
+/// 该场 **type=10 195 包**（两个实体各 100/95 样本，均 ≥ `MIN_ST10_SAMPLES`）、**type=7 零条**
+/// ——坦克全程未瞄炮 ⇒ 客户端不发炮塔更新 ⇒ `prop2` 不再具备"车 vs 地图对象"的区分力，
+/// 却把唯二的两个真实车辆实体一并否掉（3D 回放打不开）。而该场 41 个无名地图对象**没有任何
+/// type=10 流** ⇒ 退化不会放进幻影（实测）。prop2 存在时（常规对战）行为逐位不变。
+fn vehicle_candidates(
+    st10: &HashMap<u32, Vec<combat::St10Sample>>,
+    prop2: &HashMap<u32, Vec<(f32, f32, u16)>>,
+) -> BTreeMap<u32, usize> {
+    let mut out: BTreeMap<u32, usize> = BTreeMap::new();
+    let prop2_absent = prop2.is_empty();
+    for (eid, samples) in st10.iter() {
+        if samples.len() >= MIN_ST10_SAMPLES && (prop2_absent || prop2.contains_key(eid)) {
+            out.insert(*eid, samples.len());
+        }
+    }
+    out
+}
+
 /// 从内部模型投影回放切面：位姿滤波/0.1s 网格/角度解卷绕/击杀归属增强都在本层完成，
 /// 模型只提供原始采样与事件；身份（昵称/账号/队伍/tank_id/作者标记）一律读模型实体并表。
 pub fn from_model(
@@ -818,15 +840,10 @@ pub fn from_model(
     let prop2 = &model.timeline.turret;
     let entity_names = &model.timeline.entity_names;
 
-    // 车辆实体 = st10 ∧ prop2 ∧ 采样数达标（BTreeMap 保证确定性顺序）
-    let mut candidates: BTreeMap<u32, usize> = BTreeMap::new();
-    for (eid, samples) in st10.iter() {
-        if samples.len() >= MIN_ST10_SAMPLES && prop2.contains_key(eid) {
-            candidates.insert(*eid, samples.len());
-        }
-    }
+    // 车辆实体 = st10 ∧ prop2 ∧ 采样数达标（BTreeMap 保证确定性顺序；见 vehicle_candidates）
+    let candidates = vehicle_candidates(st10, prop2);
     if candidates.is_empty() {
-        bail!("无任何车辆姿态流（type=10 + prop2 双流交集为空）");
+        bail!("无任何车辆姿态流（type=10 + prop2 双流交集为空；prop2 全局缺失时按仅 st10 退化，仍空才报此错）");
     }
 
     // name→eid 反查表（限车辆实体；射击目标归属用）
@@ -904,10 +921,10 @@ pub fn from_model(
                 .filter(|_| is_author)
         });
 
-        // prop2 流在收录条件（st10 ∧ prop2 双流交集）下必然存在——缺流即内部不变量破坏
-        let Some(prop2_series) = prop2.get(eid) else {
-            bail!("车辆 {eid} 缺 prop2 流（收录条件 = st10 ∧ prop2 双流交集，不应发生）");
-        };
+        // prop2 流：常规对战必有（st10 ∧ prop2 交集）；**prop2 全局缺失**时（训练房全程未瞄炮，
+        // 见 vehicle_candidates）本车无炮塔流 ⇒ 按"炮塔随车体朝向（相对 0）、炮管水平"的中性口径
+        // 渲染（客户端侧该车就是停着没瞄过；不给 angles 一个明确的缺省反而会让整场打不开）。
+        let prop2_series = prop2.get(eid);
 
         // 逐网格采样：渲染位姿 + prop2 炮塔/俯仰（同刻合成绝对角）；角度序列解卷绕落盘。
         // 列式数组与网格严格同长——任何跳过都会静默错位（pos[3i+k] 不再对齐 t_i），fail-fast。
@@ -935,18 +952,26 @@ pub fn from_model(
             hull_pitch.push(r3(pose.ang[1]));
             hull_roll.push(r3(roll_nearest(st_series, t).unwrap_or(0.0)));
             // 非空 prop2 序列恒可求值（AoI 前回退初值包 / 末帧保持）
-            let Some((rel, frac)) = combat::prop2_at(Some(prop2_series), t) else {
-                bail!("车辆 {eid} prop2 网格 t={t} 无采样（非空序列恒可求值，不应发生）");
-            };
-            let turret_abs = unwrap_angle(prev_turret_yaw, wrap_pi(rel + pose.ang[0]));
-            prev_turret_yaw = Some(turret_abs);
-            turret_yaw.push(r3(turret_abs));
-            gun_pitch.push(match limits {
-                Some(lim) => r3(combat::decode_prop2_gun_pitch(frac, lim, rel)),
-                // 无俯仰极限锚定（匿名车/空锚定表）：车体 pitch 兜底（type10 pitch 正向
-                // 与"正=仰角"相反，仅近似——锚定表由 battle_results 全量构建，正常场次不触发）
-                None => r3(pose.ang[1]),
-            });
+            match combat::prop2_at(prop2_series, t) {
+                Some((rel, frac)) => {
+                    let turret_abs = unwrap_angle(prev_turret_yaw, wrap_pi(rel + pose.ang[0]));
+                    prev_turret_yaw = Some(turret_abs);
+                    turret_yaw.push(r3(turret_abs));
+                    gun_pitch.push(match limits {
+                        Some(lim) => r3(combat::decode_prop2_gun_pitch(frac, lim, rel)),
+                        // 无俯仰极限锚定（匿名车/空锚定表）：车体 pitch 兜底（type10 pitch 正向
+                        // 与"正=仰角"相反，仅近似——锚定表由 battle_results 全量构建，正常场次不触发）
+                        None => r3(pose.ang[1]),
+                    });
+                }
+                None => {
+                    // 本车全场无 prop2（prop2 全局缺失的退化路径）：炮塔随车体、炮管水平
+                    let turret_abs = unwrap_angle(prev_turret_yaw, pose.ang[0]);
+                    prev_turret_yaw = Some(turret_abs);
+                    turret_yaw.push(r3(turret_abs));
+                    gun_pitch.push(0.0);
+                }
+            }
         }
 
         // HP 链：模型已按同值去重语义构建（含满血锚点，此处仅做落盘舍入）；
@@ -1193,6 +1218,27 @@ pub(crate) fn collect_all_shots(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vehicle_candidates_fall_back_when_turret_stream_absent() {
+        // 训练房样本（20261010_1212__Anonyme_R132_T100LT_…）：type=10 两实体 100/95 样本、
+        // type=7 零条 ⇒ 仅 st10 口径选出这两辆；prop2 在场（常规对战）仍按双流交集，行为不变。
+        let a = 0x0810_1456u32;
+        let b = 0x0811_22ba_u32;
+        let mut st10: HashMap<u32, Vec<crate::replay::combat::St10Sample>> = HashMap::new();
+        st10.insert(a, synthetic_samples(0.0, 0.1, 100));
+        st10.insert(b, synthetic_samples(0.0, 0.1, 95));
+        st10.insert(0x080f_815du32, synthetic_samples(0.0, 0.1, 5)); // 噪声/瞬时实体（样本不足）
+        let no_prop2: HashMap<u32, Vec<(f32, f32, u16)>> = HashMap::new();
+        let got = vehicle_candidates(&st10, &no_prop2);
+        assert_eq!(got.len(), 2, "prop2 全局缺失 ⇒ 退化为 st10 ∧ 采样阈值");
+        assert!(got.contains_key(&a) && got.contains_key(&b));
+        let mut prop2: HashMap<u32, Vec<(f32, f32, u16)>> = HashMap::new();
+        prop2.insert(b, vec![(0.5, 0.0, 0)]);
+        let got2 = vehicle_candidates(&st10, &prop2);
+        assert_eq!(got2.len(), 1, "prop2 在场 ⇒ 双流交集（常规对战行为不变）");
+        assert!(got2.contains_key(&b));
+    }
 
     /// ARENA_INFO comp blob：`[tank_id u16][chassis u16][engine u16][204 u32][turret u16][gun u16][00]`。
     fn comp_blob(tank: u16, turret: u16, gun: u16) -> Vec<u8> {

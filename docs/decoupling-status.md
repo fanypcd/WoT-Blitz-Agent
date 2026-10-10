@@ -16,7 +16,7 @@
 |---|---|---|
 | `game_data` 冻结故障修复（field2→field32） | ✅ 已在 main（`e3b22c3`；原分支载体已删） | [game-data-sources.md](game-data-sources.md) §6 |
 | 两处 pb 字段号 bug（引擎起火率 / 履带阻力） | ✅ 已提交 `5032251` | 报告 A §8；`data/tank_data/*.json` 重生成 |
-| **GLB 自产管线** | ✅ **已接线（2026-10-07）** | `data/cache/models/` 已整体换为自产导出：735 辆的 `model.glb` + `collision.glb` 全量 generator = `wotb-agent local sc2 exporter`，与 `data/cache/local_models/` 逐辆逐字节一致（735/735），包与 COS 已随发（[data-inventory.md](data-inventory.md) §一 #8）；工具 `tools/export_tank_glb.py` + `tools/compare_tank_glb.py`；原等价性口径：`collision` **735/735**、`model` **733/735** 逐字节等价（含 UV0/1/2 与节点顺序），规则见 [local-model-export.md](local-model-export.md) §3 |
+| **GLB 自产管线** | ✅ **已接线（2026-10-07）** | `data/cache/models/` 已整体换为自产导出：735 辆的 `model.glb` + `collision.glb` 全量 generator = `wotb-agent local sc2 exporter`，与 `data/cache/local_models/` 逐辆逐字节一致（735/735），包与 COS 已随发（[data-inventory.md](data-inventory.md) §一 #8）；工具 `tools/export_tank_glb.py` + `tools/compare_tank_glb.py`；等价性口径：`collision` **735/735**、`model` **733/735** 逐字节等价（含 UV0/1/2 与节点顺序），规则见 [local-model-export.md](local-model-export.md) §3；**2026-10-10 起其中 23 辆为有意分歧**（静态变换烘焙 / 状态过滤，等价数 710/735，见该文 §5.1） |
 | **封面图自产管线** | ✅ 可用，未接线（包内仍 BlitzKit 源，抽样 80/80 命中） | `tools/export_tank_icons.py`；**735/735 且全为大图档**（2026-10-10 接入**逐车 `bigIconPath` 声明**后（全部由声明源命中）；详见 §3） |
 | **`tanks.pb`/`models.pb` 本机解析器** | ✅ 可用，未接线 | `tools/extract_vehicles.py`（客户端 XML/components/yaml/en.yaml → 同构 JSON）+ `tools/compare_vehicle_data.py`（pb→同形 dict 逐字段对照）+ `tools/emit_vehicle_pb.py`（同格式 pb 编码器）。`data/tank_id_bridge.json` 735 条已固化，**并已证明可纯客户端重建**。全量对照（2026-10-04 首轮）：**全部数值字段 0 不一致**；**2026-10-10 复测**：与 BK 剩余差异共 **122 处**且全部定性——119 枪序（研发序口径）、2 条名字（客户端两源皆无，补表兜底）、1 处 `10625` explosion_radius（BK 错值）、1 辆类别词（`81`，已改为精确 token 判定修掉）；弹种集合"差异"经查为 BK 按 gun module 塌缩（见 §2 C5） |
 | `baseRMMap` 通道搬迁（MR 槽） | ✅ 已提交 `923144d` | ch0→G（粗糙度）、ch1→B（金属度）；修后与 BlitzKit 的 G 通道一致 **1010/1011**；[local-model-export.md](local-model-export.md) §4.1 |
@@ -176,7 +176,8 @@ BK 画布左上角对齐**逐辆复核后结论相反——**同一幅画**：�
   实测 735 辆：金币 91 / 收藏 338 / 同时为真 0），运行期与消费方均已消费
   （[data-inventory.md](data-inventory.md) §1a）。
 - **报告 B 的 35 辆 GLB 缺口**：已由 `LodComponent` 判据 + 全批次导出等规则收敛到 733/735 逐字节
-  （[local-model-export.md](local-model-export.md) §3）。
+  （[local-model-export.md](local-model-export.md) §3）；2026-10-10 起其中 **23 辆为有意分歧**
+  （静态变换烘焙 / 状态过滤，等价数 710/735，见该文 §5.1）。
 - **UV1/UV2、`doubleSided`、MR 通道摆放**：均已对齐（§1 时间线）。
 
 ## 6. 对外沟通（BlitzKit 开发者）

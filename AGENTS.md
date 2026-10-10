@@ -80,13 +80,23 @@ testing** happen in the WotbTools repository (https://github.com/A158Coke/WotbTo
   needs no bump by itself — its *consuming pin bump* in WotbTools does.
 - **Asset-data changes must be re-synced to COS** (bucket `wotbtools-assets-1478073677` — the
   production origin proxied by tx Caddy): map re-export, ground rebake, texture/material fixes.
+  Tank models are the same deal — the shipped bytes are our own export, so a tank fix is
+  `python tools/export_tank_glb.py --tank <id> --out data/cache/models`（全量：先导
+  `data/cache/local_models` 再同步两目录，二者应逐辆一致），随后把同批文件替换进
+  `release/asset_pack/glb/<id>/`。
   Note `scripts/export_asset_pack.py` **overwrites overhead-baked grounds**, so after an export
   re-run the composite reading the pre-composite bases and the render cache:
   `python tools/composite_overhead.py --pack release/asset_pack --all --write --render-dir release/overhead-bake --base-dir data/cache/maps`
   (orientation is the fixed contract constant `YX`; `--verify` reads back what a pack actually
-  baked — see [docs/game-data-sources.md](docs/game-data-sources.md) §5.5), then upload the delta:
-  `COS_SECRET_ID=… COS_SECRET_KEY=… python tools/upload_asset_pack_cos.py --local release/asset_pack`.
-  Credentials are env-var only, never committed.
+  baked — see [docs/game-data-sources.md](docs/game-data-sources.md) §5.5), then **re-stamp the
+  manifest against the pack's actual bytes** — `python scripts/export_asset_pack.py --refresh-manifest`
+  （合成器在打包之后改写 `map/*/ground.webp`，不重算则 manifest 一直记合成前哈希）— and upload the delta:
+  `COS_SECRET_ID=… COS_SECRET_KEY=… python tools/upload_asset_pack_cos.py --local release/asset_pack`
+  （多会话共用一个包目录时用 **`--only <prefix>`** 局部发布：只传该前缀，manifest 改为远端清单
+  就地补丁，只登记本次上传的条目——不把他人 WIP 宣布为线上内容）. 
+  The uploader's skip test is **per-file sha256 from the bucket's manifest**, not Content-Length:
+  a fix that changes content without changing size (vertex bakes, 2026-10-10) would otherwise be
+  silently skipped and never ship. Credentials are env-var only, never committed.
 - Background: [README §与 WotbTools 的关系](README.md), [docs/index.md](docs/index.md) §前端面收敛,
   [docs/architecture-debt.md](docs/architecture-debt.md).
 

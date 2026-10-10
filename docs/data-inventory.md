@@ -26,9 +26,9 @@
 | 4/5 | `data/game_data/{id}.json`（装甲模型 + 碰撞盒） | **客户端解包（现役）**：`XML/item_defs/vehicles/{nation}/{model}.xml.dvpl` + `3d/Tanks/Parameters/{nation}/{model}.yaml.dvpl` | 它本身就是 | ✅ 100/100 | 链内 2 处 pb 依赖待拆：文件定位用 pb 的 `model_name`（field32）；炮塔/炮管碰撞盒**选段**用 models.pb 的 module→node 映射（缺失回退"末位"） |
 | 6 | `data/tank_data/{id}.json`（→ 包 `tank/{id}.json`） | **混合三源**：models.pb（板/spaced/履带/原点/限位/bbox）+ tanks.pb（数值/弹种）+ game_data（primary、chassis/gun bbox） | 客户端三源齐备 | 🟡 数据 ~95% / 接线 0% | 缺口同 ①②；`configs[]` 的节点数/索引已走客户端 GLB（`model.glb` 节点名）✅；⚠️ 43 辆无炮塔 TD 的 `collision_boxes.turret` 为 null——**两侧都只有空心占位**（客户端 YAML 无 turret 段，models.pb 是 4 字节空 bbox），非缺数据，见 [game-data-sources.md](game-data-sources.md) §2.3 |
 | 7 | 弹种反解表（全局 shell id → 弹种数据） | 本机自产（`ShellKindTable::from_tanks_pb` + CLI `dump-shell-kinds`，输入为现役 BlitzKit pb） | 客户端 `shells.xml <kind>`（4 值闭集，已实测；提取器与编码器均已支持，未接线） | 🟢 数据 100% / 接线 0% | `atgm_heat`→HOLLOW_CHARGE 验证一致；接线随 #1 |
-| 8 | `data/cache/models/{id}/*.glb` | **客户端解包（现役，2026-10-07 换源）**；BlitzKit CDN 退为缺失兜底（`web/assets.rs::ensure_glb_bytes` / `wargaming/model_fetch.rs`，当前休眠） | 它本身就是 | ✅ 100/100 | 735/735、包与 COS 一致（§2.1 ✔️） |
+| 8 | `data/cache/models/{id}/*.glb` | **客户端解包（现役，2026-10-07 换源）**；BlitzKit CDN 退为缺失兜底（`web/assets.rs::ensure_glb_bytes` / `wargaming/model_fetch.rs`，当前休眠） | 它本身就是 | ✅ 100/100 | 735/735；与 BlitzKit 逐字节一致在 **23 辆上刻意打破**（静态变换烘焙 / 状态过滤，2026-10-10，见 [local-model-export.md](local-model-export.md) §5.1）；包内 `glb/` 已替换；**COS 已同步**（2026-10-10 只传坦克 glb：294 件 = 本批 23 ∪ MR 因子批 271，回拉 1470/1470 一致；§2.1 上传链） |
 | 9 | `data/cache/tank_images/{id}.webp` | **BlitzKit CDN**（离线 `download_all_icons` + 运行期懒下载 `web/assets.rs:235`） | `tools/export_tank_icons.py` → `local_tank_icons/` **735/735**（2026-10-10 改为**逐车 `bigIconPath` 声明**精确匹配——764 份参数文件中 755 份逐车文件全含、按整文件名含国家标签解析；备选链=注册表/短名/全名/模型名/别名 + 唯一性护栏） | ⚪ 数据 100%（接线待做；同源美术、接近视觉无损） | 与 BK **同源同画**（1:1 像素、左上角对齐、BK 画布为裁剪后小画布；轮廓 IoU 中位 0.986；旧 NCC 0.21 结论已撤销，见 [decoupling-status.md](decoupling-status.md) §3.4） |
-| 10 | `data/cache/maps/`、`data/cache/terrain/` | **客户端解包（现役）** `.sc2`/`.scg`、heightmap、colormap；地面再经 `tools/composite_overhead.py` 叠俯视合成（渲染缓存 `release/overhead-bake/`） | 它本身就是 | ✅ 100/100 | 2026-10-09 全量重导随包（§2.1） |
+| 10 | `data/cache/maps/`、`data/cache/terrain/` | **客户端解包（现役）** `.sc2`/`.scg`、heightmap、colormap；地面再经 `tools/composite_overhead.py` 叠俯视合成（渲染缓存 `release/overhead-bake/`；⚠️ 该缓存为 **09:49 版**、早于当日光照/水面对齐批——俯视层里的建筑是 Lambert 时代观感，刷新口径见 [game-data-sources.md](game-data-sources.md) §5.5） | 它本身就是 | ✅ 100/100 | 2026-10-09 全量重导随包（§2.1） |
 | 10a | `data/cache/maps/{key}/destructibles.json`（可破坏物清单） | **客户端解包（现役）** `.sc2` + `XML/destructibles.xml.dvpl` | 它本身就是 | ✅ 100/100 | 消费方与回放切面 `destructible_events` 联表（逆向总集 §5.4） |
 | 11 | `data/data_version.json` | 本机自产（`game_version` 取客户端 `Data/version.txt.dvpl`） | 它本身就是 | ✅ 100/100 | `blitzkit_updated_at` 仅溯源戳 |
 
@@ -108,23 +108,72 @@ tanks.pb 未动）。
 
 - 桶 `wotbtools-assets-1478073677`，地域 `ap-shanghai`
   （`wotbtools-assets-1478073677.cos.ap-shanghai.myqcloud.com`）
-- 布局与 `release/asset_pack/` **逐项对应**，`manifest.json` 含全量 sha256（36 张 `ground.webp` 例外，见下 ⚠️）
+- 布局与 `release/asset_pack/` **逐项对应**，`manifest.json` 含全量 sha256（2026-10-10 起
+  与包内容全量自洽：`--refresh-manifest` 在合成之后、上传之前重算，见下）
 - 写入凭据由 `wotbtools-asset-publisher` 子账号持有（整桶读 + 写）
   —— **密钥不入库、不写进任何被跟踪的文件**，需要时通过环境变量传入
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测 **2026-10-09**：**4168 个文件 / 3675.5 MiB（约 3854.1 MB）**；其中
-`map/himmelsdorf/ground.webp` 为当日朝向修正重烘件 7080664 B，见
-[game-data-sources.md](game-data-sources.md) §5.5）。`manifest.json` 的
+包内布局（本地实测 **2026-10-10 按包内容重算**：**5000 个文件 / 4310.5 MB**——第二十次为
+**"状态切换器的骨骼网格（`SkinnedMesh`）导出"**（36 图 `scenery.glb` 替换：导出器白名单纳入 `SkinnedMesh`、只取激活状态 `State 0`、按静止绑定姿态导出 ⇒ 信号灯灯头/悬臂等"组件不全"补齐；**+3.2 MB**，4307.3 → 4310.5 MB，文件数不变；并随同重烘 36 图让位掩码、`--refresh-manifest` 重算；**COS 未同步**。见 [index.md](index.md) 同名条目）；第二十一次为**"让位掩码适用范围修正（水面/水下件排除）"**（36 图 `cover.u16.bin` **重烘**：水面片自身与水下薄板（冰面）不再入贴地判定 ⇒ 不再扰动可见岸线；文件数/总大小不变（5000 / 4310.5 MB）、内容哈希变化，`--refresh-manifest` 重算；**COS 未同步**。见 [index.md](index.md) "地形让位掩码"条目的同日修正）；第十九次为
+**"地形让位掩码（数据面）"**（36 图各新增 `map/<key>/cover.u16.bin` 0.5 MB + `terrain.json`
+增 `cover` 字段：**+36 文件 / +19.1 MB**，4964 → 5000 文件、4288.2 → 4307.3 MB；
+`--refresh-manifest` 重算；**COS 未同步**。见 [index.md](index.md) 同名条目）；第十八次为
+**"图片注册表撞键修复"**（36 图 `scenery.glb` 全量替换：`add_texture` 的 albedo key 曾不含
+染色/烘焙内容变体 ⇒ 同 albedo 的材质互相顶替（普查 54 图条目 / 788 变体）；修复后各类变体各自
+成图，36 图 scenery 836.6 → **~927.4 MB（+90.8 MB）**；`--scenery-only` 重导，地面与合成缓存
+未动；用户报障点 forgecity 挡土墙沥青片 albedo 0.0281 → 0.2580。见 [index.md](index.md) 同名条目）；
+第十七次为**"细节层接入（B1）"**（10 图 `scenery.glb` 替换：+51 个材质写 `extras.detail`（贴图 + 平铺倍率），
+293.2 → 295.4 MB（+2.2 MB），文件数不变；`--scenery-only` 重导，地面与合成缓存未动）；
+另含**他批在途**：`suspension/` 725 件（~2.2 MB，另一会话的坦克悬挂批次，文件已在包内、随本次
+manifest 重算登记，**未上传**）；第十六次为
+**"动态阴影（G1）→ 同日撤回"**：该次重导给 36 图 `lighting.json` 加了 `shadow` 块（级联范围/
+阴影色/LMGate）、给 scenery 材质加了 extras `shadowReceiver`；工具与消费端**均已回到撤回前
+状态**（2026-10-09 用户决定放弃），包内这两处字段**保留为惰性数据**（消费端不读；为避免无谓的
+36 图重导不回滚已构建的包，**下次重导自然消失**）；manifest 读数 4280.0 MB 属**合成前**口径、
+实际字节增量 ≈ 0——口径见下）；第十五次为
+**"坦克静态变换烘焙 + StateSwitcher 状态过滤"**（23 辆 model.glb 重导，见
+[local-model-export.md](local-model-export.md) §5.1；体积 ±0）；第十四次为
+**"坦克材质补齐 PBR 因子"**（270 辆老式车 + 8 辆混合车（部分材质无 MR 贴图）= 566 个材质、共 278 辆无 MR 贴图 → 此前落进 glTF 默认 `metal=1/rough=1`
+（全金属、只剩环境反射＝发白）；现写 `metallicFactor 0` + `roughnessFactor 1−inGlossiness`；
+465 辆有 MR 贴图的车逐字节不变）；第十三次为
+**"光照图判据收窄"**（审计 B7：绑 `lightmaps` 槽 ≠ 客户端会采样——判据加 `MATERIAL_LIGHTMAP`
+三来源；7 图 scenery 重导，客户端 unlit 的网格（medvedkovo 外围群山等 111 实例）不再误乘暗光图，
+体积微降）；第十二次为
+**"视角淡出效果片走软混合"**（审计 B6：`rays.sc2` 类光束片此前被导出成 `alphaMode=MASK/0.33`，
+裁掉 95% 内容；现按客户端 `enabledPresets.AlphaBlend` + `BLEND_BY_ANGLE` 导出 `BLEND` + extras，
+仅 2 图 scenery 变化 → 重打包；体积不变）；第十一次为
+**"贴图全部改客户端原生分辨率"**（用户要求；去掉导出器的 1024/2048 上限与立方图等距柱状 512 宽，
+36 图 scenery + 地面全量重导：`scenery.glb` 合计 620 → 834 MB、地面 525.7 → 543.9 MB，
+整包 +231.5 MB/+5.7%；用户报障点 medvedkovo 外围群山 `mountains_001kl_` 的 albedo/lightmap
+1024² → 2048²）；第十次为
+**"水面档位回到 MEDIUM"**（同日先按用户选择试了 LOW 档、实看被判"不好"后回退：14 图 scenery 重导，
+水面数据从 `{albedo, decal, cube?, props}` 回到 `{normal, cube, props}`，产物体量与第九次之前一致），
+并含同批的**"立方图 DXT5 解码修正"**（`wotb_cube` 的 fourCC→BCn 表曾把 DXT5 当 BC5 解 ⇒ `italy`
+的水面立方图静默失效、该图水面回落普通材质；修正后 italy 拿到完整 MEDIUM 数据）；第九次为
+"水面试行 LOW 档"（同日、实看被判"不好"，已随第十次回退）；第八次为"水面着色"（36 图 scenery
+重导，+逐图水面 cubemap/法线/属性）；第七次为"水面判定改材质驱动"；第六次为
+"环境反射遮罩"（5 图 scenery 重导，+2.3 MB）；第五次为"逐图 IBL"（+36 张 `ibl.webp`，~1.0 MB）；第四次为"烘焙光照图接入"（36 图 scenery 全量重导：
+内嵌光照图集 121 张 + 光图网格随导 TEXCOORD_1，+104 MB）；第三次为"动画混合层 + 逐图
+`lighting.json`"；
+其中 `map/himmelsdorf/ground.webp` 为当日朝向修正重烘件 7080664 B，见
+[game-data-sources.md](game-data-sources.md) §5.5）。**总量口径已闭合（2026-10-10）**：打包器
+报的"4279.9 MB"是**合成前**读数（manifest 在合成器写回 36 张 ground 之前生成），而合成后包内
+ground 合计 252.0 MB vs 源（合成前）339.1 MB——**−87.2 MB** 正好解释 4279.9 → 4191.9 的差额
+（36 张逐张比对实测）；`--refresh-manifest` 后的 4191.9 MB / 4239 文件即包内实际字节。
+`manifest.json` 的
 `upstream_commit` / `worktree_dirty` / `generated` 是包内容的溯源锚点——`worktree_dirty=false`
 表示该 commit 的**原样工作区**即可复现整包（语义见打包器 `git_provenance()`）；**现值以包内
 manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 的历史脉络：资产重传时 =
 `90f1bf8` + dirty（当时导出器修复与工具入库尚未提交）；同日随文档同步**仅改溯源戳**（资产
-字节不变）→ `upstream_commit` = 文档同步那次提交、`worktree_dirty` = false。**2026-10-09
-现值**：格式对照修复批全量重导（36 图场景 + 坦克贴图链）后重打包并同步 COS →
-`upstream_commit = cc1cf587`、`worktree_dirty = false`、`generated = 2026-10-09T01:58:30Z`
-（本地与线上 manifest 逐字节一致，见下 ✔️）。
+字节不变）→ `upstream_commit` = 文档同步那次提交、`worktree_dirty` = false。**2026-10-10
+现值（十六次"重打包"）**：`upstream_commit = 1b4841bc`、`worktree_dirty = true`
+（本批修复未提交时重算）、`generated = 2026-10-09T17:05:28+00:00`；包↔manifest 抽查逐项一致
+（23 辆新件 23/23、himmelsdorf ground 条目 == 包内件 `a142e94e…`）✔️，**但 13 图 scenery 的新件
+与 23 辆坦克件**已于同日上传**（见下；上一版线上状态为 `cc1cf587` / 10-09T01:58:30Z，
+本次为坦克 glb 的局部发布，地图/数据侧仍由另会话在飞）。此前同日第一版：
+格式对照修复批全量重导（36 图场景 + 坦克贴图链）后重打包并同步 COS。
 
 | 包内路径 | 文件数 | 来自（见第一节编号） |
 |---|---|---|
@@ -134,18 +183,24 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
 | `game_data/{id}.json` | 735 | #4 / #5 |
 | `map/{key}/…` | 486 | #10：36 场景 `scenery.glb` + 36 `ground.webp` + 234 分层 `ground/{cm,lm,tile0,tile1,mask0,mask1[,hmap0,hmap1]}.webp` + 36 `ground.layers.json` + 36 `terrain.json` + 36 `terrain.u16.bin` + 36 `mini.webp` + 36 `destructibles.json` |
 | `data/` | 5 | #1 `tanks.pb`、#2 `models.pb`、#3 `tank_cache.json`、#11 `data_version.json`、打包器派生 `tank_names.json` |
+| `map/{key}/lighting.json` | 36 | #10 配套：`tools/export_map_lighting.py` 逐图太阳/环境色/雾/IBL |
+| `map/{key}/ibl.webp` | 36 | #10 配套：`tools/export_map_ibl.py` 逐图环境反射（等距柱状，~28KB/图） |
 | `index.json` | 1 | 打包器生成（地图 id → key/display） |
 | `manifest.json` | — | 打包器生成（全量 sha256；本身不登记自己） |
 
 打包器：[scripts/export_asset_pack.py](../scripts/export_asset_pack.py)。注意它不是纯拷贝，
 中间有改名与派生：`tank_data/` → `tank/`；`tank_cache.json` 额外派生 `tank_names.json`；
 地图地形多一个 `terrain.json` sidecar（把 `X-Terrain-Meta` 头物化）；`index.json` /
-`manifest.json` 均为生成物。
+`manifest.json` 均为生成物。另有 `--refresh-manifest` 模式：不重打包、按包目录现有内容重算
+`manifest.json` 的逐文件 sha256（合成器改写 ground.webp 之后、上传之前跑，见下）。
 
 **上传**：[tools/upload_asset_pack_cos.py](../tools/upload_asset_pack_cos.py)
-（凭据只从环境变量 `COS_SECRET_ID` / `COS_SECRET_KEY` 读，不落盘）。远端同
-`Content-Length` 即跳过——⚠️ **内容变了但字节数恰好相同的对象会被漏传**（2026-10-07 的
-`map/lagoon/ground.webp` 即此例，需用 SDK 强制 `put_object` 覆盖）；`manifest.json` 最后
+（凭据只从环境变量 `COS_SECRET_ID` / `COS_SECRET_KEY` 读，不落盘）。跳过判定 = **桶内
+`manifest.json` 的逐文件 sha256**（2026-10-10 起）：内容变了就必须传，**哪怕尺寸相同**——
+旧实现只比 `Content-Length`，会把这类修正静默跳过（2026-10-07 的 `map/lagoon/ground.webp`
+即此例，需用 SDK 强制 `put_object` 覆盖；2026-10-10 的坦克顶点烘焙同属此类——只改顶点浮点、
+不改字节数）；远端 manifest 缺该条目（首传/旧对象）时回退尺寸比对，取不到远端 manifest 则
+整体回退并告警；`manifest.json` 最后
 强传作完整性锚点；`.json` 走 `no-cache`、二进制走 `max-age=3600`。手工发布流程与注意点见
 [game-data-sources.md](game-data-sources.md) §5.2。
 
@@ -154,22 +209,34 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
 （2026-10-07 曾误传 73 个对象 / ~2.4GB，已清理）。合成器重烘已可直接
 `--render-dir release/overhead-bake` 读缓存（不必再复制进包，见 [game-data-sources.md](game-data-sources.md) §5.5）。
 
-⚠️ **`manifest.json` 对 36 张 `map/*/ground.webp` 记的是"合成前"哈希**（2026-10-09 核验入档）：
-流程顺序是打包器（生成 manifest）→ `composite_overhead.py --write`（写回合成底图），合成器
-不刷 manifest、打包器也没有仅重算 manifest 的开关 → 这 36 项的条目 == `data/cache/maps/*.ground.webp`
-原始导出哈希，而包内/COS 实际是俯视合成产物（本地与线上一致地如此，不是上传漂移）。**逐文件
-按 manifest 校验会在这 36 项上失配**；修法（合成器回刷条目 / 上传前重算 manifest）待定。
-2026-10-09 朝向修正重烘后语义不变：himmelsdorf 的条目仍是其合成前哈希 `741b772f…`，
-而包内实际内容是重烘件（`a142e94e…`）——同属本例外。
+✅ **`manifest.json` 对 36 张 `map/*/ground.webp` 记"合成前"哈希的偏差已闭（2026-10-10）**：
+成因是流程顺序——打包器（生成 manifest）→ `composite_overhead.py --write`（写回合成底图），
+合成器不刷 manifest、打包器此前也没有"仅重算 manifest"的开关 → 这 36 项的条目 ==
+`data/cache/maps/*.ground.webp` 原始导出版本，而包内/COS 实际是俯视合成产物（本地与线上
+一致地如此，不是上传漂移；2026-10-09 himmelsdorf 朝向修正重烘时入档为既有例外）。现打包器
+提供 `--refresh-manifest`（按包目录现有内容重算全部条目，不重新打包），发布链固定为
+**合成之后、上传之前跑一次**：`python scripts/export_asset_pack.py --refresh-manifest`。
+2026-10-10 本轮资产更新已按新链执行——36 项条目 = 包内实际合成产物；上传器的跳过判定也以
+该 sha256 为准（条目失配即重传）。
+（历史脉络：2026-10-09 朝向修正重烘后，himmelsdorf 的条目仍记合成前哈希 `741b772f…` 而包内
+实际内容是重烘件 `a142e94e…`——该偏差已随本轮 `--refresh-manifest` 闭掉，条目现等于包内件。）
 
 > ✔️ **盘上这份包与源一致**（全量重导 + 重打包 + COS 同步回验）：包内 `game_data`
-> 735 个、地图 36 张，与 `data/` 源目录同版（抽样 15 项逐字节核对；manifest 除上述 36 张
-> ground 外全量自洽；线上 manifest 与本地逐字节一致、抽样 9 个对象回拉一致）。2026-10-03
+> 735 个、地图 36 张，与 `data/` 源目录同版（抽样 15 项逐字节核对；线上 manifest 与本地
+> 逐字节一致、抽样 9 个对象回拉一致）。2026-10-03
 > 记的 field32 陈旧包警告已解除。判断包是否陈旧以 `manifest.json` 的逐文件 sha256 为准
-> （打包器只做拷贝 + 哈希，**不做来源一致性校验**），**唯一例外是上述 36 张 ground**。
+> （打包器只做拷贝 + 哈希，**不做来源一致性校验**）。
 > **2026-10-09 朝向修正后**：`map/himmelsdorf/ground.webp` 本地已重烘（`a142e94e…`，
 > 7080664 B）**并已同步 COS**（delta = 1 个对象 + `manifest.json` 强传；上传后回拉逐字节
 > 一致、读回朝向 = `YX`，旧镜像件 `bac8d3bb…` 已被覆盖；其余 35 张 ground 本轮未动）。
+> **2026-10-10 坦克静态变换修正后**：包内 `glb/` 已替换 23 辆（清单见
+> [local-model-export.md](local-model-export.md) §5.1）、`manifest.json` 已按包内容重算
+> （36 张 ground 的条目并入正轨）——**COS 已同步（只传坦克 glb）**：
+> 2026-10-10 `--only glb/` 上传 294 件 / 583.8 MB（本批 23 ∪ 文档标着"未同步"的 MR 因子批
+> 271；3 件同尺寸不同内容被新判据拦下——旧 Content-Length 逻辑会漏传），manifest 走**远端
+> 清单就地补丁**（只登记这 294 条；桶内 manifest 现 4167 条，其余条目照原样）。回拉校验：
+> **1470/1470 glb 逐对象 sha256 一致、0 失败**。地图侧（36 张 ground 条目转正、13 图 scenery
+> 旧欠、整份 manifest 重传）随地图会话的发布会一并处理。
 
 **不进包的**：`data/cache/local_*`（见第三节）、`data/replay_samples/`、
 `data/sessions/`、`data/snapshots/`、`data/token_usage.json`。
@@ -224,6 +291,19 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
 - **封面图判定已降级为抽查**（§一 #9）：与 BlitzKit 封面为**同源同画**（1:1 像素、左上角
   对齐；旧 NCC 中位 0.21/非同一幅画结论系对照方法伪影，已撤销），换源预期接近视觉无损——
   接线前抽查 `local_tank_icons/_vs_blitzkit.png` 即可。
+- **坦克悬挂数据面已导出（2026-10-10）**：`tools/export_tank_suspension.py`
+  （`data/tank_suspension/<tank_id>.json` → 包内 `suspension/<tank_id>.json`，additive；
+  全表 735 辆中 **725 辆导出**、9 辆无 suspension 块、1 辆空悬挂（`Oth10_WarDuck`）
+  按 fail-closed 不产文件）。字段 = 逐轮 `{flag(负重轮), a(上行行程), b(下行行程)}` +
+  履带静止折线（两代键式都读）+ `trackBendingInfo`/`trackLayingInfo` +
+  `chassis.textureScale`；逐轮半径/挂点/`chunkLength` 由前端从模型 GLB 现算（不必导）。
+  规模 2262 KB / 725 文件（前端按需取，单场 ≈14 文件 × 3 KB）。接线状态：前端求解器并行
+  落地（逐轮贴地 + 履带形变 + 自转/花纹滚动）；机制、分级路径与剩余未定项见
+  [tank-suspension-client-re.md](tank-suspension-client-re.md) §六/§七。
+  回归：`python tools/test_export_tank_suspension.py`（7 项，含真实客户端抽样）。
+  **分发**：本地包已增量补入（`release/asset_pack/suspension/`，725 文件 / 3.1 MB）；
+  生产面需按常规流程重跑 `scripts/export_asset_pack.py`（现已含该目录）并
+  `tools/upload_asset_pack_cos.py` 上传增量（COS 凭据仅环境变量）。
 
 ## 五、完成度汇总
 
@@ -278,10 +358,10 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
 |---|---|---|---|
 | 地图场景（GLB + 地面 + 分层 + sidecar） | `tools/export_map_glb.py`（`--ground-only` / `--scenery-only` / `--jobs`） | `data/cache/maps/<space>.{glb,ground.*.webp,json}` | ✅ |
 | 地图可破坏物清单（碰撞 / 耐久 / 类型库联表） | `tools/export_map_destructibles.py` | `data/cache/maps/<key>/destructibles.json` | ✅ |
-| 坦克模型（`model.glb` + `collision.glb`） | `tools/export_tank_glb.py` | `data/cache/local_models/<id>/`（10-07 起同步进 `cache/models/`） | ✅ |
+| 坦克模型（`model.glb` + `collision.glb`） | `tools/export_tank_glb.py` | `data/cache/local_models/<id>/`（10-07 起同步进 `cache/models/`）；静态变换烘焙 / StateSwitcher 状态过滤见 [local-model-export.md](local-model-export.md) §1 铁律 14/15，单测 `tools/test_export_tank_static_transform.py` | ✅ |
 | 坦克封面图 / 图标 | `tools/export_tank_icons.py` | `data/cache/local_tank_icons/`（735/735） | ⚠️ 未接线 |
 | 车辆数值（`tanks.pb` / `models.pb` 等价物） | `tools/extract_vehicles.py`（+ `data/tank_id_bridge.json`） | `data/cache/local_pb/`（735 辆全量） | ⚠️ 未接线 |
-| 俯视地面合成 | `tools/composite_overhead.py`（现役；**朝向 = 契约常量 `YX`**，8 朝向相关只作 `audit` 诊断，见 [game-data-sources.md](game-data-sources.md) §5.5）/ `tools/bake_ground_roofs.py`（旧软光栅，已退役） | 写回 `<pack>/map/<key>/ground.webp`（**不刷 manifest**——36 张 ground 的条目因此是合成前哈希，见 §2.1）；重烘须 `--base-dir data/cache/maps`（缺省读包内件会在已合成图上二次合成）；`--verify` 反解读回实际烘入朝向 | ✅ |
+| 俯视地面合成 | `tools/composite_overhead.py`（现役；**朝向 = 契约常量 `YX`**，8 朝向相关只作 `audit` 诊断，见 [game-data-sources.md](game-data-sources.md) §5.5）/ `tools/bake_ground_roofs.py`（旧软光栅，已退役） | 写回 `<pack>/map/<key>/ground.webp`（**打包器之后跑**，随后按新链 `python scripts/export_asset_pack.py --refresh-manifest` 重算 manifest——2026-10-10 起，见 §2.1）；重烘须 `--base-dir data/cache/maps`（缺省读包内件会在已合成图上二次合成）；`--verify` 反解读回实际烘入朝向 | ✅ |
 
 ### 6.2 Rust 侧解包（`src/wargaming/`，由 CLI 子命令驱动）
 
@@ -306,8 +386,8 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
 
 | 路径 | 作用 |
 |---|---|
-| `scripts/export_asset_pack.py` | 收拢上述产物为 `release/asset_pack/`（`index.json` / `manifest.json` + 逐文件 sha256） |
-| `tools/upload_asset_pack_cos.py` | 资产包 → COS 差分上传（`manifest.json` 最后强传；陷阱见 §2.1） |
+| `scripts/export_asset_pack.py` | 收拢上述产物为 `release/asset_pack/`（`index.json` / `manifest.json` + 逐文件 sha256）；`--refresh-manifest` = 不重打包、按包内容重算 manifest（合成后 / 上传前跑） |
+| `tools/upload_asset_pack_cos.py` | 资产包 → COS 差分上传（跳过判定 = 桶内 manifest 的逐文件 sha256，`manifest.json` 最后强传；陷阱见 §2.1） |
 | `scripts/serve_asset_pack.mjs` | 本机 CORS 伺服 `release/asset_pack`（消费方 dev server 取用） |
 | `scripts/build-wasm.ps1` | WASM 回放解析产物构建（引擎侧，与资产提取无关） |
 

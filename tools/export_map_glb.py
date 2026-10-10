@@ -71,6 +71,7 @@ except ImportError:
     Image = None
 
 from wotb_sc2 import Reader, decode_dvpl, read_archive, read_sc2  # noqa: E402
+from wotb_cube import cube_to_equirect, decode_cube  # noqa: E402
 from wotb_scg import decode_polygon_normals  # noqa: E402
 from wotb_scg import (  # noqa: E402
     decode_bytes,
@@ -283,12 +284,19 @@ class MaterialLibrary:
         self._cache: dict[int, dict] = {}
 
     def resolve(self, material_id: int | None) -> dict:
-        """沿 parentMaterialKey 向上合并：贴图槽/属性子覆盖父，fxName 取最近非空。"""
+        """沿 parentMaterialKey 向上合并：贴图槽/属性/preset 子覆盖父，fxName 取最近非空。
+
+        `presets` = 客户端材质实例的 `enabledPresets`（如 `{"AlphaBlend": true}`，声明该实例
+        启用 `Textured.material` 的哪个预设）——此前**完全未读**，导致按 `has_alpha` 一律落到
+        `alphaMode=MASK` 裁切：`rays.sc2` 这类"白 RGB + 图案全在 alpha"的光束片被裁成硬边白块
+        （2026-10-09 用户"贴图像解码错误"报障；见 docs/map-render-align-audit.md 的 B6）。
+        """
         if material_id is None:
             return {}
         if material_id in self._cache:
             return self._cache[material_id]
-        merged: dict = {"textures": {}, "properties": {}, "flags": {}, "fxName": None, "materialName": None}
+        merged: dict = {"textures": {}, "properties": {}, "flags": {}, "presets": {},
+                        "fxName": None, "materialName": None}
         seen: set[int] = set()
         cur: int | None = material_id
         while isinstance(cur, int) and cur not in seen:
@@ -299,6 +307,7 @@ class MaterialLibrary:
             merged["textures"].update(node.get("textures") or {})
             merged["properties"].update(node.get("properties") or {})
             merged["flags"].update(node.get("flags") or {})
+            merged["presets"].update(node.get("enabledPresets") or {})
             if merged["fxName"] is None and node.get("fxName"):
                 merged["fxName"] = node["fxName"]
             if merged["materialName"] is None and node.get("materialName"):
@@ -306,6 +315,117 @@ class MaterialLibrary:
             cur = node.get("parentMaterialKey") if isinstance(node.get("parentMaterialKey"), int) else None
         self._cache[material_id] = merged
         return merged
+
+
+def preset_names(text: str) -> list[str]:
+    """`Presets:` 块的**直接子项**名（预设名），忽略更深的键与其它块（纯函数，单测看护）。
+
+    ⚠️ 不能用"全文件所有 `name:` 行"当候选：`Material:`（缩进 0）与 `Presets:`（4）会把
+    其**嵌套**内容一起圈进来，于是 `preset_defines(text, "Presets")` 也会含 MATERIAL_LIGHTMAP
+    ——2026-10-09 实测该误判让 `Textured.material` 的 lm_presets 多出 {"Material","Presets"}。
+    """
+    lines = text.splitlines()
+    start = base = None
+    for i, ln in enumerate(lines):
+        if re.match(r"^\s*Presets:\s*$", ln or ""):
+            start = i
+            base = len(re.match(r"^(\s*)", ln).group(1))
+            break
+    if start is None:
+        return []
+    out: list[str] = []
+    child_ind = None
+    for ln in lines[start + 1:]:
+        if not ln.strip():
+            continue
+        ind = len(re.match(r"^(\s*)", ln).group(1))
+        if ind <= base:
+            break
+        if child_ind is None:
+            child_ind = ind
+        m = re.match(r"^\s*([\w.]+):\s*$", ln)
+        if m and ind == child_ind:
+            out.append(m.group(1))
+    return out
+
+
+def preset_defines(text: str, name: str) -> set[str]:
+    """材质文件里某一预设块的 define 集合（纯函数，单测看护）。
+
+    块 = `    <name>:` 起、到下一个**同级或更浅**缩进的行为止（DAVA 材质是 4 空格缩进的
+    YAML 子集）。只取 `UniqueDefines` / `QualityDependentUniqueDefines`（`IgnoreDefines`
+    是"关闭"语义、`ConsiderOnlyDefines` 是 pass 白名单，都不算启用）。
+    """
+    lines = text.splitlines()
+    for i, ln in enumerate(lines):
+        m = re.match(r"^(\s*)([\w.]+):\s*$", ln or "")
+        if not m or m.group(2) != name:
+            continue
+        ind = len(m.group(1))
+        out: set[str] = set()
+        for nxt in lines[i + 1:]:
+            if nxt.strip() and len(re.match(r"^(\s*)", nxt).group(1)) <= ind:
+                break
+            m3 = re.search(r"(?:UniqueDefines|QualityDependentUniqueDefines)\s*:\s*\[([^\]]*)\]", nxt)
+            if m3:
+                out.update(x.strip() for x in m3.group(1).split(",") if x.strip())
+        return out
+    return set()
+
+
+# 光照图模板族：按画质档把 ULTRA 指到 PBR、其余指到 Textured——**实例不会启用 LightMap 预设**，
+# 但审计既定口径把该族继续按"烘焙光照图"渲染（客户端 ULTRA 档确实走 pbrLightmap(RG)），
+# 且实测其光照图窗口是正常值（erlenberg env_er_woodenbridge 均值 0.42 / p10 0.17，无黑斑）。
+LIGHTMAP_TEMPLATE_RE = re.compile(r"lightmap", re.I)
+
+
+def lightmap_capable(mat_desc: dict, family: dict | None) -> bool:
+    """客户端是否会为该材质**采样光照图**（决定我们是否走"不受光烘焙"路径）。
+
+    客户端证据（`materials-vp.sl:117-119` 与 `materials-fp.sl:246`）：
+      `#if MATERIAL_LIGHTMAP && VIEW_DIFFUSE && !SETUP_LIGHTMAP` 才做
+      `varTexCoord1 = uvScale*texcoord1 + uvOffset` 并在 DRAW PHASE 乘光照图；
+      `SETUP_LIGHTMAP` 在本机全库材质文件里**无人使用**（实测），故该分支恒假。
+    `MATERIAL_LIGHTMAP` 的三个来源（实测覆盖全部 42651 个绑光图实例）：
+      ① 材质文件**顶层** UniqueDefines —— `TextureLightmap.material`（绝大多数建筑，37064 个里的大头）；
+      ② 实例**启用的预设** —— `Textured.material` / `Detail.material` + `enabledPresets: {LightMap: true}`
+         （实测 466 + 386 个实例走这条）；
+      ③ 光照图**模板族**（名字含 lightmap 的模板，如 `StandardLightmapAllQualities`）。
+
+    ⚠️ 三者之外**不得**采样光照图：叶子只挂了 `textures.lightmap` 槽、材质却是 `Textured.material`
+    且没启用预设的网格（medvedkovo 外围群山 `mountains_001kl_` 等 111 个实例，2026-10-09 用户
+    "外围贴图不正常"报障）在客户端是 **unlit `albedo × flatColor`**——我们此前一律按"绑槽即受光图"
+    渲染，于是 `albedo × 暗光图 × 2`：实测那群山采到均值 0.23、p10 0.012 的黑斑区 ⇒ 雪图外围
+    群山变深灰带黑斑。
+    """
+    fx = (mat_desc.get("fxName") or "").rsplit("/", 1)[-1]
+    if LIGHTMAP_TEMPLATE_RE.search(fx):            # ③ 模板族 / TextureLightmap 也在此列
+        return True
+    if family and family.get("lm_top"):            # ① 材质文件顶层 define
+        return True
+    enabled = set((mat_desc.get("presets") or {}).keys())
+    return bool(enabled & set((family or {}).get("lm_presets") or ()))    # ② 启用的预设
+
+
+def detail_capable(mat_desc: dict, family: dict | None) -> bool:
+    """客户端是否会为该材质**采样细节层**（`MATERIAL_DETAIL`，决定是否导出 detail 槽）。
+
+    客户端证据（`materials-vp.sl:122/233` + `materials-fp.sl:100/264/347`）：
+      `#if MATERIAL_DETAIL` 才声明 uniform/varying（`varDetailTexCoord = uv0 ×
+      detailTileCoordScale`）、采样 `tex2D(detail, …)`，并在 DRAW PHASE 末尾
+      `color *= detailTextureColor.rgb * 2.0`（在光照图/环境反射/拼花砖**之后**）。
+    判据 = 材质文件链上**顶层**声明 MATERIAL_DETAIL（与 lightmap 的 ①/② 同口径；预设来源
+    在本机全库不存在，留 `presets` 口子仅防未来变化——绑了 `detail` 槽但材质没声明 define
+    的实例不得导出，宁可少画）。
+    实测（36 图 + 邻图）：453 个实例绑了 detail 槽，材质**全部**是
+    `Detail.material`（`UniqueDefines: [MATERIAL_TEXTURE, MATERIAL_DETAIL]`，全档无条件——
+    `DetailAllQualities.material` 的档位表 `ULTRA/MEDIUM:[MATERIAL_DETAIL]` 无实例使用，
+    故本判据不涉档位歧义）；其中 398 个同时启用 LightMap 预设（是光照图批次）。
+    """
+    if family and family.get("detail"):
+        return True
+    enabled = set((mat_desc.get("presets") or {}).keys())
+    return bool(enabled & set((family or {}).get("detail_presets") or ()))
 
 
 class ClientMaterialFamily:
@@ -359,19 +479,63 @@ class ClientMaterialFamily:
                 if "Defines" in ln and "IgnoreDefines" not in ln)
             info = {"shader": m.group(1).rsplit("/", 1)[-1] if m else None,
                     "speedtree": bool(m and "speedtree" in m.group(1).lower()),
-                    "spherical": "SPHERICAL_LIT" in defines_text}
+                    "spherical": "SPHERICAL_LIT" in defines_text,
+                    # 光照图判据用（见 lightmap_capable）：顶层 define + 各预设块的 define 名单
+                    # ⚠️ 只看 **Presets: 之前** 的顶层段：预设里的 MATERIAL_LIGHTMAP
+                    # （如 Textured.material 的 LightMap 预设）不算"自带"，必须由实例启用
+                    "lm_top": "MATERIAL_LIGHTMAP" in text.partition("Presets:")[0],
+                    "lm_presets": {n for n in preset_names(text)
+                                   if "MATERIAL_LIGHTMAP" in preset_defines(text, n)},
+                    # 细节层判据用（见 detail_capable）：与光照图同口径——只看 Presets:
+                    # 之前的顶层段（UniqueDefines / QualityDependentUniqueDefines）。
+                    # 实测 36 图里 MATERIAL_DETAIL 只出现在 `Detail.material`
+                    # （`UniqueDefines: [MATERIAL_TEXTURE, MATERIAL_DETAIL]`，全档无条件），
+                    # `DetailAllQualities.material` 的档位表**没有任何实例使用**，故不涉档位歧义。
+                    "detail": "MATERIAL_DETAIL" in text.partition("Presets:")[0],
+                    # 贴花判据用（见 decal_capable）：`Decal.material` 顶层
+                    # `UniqueDefines: [MATERIAL_TEXTURE, MATERIAL_DECAL]` ⇒ 客户端把该网格
+                    # 当**贴花**渲染：`albedo(UV0) × colormap(UV1).rgb（× colormap.a）× 2.0`，
+                    # **全程无光照项**。与光照图同口径：只看 Presets: 之前的顶层段。
+                    "decal": "MATERIAL_DECAL" in text.partition("Presets:")[0],
+                    "decal_presets": {n for n in preset_names(text)
+                                      if "MATERIAL_DECAL" in preset_defines(text, n)}}
             if info["shader"] is None:   # 模板：沿 ULTRA/HIGH/… 的材质引用链取并集
                 for ref in re.findall(r"(~res:/Materials/[\w.\-]+\.material)", text):
                     sub = self._resolve(ref.rsplit("/", 1)[-1], depth + 1)
                     if sub is not None:
                         info["speedtree"] |= sub["speedtree"]
                         info["spherical"] |= sub["spherical"]
+                        info["lm_top"] |= sub["lm_top"]
+                        info["lm_presets"] |= sub["lm_presets"]
+                        info["detail"] |= sub["detail"]
+                        info["decal"] |= sub["decal"]
+                        info["decal_presets"] |= sub["decal_presets"]
                         info["shader"] = info["shader"] or sub["shader"]
             return info
         return None
 
 
 VARIANT_LABEL_RE = re.compile(r"^([a-z]+)(\d+)$")
+
+
+def decal_capable(mat_desc: dict, family: dict | None) -> bool:
+    """客户端是否会为该材质走**贴花**路径（`MATERIAL_DECAL`）。
+
+    客户端证据（`materials-fp.sl:183/447-493/539-607`、`materials-vp.sl:473-483`）：
+      `MATERIAL_DECAL` ⇒ 顶点期 `varTexCoord1 = texcoord1`（**无 uvScale/uvOffset**）；
+      片元期 `decalTextureFetch = tex2D(decal, varTexCoord1)`（decal 槽 = 地图 **colormap**），
+      `LANDSCAPE_SEPARATE_LIGHTMAP_CHANNEL` 时再 `shadowColor *= decalTextureFetch.a`
+      （注释原文 "objects colored with landscape"）；DRAW PHASE
+      `color = albedo(UV0) × shadowColor × 2.0` —— **全程无光照项 ⇒ 不受光**。
+    ⇒ 消费端必须按贴花渲染（`albedo × colormap(UV1) × [colormap.a] × 2`）。若落到受光材质，
+      会比客户端亮一档（2026-10-10 用户"铁轨贴图看起来太亮"报障：forgecity `env_fs_rails_00X`
+      fxName = `Decal.material`、未启用 LightMap 预设、UV1 落在 colormap 空间）。
+    判据与光照图同口径：材质链**顶层**声明 MATERIAL_DECAL（预设来源留口子）；绑槽不受限
+    （colormap 槽名各图不同，本判据不依赖槽）。
+    """
+    enabled = set((mat_desc.get("presets") or {}).keys())
+    return bool((family or {}).get("decal")) or bool(
+        enabled & set((family or {}).get("decal_presets") or ()))
 
 
 def entity_variant_label(entity: dict) -> str | None:
@@ -454,6 +618,11 @@ def collect_renderables(scene: dict) -> dict:
         # 树倒（prop=3）无替换网格（倒伏动画作用于原节点），不在此列。
         nm = str(entity.get("name") or "")
         _nm_dest = bool(re.search(r"State ?[1-9]+$", nm) or re.search(r"_(crash|crush|broken)$", nm))
+        # SkinnedMesh 的 `State N`(N≥1)：切换器的**非激活**状态（`ssc.activeState` 均为 0，
+        # 内容 = 灯位/损毁变体，且带 Motion/Skeleton 动画）——按用户决定不做损毁态，直接跳过，
+        # 只保留激活的 `State 0`（= 完好形态，且是静止姿态）。
+        if cls == "SkinnedMesh" and _nm_dest:
+            continue
         if not _nm_dest:
             # 实体级初始可见性：bit0/bit1 为隐藏（blocking_volume=1、摧毁态 State-1=2）；
             # 值 4（草地系统实体）客户端照常渲染；摧毁态变体（_nm_dest）跳过此检
@@ -488,8 +657,13 @@ def collect_renderables(scene: dict) -> dict:
             landscape = entry or None
             continue
 
-        if cls not in ("Mesh", "SpeedTreeObject"):
-            continue  # MapBorderRenderObject 等调试/边框对象
+        # SkinnedMesh：状态切换器的灯具/可动件（如信号灯灯头 `env_fc_trafic_light_01.sc2`
+        # 的 `State N` 子树：SkinnedMesh + Skeleton/MotionComponent）。按**静止绑定姿态**导出
+        # （不读骨架动画 ⇒ 不随动），且**只取激活状态**（`State 0`，见下）——用户决定"完好形态
+        # 做完整、撞毁直接消失"，故不导损毁态网格。
+        # 其余类（MapBorderRenderObject 等调试/边框对象）仍跳过。
+        if cls not in ("Mesh", "SpeedTreeObject", "SkinnedMesh"):
+            continue
 
         # RenderObject 可见位（缺省即可见，镜像 RenderObject::Load 序列化缺省）；
         # 摧毁态变体初始隐藏（bit0=0、仅 bit13）——_nm_dest 放行（隐藏正是其语义）
@@ -859,8 +1033,21 @@ DDS_DXGI_TO_BCN = {70: 1, 71: 1, 72: 1, 73: 2, 74: 2, 75: 2, 76: 3, 77: 3, 78: 3
                    95: 6, 96: 6, 97: 6, 98: 7, 99: 7, 100: 7}
 
 
-def decode_dds(d: bytes, max_dim: int = 1024) -> Image.Image | None:
-    """DDS（DXT1/3/5 + DX10 扩展头 BCn）→ PIL RGBA，保留 alpha，长边超限等比缩小。"""
+def _cap_dim(img: "Image.Image", max_dim: int) -> "Image.Image":
+    """按最长边上限等比缩小；**max_dim = 0 表示不缩放**（客户端原生分辨率）。
+
+    2026-10-09 起场景/地表的默认口径就是 0：此前默认 1024 会把客户端的 2048² 贴图
+    （如 medvedkovo 外围群山 `landscape/mountain/mountains.tex`，跨度 1.2 km）压成
+    1024²，外圈远景成片发糊（用户报障"外层包围地图模糊"）。上限仅在显式传参时生效。
+    """
+    if max_dim and max(img.size) > max_dim:
+        img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+    return img
+
+
+def decode_dds(d: bytes, max_dim: int = 0) -> Image.Image | None:
+    """DDS（DXT1/3/5 + DX10 扩展头 BCn）→ PIL RGBA，保留 alpha。
+    max_dim = 0（缺省）= **不缩放**，客户端原始分辨率；>0 时按最长边缩到该上限。"""
     if d[:4] != b"DDS ":
         return None
     height = struct.unpack_from("<I", d, 12)[0]
@@ -889,12 +1076,10 @@ def decode_dds(d: bytes, max_dim: int = 1024) -> Image.Image | None:
     except Exception:
         return None
     img = Image.frombytes("RGBA", (width, height), rgba).transpose(Image.FLIP_TOP_BOTTOM)
-    if max(img.size) > max_dim:
-        img.thumbnail((max_dim, max_dim), Image.LANCZOS)
-    return img
+    return _cap_dim(img, max_dim)
 
 
-def decode_pvr3(d: bytes, max_dim: int = 1024) -> Image.Image | None:
+def decode_pvr3(d: bytes, max_dim: int = 0) -> Image.Image | None:
     """DAVA 自有 PVR3 容器 → PIL RGBA。
 
     布局：**52B 头**（PVR3/ver/'rgba'/bits[4]/colourSpace/channelType/**height@24**/
@@ -944,9 +1129,7 @@ def decode_pvr3(d: bytes, max_dim: int = 1024) -> Image.Image | None:
         b = ((arr16 & 0x1F) * 255 + 15) // 31
         rgba = np.stack([r, g, b, np.full_like(r, 255)], axis=-1).astype(np.uint8)
         img = Image.frombytes("RGBA", (w0, h0), rgba.tobytes()).transpose(Image.FLIP_TOP_BOTTOM)
-        if max(img.size) > max_dim:
-            img.thumbnail((max_dim, max_dim), Image.LANCZOS)
-        return img
+        return _cap_dim(img, max_dim)
 
     starts = []
     marker = d.rfind(b"PVRCRC_")
@@ -988,16 +1171,12 @@ def decode_pvr3(d: bytes, max_dim: int = 1024) -> Image.Image | None:
         else:
             rgba = np.stack([np.full_like(a8, 255)] * 3 + [a8], axis=-1)
         img = Image.frombytes("RGBA", (w, h), rgba.tobytes()).transpose(Image.FLIP_TOP_BOTTOM)
-        if max(img.size) > max_dim:
-            img.thumbnail((max_dim, max_dim), Image.LANCZOS)
-        return img
+        return _cap_dim(img, max_dim)
     else:
         return None
     rgba = np.stack(channels, axis=-1).astype(np.uint8)
     img = Image.frombytes("RGBA", (w, h), rgba.tobytes()).transpose(Image.FLIP_TOP_BOTTOM)
-    if max(img.size) > max_dim:
-        img.thumbnail((max_dim, max_dim), Image.LANCZOS)
-    return img
+    return _cap_dim(img, max_dim)
 
 
 def decode_tiletx_planes(d: bytes):
@@ -1136,9 +1315,11 @@ class GlbBuilder:
         return self._tex_by_key[key]
 
     def add_shared_mesh(self, key, positions, indices, uvs, normals, material_index,
-                        extra_attrs=None) -> int | None:
+                        extra_attrs=None, uvs1=None) -> int | None:
         """共享几何（按 datasource 去重）；key=datasource。
-        extra_attrs: [{"name","type":"VEC4","data":[flat floats]}]（如叶卡 _CORNER/COLOR_0）。"""
+        extra_attrs: [{"name","type":"VEC4","data":[flat floats]}]（如叶卡 _CORNER/COLOR_0）。
+        uvs1: 第二套 UV（TEXCOORD_1）——仅动画混合层需要（掩码在 UV1 采样、不随 UV0 位移）；
+        绝大多数网格为 None，不写该属性（省 8 B/顶点）。"""
         pos_view = self.add_view(struct.pack(f"<{len(positions) * 3}f", *[v for p in positions for v in p]))
         mins = [min(p[i] for p in positions) for i in range(3)]
         maxs = [max(p[i] for p in positions) for i in range(3)]
@@ -1157,6 +1338,11 @@ class GlbBuilder:
                                    "min": [min(p[0] for p in uvs), min(p[1] for p in uvs)],
                                    "max": [max(p[0] for p in uvs), max(p[1] for p in uvs)]})
             attrs["TEXCOORD_0"] = len(self.accessors) - 1
+        if uvs1 is not None:
+            uv1_view = self.add_view(struct.pack(f"<{len(uvs1) * 2}f", *[v for uv in uvs1 for v in uv]))
+            self.accessors.append({"bufferView": uv1_view, "componentType": 5126, "count": len(uvs1),
+                                   "type": "VEC2"})
+            attrs["TEXCOORD_1"] = len(self.accessors) - 1
         for attr in (extra_attrs or []):
             flat = attr["data"]
             ncomp = 4 if attr["type"] == "VEC4" else 3
@@ -1175,7 +1361,7 @@ class GlbBuilder:
         return len(self.meshes) - 1
 
     def add_node(self, mesh_index: int, transform: dict, name: str | None,
-                 variant_label: str | None = None) -> None:
+                 variant_label: str | None = None, lm=None) -> None:
         node = {
             "mesh": mesh_index,
             "translation": transform["translation"],
@@ -1183,12 +1369,23 @@ class GlbBuilder:
             "scale": transform["scale"],
             "name": name or None,
         }
+        extras = {}
         if variant_label:
             # 变体标签随包（GLTFLoader 落 node.userData.mdVariant）：前端按对局
             # map_id 对照 asset.extras.variantByMapId 剔除非本组节点——多变体地图
             # （Dead Rail 等 9 图）的场景 GLB 按 space 共享，组外布景不剔除即成
             # 幻影物体（回放里立着游戏里没有的石头）
-            node["extras"] = {"mdVariant": variant_label}
+            extras["mdVariant"] = variant_label
+        if lm is not None:
+            # 烘焙光照图的**逐实例** UV 变换 [sx, sy, ox, oy]（客户端
+            # `varTexCoord1 = uvScale*texcoord1 + uvOffset`，是逐材质实例的）。
+            # 放节点而非材质：按材质去重会让同一网格的每个实例各建一份几何
+            #（实测膨胀 2.3–11.3×，himmelsdorf 10.5 万 → 118 万顶点），
+            # 故图集贴图挂在材质（extras.lightmap）、变换挂实例，前端用
+            # InstancedBufferAttribute 逐实例传。
+            extras["lm"] = [round(float(v), 6) for v in lm]
+        if extras:
+            node["extras"] = extras
         self.nodes.append(node)
 
     def finish(self, generator: str, scene_extras: dict | None = None) -> bytes:
@@ -1276,9 +1473,9 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
                     groups_by_id[struct.unpack("<Q", bytes.fromhex(raw["$bytes"]))[0]] = g
                 except ValueError:
                     pass
-    materials = MaterialLibrary(scene)
     renderables = collect_renderables(scene)
     instances = renderables["instances"]
+    materials = MaterialLibrary(scene)
     if not instances:
         raise RuntimeError(f"{space}: 无可见网格实例")
     # 变体映射（{map_id: "mdN"}，随 GLB extras 下发；多变体图 9 张，其余为 {}）
@@ -1312,6 +1509,7 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
     # 解析后的 albedo 去重（实例级 NMaterial 只是挂同一贴图树的空壳）----
     mesh_by_ds: dict[int, int] = {}
     alpha_bake_cache: dict[tuple, Image.Image] = {}
+    env_cube_cache: dict[str | None, Image.Image | None] = {}   # 环境反射立方图（按路径）
     flat_tint_cache: dict[tuple, Image.Image] = {}
     material_index_by_albedo: dict[tuple, int] = {}
     stats = {"decode_fail": 0, "no_group": 0, "no_uv": 0, "uv1": 0, "no_texture": 0,
@@ -1462,16 +1660,20 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         # - FLATCOLOR：染色（瀑布水 flatColor 1.4+）
         # - 动画层（TEXTURE0_ANIMATION_SHIFT）用半透明混合（客户端 Translucent）
         mask_path = mat_desc["textures"].get("alphamask")
-        # Water 着色器（海/河水面）的 decal 槽语义不同（water-fp.sl 深度染色），
-        # 不做 MATERIAL_DECAL 烘焙；水面按客户端语义半透明渲染
-        is_water = "water" in (mat_desc.get("fxName") or "").lower()
+        is_water = is_water_material(mat_desc)
         decal_path = None if is_water else mat_desc["textures"].get("decal")
         flat_rgb = (1.0, 1.0, 1.0)
         if "flatColor" in (mat_desc.get("properties") or {}):
             flat_rgb = tuple(round(v, 4) for v in
                              _prop_floats(mat_desc, "flatColor", (1, 1, 1, 1))[:3])
+
         anim_layer = bool((mat_desc.get("flags") or {}).get("TEXTURE0_ANIMATION_SHIFT"))
-        needs_bake = (decal_path or mask_path) and uvs1 is not None and img is not None
+        # 动画混合层（动画位移 + 掩码）：掩码**不烘进 alpha**，改为单独成贴图走 UV1
+        # （客户端 albedo 位移、掩码不动，见 _build_material 的同名注释）。烘焙只服务
+        # "静态"掩码层与 decal 层。
+        anim_mask_layer = bool(anim_layer and mask_path)
+        needs_bake = (decal_path or mask_path) and not anim_mask_layer \
+            and uvs1 is not None and img is not None
         flat_baked = False   # UV1 烘焙已含 flatColor 时不重复染色
         if needs_bake and (flat_rgb != (1.0, 1.0, 1.0) or anim_layer or decal_path):
             bake_key = (albedo_path, decal_path, mask_path, flat_rgb)
@@ -1496,13 +1698,26 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         # 材质（skit 芦苇叶 1.345/1.145/1.030、port 树皮 1.354/1.070/0.502、
         # holland 灌木 2.491/2.073/1.683 等）被静默丢弃。逐通道伽马空间相乘，
         # 与客户端同式；按 (albedo, 染色) 缓存，避免共享贴图被就地改写。
+        tint_applied = False
         if (img is not None and not flat_baked and flat_rgb != (1.0, 1.0, 1.0)
                 and (mat_desc.get("flags") or {}).get("FLATCOLOR")):
             tint_key = (albedo_path, flat_rgb)
             if tint_key not in flat_tint_cache:
                 flat_tint_cache[tint_key] = apply_flat_tint(img, flat_rgb)
             img = flat_tint_cache[tint_key]
+            tint_applied = True
             stats["flat_tinted"] = stats.get("flat_tinted", 0) + 1
+        # 嵌入图片的**内容变体**：染色/UV1 烘焙改写的像素已不是"原贴图"，而
+        # GlbBuilder.add_texture 按 key 去重（同 key 复用首张）——必须把变体参数并进 key。
+        # 2026-10-09 实测事故：forgecity 同一 albedo（bitumen）两个材质——Textured.material
+        # 实例染色 flatColor≈0.08 先注册近黑图，Detail.material 实例（flatColor=0.76，应为
+        # 0.258 均值）被顶替成那张近黑图 ⇒ 挡土墙的沥青片渲染成黑块。全树普查：54 个图条目、
+        # 788 个变体受此类顶替影响（长期存在，非某批引入）。
+        img_variant = None
+        if flat_baked:
+            img_variant = ("bake", decal_path, mask_path, tuple(flat_rgb))
+        elif tint_applied:
+            img_variant = ("tint", tuple(flat_rgb))
         # SpeedTree 材质族（客户端 speedtree-materials.sl）：无场景光照，
         # color = albedo × varVertexColor，alpha discard 0.5——标记 ST| 让前端走
         # 不受光材质（我们此前的 Lambert+太阳让随机卡片亮度随朝向乱变，与客户端
@@ -1537,15 +1752,162 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         else:
             st_tint = None
         card_occ = card["occ_mean"] if card is not None else None
+        # 烘焙光照图（客户端 `materials-fp.sl` 的 MATERIAL_LIGHTMAP：静态场景在客户端是
+        # **不受光**的烘焙光照——`color = albedo(UV0) × lightmap(UV1×uvScale+uvOffset) × 2`）。
+        # 图集贴图进 **材质** extras（一个材质只引一张图集）、逐实例 UV 变换进 **节点** extras
+        # （变换逐材质实例，按材质去重会让几何膨胀 2.3–11.3×，实测见 add_node 注释）。
+        # SpeedTree 族 / 卡片路径有自己的染色公式（SH/顶点色）→ 不接。
+        lm_tex_path = mat_desc["textures"].get("lightmap")
+        lm_img = None
+        lm_uv = None
+        # 判据：绑槽**且**客户端真的会采样（见 lightmap_capable——绑槽≠启用；误判会让
+        # 客户端本来 unlit 的网格（medvedkovo 外围群山）乘上暗光图）
+        if (lm_tex_path and not is_st and card is None and uvs1 is not None
+                and lightmap_capable(mat_desc, fam)):
+            lm_img, _ = textures.get(lm_tex_path)
+            if lm_img is not None:
+                sc = _prop_floats(mat_desc, "uvScale", (0.0, 0.0))[:2]
+                of = _prop_floats(mat_desc, "uvOffset", (0.0, 0.0))[:2]
+                lm_uv = [sc[0], sc[1], of[0], of[1]]
+                stats["lm_batches"] = stats.get("lm_batches", 0) + 1
+        # 贴花（客户端 `MATERIAL_DECAL`，见 decal_capable）：`albedo(UV0) × colormap(UV1).rgb
+        # （`separate_lm` 图再 × colormap.a）× 2.0`，**不受光**；UV 用 UV1 且**无 uvScale**
+        # （顶点期 `varTexCoord1 = texcoord1`）⇒ 必须随导 TEXCOORD_1（消费端据此采 colormap）。
+        # 与 LightMap 预设并存时（客户端两个 define 并存 ⇒ 还要再乘光照图）本机无实例：
+        # 保守走光照图路径并计数，宁可不做贴花也不漏乘（偏亮）。
+        is_decal = ((not is_st) and card is None and not is_water
+                    and decal_capable(mat_desc, fam))
+        if is_decal:
+            if lm_img is not None or lm_tex_path:
+                is_decal = False   # 与光照图并存：走光照图路径（见上）
+                stats["decal_with_lightmap"] = stats.get("decal_with_lightmap", 0) + 1
+            elif uvs1 is None or len(uvs1) != len(positions):
+                is_decal = False   # 无 UV1 ⇒ 采不到 colormap：退回受光（fail-closed，材质不标 decal）
+                stats["decal_dropped_no_uv1"] = stats.get("decal_dropped_no_uv1", 0) + 1
+            else:
+                stats["decal_batches"] = stats.get("decal_batches", 0) + 1
+
+        # 细节层（客户端 `MATERIAL_DETAIL`：`uv0 × detailTileCoordScale` 采样、
+        # DRAW PHASE 末尾 `color *= detail × 2.0`）。与光照图无关，可同时存在（实测 398/453）。
+        # 判据同 lightmap：绑槽**且**材质链声明 define（`detail_capable`）；UV 用 **UV0**
+        # （客户端 varDetailTexCoord = varTexCoord0 × scale——不是 UV1），故无逐实例变换、
+        # 材质级 extras 足够。
+        detail_tex_path = mat_desc["textures"].get("detail")
+        detail_img = None
+        detail_scale = None
+        if detail_tex_path and uvs is not None and detail_capable(mat_desc, fam):
+            detail_img, _ = textures.get(detail_tex_path)
+            if detail_img is not None:
+                detail_scale = [float(v) for v in
+                                _prop_floats(mat_desc, "detailTileCoordScale", (1.0, 1.0))[:2]]
+                stats["detail_batches"] = stats.get("detail_batches", 0) + 1
+        # 水面：客户端材质 `WaterAllQualities.material` 按画质档分四个材质文件
+        # （ULTRA/HIGH = 屏幕空间反射/折射、MEDIUM = `WaterPerPixelCubemapAlphablend`、
+        # LOW = `WaterPerVertexCubemap`）。我们采 **MEDIUM 档**（water-fp.sl 的
+        # `PIXEL_LIT && !REAL_REFLECTION` 路径）：反射取**逐图 water cubemap**、法线取
+        # `normalmap` 槽的双层滚动（UDN 相加）、alpha = 菲涅尔（材质文件 `blend: true`）。
+        # 说明：2026-10-09 曾按用户选择改采 LOW 档（不透明、无波形扰动），观感被判"不好"
+        # 后按用户裁示**回退到 MEDIUM**（抉择与两档对比见 docs/index.md 的 F1 条）。
+        # ⚠️ 法线图与立方图**都必需**：缺任一张即 fail-closed 不发水面数据（消费端回落
+        # 普通材质，宁可不画错——菲涅尔 alpha 需要法线、反射项需要立方图）。
+        water_surface = None
+        if is_water:
+            nm_img, _ = textures.get(mat_desc["textures"].get("normalmap") or "")
+            wc_img = _env_cube_equirect(textures, mat_desc["textures"].get("cubemap"),
+                                        env_cube_cache)
+            if nm_img is not None and wc_img is not None:
+                water_surface = {"props": water_props(mat_desc)}
+                # 法线图：无损 PNG（法线图有损压缩会改变波浪朝向）
+                nbuf = io.BytesIO()
+                nm_img.convert("RGB").transpose(Image.FLIP_TOP_BOTTOM).save(nbuf, "PNG")
+                water_surface["normal"] = glb.add_texture(
+                    ("waternormal", mat_desc["textures"].get("normalmap")), nbuf.getvalue(),
+                    "image/png")
+                cbuf = io.BytesIO()
+                wc_img.convert("RGB").save(cbuf, "JPEG", quality=90)
+                water_surface["cube"] = glb.add_texture(
+                    ("watercube", mat_desc["textures"].get("cubemap")), cbuf.getvalue(),
+                    "image/jpeg")
+                stats["water_surface"] = stats.get("water_surface", 0) + 1
+            else:
+                stats["water_fallback"] = stats.get("water_fallback", 0) + 1
+
+        # 视角淡出软混合效果片（客户端 `enabledPresets.AlphaBlend` + flags `BLEND_BY_ANGLE`）：
+        # `rays.sc2` / 光柱片这类"白 RGB + 图案全在 alpha"的薄片，客户端按 `Textured.material`
+        # 的 AlphaBlend 预设（TransclucentRenderLayer + blend:true + depthWrite:false）软混合，
+        # 并在片元末乘视角因子 pow(saturate((VdotN−bounds.x)/(bounds.y−bounds.x)), power)
+        # （VdotN = |dot(视线, 法线)| / (|视线|·|法线|)，inversion 可翻转）。我们此前不读
+        # `enabledPresets`、一律按 has_alpha 落 MASK 0.33 ⇒ medvedkovo 该片 95% 内容被裁掉、
+        # 剩下硬边暖白块（2026-10-09 用户"贴图像解码错误"报障；审计表 B6）。
+        # ⚠️ 只针对 BLEND_BY_ANGLE 这类**效果片**：植被/建筑带 AlphaBlend 预设的实例仍走
+        # 既有裁切取舍（避免透明排序闪烁），不在此列。
+        blend_by_angle = None
+        if (mat_desc.get("flags") or {}).get("BLEND_BY_ANGLE"):
+            blend_by_angle = {
+                "bounds": [round(v, 6) for v in
+                           _prop_floats(mat_desc, "angleBlendBounds", (0.0, 1.0))[:2]],
+                "power": round(float(_prop_floats(mat_desc, "angleBlendPower", (1.0,))[0]), 6),
+                "inversion": round(float(_prop_floats(mat_desc, "angleBlendInversion", (0.0,))[0]), 6),
+            }
+
+        # 环境反射（客户端 ENVIRONMENT_MAPPING）：仅光照图族静态几何——遮罩(UV0) × 菲涅尔
+        # × 逐图天空立方图；水/SpeedTree/卡片不接。判据是**绑了掩码 + 立方图两个槽**，不是
+        # ENVIRONMENT_MAPPING 旗标（旗标实测只在部分实例上；绑槽才是客户端真正开反射的条件，
+        # 全树 535 个实例与槽位普查逐数吻合）。
+        env_desc = None
+        env_mask_path = mat_desc["textures"].get("envReflectionMask")
+        env_cube_path = mat_desc["textures"].get("cubemap")
+        if (lm_img is not None and env_mask_path and env_cube_path
+                and not is_water and not is_st and card is None):
+            env_mask_img, _ = textures.get(env_mask_path)
+            env_cube_img = _env_cube_equirect(textures, env_cube_path, env_cube_cache)
+            if env_mask_img is not None and env_cube_img is not None:
+                env_desc = {"mask": env_mask_img, "cube": env_cube_img, "props": env_props(mat_desc)}
+                stats["env_mapped"] = stats.get("env_mapped", 0) + 1
         mat_key = (albedo_path, decal_path, mask_path, flat_rgb, has_alpha,
                    bool(img is not None), anim_layer and mask_path is not None,
-                   is_water, st_tint, card_occ)
+                   is_water, st_tint, card_occ,
+                   lm_tex_path if lm_img is not None else None,
+                   # 细节层：同 albedo 不同 detail 贴图/平铺倍率不得串用
+                   (detail_tex_path, tuple(detail_scale)) if detail_img is not None else None,
+                   (env_mask_path, env_cube_path) if env_desc is not None else None,
+                   # 贴花标记进键：与同 albedo 的受光变体不得串用
+                   is_decal,
+                   # 视角淡出参数逐材质（bounds/power/inversion）也进键——同 albedo 不同
+                   # 淡出曲线的实例不得串用
+                   (tuple(sorted((k, tuple(v) if isinstance(v, list) else v)
+                                 for k, v in blend_by_angle.items()))
+                    if blend_by_angle is not None else None),
+                   (mat_desc["textures"].get("normalmap"), mat_desc["textures"].get("cubemap"),
+                    # 水面**逐材质属性**也要进键：同一 albedo/法线/立方图但菲涅尔/色调不同的
+                    # 实例（马利诺夫卡的浮冰群）否则会串用首个实例的属性
+                    tuple(sorted((k, tuple(v) if isinstance(v, list) else v)
+                                 for k, v in water_surface["props"].items())))
+                   if water_surface is not None else None)
         if mat_key not in material_index_by_albedo:
             material_index_by_albedo[mat_key] = _build_material(
                 glb, textures, albedo_path, mat_desc, img, has_alpha,
-                blend=(anim_layer and mask_path is not None) or is_water,
+                # 水面 = 半透明（MEDIUM 档材质文件 `WaterPerPixelCubemapAlphablend`：
+                # WaterRenderLayer + blend，alpha = 菲涅尔在着色器里给）
+                # 视角淡出效果片也走 GLB 软混合（前端另有专用材质做视角因子）
+                blend=(anim_layer and mask_path is not None) or is_water
+                      or blend_by_angle is not None,
                 opacity=0.7 if is_water else None,
-                st_tint=st_tint, occ_mean=1.0 if card_occ is not None else None)
+                st_tint=st_tint, occ_mean=1.0 if card_occ is not None else None,
+                # 真混合层标记：仅动画+掩码的效果层（水另有前端分支，不进此列）
+                blend_layer=anim_mask_layer,
+                # 掩码单独成贴图 + 位移参数（仅动画混合层；静止掩码层仍走 UV1 烘焙进 alpha）
+                mask_img=(textures.get(mask_path)[0] if anim_mask_layer else None),
+                shift_anim=(_prop_floats(mat_desc, "tex0ShiftPerSecond", (0.0, 0.0))[:2]
+                            if anim_mask_layer else None),
+                shift_static=(_prop_floats(mat_desc, "texture0Shift", (0.0, 0.0))[:2]
+                              if anim_mask_layer and "texture0Shift" in (mat_desc.get("properties") or {})
+                              else None),
+                lightmap_img=lm_img,
+                img_variant=img_variant,
+                detail_img=detail_img, detail_scale=detail_scale,
+                env=env_desc, water=is_water, water_surface=water_surface,
+                blend_by_angle=blend_by_angle, decal=is_decal)
         material_index = material_index_by_albedo[mat_key]
 
         # 网格按 (datasource, 材质) 去重：同型物体共享几何，但不同材质的
@@ -1557,7 +1919,7 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         if mesh_key in mesh_by_ds:
             existing = mesh_by_ds[mesh_key]
             for mi in (existing if isinstance(existing, tuple) else (existing,)):
-                glb.add_node(mi, transform, name, inst_variant)
+                glb.add_node(mi, transform, name, inst_variant, lm_uv)
             continue
 
         created = []
@@ -1596,21 +1958,36 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
             if mesh_index is not None:
                 created.append(mesh_index)
         else:
+            # UV1 随导的两种用途：动画混合层的掩码采样、烘焙光照图的图集采样。
+            # 条数必须对齐才写（fail-closed：不对齐宁可不写——掩码回退烘焙口径、
+            # 光照图回退受光材质，都不产出错误画面）
+            uv1_attr = (uvs1 if ((anim_mask_layer or lm_uv is not None or is_decal)
+                                 and uvs1 is not None
+                                 and len(uvs1) == len(positions)) else None)
+            if lm_uv is not None and uv1_attr is None:
+                stats["lm_dropped_no_uv1"] = stats.get("lm_dropped_no_uv1", 0) + 1
+            if lm_uv is not None and uv1_attr is None:
+                lm_uv = None   # 无 UV1 则光照图不可用：材质按原口径（受光）渲染
             mesh_index = glb.add_shared_mesh(
                 datasource, positions, indices, uvs,
-                authored_normals or compute_normals(positions, indices), material_index)
+                authored_normals or compute_normals(positions, indices), material_index,
+                uvs1=uv1_attr)
+            if uv1_attr is not None:
+                stats["uv1_shipped"] = stats.get("uv1_shipped", 0) + 1
             if mesh_index is not None:
                 created.append(mesh_index)
         if not created:
             continue
         mesh_by_ds[mesh_key] = tuple(created)
         for mi in created:
-            glb.add_node(mi, transform, name, inst_variant)
+            glb.add_node(mi, transform, name, inst_variant, lm_uv)
 
     # ---- GLB + sidecar + 地面贴图 ----
+    scene_extras = {"surfaceFlags": 1}   # 材质级 water 标记为权威（见 _build_material）
+    if variant_by_map_id:
+        scene_extras["variantByMapId"] = variant_by_map_id
     (output_dir / f"{space}.glb").write_bytes(
-        glb.finish("wotb-agent export_map_glb (client-aligned)",
-                   {"variantByMapId": variant_by_map_id} if variant_by_map_id else None))
+        glb.finish("wotb-agent export_map_glb (client-aligned)", scene_extras))
 
     if scenery_only:
         # 只重导 GLB（变体打标等场景修正）；不触地面贴图与 sidecar——旧 sidecar
@@ -1671,15 +2048,125 @@ def _prop_floats(mat_desc: dict, key: str, default) -> tuple:
 
 
 
+def mask_channel_values(mask_img: Image.Image) -> np.ndarray:
+    """掩码贴图 → 0..1 单通道值（烘焙与"单独成图"两条路共用同一口径）。
+
+    客户端 `materials-fp.sl` 用 `FP_A8(tex2D(alphamask, uv1))` 取掩码贴图的**单通道值**。
+    本仓 `decode_pvr3` 对 8bpp 单通道贴图（L8/A8）的落点是 **RGB**、A 恒 255；RGBA 掩码
+    才把真值放在 A。故：A 无信息（恒 255）时取亮度，否则取 A。"""
+    m = np.asarray(mask_img.convert("RGBA"), np.float32)
+    return (m[..., 3] if m[..., 3].min() < 250 else m[..., :3].mean(axis=-1)) / 255.0
+
+
+# 环境反射属性缺省（客户端 materials-vp.sl:96-98 / materials-fp.sl:83-88 的 property 缺省）
+ENV_PROP_DEFAULTS = {
+    "reflectionSpecParamGloss": 0.45,
+    "reflectionLerpEnvMap": 0.5,
+    "reflectionAddDiffuse": 0.0,
+    "reflectionMaskMultiplier": 100.0,
+    "reflectionMultLightmap": 2.0,
+    "reflectionBrightenEnvMap": 2.8,
+    "reflectionSpecular": 1.0,
+    "reflectionMetalFresnelReflectance": [0.5, 0.55, 0.3],
+    "cubemapIntensity": [1.0, 1.0, 1.0],
+}
+
+
+def env_props(mat_desc: dict) -> dict:
+    """环境反射的逐材质属性（缺省按客户端 property 默认值；只写非缺省项省体积）。"""
+    out = {}
+    props = mat_desc.get("properties") or {}
+    for key, default in ENV_PROP_DEFAULTS.items():
+        if key not in props:
+            continue
+        n = len(default) if isinstance(default, list) else 1
+        dflt = tuple(default) if isinstance(default, list) else (default,)
+        vals = [round(float(v), 6) for v in _prop_floats(mat_desc, key, dflt)[:n]]
+        if vals != [round(float(v), 6) for v in dflt]:
+            out[key] = vals if n > 1 else vals[0]
+    return out
+
+
+# 水面 MEDIUM 档属性缺省（客户端 water-fp.sl:126-128 / water-vp.sl:121-124 的 property 缺省）
+WATER_PROP_DEFAULTS = {
+    "normal0Scale": [1.0],
+    "normal1Scale": [1.0],
+    "normal0ShiftPerSecond": [0.0, 0.0],
+    "normal1ShiftPerSecond": [0.0, 0.0],
+    "fresnelBias": [0.0],
+    "fresnelPow": [0.0],
+    "reflectionTintColor": [1.0, 1.0, 1.0],
+}
+
+
+def water_props(mat_desc: dict) -> dict:
+    """水面（MEDIUM 档）逐材质属性：UV 双层滚动 + 菲涅尔 + 反射色调。
+
+    与 `env_props` 不同：**全写**、不做"只写非缺省项"省略——消费端据此把公式逐项照抄。
+    标量属性在表里也写成单元素列表，取值口径与向量一致（`[:n]` + 单元素取标量）。
+    （LOW 档另有一组 `decalTintColor`/`reflectanceColor` 属性，我们不采该档故不下发。）
+    """
+    out = {}
+    for key, default in WATER_PROP_DEFAULTS.items():
+        n = len(default)
+        vals = [round(float(v), 6) for v in _prop_floats(mat_desc, key, tuple(default))[:n]]
+        out[key] = vals if n > 1 else vals[0]
+    return out
+
+
+def _env_cube_equirect(textures: "TextureStore", tex_path: str | None, cache: dict,
+                       out_w: int = 1024) -> Image.Image | None:
+    """环境反射的 `cubemap` 槽（逐图天空立方图）→ 等距柱状投影（按路径缓存）。
+
+    面表/朝向与逐图 IBL 共用 `wotbtools/wotb_cube.py`（逐字取自客户端 cubemap-faces.slh）。
+    非立方图/解码失败返回 None（回落：材质照常按光照图渲染，只是没有反射）。"""
+    if not tex_path:
+        return None
+    if tex_path in cache:
+        return cache[tex_path]
+    img = None
+    for cand in textures._candidates(tex_path):
+        try:
+            dec = decode_cube(decode_dvpl(cand.read_bytes()) if cand.suffix == ".dvpl"
+                              else cand.read_bytes())
+        except Exception:
+            dec = None
+        if dec is None:
+            continue
+        _, _, faces = dec
+        img = cube_to_equirect(faces, out_w)
+        break
+    cache[tex_path] = img
+    return img
+
+
+def is_water_material(mat_desc: dict) -> bool:
+    """水面材质判据：**材质文件** fxName 含 "water"（如 `WaterAllQualities.material` /
+    `WaterPerPixel*`）——与实体/节点名无关。
+
+    ⚠️ 消费端过去按**节点名**启发式（/water|sea|lake|river|fountain/i）判水面，会把含 "water"
+    的**建筑**误判（水塔 `bld_er_water_tower_pbr`、水厂等），使其退回受光材质整体发白
+    （2026-10-09 用户报障）。现由导出器按材质判定并把结果写进材质 extras `water: true`，
+    消费端只看该标记（新包以 asset.extras.surfaceFlags 声明"标记权威"）。"""
+    return "water" in (mat_desc.get("fxName") or "").lower()
+
+
 def bake_uv1_overlays(base_img: Image.Image, decal_img, mask_img,
                        tint, mult, uvs, uvs1, idx: list) -> Image.Image:
     """UV1 覆盖烘焙（materials-fp.sl 客户端公式）：
 
     - decal 槽（MATERIAL_DECAL）：RGB ×= decal.rgb(UV1) × flatColor × 2.0
       （DRAW PHASE 的 color *= shadowColor × 2，阴影乘数受光态为 1）
-    - alphamask 槽（ALPHA_MASK）：A ×= mask.a(UV1)（效果层镂空/软透明）
+    - alphamask 槽（ALPHA_MASK）：A ×= mask(UV1)（效果层镂空/软透明）——掩码**值**见下
     - FLATCOLOR（非 decal 材质）：RGB ×= flatColor（无 ×2）
     按网格 UV0 三角形光栅化，UV1 重心插值采样（decal 平铺 wrap）。
+
+    掩码通道：客户端 materials-fp.sl 的 `FP_A8(tex2D(alphamask, uv1))` 取的是掩码贴图的
+    **单通道值**（掩码语义；这些材质的 albedo 自身 alpha 恒 255，alpha 只能来自 mask）。
+    本仓 decode_pvr3 对 8bpp 单通道贴图（L8/A8，1328 张 PVR 里 954 张）的落点是 **RGB**、
+    A 恒 255；RGBA 掩码才把真值放在 A。故：A 无信息（恒 255）时取亮度，否则取 A。
+    ⚠️ 旧实现恒取 `.a`：himmelsdorf 烟囱烟雾等 **15 图 / 144 个 mask 批次**的 alpha 被烘成
+    二值剪影（0/255、零中间调）——烟雾渲染成硬边卡片（2026-10-09 用户报障）。
     """
     canvas = base_img.convert("RGBA").copy()
     arr = np.asarray(canvas, np.float32)
@@ -1694,7 +2181,7 @@ def bake_uv1_overlays(base_img: Image.Image, decal_img, mask_img,
         decal = np.asarray(decal_img.convert("RGB"), np.float32) / 255.0
     mask = None
     if mask_img is not None:
-        mask = np.asarray(mask_img.convert("RGBA"), np.float32)[..., 3] / 255.0
+        mask = mask_channel_values(mask_img)   # 通道规则见其 docstring（SSOT）
     tint_arr = np.asarray(tint[:3], np.float32)
 
     for t in range(0, len(idx) - 2, 3):
@@ -1759,14 +2246,35 @@ def apply_flat_tint(img: Image.Image, tint) -> Image.Image:
 def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | None,
                     mat_desc: dict, img: Image.Image | None, has_alpha: bool,
                     blend: bool = False, opacity: float | None = None,
-                    st_tint=None, occ_mean: float | None = None) -> int:
+                    st_tint=None, occ_mean: float | None = None,
+                    blend_layer: bool = False, mask_img: Image.Image | None = None,
+                    shift_anim=None, shift_static=None,
+                    lightmap_img: Image.Image | None = None,
+                    img_variant=None,
+                    detail_img: Image.Image | None = None, detail_scale=None,
+                    env=None, water: bool = False,
+                    water_surface: dict | None = None,
+                    blend_by_angle: dict | None = None,
+                    decal: bool = False) -> int:
     """albedo 贴图（含透明）→ GLB 材质；无贴图时用贴图均值色兜底。
 
     blend=True（TEXTURE0_ANIMATION_SHIFT 效果层：瀑布/波纹/烟雾）：客户端在
     Translucent 层做 alpha 混合，用 BLEND 模式近似；其余透明材质（树叶卡片）
     为 alpha test，用 MASK。
+    blend_layer=True 额外把"这是**真混合层**"写进 material.extras.blendLayer：
+    消费端（WotbTools）有一条"BLEND 但 opacity≈1 的伪透明一律转不透明 + alphaTest
+    0.33"的防闪烁启发式，会把软 alpha 的烟雾/瀑布切成硬边卡片——extras 让消费端
+    区分"导出器明确判定的混合层"与"其它 BLEND"，前者保留软混合。
     st_tint：SpeedTree 材质族染色（RGB 三元组；SPHERICAL_LIT 族 = SH(L0) 字面值，
     legacy 族 = treeLeafColorMul×treeLeafOcclusionMul+Offset——**SH 不参与**）。
+    lightmap_img：烘焙光照图图集（客户端 `MATERIAL_LIGHTMAP`）——挂 `extras.lightmap`
+    （glTF texture 下标）；**逐实例的 UV 变换**走节点 extras（见 add_node）。
+    env：环境反射（客户端 `ENVIRONMENT_MAPPING`）——`{mask, cube, props}`：遮罩单通道成图
+    （`extras.envMask`）、天空立方图转等距柱状成图（`extras.envCube`）、`props` 逐键进
+    `extras.env`（只写非缺省项，消费端按客户端 property 默认值兜底）。
+    blend_by_angle：视角淡出软混合效果片（客户端 `BLEND_BY_ANGLE` + `enabledPresets.AlphaBlend`）
+    ——`{bounds, power, inversion}` 写进 `extras.blendByAngle`，并置 `extras.alphaBlend`
+    （消费端据此跳过"伪透明→裁切"启发式，改用软混合 + 视角因子）。
     """
     base_name = (mat_desc.get("materialName") or "mat")[:60]
     base = {"name": ("ST|" + base_name) if st_tint is not None else base_name,
@@ -1774,8 +2282,92 @@ def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | 
             "doubleSided": True}
     if st_tint is not None:
         base["pbrMetallicRoughness"]["baseColorFactor"] = [st_tint[0], st_tint[1], st_tint[2], 1.0]
+    extras = {}
+    if decal:
+        # 贴花（客户端 `MATERIAL_DECAL`，判据见 decal_capable）：消费端按
+        # `albedo(UV0) × colormap(UV1).rgb（separate_lm 图再 × colormap.a）× 2.0` 渲染，**不受光**。
+        # GLOBAL_TINT 有效时客户端还会对 colormap 取色做 brightness/contrast/gamma 调整
+        # （`materialLightmapAdjustment`，默认 (0,1,1) = 无操作；逐材质属性）。
+        extras["decal"] = True
+        adj = _prop_floats(mat_desc, "materialLightmapAdjustment", (0.0, 1.0, 1.0))[:3]
+        if any(abs(float(a) - b) > 1e-6 for a, b in zip(adj, (0.0, 1.0, 1.0))):
+            extras["decalLmAdjust"] = [round(float(v), 6) for v in adj]
+    if env is not None:
+        # 遮罩：单通道值统一落 alpha（与混合层掩码同口径；采样 UV0）
+        mvals = np.clip(mask_channel_values(env["mask"]), 0.0, 1.0) * 255.0
+        ma = mvals.astype(np.uint8)
+        rgba = np.stack([np.full_like(ma, 255)] * 3 + [ma], axis=-1)
+        mbuf = io.BytesIO()
+        Image.fromarray(rgba, "RGBA").transpose(Image.FLIP_TOP_BOTTOM).save(mbuf, "PNG")
+        extras["envMask"] = glb.add_texture(("envmask", mat_desc["textures"].get("envReflectionMask")),
+                                           mbuf.getvalue(), "image/png")
+        # ⚠️ 等距柱状图**不翻**（本仓生成图，非容器解码图）：glTF 规定 flipY=false ⇒
+        # 纹理 v=0 = 文件首行 = 天（cube_to_equirect 行 0 = 上）。消费端据此用
+        # `v = 0.5 − asin(y)/π`（与逐图 IBL 走 scene.environment 的 flipY=true 语义相反）。
+        cbuf = io.BytesIO()
+        env["cube"].convert("RGB").save(cbuf, "JPEG", quality=90)
+        extras["envCube"] = glb.add_texture(("envcube", mat_desc["textures"].get("cubemap")),
+                                           cbuf.getvalue(), "image/jpeg")
+        if env.get("props"):
+            extras["env"] = env["props"]
+    if lightmap_img is not None:
+        # 光照图图集单独嵌入（无 alpha，JPEG q92：平滑渐变，1024² 下单张 ~0.3MB）。
+        # 前端按客户端公式 `albedo(UV0) × lightmap(UV1×scale+offset) × 2` 走不受光材质。
+        lm_buf = io.BytesIO()
+        lightmap_img.convert("RGB").transpose(Image.FLIP_TOP_BOTTOM).save(lm_buf, "JPEG", quality=92)
+        extras["lightmap"] = glb.add_texture(("lm", mat_desc["textures"].get("lightmap")),
+                                            lm_buf.getvalue(), "image/jpeg")
+    if detail_img is not None:
+        # 细节层贴图（客户端 `tex2D(detail, uv0 × detailTileCoordScale)`）：单独嵌入，
+        # 前端在光照图/环境反射之后 `color *= tex × 2.0`（与客户端 DRAW PHASE 同序）。
+        # jpg q90：砖缝/岩面细节高频，别用更低的档（lightmap 是平滑渐变才敢 q92 无妨）。
+        dt_buf = io.BytesIO()
+        detail_img.convert("RGB").transpose(Image.FLIP_TOP_BOTTOM).save(dt_buf, "JPEG", quality=90)
+        extras["detail"] = {
+            "texture": glb.add_texture(("detail", mat_desc["textures"].get("detail")),
+                                       dt_buf.getvalue(), "image/jpeg"),
+            "scale": [round(float(detail_scale[0]), 6), round(float(detail_scale[1]), 6)],
+        }
     if occ_mean is not None:
-        base["extras"] = {"occMean": occ_mean}   # 前端遮挡除数；1.0 = vOcc 直乘（客户端同式）
+        extras["occMean"] = occ_mean   # 前端遮挡除数；1.0 = vOcc 直乘（客户端同式）
+    if blend_layer:
+        extras["blendLayer"] = True
+    if blend_by_angle is not None:
+        # 软混合 + 视角淡出（客户端 BLEND_BY_ANGLE）：`alphaBlend` 让消费端跳过
+        # "伪透明→裁切"启发式；`blendByAngle` = {bounds:[x,y], power, inversion}
+        extras["alphaBlend"] = True
+        extras["blendByAngle"] = blend_by_angle
+    if water:
+        # 水面材质标记（判据 = **材质文件** fxName 含 water，与实体名无关）。
+        # 消费端据此判定水面，不再按节点名猜——名字启发式曾把 "bld_er_water_tower_pbr"
+        # 这类**含水塔/水厂**建筑误判成水面，使其退回受光材质而发白（2026-10-09 用户报障）。
+        # 有水面数据时写成对象（`{normal, cube, props}`，真值语义不变），供消费端走客户端
+        # water-fp.sl 的 **MEDIUM 档**（`PIXEL_LIT && !REAL_REFLECTION`）：双层滚动法线
+        # （UDN 相加）→ 菲涅尔 alpha → cubemap 反射 × 色调。没有数据（法线/立方图解码失败、
+        # 旧包）时只有 bool 标记 → 消费端回落普通材质。
+        extras["water"] = water_surface if water_surface else True
+    # 动画混合层（TEXTURE0_ANIMATION_SHIFT + alphamask）：掩码**单独成贴图**、在 UV1 采样，
+    # 与客户端同构——`materials-vp.sl` 只对 albedo 的 texcoord0 加位移
+    # （`uv0 += texture0Shift + frac(tex0ShiftPerSecond * globalTime)`），掩码走
+    # `varTexCoord1 = texcoord1`（不动）。若把掩码烘进同一张贴图的 alpha，位移会连轮廓
+    # 一起滑走、且 `frac` 回绕时轮廓跳变（烟雾轮廓本应固定）。
+    # maskTexture 是 **glTF texture 下标**（前端 `parser.getDependency('texture', i)` 解析）。
+    if mask_img is not None:
+        mvals = np.clip(mask_channel_values(mask_img), 0.0, 1.0) * 255.0
+        ma = mvals.astype(np.uint8)
+        rgba = np.stack([np.full_like(ma, 255)] * 3 + [ma], axis=-1)
+        buf = io.BytesIO()
+        Image.fromarray(rgba, "RGBA").transpose(Image.FLIP_TOP_BOTTOM).save(buf, "PNG")
+        # key 用**掩码自己的路径**：内容 = f(alphamask 文件)，此前按 albedo_path 去重，
+        # 同 albedo 不同掩码的动画层（烟/瀑）会复用首张掩码
+        extras["maskTexture"] = glb.add_texture(
+            ("mask", mat_desc["textures"].get("alphamask")), buf.getvalue(), "image/png")
+    if shift_anim is not None:
+        extras["tex0ShiftPerSecond"] = [round(float(shift_anim[0]), 6), round(float(shift_anim[1]), 6)]
+    if shift_static is not None:
+        extras["texture0Shift"] = [round(float(shift_static[0]), 6), round(float(shift_static[1]), 6)]
+    if extras:
+        base["extras"] = extras
     if img is not None:
         # 源贴图统一翻回"文件原始行序"再嵌入——decode_dds / decode_pvr3 各自
         # 都在解码里翻过一次（消掉容器行序），此处再翻即为文件行序，对齐
@@ -1785,16 +2377,22 @@ def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | 
         # 实测报障：skit skt_fir_leafs 叶卡主窗口覆盖率 5.4% → 翻正后 35.2%）。
         embed = img.transpose(Image.FLIP_TOP_BOTTOM)
         buf = io.BytesIO()
+        # key 必须含内容变体（img_variant）：同 albedo 的不同染色/烘焙变体是不同的像素，
+        # 按裸路径去重会让后建的材质复用首张图（见调用侧 img_variant 注释的事故记录）
         if has_alpha:
             embed.save(buf, "PNG")
-            tex_idx = glb.add_texture(("png", albedo_path), buf.getvalue(), "image/png")
+            tex_idx = glb.add_texture(("png", albedo_path, img_variant), buf.getvalue(), "image/png")
         else:
             embed.convert("RGB").save(buf, "JPEG", quality=85)
-            tex_idx = glb.add_texture(("jpg", albedo_path), buf.getvalue(), "image/jpeg")
+            tex_idx = glb.add_texture(("jpg", albedo_path, img_variant), buf.getvalue(), "image/jpeg")
         base["pbrMetallicRoughness"]["baseColorTexture"] = {"index": tex_idx}
         if opacity is not None:
             base["alphaMode"] = "BLEND"
             base["pbrMetallicRoughness"]["baseColorFactor"] = [1.0, 1.0, 1.0, opacity]
+        elif blend_layer:
+            # 动画混合层：alpha 来自独立的掩码贴图（UV1），albedo 自身 alpha=255 ——
+            # has_alpha 判据在这里不成立，必须显式声明 BLEND（否则整材质落到 OPAQUE）
+            base["alphaMode"] = "BLEND"
         elif has_alpha and blend:
             base["alphaMode"] = "BLEND"
         elif has_alpha:
@@ -1973,7 +2571,7 @@ def export_ground(game_data: pathlib.Path, space: str, land_mat: dict,
         if tf is None:
             return None
         td = decode_dvpl(tf.read_bytes())
-        return decode_dds(td, max_dim=2048) if td[:4] == b"DDS " else decode_pvr3(td, max_dim=2048)
+        return decode_dds(td) if td[:4] == b"DDS " else decode_pvr3(td)   # 原生分辨率（不设上限）
 
     tex = land_mat.get("textures", {})
     color_tex = tex.get("colorTexture")

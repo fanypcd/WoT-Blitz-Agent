@@ -75,6 +75,8 @@ glb_cache*.7z
 frontend/public/wasm/
 release/
 data/tank_data/
+# 逐车悬挂导出（tools/export_tank_suspension.py 产物，可重跑再生）
+data/tank_suspension/
 
 # 本机 agent 配置与验收/调试产物（不入库：screenshots 含客户端贴图与反编译着色器副本）
 .zcodeignore

@@ -9,12 +9,13 @@
 
 ## 0. 结论
 
-在 735 辆全量语料上，本机客户端自产的 GLB 与 BlitzKit 产物**逐字节等价**：
+在 735 辆全量语料上，本机客户端自产的 GLB 与 BlitzKit 产物**逐字节等价**（2026-10-10 起有
+**23 辆有意分歧**，见 §5）：
 
 | 产物 | 等价 | 说明 |
 |---|---|---|
 | `collision.glb` | **735 / 735** | 节点集合/顺序 + POSITION/NORMAL/索引原始字节全等 |
-| `model.glb` | **733 / 735** | 同上，另含 TEXCOORD_0/1/2；差异 2 辆成因见 §5 |
+| `model.glb` | **710 / 735** | 同上，另含 TEXCOORD_0/1/2；差异 = 2 辆 BK 侧行为（§5）+ 23 辆本管线**有意修正**（§5，静态变换烘焙 / 状态过滤） |
 
 并排渲染（同一相机/同一光照，**认 `alphaMode: MASK` 镂空**）大多逐辆轮廓 IoU = 1.000，
 像素平均绝对差 0.1–1.6（0–255 量纲）；少数含履带镂空的车 IoU 0.966–0.998，成因与 §4.2 的
@@ -27,7 +28,8 @@ baseColor 残差同源。25 辆跨九系抽样 + 8 辆定点抽样 + 一组老�
 > 才进入指标；上表的 0.966–0.998 就是这条维度加入后暴露出来的既有残差，不是新引入的。
 
 这比报告 B 的验收口径更严：报告 B 只比"按可达节点求和的顶点/索引数"（700/735），
-本管线比到**逐属性原始字节**、且要求**节点顺序一致**（733/735）。
+本管线比到**逐属性原始字节**、且要求**节点顺序一致**（733/735；2026-10-10 起其中
+**23 辆为有意分歧**——静态变换烘焙 / 状态过滤，见 §5.1）。
 
 ## 1. 工具
 
@@ -134,6 +136,24 @@ rust-embed 有 `#[exclude = "cache/**"]`，**不会**把这几百 MB 嵌进 exe�
     只导 UV0 会在这批车上少 accessor、且缺 UV1/UV2 数据（客户端用 UV1 采样镂空/贴花层）。
     偏移同样是确定性的：UV0 在 `low`、UV1 在 `low+8`、UV2 在 `low+16`。
     修后**节点级 UV1/UV2 存在性 0 处相反**，且 733 辆的 UV0/UV1/UV2 原始字节全等。
+14. **静态变换：非姿态节点的累计 TRS 烘进顶点，姿态节点与场景根不烘**（2026-10-10）。客户端
+    渲染施加每个实体的 `TransformComponent`（祖先累乘）。姿态节点 = `hull` / `turret_NN` /
+    `gun_NN` / `gun_NN_mask` / `chassis_*`——tank 组件每帧写矩阵**覆盖**其作者变换，**不能烘**；
+    场景根是车体锚点（视觉/碰撞/`models.pb` 原点同处"根前"空间），**不能烘**。
+    判据用**局部 TRS 累乘**而不是直取 `tc.world*`：`world*` 含姿态祖先的作者残值，而运行期
+    覆盖的正是那些节点。反例与正例（都实测过）：Pershing 的 `gun_01` 作者残值 `+0.478z`
+    ——烘了炮管穿炮盾顶；28689 的 `gun_01_mask_cap` world `[0,1.855,2.278]`——不烘就贴地。
+    单位变换走**字节不变**快路径（`IDENTITY_EPS` = 1e-5：数据里有 1e-6~3e-6 量级的浮点噪声
+    残渣（15985 的 `turret_01_nc`），而最小待修作者值是 10625 的 `_nc` 变体件 2 mm
+    起——两档差两个数量级，阈值落在中间），这是"与 BlitzKit
+    逐字节一致"仍能对全量断言的前提；法线走逆转置 + 归一化，纯平移不碰 NORMAL 段。
+15. **StateSwitcher 容器按 `ssc.activeState` 只导激活态子实体**（2026-10-10）。`ssc.state{N}`
+    给出状态 N 对应的子实体名；`activeState` **越界（-1）= 整容器关闭**（客户端初始态没有
+    可激活的 stateN）。容器上的**非状态**子实体（FX 等）保留——只丢确定是"非激活态形态"的；
+    激活名对不上（形态未见过）→ fail-open 全保留。`*_hide_elements*` 容器**例外**（产品决策：
+    拆件/皮肤变体全渲染，见铁律 5）。不滤的症状：开/闭两套形态同屏（22385 护盾）。
+    碰撞 `.sc2` **不带** StateSwitcher，`*_state_NN` 变体初始态不可判定，**不做**此过滤
+    （6 辆受影响者入案，见 §5）。
 
 ## 4. 贴图：移交语义口径，不提供"复刻 BlitzKit 指派"
 
@@ -238,6 +258,28 @@ StuG III 0.897/0.897、VK2801 0.903/0.903）。
 
 几何那两辆只影响节点名/层级，不影响几何与渲染（该辆渲染 MAD 0.2）。
 
+### 5.1 有意分歧：静态变换烘焙 + StateSwitcher 状态过滤（2026-10-10，**23 辆**）
+
+两条都是**本管线超出 BlitzKit 契约的修正**（依据 = 客户端自己的数据，见 §3 铁律 14/15）。
+BK 侧同一份产物里这些件错位/叠加，**不复刻**。全量重导的逐字节 diff 实测：这 23 辆之外
+**712 辆 model.glb + 735 辆 collision.glb 零字节变化**（单位变换走字节不变快路径）。
+
+| 类别 | 车 | 件与量级 | 症状 / 依据 |
+|---|---|---|---|
+| 烘焙（米级） | 28689 `G125_Spz_57_Rh` | `gun_01_mask_cap`（炮盾顶盖，DecorItem）+`[0,1.855,2.278]` | 用户报障：贴在装甲查看器底面；`.sc2` 里 `world*` 非零、自身 local 为零 |
+| 烘焙（米级） | 21249 `KV-1s-BP` | `Machine_gun_USSR.sc2` 子场景 `+[0.515,-0.209,2.479]` | 车体机枪藏进车体（原始块 x/y/z∈~1m 箱内） |
+| 烘焙（米级+旋转） | 28961 `M4A3E8TUR` | `Machine_gun_02.sc2` `[-0.804,-0.192,2.714]` + 28.2° | 车顶机枪藏进车体 |
+| 烘焙（十厘米级） | 10625 `It19_Controcarro_1MK2_Ciclope` / 10881 `It18_Semovente_mod_64` / 17265 `Oth69_Souleater` | `turret_01_nc_skin` −0.16y+0.146z+6.5° / `turret_0N_hide_elements` +0.08z+4° / `hull_cloth_01` 26 cm+scale 1.09 | 变体件/布幔件小偏移 |
+| 烘焙（毫米~厘米级） | 3921 `GB11_Caernarvon`、5969 `GB23_Centurion`、10753 `ST_I`、16001 `Pl18_BUGI`、20081 `Oth80_AC_16_Celeno`、22033 `VK2801_BP` | `*_nc`/`*_skin` 变体件与 `VK2801_BP_grid.sc2`，2 mm ~ 2.5 cm | 同上（量级小但口径一致：客户端就是这个位置） |
+| 状态过滤 | 8305 `Oth28_Sturmfeur_HW`、9073 `Oth30_T54MS`、12657 `Oth44_Charioteer_T`、17777 `Oth71_Titan_Strife`、22385 `Oth92_JagdPantherII_Titan`、24945 `Oth98_AMX_50_100_Titan` | `state_entity_NN` 容器：`activeState=-1` 或非激活 `stateN` 的护盾/面板/蒸汽变体 | 开/闭两套形态同屏叠影（22385 护盾实测双份） |
+| 状态过滤 | 17217 `ARL_44BP`、20817 `GB21_A27BP`、24145 `GB109_GSOR_1008_Fearless`、26145 `A05_M4_105BD`、29457 `G190_VK_1602_Quby` | 无人机/火箭巢/伞/雷达/太阳能板/耳朵/屏幕/炮口帽的**非激活态**变体 | 同上（初始态 = `activeState`，同地图侧口径） |
+| 状态过滤（无字节变化） | 21281 `М4А3Е8_ВР` | `Entity` 容器的 `Empty` 子件 | `Empty` 无网格/子树，本就不在 GLB 里——过滤后字节不变 |
+
+**未做（在案）**：碰撞场景的 `*_state_NN` 变体（8305/9073/12657/17777/22385/24945 六辆的
+`hull_state_00/01` 等）**不做**状态过滤——碰撞 `.sc2` 不带 `StateSwitcher`，初始态无法从
+碰撞文件自身判定，跨文件猜命名（实测 12657/17777 的 turret/gun 侧变体编号与视觉容器编号
+**对不上**）风险高于收益；装甲查看器会同时显示两态装甲板，待有更硬的对应关系再做。
+
 ## 6. 对照结果怎么读
 
 `compare_report.json` 里有**逐节点**明细：`only_blitzkit`/`only_local`（节点集合差异）、
@@ -262,3 +304,71 @@ python tools/compare_tank_glb.py --all --render --size 360 --jobs 6      # 全�
 ```
 
 `src/` 与既有 `tools/` 文件未作任何改动；本管线是纯新增，且不写入 `data/cache/models/`。
+
+## 坦克 PBR 因子口径（2026-10-09 修"真实坦克发白"）
+
+glTF 的 `metallicFactor` / `roughnessFactor` **默认值为 1.0/1.0**（全金属 + 全粗糙）。本仓
+导出器此前只在贴图解析成功时写 `metallicRoughnessTexture`，解析不到就什么都不写 ⇒ 落进该默认值：
+金属**没有漫反射**，整块只剩被 albedo 染色的环境反射，在逐图 IBL 下表现为**发白**（用户 2026-10-09
+报障）。实测影响 **278/735 辆**（270 辆为全部材质都无 MR 贴图的老式车：内联槽名 legacy
+`albedo`/`normalmap`）。
+
+客户端口径（40 辆 / 2996 材质实测）：这批车**没有 `_RM`/`_MISC` 文件**（0/2996 存在），作者属性是
+`inGlossiness`（0.5/0.4/0.3）与 `inSpecularity 0.5`、**无金属度属性**（0/2996）——客户端按
+**涂装钢铁（电介质）**渲染。故导出器改为：无 MR 贴图时写
+`metallicFactor = 0`（若确有 `metallic`/`metalness`/`metalAmount` 则照用）、
+`roughnessFactor = 1 − inGlossiness`（缺省 0.5）。单测 `tools/test_export_tank_material.py`。
+
+## 静态变换烘焙 + StateSwitcher 状态过滤（2026-10-10）
+
+**触发**：用户"rhm pzw 炮塔有一个组件没放对位置（看起来是和主炮相关的，相应跟随旋转俯仰），
+但是它初始在装甲查看器的底面上"。
+
+**真因**：该件 = 28689（`G125_Spz_57_Rh`）的 `gun_01_mask_cap`（炮盾顶盖，皮肤槽 DecorItem，
+`DecorItemComponent.shouldApplyCamo`）。客户端把它放在 `gun_01_mask_cap_pivot` 的 world 变换
+`[0, 1.855, 2.278]` 下（自身 `localTranslation` 为零、`worldTranslation` 同值——说明引擎会施加，
+而不是像 Souleater 的 lamp / F119 的 cap 那样用负 local 抵消成 world=0），而导出沿用 BlitzKit
+契约把**所有**节点变换写成 identity ⇒ 网格留在自身局部坐标 `z≈0`（整块贴地，正是"底面"）。
+它在场景树里挂在 `gun_01_mask` 之下，前端姿态系统照常带着它转——"跟随俯仰、初始贴底"与报障
+完全吻合。三份 model.glb（`data/cache/models` / `local_models` / 资产包）逐字节一致 ⇒ 不是本地
+导出引入的，是**契约缺口**：非姿态节点的静态变换在数据面没有落点（WotbTools 手里只有 GLB，
+没有 `.sc2`，补不了）。场景脚本（`ssc.scripts["1"]`）只对 pivot 做 `SetRotation`（按火炮俯仰角
+的动画），从不设平移——静置位置就是这个平移。
+
+**同轮修掉的同类缺陷**：**StateSwitcher 容器**（`state_entity_NN` 等）此前不参与过滤，开/闭两套
+形态一起导出（22385 的护盾实测双份叠影：00 容器的 open 几何 + 01 容器的 close 几何）。修法按
+客户端初始态：`ssc.activeState` 索引 `ssc.stateN` 名对应的子实体，只导激活那个；**越界（-1）=
+整容器关闭**（`ssc.state{N}` 不存在，初始态没有可激活的形态）。旁证：`state_entity_00` 与
+`state_entity_01` 成对出现且恰有一个 `activeState ≥ 0`（9073/12657/17777/24945 逐辆核对）。
+`*_hide_elements*` 容器按产品决策例外（拆件/皮肤变体全渲染，铁律 5）。
+
+**改动的口径边界（都有实测反例钉死）**：
+- 姿态节点 `hull`/`turret_NN`/`gun_NN`/`gun_NN_mask`/`chassis_*` **不烘**：Pershing 的
+  `gun_01` 作者残值 `[0,0,0.4779]`，而其原始顶点已对齐炮盾中心（碰撞 gun 盒 + gun 原点 ==
+  视觉 mask bbox）——施加反而把炮管抬穿炮盾顶 0.46 m；这类残值在运行期被矩阵覆盖，属无效数据。
+- **场景根**不烘：视觉、碰撞与 `models.pb` 原点同处"根前"空间（M-5-Y 根 +0.8207y：`turret`
+  原点仍与原始炮塔 bbox 中心对齐；把根烘进视觉会把三者拆散）。
+- 判据用**局部 TRS 累乘**（父在前子在后），不是直取 `tc.world*`：后者含姿态祖先的作者残值。
+- `IDENTITY_EPS = 1e-5`（0.01 mm / 2e-5 rad）：数据里存在浮点噪声量级的残渣（15985 的
+  `turret_01_nc` = 平移 `[-1.04e-06, -3.18e-06, 0]`、旋转 1.2e-5 rad），而真正要修的最小
+  作者值是 2 mm 起（3921 Caernarvon）——两档差两个数量级，阈值落在中间；低于阈值走**字节不变**
+  快路径。累计乘积为恒等的抵消对（`*_cap_pivot`(+t) × 子件(−t)、`Socket_node-*` 枪痕）由
+  `matrix_is_identity` 跳过（烘了也不变字节）。
+- 法线走逆转置 + 归一化；**纯平移不碰 NORMAL 段**（避免无谓的末位扰动）。
+
+**工具链（本轮的发布链）**：
+```bash
+python tools/export_tank_glb.py --all --texture-mode semantic --jobs 8   # → data/cache/local_models/
+# 同步至包源目录（两目录应逐辆一致）：把变化件复制进 data/cache/models/ 与 release/asset_pack/glb/
+python scripts/export_asset_pack.py --refresh-manifest                   # 按包内容重算 manifest sha256
+COS_SECRET_ID=… COS_SECRET_KEY=… python tools/upload_asset_pack_cos.py --only glb/   # 只传坦克 glb
+#（--only = 局部发布：manifest 远端清单就地补丁；不传则整份发布，见 game-data-sources §5.2）
+```
+`--refresh-manifest` 与上传器的 **sha256 跳过判定**是同轮补的：顶点烘焙**只改内容、不改尺寸**，
+旧上传器按 `Content-Length` 比对会把这类修正静默跳过（见 data-inventory §2.1 / game-data-sources §5.2）。
+
+**验证**：单测 `tools/test_export_tank_static_transform.py` **15/15**（姿态判据 / 四元数 /
+平移·旋转·非均匀缩放烘焙 / 状态规则五分支；客户端在场集成：28689 顶盖落位 z∈[2.278, 2.320]、
+22385 只剩初始态护盾、未命中车逐字节一致）。全量重导 735 辆逐字节 diff：变化 = **23 辆
+model.glb**（清单见 §5.1）、**collision.glb 0 辆**、其余 712 辆零字节变化。
+影响面与"未做"项见 §5.1。

@@ -8,6 +8,7 @@
     ├── index.json                      # 数字 id → key/space/display（前端一次性装载）
     ├── glb/{tank_id}/model.glb, collision.glb
     ├── tank_images/{id}.webp
+    ├── suspension/{tank_id}.json       # 逐车悬挂（tools/export_tank_suspension.py，additive）
     ├── data/{tanks.pb, models.pb, tank_cache.json, data_version.json}
     └── map/{key}/
         ├── ground.webp                 # /api/playback/map 的高清底图答案
@@ -77,13 +78,66 @@ def git_provenance() -> dict:
     return {"upstream_commit": sha, "worktree_dirty": dirty}
 
 
+def refresh_manifest(out: Path, data: Path) -> int:
+    """按包目录**现有内容**重算 manifest.json（不重新打包）。
+
+    为什么需要：`tools/composite_overhead.py --write` 在打包器之后改写
+    `map/*/ground.webp`，manifest 因此记的是"合成前"哈希（data-inventory §2.1 入档）。
+    上传器（tools/upload_asset_pack_cos.py）的跳过判定以**桶内 manifest 的 sha256**
+    为准——条目与包内容失配会导致无谓重传（36 张 ground）。
+    上传前跑一次本模式即让 manifest 与包内容自洽。
+    """
+    if not out.is_dir():
+        print(f"!! 包目录不存在: {out}", file=sys.stderr)
+        return 2
+    provenance = git_provenance()
+    data_version = None
+    dv_path = data / "data_version.json"
+    if dv_path.is_file():
+        try:
+            data_version = json.loads(dv_path.read_text(encoding="utf-8"))
+        except Exception:
+            data_version = None
+    entries: list[dict] = []
+    # `overhead/` = frontend/scripts/bake-ground-overhead.mjs 落进包目录的**中间渲染件**
+    # （36×2 个文件 ≈ 2.4 GB），不属于发布内容：打包器从不生成它，但重算模式若把它登记进
+    # manifest，manifest 驱动的差分上传会把 2.4 GB 推上 COS（2026-10-09 事故复现路径）。
+    skip_dirs = {out / "overhead"}
+    for f in sorted(out.rglob("*")):
+        if any(d in f.parents for d in skip_dirs):
+            continue
+        if not f.is_file() or f.name == "manifest.json":   # manifest 不登记自己
+            continue
+        rel = f.relative_to(out).as_posix()
+        entries.append({"path": rel, "bytes": f.stat().st_size, "sha256": sha256(f)})
+    manifest = {
+        "version": 1,
+        "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        **provenance,
+        "data_version": data_version,
+        "files": entries,
+    }
+    (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1),
+                                       encoding="utf-8")
+    mb = sum(e["bytes"] for e in entries) / 1e6
+    print(f"manifest.json 已按包内容重算: {len(entries)} 文件 / {mb:.1f}MB → {out / 'manifest.json'}")
+    return 0
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=PROJECT_ROOT / "release" / "asset_pack")
     ap.add_argument("--data", type=Path, default=PROJECT_ROOT / "data")
-    ap.add_argument("--map-index", type=Path, required=True,
-                    help="wotb-agent dump-map-index 的 JSON 输出")
+    ap.add_argument("--map-index", type=Path, default=None,
+                    help="wotb-agent dump-map-index 的 JSON 输出（--refresh-manifest 时不需要）")
+    ap.add_argument("--refresh-manifest", action="store_true",
+                    help="不重新打包：按 --out 现有内容重算 manifest.json 的逐文件 sha256")
     args = ap.parse_args()
+
+    if args.refresh_manifest:
+        raise SystemExit(refresh_manifest(args.out, args.data))
+    if args.map_index is None:
+        ap.error("--map-index 必填（除非使用 --refresh-manifest）")
 
     maps = json.loads(args.map_index.read_text(encoding="utf-8"))
     data = args.data
@@ -130,6 +184,17 @@ def main() -> None:
     if td.is_dir():
         for f in sorted(td.rglob("*.json")):
             cp(f, f"tank/{f.name}")
+
+    # ---- 逐车悬挂参数（tools/export_tank_suspension.py 产物；additive） ----
+    # 客户端 `Parameters/*.yaml` 的 suspension 块（逐轮行程 + 履带静止折线 + 弯曲/铺放系数 +
+    # tank 侧 textureScale），供 3D 回放做逐轮贴地/履带形变/花纹滚动。语义与未定项见
+    # docs/tank-suspension-client-re.md；缺文件的 tank 由前端回落整台刚体（fail-closed）。
+    sus_n = 0
+    sd = data / "tank_suspension"
+    if sd.is_dir():
+        for f in sorted(sd.glob("*.json")):
+            if cp(f, f"suspension/{f.name}"):
+                sus_n += 1
 
     # ---- 核心数据（前端展示名/弹种表的自足来源） ----
     core_n = 0
@@ -199,6 +264,15 @@ def main() -> None:
                          "span": round(span_h, 1)}
         terrain_srcs = [data / "maps" / f"{key}.heightmap.u16.bin",
                         terrain_cache / f"{key}.hm.u16.bin"]
+        # 地形让位掩码（tools/bake_terrain_cover.py 的输出；贴地结构覆盖处的渲染上限）。
+        # 缺失不阻断：前端按无掩码继续。
+        cover_srcs = [data / "maps" / f"{key}.cover.u16.bin",
+                      terrain_cache / f"{space}.cover.u16.bin",
+                      # 烘焙工具（tools/bake_terrain_cover.py）的默认缓存位置（--cache 缺省
+                      # data/cache/maps）：此前只找前两处 ⇒ 包重建时静默丢掉全部掩码
+                      # （2026-10-10 实测：重建后 5000 → 4964 文件、terrain.json.cover 字段消失）
+                      cache_maps / f"{space}.cover.u16.bin"]
+        cover_hit = copy_first(cover_srcs, mdir / "cover.u16.bin")
         hit = copy_first(terrain_srcs, mdir / "terrain.u16.bin")
         if hit and scale:
             # terrain.json = X-Terrain-Meta 头的 sidecar 化：顶层必须是前端消费的
@@ -213,6 +287,10 @@ def main() -> None:
                 except Exception:
                     side = {}
             side.update(scale or {})
+            if cover_hit:
+                side["cover"] = "cover.u16.bin"
+            else:
+                side.pop("cover", None)   # 包内无掩码 ⇒ 不宣称有（前端据此跳过加载）
             (out / f"map/{key}/terrain.json").write_text(
                 json.dumps(side, ensure_ascii=False), encoding="utf-8")
             files.append(out / f"map/{key}/terrain.json")
@@ -228,6 +306,16 @@ def main() -> None:
         # 回放 destructible_events 的 (cell, slot) 联表目标（逆向总集 §5.4 公式）
         if cp(cache_maps / key / "destructibles.json", f"map/{key}/destructibles.json"):
             got.append("destructibles")
+
+        # 逐图光照参数（tools/export_map_lighting.py：太阳方向/色/强度 + 环境色 + 雾 + IBL
+        # 引用）——3D 侧方向光与半球环境光的来源；缺失时消费端回落硬编码灯光，不阻断）
+        if cp(cache_maps / f"{space}.lighting.json", f"map/{key}/lighting.json"):
+            got.append("lighting")
+
+        # 逐图 IBL 环境贴图（tools/export_map_ibl.py：客户端 specular 立方图 → 等距柱状投影）
+        # ——动态物/坦克的环境反射来源；缺失时消费端不设 scene.environment（不阻断）
+        if cp(cache_maps / f"{space}.ibl.webp", f"map/{key}/ibl.webp"):
+            got.append("ibl")
 
         # groundmeta + groundtex：{space}.ground.layers.json + {space}.ground.{layer}.webp
         if cp(cache_maps / f"{space}.ground.layers.json", f"map/{key}/ground.layers.json"):
@@ -282,7 +370,7 @@ def main() -> None:
     mb = sum(f["bytes"] for f in manifest["files"]) / 1e6
     print(f"资产包已导出: {out}")
     print(f"  GLB {glb_n} 个文件 / 封面 {img_n} 张 / 核心数据 {core_n} 个 / 地图 {map_n} 张"
-          f"（含地形 {with_terrain}）")
+          f"（含地形 {with_terrain}）/ 悬挂 {sus_n} 辆")
     print(f"  共 {n_files} 文件, {mb:.1f}MB（manifest.json 含逐文件 sha256）")
     if missing_scale:
         print(f"  ⚠ 缺地形尺度（sidecar worldBounds），terrain 未打包: {', '.join(missing_scale)}")
