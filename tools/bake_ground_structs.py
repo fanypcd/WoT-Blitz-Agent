@@ -1,28 +1,33 @@
-"""地形"让位"掩码烘焙（贴地结构覆盖处的地形天花板）。
+"""贴地结构脚印烘焙（渲染端"贴地结构带细分"判据的输入）。
 
 用法：
-    python tools/bake_terrain_cover.py --map forgecity [--map ...] \
+    python tools/bake_ground_structs.py --map plant [--map ...] \
         [--pack release/asset_pack] [--cache data/cache/maps] [--stats]
 
-背景（为什么是数据面、不是渲染端补偿）：铺装/地形与挡土墙顶、建筑基础、铁轨基板等在客户端是
-**吸附齐平**的（实测沿缝 92% |Δ|≤1 cm，压顶 4% 高出 5–7 cm、铁轨一带真值恒定 0 覆盖）。客户端
-的地形是按视距自适应 LOD 的补片网格（容许误差 = 0.014·距离·tan(fov/2)，最大 3 m），我们的观看
-相机离目标远，同一处地形会被渲染成粗格插值，**合法地**拱到这些薄构件之上（实测 +35~44 cm@300–450 m）。
-渲染端任何"偏移/抬升"都是手工补偿且与客户端无关；这里改为把作者意图显式化：**结构面就是这里的地面
-高度**，逐 texel 记下来，前端只把**渲染用**高度场夹到该天花板之下（查询/放置用的高度场不动）。
+背景（2026-10-11 撤销让位掩码后的替代机制）：贴地薄构件（铁轨基板/压顶/铺装）在远视距下会被
+自适应 LOD 的粗格插值"合法地"盖住——客户端靠**贴地相机**（3–15 m，网格天然 1 texel 级）让这
+不显形，回放相机在数百米外就会看到。此前 v0.4.2 的做法是把渲染用高度场逐 texel 压到结构面
+之下（数据面造高度，36 图波及 249 万 texel、四个人工常数，且 450 m 残余 78 点）——已整体撤销。
+现行做法**只标位置、不改高度**：逐 texel 记下"此处有贴地结构"，前端把与脚印相交的地形补片
+**强制细分到 1 texel**（terrainMesh.js 第五判据）——细分不造高度，1 texel 网格 = 真值高度场
+（细真值在铁轨带上恒 0 覆盖），与"岸线特征细分"（第四判据）同类：细分终点 = 数据自身分辨率。
+false positive 的代价只是三角形，不会错改任何几何。
 
-烘焙口径（可与客户端对照，不含需要目视调参的量）：
+烘焙口径（与让位掩码同源的扫描，去掉全部造高度逻辑）：
   1. 只取**朝上**面片（世界上下分量 > 0.5×法线长）：竖直墙面、桥腹等不参与；
   2. 逐 texel 取该处**最高**的朝上面高度（同一 texel 多面片取最高者）；
-  3. **贴地判定**：|结构面 − 地形| ≤ `--band`（默认 0.8 m）——实测要修的是 ≤0.5 m 的戳出，
-     而离地 ≥1 m 的桥/高架不在此列（两者之间取 0.8 m 分开）；
-  4. **单向天花板 + 边缘坡道**：覆盖处天花板 = 结构面；覆盖外 `--margin` 个 texel 内（默认 8 =
-     网格最粗层一格 = 8 texel）按距离线性升到原地形高度；**只压不抬**（地形本来低于结构面时
-     天花板不生效）⇒ 不会在低处开槽，也不会改动离地结构下方的地形；
-  5. 量化与地形一致（u16 / zmin..zmax），存 `ceil + 1`（**0 = 无覆盖**，避免真值 0 与哨兵冲突）。
+  3. **贴地判定**：|结构面 − 地形| ≤ 带（--band-low 0.15 / --band-high 0.5）——齐平缝实测
+     ≤1 cm、铁轨基板高出 0.27 m 入列、埋在铺装下 ≥0.3 m 的箱体不入列（误入列只费三角形，
+     不会改几何）；
+  4. **水面片与水下薄板排除**（水面片自身、整个被水面盖住且不高于其标高的件）——它们会把
+     脚印铺满水体，触发无谓的全岸细分；
+  5. **膨胀**（--dilate，默认 4 texel）：脚印向四周扩 4 texel——①细/粗分区缝合边上的顶点取
+     粗侧直线值，结构必须离缝合边 ≥1 细格才不被缝合值抬过；②贴地判定的分类边缘误差。
+     膨胀只扩大"强制细分"范围，不影响任何高度。
 
-输出：`<pack>/map/<key>/cover.u16.bin`（512² u16 LE）+ `terrain.json` 增加 `cover` 字段；
-同时写 `<cache>/<space>.cover.u16.bin`（供 export_asset_pack.py 随包复制）。**COS 同步由发布者执行。**
+输出：`<pack>/map/<key>/structs.u8.bin`（512² u8，1 = 脚印）+ `terrain.json` 增 `structs` /
+`structsStats` 字段（并**清除已撤销的 cover / coverStats**）；同时写
+`<cache>/<space>.structs.u8.bin`（供 export_asset_pack.py 随包复制）。**COS 同步由发布者执行。**
 """
 
 from __future__ import annotations
@@ -40,12 +45,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "wotbtools"))
 BAND_LOW_DEFAULT = 0.15   # 结构面可比地形**低**多少（米）仍算"吸附齐平"：实测齐平缝 |Δ|≤1 cm，
                           # 略低者 75% ≤2 cm；0.15 m 容下"吸附设计"而排除"埋在铺装下 ≥0.3 m 的箱体"
 BAND_HIGH_DEFAULT = 0.5   # 结构面可比地形**高**多少（米）仍算贴地低矮构件（铁轨基板实测高出 0.27 m）
-PRESS_DEFAULT = 0.5       # 压低上限（米）：降低量恒 ≤ 此值 ⇒ 不会在陡坡旁挖沟、不会在大范围显出凹陷
-CLEARANCE_DEFAULT = 0.1   # **几何间隙**（米）：压到"结构面下方"而不是压到结构面上——压到面上会让
-                          # 地形与结构**共面**，深度测试逐像素抢胜 ⇒ 交叠闪烁（2026-10-10 用户
-                          # "交叠闪烁更严重了"）。留 0.1 m ⇒ 带内地形处处干净低于结构面。
-MARGIN_DEFAULT = 20     # 收尾带长度（texel）：≈2.5 个最粗层格（8 texel/格）⇒ 粗格插值也能被压低
-UP_DOT = 0.5            # 朝上判定：世界上下分量 > UP_DOT × |法线|
+DILATE_DEFAULT = 4        # 脚印膨胀（texel）：缝合边顶点取粗侧值 ⇒ 结构须离缝合边 ≥1 细格；
+                          # 4 texel ≈ 4.7 m（span 600 / 512）同时盖住分类边缘的半 texel 误差
+UP_DOT = 0.5              # 朝上判定：世界上下分量 > UP_DOT × |法线|
 
 
 # ---------------------------------------------------------------- 纯函数（单测看护）
@@ -84,61 +86,43 @@ def classify_ground_lying(surface: np.ndarray, terrain: np.ndarray,
     """贴地掩码（非对称）：结构面在 [地形 − band_low, 地形 + band_high] 内。
 
     非对称的理由：**吸附齐平**设计的结构面在地形之上下 1 cm 量级（band_low 取 0.15 m 足够），
-    而"埋在铺装下 0.5 m 的箱体/管道"若也算贴地，压低铺装会把它挖出来 ⇒ 用紧的 band_low 排除。"""
+    而"埋在铺装下 0.5 m 的箱体/管道"若也算贴地，会铺满不需要细分的区域 ⇒ 用紧的 band_low 排除。
+    本工具的判定误差只影响三角形预算（细分范围），不影响任何高度。"""
     return np.isfinite(surface) & (surface >= terrain - band_low) & (surface <= terrain + band_high)
 
 
-def envelope(nat: np.ndarray, mask_h: np.ndarray, covered: np.ndarray, margin: int, press_max: float,
-             clearance: float = CLEARANCE_DEFAULT):
-    """单向天花板（把地形压低，绝不抬高）：
+def dilate_footprint(covered: np.ndarray, dilate: int) -> np.ndarray:
+    """脚印膨胀：到最近 covered texel 的 chamfer 距离（正交 1 / 对角 √2）≤ dilate ⇒ 入脚印。
 
-      · 覆盖 texel（`covered`）：压低量 = min(press_max, nat − 结构面 + clearance) —— 落到**结构面下方
-        clearance**（共面会 z-fight 闪烁，故留几何间隙）；
-      · 覆盖外 margin 个 texel 内：同一压低量按 (1 − d/margin) 线性收尾到 0（边界连续，无台阶）。
-
-    压低量**恒 ≤ press_max**（0.4 m）⇒ 不会在陡坡旁挖出沟槽（首版按"升到原地形"的坡道在陡坡旁
-    实测可压低 3.6 m，已被此式取代）；地形本就低于结构面处压低量 = 0 ⇒ 只压不抬。
-
-    返回 ceil（应由前端夹到 ≤ ceil；无影响处为 +inf）。"""
-    h, w = nat.shape
-    inf = np.inf
-    ceil = np.full((h, w), inf, dtype=np.float64)
-    if not covered.any():
-        return ceil
-    # 到最近覆盖 texel 的距离（texel 计）与该处结构面高度：两遍 chamfer 近似
+    两遍扫描（左上→右下、右下→左上），与让位掩码 envelope 的距离场同式。dilate ≤ 0 时原样返回。"""
+    if dilate <= 0 or not covered.any():
+        return covered.copy()
+    h, w = covered.shape
+    inf = float(h + w) * 2.0
     dist = np.full((h, w), inf, dtype=np.float64)
-    near = np.zeros((h, w), dtype=np.float64)
     dist[covered] = 0.0
-    near[covered] = mask_h[covered]
     for ys, xs in ((range(h), range(w)), (range(h - 1, -1, -1), range(w - 1, -1, -1))):
         for y in ys:
+            row = dist[y]
             for x in xs:
-                best, bh = dist[y, x], near[y, x]
+                best = row[x]
                 for dy in (-1, 0, 1):
                     for dx in (-1, 0, 1):
+                        if dy == 0 and dx == 0:
+                            continue
                         yy, xx = y + dy, x + dx
                         if yy < 0 or xx < 0 or yy >= h or xx >= w:
                             continue
                         d2 = dist[yy, xx] + (1.0 if dx == 0 or dy == 0 else 1.4142135623730951)
                         if d2 < best:
-                            best, bh = d2, near[yy, xx]
-                dist[y, x], near[y, x] = best, bh
-    act = dist <= margin
-    if act.any():
-        press = np.clip(nat[act] - near[act] + clearance, 0.0, press_max)
-        taper = 1.0 - np.clip(dist[act] / float(margin), 0.0, 1.0)
-        ceil[act] = nat[act] - press * taper
-    ceil = np.where(ceil < nat - 1e-9, ceil, inf)     # 只压不抬
-    return ceil
+                            best = d2
+                row[x] = best
+    return dist <= float(dilate)
 
 
-def quantize(height: float, zmin: float, zmax: float) -> int:
-    """高度 → u16（与地形同量化）。"""
-    if not np.isfinite(height):
-        return 0
-    k = (zmax - zmin) / 65535.0
-    v = int(round((height - zmin) / max(k, 1e-9))) + 1     # +1：0 留给"无覆盖"
-    return max(1, min(65535, v))
+def footprint_u8(footprint: np.ndarray) -> np.ndarray:
+    """脚印 → u8（1 = 脚印 texel，0 = 无）。"""
+    return footprint.astype(np.uint8)
 
 
 # ---------------------------------------------------------------- GLB 读取
@@ -228,11 +212,9 @@ def submerged_faces(world_tris: np.ndarray, surfaces: list, margin: float = 0.5,
                     clearance: float = 0.05) -> np.ndarray:
     """逐三角形：是否**整个被某片水面盖住且不高于其标高**（水下件）。
 
-    用途（2026-10-10 用户"岸线拉近看还是锯齿"的定案）：让位掩码的"贴地判定"必须**排除水面片
-    自身与水下薄板**（冰面等）——把地形压到冰面之下会把**可见岸线**整体挪走（实测 malinovka
-    岸线位移 2–4 texel、局部 5 格≈5.9 m，并留下台阶），而生产环境（无掩码）的岸线是平滑的
-    数据等高线。水下件的粗格保护已由前端"岸线特征细分"（与水面标高相交的补片细到 1 texel）
-    承担，不需要掩码再压。
+    用途：脚印的"贴地判定"必须**排除水面片自身与水下薄板**（冰面等）——否则脚印铺满水体，
+    触发整片无谓的岸上细分（让位掩码时代 2026-10-10 同一教训：水体的粗格保护由前端
+    "岸线特征细分"承担，不需要这里管）。
 
     surfaces: `[(level, x0, x1, z0, z1), ...]`（世界系）。判定与前端 `underWater` 同口径：
     顶点全部落在某片水面的占地内（`margin` 米余量）且三角形最高点 ≤ 标高 + `clearance`。"""
@@ -312,8 +294,8 @@ def rasterize_max_height(tris_world: np.ndarray, nat: np.ndarray, span: float) -
 
 # ---------------------------------------------------------------- 单图烘焙
 
-def bake_map(map_dir: pathlib.Path, glb_path: pathlib.Path, band_low: float, band_high: float, press: float,
-             margin: int, clearance: float = CLEARANCE_DEFAULT, stats: bool = False):
+def bake_map(map_dir: pathlib.Path, glb_path: pathlib.Path, band_low: float, band_high: float,
+             dilate: int, stats: bool = False):
     meta = json.loads((map_dir / "terrain.json").read_text(encoding="utf-8"))
     n = int(meta.get("size") or 512)
     span = float(meta.get("span") or 600.0)
@@ -330,49 +312,34 @@ def bake_map(map_dir: pathlib.Path, glb_path: pathlib.Path, band_low: float, ban
     if len(tris) == 0:
         return None
     tris_world = glb_world_xyz(tris.reshape(-1, 3)).reshape(-1, 3, 3)
-    # 水面片自身 + 水下薄板都**不参与**"贴地结构"（见 submerged_faces 注释：它们会扰动可见岸线；
-    # 水下件的粗格保护已由前端"岸线特征细分"承担）。
     water_surfaces = water_surfaces_of(tris_world[is_water])
     keep = up_faces(tris_world)
     submerged = submerged_faces(tris_world, water_surfaces)
     keep = keep & ~is_water & ~submerged
     up = tris_world[keep]
     surface = rasterize_max_height(up, nat, span)
-    covered0 = classify_ground_lying(surface, nat, band_low, band_high)
-    tex = span / n
-    mask_h = np.where(np.isfinite(surface), surface, 0.0)
-    ceil = envelope(nat, surface, covered0, margin, press, clearance)
-    # 写盘：ceil+1（0 = 无覆盖）
-    out = np.zeros((n, n), dtype="<u2")
-    act = np.isfinite(ceil)
-    k = (zmax - zmin) / 65535.0
-    q = np.zeros((n, n), dtype=np.int64)
-    q[act] = np.round((ceil[act] - zmin) / max(k, 1e-9)).astype(np.int64) + 1
-    np.clip(q, 1, 65535, out=q)
-    out[act] = q[act].astype("<u2")
-    (map_dir / "cover.u16.bin").write_bytes(out.tobytes())
-    meta["cover"] = "cover.u16.bin"
-    # 覆盖处置信：**被压低的** texel 上，地形与结构面的最小间隙（应 ≥ clearance；共面风险由此暴露）
-    pressed = covered0 & np.isfinite(ceil)
-    gap = float(np.min(mask_h[pressed] - ceil[pressed])) if pressed.any() else None
-    meta["coverStats"] = {
-        # ⚠️ 一律写成有限值（None 可以）：json.dumps 默认会写 -Infinity/NaN ⇒ 前端 JSON.parse 直接失败
-        "minClearance": gap if (gap is not None and np.isfinite(gap)) else None,
-        "bandLow": band_low, "bandHigh": band_high, "pressMax": press, "marginTexels": margin,
+    covered = classify_ground_lying(surface, nat, band_low, band_high)
+    footprint = dilate_footprint(covered, dilate)
+
+    out = footprint_u8(footprint)
+    (map_dir / "structs.u8.bin").write_bytes(out.tobytes())
+    meta.pop("cover", None)          # 让位掩码已撤销（2026-10-11）：清掉旧字段与统计
+    meta.pop("coverStats", None)
+    meta["structs"] = "structs.u8.bin"
+    meta["structsStats"] = {
+        "bandLow": band_low, "bandHigh": band_high, "dilateTexels": dilate,
         "triangles": int(len(tris)), "upFacing": int(len(up)),
         "excludedWaterFaces": int((is_water & up_faces(tris_world)).sum()),
         "excludedSubmergedFaces": int((submerged & up_faces(tris_world)).sum()),
-        "texelsGroundLying": int(covered0.sum()),
-        "texelsCeiling": int(act.sum()),
-        "clearance": clearance,
-        "maxLowering": float(np.nanmax(np.where(act, nat - ceil, np.nan))) if act.any() else 0.0,
+        "texelsGroundLying": int(covered.sum()),
+        "texelsFootprint": int(footprint.sum()),
     }
     blob = json.dumps(meta, ensure_ascii=False, allow_nan=False)   # 非有限值会在此抛错（fail-closed）
     (map_dir / "terrain.json").write_text(blob, encoding="utf-8")
     if stats:
         print(f"  {map_dir.name}: 三角形 {len(tris)}（朝上 {len(up)}）"
-              f" 贴地 texel {int(covered0.sum())} → 天花板 texel {int(act.sum())}"
-              f" 最大压低 {meta['coverStats']['maxLowering']:.3f} m")
+              f" 贴地 texel {int(covered.sum())} → 膨胀脚印 {int(footprint.sum())}"
+              f"（{footprint.sum() / footprint.size * 100:.1f}% 面积）")
     return out
 
 
@@ -383,9 +350,7 @@ def main() -> int:
     ap.add_argument("--cache", type=pathlib.Path, default=pathlib.Path("data/cache/maps"))
     ap.add_argument("--band-low", type=float, default=BAND_LOW_DEFAULT)
     ap.add_argument("--band-high", type=float, default=BAND_HIGH_DEFAULT)
-    ap.add_argument("--press", type=float, default=PRESS_DEFAULT)
-    ap.add_argument("--clearance", type=float, default=CLEARANCE_DEFAULT)
-    ap.add_argument("--margin", type=int, default=MARGIN_DEFAULT)
+    ap.add_argument("--dilate", type=int, default=DILATE_DEFAULT)
     ap.add_argument("--stats", action="store_true")
     args = ap.parse_args()
 
@@ -400,14 +365,14 @@ def main() -> int:
         if not (d / "terrain.json").is_file() or not (d / "terrain.u16.bin").is_file() or not glb.is_file():
             print(f"跳过 {key}（缺 terrain.json / terrain.u16.bin / scenery.glb）")
             continue
-        res = bake_map(d, glb, args.band_low, args.band_high, args.press, args.margin, args.clearance, args.stats)
+        res = bake_map(d, glb, args.band_low, args.band_high, args.dilate, args.stats)
         if res is None:
             print(f"跳过 {key}（无三角形）")
             continue
         space = json.loads((d / "terrain.json").read_text(encoding="utf-8")).get("space", key)
-        (args.cache / f"{space}.cover.u16.bin").write_bytes(res.tobytes())
+        (args.cache / f"{space}.structs.u8.bin").write_bytes(res.tobytes())
         done += 1
-    print(f"完成 {done} 张图；cover.u16.bin 已写入包内并与 export_asset_pack.py 同步复制（COS 同步由发布者执行）")
+    print(f"完成 {done} 张图；structs.u8.bin 已写入包内并与 export_asset_pack.py 同步复制（COS 同步由发布者执行）")
     return 0
 
 

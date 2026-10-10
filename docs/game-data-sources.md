@@ -603,17 +603,25 @@ BlitzKit 把游戏模型名从 `tanks.pb` **field 2 移到 field 32**，field 2 
 从游戏文件提取的数据（装甲数值、模型、图标）版权归 Wargaming，README 已有声明。
 解除 BlitzKit 依赖只把来源从"第三方整理"换成"第一手提取"，**不改变权属**。
 
-## 地形让位掩码（`cover.u16.bin`）的生成与分发
+## 贴地结构脚印（`structs.u8.bin`）的生成与分发
 
-- **生成**：`python tools/bake_terrain_cover.py [--map KEY]… [--stats]`（约 4 s/图，36 图 2m36s）。
+> 2026-10-11 起**替代已撤销的地形让位掩码**（`cover.u16.bin`，v0.4.2 引入）：掩码把渲染用高度场
+> 逐 texel 压到结构面之下，是数据面造高度的有意偏离——客户端侧机制穷尽后（地形着色器直出高度图、
+> 材质 52/52 无 `DepthBias`、36 图场景组件无地形协调组件、引擎二进制地形系统全是"往地上画"）
+> 确认客户端没有反遮挡机制、冲突不显形全靠贴地相机，故撤销造高度路线，改为**只标位置、不改高度**。
+
+- **生成**：`python tools/bake_ground_structs.py [--map KEY]… [--stats]`。
   输入 = 包内 `map/<key>/scenery.glb` + `terrain.u16.bin` + `terrain.json`（size/span/zmin/zmax）；
-  缓存优先取 `data/cache/maps/<space>.glb`。烘焙期常量（非渲染期开关）：贴地带
-  `[地形−0.15 m, 地形+0.5 m]`、压低上限 0.5 m、**几何间隙 0.1 m**（压到结构面上会共面闪烁）、收尾 20 texel。
-- **产出**：包内 `map/<key>/cover.u16.bin`（512² u16 LE；`0` = 无覆盖，否则结构面高度量化 +1）
-  + `terrain.json` 的 `cover` / `coverStats`；同时写 `data/cache/maps/<space>.cover.u16.bin`，
-  供 `export_asset_pack.py` 随包复制（**重打包不会丢**：脚本按缓存名复制并在 `terrain.json` 声明）。
-- **消费**：前端 `terrainCover.js` 把**渲染用**高度场夹到天花板之下；查询/放置（`sampleHeight`）
-  必须继续用真值高度场（守卫锁）。缺掩码/旧包 ⇒ fail-open（按无掩码渲染）。
+  缓存优先取 `data/cache/maps/<space>.glb`。烘焙期常量（非渲染期开关，误判只费三角形、不改几何）：
+  贴地带 `[地形−0.15 m, 地形+0.5 m]`、**膨胀 4 texel**（细/粗缝合边顶点取粗侧值 ⇒ 结构须离缝合边
+  ≥1 细格）；水面片与水下薄板排除出贴地判定（掩码时代 2026-10-10 岸线位移教训的承继）。
+- **产出**：包内 `map/<key>/structs.u8.bin`（512² u8；`1` = 贴地结构 texel）
+  + `terrain.json` 的 `structs` / `structsStats`（并清除已撤销的 `cover` / `coverStats`）；
+  同时写 `data/cache/maps/<space>.structs.u8.bin`，供 `export_asset_pack.py` 随包复制
+  （**重打包不会丢**：脚本按缓存名复制并在 `terrain.json` 声明）。
+- **消费**：前端 `terrainMesh.js` 第五条细分判据（`structures`）——与脚印相交的地形补片强制细分到
+  1 texel，带内网格 = 真值高度场；**高度场一份到底**（渲染/查询/放置同源，客户端同构）。
+  缺脚印/旧包 ⇒ fail-open（纯客户端三判据 LOD）。
 - **发布**：与其它包内资产同链路——本地重建包后 `COS_SECRET_ID=… COS_SECRET_KEY=… python
   tools/upload_asset_pack_cos.py --local release/asset_pack`（可 `--only map/<key>/` 逐图发）。
-  掩码是**渲染资产**，不进回放数据面（不改 replay 契约）。
+  脚印是**渲染资产**，不进回放数据面（不改 replay 契约）。

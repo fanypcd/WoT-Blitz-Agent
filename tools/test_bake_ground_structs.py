@@ -1,4 +1,4 @@
-"""地形让位掩码烘焙的纯函数契约（standalone：python tools/test_bake_terrain_cover.py）。"""
+"""贴地结构脚印烘焙的纯函数契约（standalone：python tools/test_bake_ground_structs.py）。"""
 
 import pathlib
 import sys
@@ -7,16 +7,7 @@ import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-import bake_terrain_cover as B  # noqa: E402
-
-
-def expect_error(fn, needle):
-    try:
-        fn()
-    except Exception as e:  # noqa: BLE001
-        assert needle in str(e), f"期望错误含 {needle!r}，实际 {e!r}"
-        return
-    raise AssertionError(f"未抛错（期望 {needle!r}）")
+import bake_ground_structs as B  # noqa: E402
 
 
 def test_world_mapping():
@@ -56,62 +47,46 @@ def test_classify_ground_lying():
     assert bool(m[0, 0])          # 高出 0.3 ⇒ 贴地低矮构件
     assert not bool(m[0, 1])      # 高出 0.6 > band_high ⇒ 离地结构（桥/高架）
     assert bool(m[0, 2])          # 低 0.05 ⇒ 吸附齐平
-    assert not bool(m[0, 3])      # 低 0.5 > band_low ⇒ 埋在铺装下的箱体（不得挖出来）
+    assert not bool(m[0, 3])      # 低 0.5 > band_low ⇒ 埋在铺装下的箱体（不细分）
     assert not bool(m[0, 4])      # 无结构面
 
 
-def test_envelope_one_sided_and_ramp():
-    # 覆盖 texel：压低量 = min(press_max, nat − 结构面 + clearance) ⇒ 落到**结构面下方 clearance**
-    nat = np.array([[20.0, 20.4, 24.0, 30.0]])
-    surf = np.array([[np.nan, 20.35, np.nan, np.nan]])          # 低 0.05 ⇒ 吸附齐平（band_low 内）
-    cov = B.classify_ground_lying(surf, nat, 0.15, 0.5)
-    assert bool(cov[0, 1]) and not cov[0, 0]
-    ceil = B.envelope(nat, surf, cov, margin=2, press_max=0.5, clearance=0.1)
-    assert abs(ceil[0, 1] - 20.25) < 1e-9                        # = 结构面 − 0.1（不共面 ⇒ 不 z-fight）
-    # d=1（margin=2）：该 texel 自己的压低量 = clip(24.0−20.35+0.1, 0, 0.5) = 0.5（封顶）×(1−1/2) ⇒ 24.0−0.25
-    assert abs(ceil[0, 2] - 23.75) < 1e-9
-    assert not np.isfinite(ceil[0, 3])                           # d ≥ margin：收尾到 0
-    assert not np.isfinite(ceil[0, 0])                           # 地形本就在结构面之下 ⇒ 不动
-    steep = np.array([[20.0, 23.6, 30.0]])
-    surf2 = np.array([[20.3, np.nan, np.nan]])
-    cov2 = B.classify_ground_lying(surf2, steep, 0.15, 0.5)
-    c2 = B.envelope(steep, surf2, cov2, margin=2, press_max=0.5, clearance=0.1)
-    assert steep[0, 1] - c2[0, 1] <= 0.5 * 0.5 + 1e-9            # 压低量 ≤ press_max×taper
-    assert not np.isfinite(B.envelope(nat, np.full_like(nat, np.nan),
-                                      np.zeros_like(nat, dtype=bool), 8, 0.5, 0.1)).any()
+def test_dilate_footprint():
+    """膨胀 = chamfer 距离（正交 1 / 对角 √2）≤ dilate；false positive 只费三角形、不改高度。"""
+    cov = np.zeros((7, 7), dtype=bool)
+    cov[3, 3] = True
+    f = B.dilate_footprint(cov, 2)
+    assert f[3, 3]
+    assert f[3, 5] and f[5, 3] and f[1, 3] and f[3, 1]      # 正交 d=2
+    assert f[2, 3] and f[3, 2]                              # 正交 1
+    assert f[2, 2] and f[2, 4] and f[4, 2] and f[4, 4]      # 对角 √2
+    assert not f[1, 4]                                      # √2+1 = 2.414 > 2
+    assert not f[0, 0]                                      # 3·√2 > 2
+    # dilate=0 / 空输入：原样
+    assert np.array_equal(B.dilate_footprint(cov, 0), cov)
+    empty = np.zeros((4, 4), dtype=bool)
+    assert not B.dilate_footprint(empty, 4).any()
+    # 连通条带：正交邻域全膨胀（dilate=1 的菱形不含对角）
+    bar = np.zeros((9, 9), dtype=bool)
+    bar[4, 1:8] = True
+    fb = B.dilate_footprint(bar, 1)
+    assert fb[4].all() and fb[3, 4] and fb[5, 4] and fb[3, 1] and fb[3, 7] and fb[5, 1] and fb[5, 7]
+    assert fb[4, 0] and fb[4, 8]                            # 条带端点的正交外扩
+    assert not fb[3, 0] and not fb[5, 8]                    # 端点的对角 1.414 > 1
+    assert not fb[2, 4] and not fb[6, 4]                    # 纵向仅 ±1
+    assert not fb[0, 0]
 
 
-def test_envelope_clearance():
-    """覆盖处地形必须落在结构面**下方 clearance**（共面 ⇒ 逐像素 z-fight 闪烁；2026-10-10 报障）。"""
-    nat = np.full((3, 3), 30.0)
-    surf = np.full((3, 3), 29.9)                                  # 结构面在地形下 0.1
-    cov = B.classify_ground_lying(surf, nat, 0.15, 0.5)
-    assert cov.all()
-    ceil = B.envelope(nat, surf, cov, margin=1, press_max=0.5, clearance=0.1)
-    gap = surf - ceil                                             # 地形在结构面之下的间隙
-    assert np.all(gap >= 0.1 - 1e-9), f"最小间隙 {gap.min():.4f} < clearance"
-    # 反向：结构面在地形**之上**（低矮构件）⇒ 不压（只压不抬），间隙本就为负（结构在上，正常）
-    nat2 = np.array([[20.0]])
-    surf2 = np.array([[20.4]])
-    cov2 = B.classify_ground_lying(surf2, nat2, 0.15, 0.5)
-    c2 = B.envelope(nat2, surf2, cov2, margin=1, press_max=0.5, clearance=0.1)
-    assert not np.isfinite(c2[0, 0])
-
-
-def test_quantize_sentinel():
-    zmin, zmax = 0.0, 100.0
-    assert B.quantize(float("nan"), zmin, zmax) == 0            # 无覆盖 = 0
-    assert B.quantize(zmin, zmin, zmax) == 1                    # 真值 0 也 ≥1（哨兵不冲突）
-    v = B.quantize(50.0, zmin, zmax)
-    assert 32000 < v < 33500                                    # ≈ 50/100×65535 + 1
-    assert B.quantize(zmax * 2, zmin, zmax) == 65535            # 夹取上限
-
-
+def test_footprint_u8():
+    cov = np.array([[False, True], [False, False]])
+    out = B.footprint_u8(B.dilate_footprint(cov, 0))
+    assert out.dtype == np.uint8
+    assert out.tolist() == [[0, 1], [0, 0]]
 
 
 def test_water_surfaces_and_submerged():
-    """水面片自身与水下薄板必须被排除出"贴地结构"（2026-10-10 用户"岸线拉紧看还是锯齿"定案：
-    掩码把地形压到冰面之下会把可见岸线整体挪走并留台阶；生产环境无掩码、岸线是平滑数据等高线）。"""
+    """水面片自身与水下薄板必须被排除出"贴地结构"（脚印铺满水体会触发整片无谓的岸上细分；
+    让位掩码时代 2026-10-10 同一教训）。"""
     # 一片水面（6×6 m 高 12.26）+ 其下 1 cm 的不透明冰（12.25）+ 岸上铁轨板（12.25，但不在水下）
     water = np.array([[[0, 12.26, 0], [6, 12.26, 0], [6, 12.26, 6]],
                       [[0, 12.26, 0], [6, 12.26, 6], [0, 12.26, 6]]], dtype=float)
