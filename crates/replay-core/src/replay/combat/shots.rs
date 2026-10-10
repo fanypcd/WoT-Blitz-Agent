@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// 单发射击的数据质量标注（宽松降级与快照陈旧度的可视化依据）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ShotQuality {
     /// 射手状态快照距开火时刻的偏移（ms，负=早于开火；|值|大 = type=10 稀疏）
     pub shooter_state_dt_ms: i32,
@@ -39,6 +39,15 @@ pub struct ShotQuality {
     /// 同时意味着 terrain_impact 附带精确落点（撞静态物的弹无 0x1b，不适用）
     #[serde(default, skip_serializing_if = "is_false")]
     pub shell_from_terrain: bool,
+    /// 弹种由 method29 args[8]**弹种编码**指纹回填（发射包自带，每发必有）：段包缺失
+    /// （cmpIndex=0 底盘/履带命中无 26/27B 通知）或脱靶时的弹种来源。映射由同场同射手
+    /// 已判定发次现建（自校准）；编码多候选（同车标准/金币弹同族共码）时经弹速去重后唯一
+    /// 也算本档。见 [`fill_shells_from_launch_fingerprints`]。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub shell_from_launch_code: bool,
+    /// 弹种由发射弹速指纹回填（编码映射不可用时的兜底；同场同射手同弹速唯一弹种）
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub shell_from_velocity: bool,
     /// 射手炮管俯仰由发射速度向量推算（prop2 缺失回退；作者路径恒 false——作者回退走 method36 field2）
     #[serde(skip_serializing_if = "is_false")]
     pub shooter_pitch_from_velocity: bool,
@@ -1604,6 +1613,7 @@ pub(crate) fn extract_shot_replays_from_shared(
                 } else {
                     None
                 },
+                ..ShotQuality::default() // 弹种指纹回填标记由 ⑨ 统一补置
             }),
             shooter_render,
             target_render,
@@ -1622,6 +1632,10 @@ pub(crate) fn extract_shot_replays_from_shared(
         anyhow::bail!("存在未被任何发射配对的 method38 命中结果（{} 条未消费，自 t={:.2}s 起）——发射/命中配对不完整",
             hit_results.len() - hr_cursor, hit_results[hr_cursor].t);
     }
+
+    // ⑨ 弹种指纹回填（发射包自带）：对段包/0x07/地形三级仍空壳的发次（典型 = 命中底盘/履带
+    // 无 26/27B 段包）做同场自校准回填；只补弹种，不增删发次。
+    fill_shells_from_launch_fingerprints(&mut out, &launches);
 
     Ok(out)
 }
@@ -1787,6 +1801,140 @@ fn select_dhit_by_inc_yaw<'a>(
     } else {
         (None, true)
     }
+}
+
+// ===== 弹种指纹回填：发射包自带数据（method29），cmpIndex=0 命中无段包时的弹种来源 =====
+
+/// 弹种回填来源（决定质量标记；编码优先）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ShellFillSource {
+    /// 弹种编码（method29 args[8]）唯一命中
+    Code,
+    /// 编码多候选（同车标准/金币弹同族共码）→ 弹速去重后唯一
+    CodeVelocity,
+    /// 编码不可用 → 弹速指纹唯一命中
+    Velocity,
+}
+
+/// 弹速指纹键：|发射速度| × 10 四舍五入（0.1 m/s 桶）。同弹种逐发浮点抖动实测 ≤2e-3 m/s、
+/// 不同弹种差 ≥ 数 m/s；同键撞多弹种 = 无法区分 → 保持未知（不猜）。
+fn launch_speed_key(vel: [f32; 3]) -> i64 {
+    let sp = ((vel[0] as f64).powi(2) + (vel[1] as f64).powi(2) + (vel[2] as f64).powi(2)).sqrt();
+    (sp * 10.0).round() as i64
+}
+
+/// 指纹匹配核心（纯函数，单测覆盖）：**编码候选优先**——唯一即定（但要过弹速一致性门：
+/// 弹速集存在且不含该候选 = 上游映射不一致 → 不采纳，fail-closed）；多候选用弹速集去重后
+/// 唯一才定；编码无候选再走弹速集唯一；其余（空/多/矛盾）一律 None（绝不猜）。
+fn match_launch_fingerprint(
+    code_set: Option<&std::collections::BTreeSet<u32>>,
+    speed_set: Option<&std::collections::BTreeSet<u32>>,
+) -> Option<(u32, ShellFillSource)> {
+    if let Some(set) = code_set.filter(|s| !s.is_empty()) {
+        if set.len() == 1 {
+            let only = *set.iter().next().unwrap();
+            // 一致性门：同弹种同弹速——弹速指纹若存在必须包含编码候选（不含 = 上游映射被
+            // 污染，宁缺勿错）。弹速集为空/缺失时不拦（该弹可能只有编码一路的已判定发次）。
+            if let Some(sset) = speed_set.filter(|s| !s.is_empty()) {
+                if !sset.contains(&only) {
+                    return None;
+                }
+            }
+            return Some((only, ShellFillSource::Code));
+        }
+        if let Some(sset) = speed_set.filter(|s| !s.is_empty()) {
+            let narrowed: Vec<u32> = set.iter().copied().filter(|sid| sset.contains(sid)).collect();
+            if let [only] = narrowed.as_slice() {
+                return Some((*only, ShellFillSource::CodeVelocity));
+            }
+        }
+        return None;
+    }
+    match speed_set.filter(|s| !s.is_empty()) {
+        Some(set) if set.len() == 1 => {
+            Some((*set.iter().next().unwrap(), ShellFillSource::Velocity))
+        }
+        _ => None,
+    }
+}
+
+/// 弹种指纹回填统计（诊断；他人路径写日志）。
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct ShellFillStats {
+    pub(crate) filled_by_code: usize,
+    pub(crate) filled_by_code_velocity: usize,
+    pub(crate) filled_by_velocity: usize,
+    /// 有指纹数据但无法唯一化（同键多弹种）→ 保持未知
+    pub(crate) unresolved: usize,
+}
+
+impl ShellFillStats {
+    pub(crate) fn total(&self) -> usize {
+        self.filled_by_code + self.filled_by_code_velocity + self.filled_by_velocity
+    }
+}
+
+/// 弹种指纹回填：对 `shell_id == 0` 的射击，用**同场同射手**已判定发次（段包/0x07/0x1b，
+/// 均为服务器权威数据）现建两套映射——"弹种编码 → 弹种"（method29 args[8]，每发必携）与
+/// "弹速 → 弹种"——按 **编码优先、弹速去重/兜底** 回填并置质量标记（`shell_from_launch_code` /
+/// `shell_from_velocity`）。典型场景：cmpIndex=0 底盘/履带命中无 26/27B 段包、他人脱靶弹
+/// 无 0x1b 覆盖。映射按射手分域（同一编码在不同炮上指向不同弹种，禁跨射手混用）且现建现用
+/// （游戏版本漂移不越场）。不新增/删除射击，只补弹种。
+pub(crate) fn fill_shells_from_launch_fingerprints(
+    shots: &mut [ShotReplayData],
+    launches: &[LaunchEntry],
+) -> ShellFillStats {
+    // 发次头 = 同 (shooter, shotId) 首条（发射段）；续段的速度/编码不参与指纹。
+    let mut heads: HashMap<(u32, u32), &LaunchEntry> = HashMap::new();
+    for l in launches {
+        heads.entry((l.shooter, l.shot_id)).or_insert(l);
+    }
+    let mut by_code: HashMap<(u32, u8), std::collections::BTreeSet<u32>> = HashMap::new();
+    let mut by_speed: HashMap<(u32, i64), std::collections::BTreeSet<u32>> = HashMap::new();
+    for s in shots.iter().filter(|s| s.shell_id != 0) {
+        let Some(l) = heads.get(&(s.shooter_eid, s.shot_id)) else {
+            continue;
+        };
+        by_code
+            .entry((s.shooter_eid, l.shell_code))
+            .or_default()
+            .insert(s.shell_id);
+        by_speed
+            .entry((s.shooter_eid, launch_speed_key(l.vel)))
+            .or_default()
+            .insert(s.shell_id);
+    }
+    let mut stats = ShellFillStats::default();
+    for s in shots.iter_mut().filter(|s| s.shell_id == 0) {
+        let Some(l) = heads.get(&(s.shooter_eid, s.shot_id)) else {
+            continue;
+        };
+        let code_set = by_code.get(&(s.shooter_eid, l.shell_code));
+        let speed_set = by_speed.get(&(s.shooter_eid, launch_speed_key(l.vel)));
+        let Some((sid, src)) = match_launch_fingerprint(code_set, speed_set) else {
+            if code_set.is_some() || speed_set.is_some() {
+                stats.unresolved += 1;
+            }
+            continue;
+        };
+        s.shell_id = sid;
+        let q = s.quality.get_or_insert_with(ShotQuality::default);
+        match src {
+            ShellFillSource::Code => {
+                stats.filled_by_code += 1;
+                q.shell_from_launch_code = true;
+            }
+            ShellFillSource::CodeVelocity => {
+                stats.filled_by_code_velocity += 1;
+                q.shell_from_launch_code = true;
+            }
+            ShellFillSource::Velocity => {
+                stats.filled_by_velocity += 1;
+                q.shell_from_velocity = true;
+            }
+        }
+    }
+    stats
 }
 
 /// 其他玩家（队友/敌方）射击的宽松提取：与 [`extract_shot_replays`] 同源数据，但 Avatar 专属包不可得，对应字段降级：
@@ -2309,6 +2457,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
                 } else {
                     None
                 },
+                ..ShotQuality::default() // 弹种指纹回填标记由 ⑨ 统一补置
             }),
             shooter_render,
             target_render,
@@ -2321,8 +2470,12 @@ pub(crate) fn extract_other_shot_replays_from_shared(
             server_part_index,
         });
     }
-    eprintln!("[replay_others] 其他玩家射击提取: {} 发（终点缺失跳过 {}、受击方状态缺失跳过 {}、射手状态炮口兜底 {}、多目标歧义回退时间最近 {}）",
-        out.len(), skipped_no_endpoint, skipped_no_target_state, muzzle_fallback, ambiguous_time_fallback);
+    // ⑨ 弹种指纹回填（发射包自带 method29 args[8] 编码 + 弹速）：段包/0x1b 之外的弹种来源
+    // （典型 = cmpIndex=0 底盘/履带命中无 26/27B 段包）；同场同射手自校准，只补弹种。
+    let fill = fill_shells_from_launch_fingerprints(&mut out, &launches);
+    eprintln!("[replay_others] 其他玩家射击提取: {} 发（终点缺失跳过 {}、受击方状态缺失跳过 {}、射手状态炮口兜底 {}、多目标歧义回退时间最近 {}、弹种指纹回填 {} = 编码 {} / 编码+弹速 {} / 弹速 {}、指纹未唯一 {}）",
+        out.len(), skipped_no_endpoint, skipped_no_target_state, muzzle_fallback, ambiguous_time_fallback,
+        fill.total(), fill.filled_by_code, fill.filled_by_code_velocity, fill.filled_by_velocity, fill.unresolved);
     OtherShotsExtraction {
         shots: out,
         total_launches: launches.len(),
@@ -2509,5 +2662,84 @@ mod target_binding_tests {
         let (picked, ambiguous) = select_dhit_by_inc_yaw(&cands, &pos, SHOOTER, [1.0, 0.0, 0.0]);
         assert!(!ambiguous);
         assert_eq!(picked.map(|d| d.victim), Some(100));
+    }
+}
+
+#[cfg(test)]
+mod shell_fingerprint_tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn set(ids: &[u32]) -> BTreeSet<u32> {
+        ids.iter().copied().collect()
+    }
+
+    #[test]
+    fn code_unique_wins_first() {
+        // 编码候选唯一即定（60TP AP 0x08 → 23434）；弹速一致或缺失均放行
+        assert_eq!(
+            match_launch_fingerprint(Some(&set(&[23434])), None),
+            Some((23434, ShellFillSource::Code))
+        );
+        assert_eq!(
+            match_launch_fingerprint(Some(&set(&[23434])), Some(&set(&[23434]))),
+            Some((23434, ShellFillSource::Code))
+        );
+    }
+
+    #[test]
+    fn code_speed_contradiction_is_rejected() {
+        // 一致性门：编码唯一候选 = 23434，但弹速指纹只认 23690（同键不同弹）＝上游映射
+        // 被污染 → 不采纳（fail-closed，宁缺勿错）
+        assert_eq!(
+            match_launch_fingerprint(Some(&set(&[23434])), Some(&set(&[23690]))),
+            None
+        );
+    }
+
+    #[test]
+    fn code_multi_narrowed_by_speed() {
+        // 同车标准/金币弹同族共码（FV215b 183 he/he_premium 同 0x0d）：编码 {21082,21338}，
+        // 弹速集只含 21338 → 编码+弹速定 21338
+        assert_eq!(
+            match_launch_fingerprint(Some(&set(&[21082, 21338])), Some(&set(&[21338]))),
+            Some((21338, ShellFillSource::CodeVelocity))
+        );
+    }
+
+    #[test]
+    fn code_multi_unresolvable_stays_unknown() {
+        // 编码多候选且弹速不能区分（Rhm. Pzw. 两弹共 0x17 且同速）→ None（fail-closed，禁猜）
+        assert_eq!(
+            match_launch_fingerprint(Some(&set(&[537370, 537626])), Some(&set(&[537370, 537626]))),
+            None
+        );
+        // 多候选但无弹速数据同样保持未知
+        assert_eq!(match_launch_fingerprint(Some(&set(&[21082, 21338])), None), None);
+    }
+
+    #[test]
+    fn velocity_fallback_only_when_code_unknown() {
+        // 编码无候选 → 弹速唯一命中（Kpz 70 Missile HE 632 → 548922）
+        assert_eq!(
+            match_launch_fingerprint(None, Some(&set(&[548922]))),
+            Some((548922, ShellFillSource::Velocity))
+        );
+        // Obj268 三弹同速（608 m/s）→ 弹速无法唯一 → 未知
+        assert_eq!(match_launch_fingerprint(None, Some(&set(&[26122, 26378, 26634]))), None);
+        // 两者皆无 → 未知
+        assert_eq!(match_launch_fingerprint(None, None), None);
+        assert_eq!(match_launch_fingerprint(Some(&set(&[])), Some(&set(&[]))), None);
+    }
+
+    #[test]
+    fn speed_key_absorbs_float_jitter() {
+        // 同弹种逐发浮点抖动（实测 ≤2e-3 m/s）必须落同一 0.1 m/s 桶；
+        // 相邻弹种差 ≥ 数 m/s 必须落不同桶（以 620 vs 670 为界验证 0.5 m/s 也分开）
+        assert_eq!(
+            launch_speed_key([-842.5, 7.9, 56.2]),
+            launch_speed_key([-842.5001, 7.9001, 56.2001])
+        );
+        assert_ne!(launch_speed_key([620.0, 0.0, 0.0]), launch_speed_key([670.0, 0.0, 0.0]));
     }
 }

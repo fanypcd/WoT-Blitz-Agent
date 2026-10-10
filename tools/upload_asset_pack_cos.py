@@ -270,7 +270,8 @@ def main():
             man = patch_manifest_entries(
                 remote_manifest, uploaded,
                 note=(f"partial publish 2026-10-10: {len(uploaded)} object(s) re-uploaded by "
-                      f"--only {' '.join(args.only)} (tank static-transform fix); other entries "
+                      f"--only {' '.join(args.only)} (shell firing-table decision inputs: "
+                      f"caliber/normalization/ricochet + tank-level caliber tier fix); other entries "
                       f"kept as the bucket had them"))
             body = json.dumps(man, ensure_ascii=False, indent=1).encode("utf-8")
             client.put_object(Bucket=BUCKET, Key="manifest.json", Body=body,

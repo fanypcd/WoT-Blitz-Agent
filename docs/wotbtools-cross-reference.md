@@ -90,7 +90,7 @@ method8 在同钟重复广播两份相同事件，`hash6=0aa36c50a15c`；两条 
 1. **prop2 整 u16 偏航公式**（`raw*360/65536−180`）——其受控样本炮管贴极限（frac 恒定，回绕点两侧低 6 位同为 0x2E），分不出两模型；我方 coarse10|frac6 有 T110 极限钳位 + 弹道锚回归 0.997 支撑，保留。等价边界：frac 恒定时两模型同步。
 2. **method8 result 0..4 任何符号命名**（含我方旧"4=跳弹"，已由 1436 交叉表证伪）——保留 raw；行为数据：sub=4 中 231/310 掉血、(2,0) 属穿透族。
 3. 我方被 B1/B4 证伪的旧条目（segmentStartPoint、0x23 倒计时）——见 §一，不再采信任何一方旧文本。
-4. 一切 WotbTools 自标 UNKNOWN/GUESS/HYPOTHESIS 的：cause=4、method16 codeA 0/1/6/7、组件 42、prop7 元素命名（0x04=火 NOT PROVEN）、prop8 元素=method16 codeB 通用解码、bloom→UI 换算公式、field116 语义、field118（"占基地"被否）、method29 byte8/尾 f32、"低 HP 保证精准火力"、历史 PC 位序移植（0x1000=旧火炮损伤等 REJECTED 项）、"Blitz 合并了某历史损伤位"（HYPOTHESIS）。
+4. 一切 WotbTools 自标 UNKNOWN/GUESS/HYPOTHESIS 的：cause=4、method16 codeA 0/1/6/7、组件 42、prop7 元素命名（0x04=火 NOT PROVEN）、prop8 元素=method16 codeB 通用解码、bloom→UI 换算公式、field116 语义、field118（"占基地"被否）、"低 HP 保证精准火力"、历史 PC 位序移植（0x1000=旧火炮损伤等 REJECTED 项）、"Blitz 合并了某历史损伤位"（HYPOTHESIS）。（原列其中的 **method29 byte8 / 尾 f32** 已由我方定案：byte8 = 弹种编码——36 场 2440 发逐发携、137 弹种 (弹种→码) 零冲突；尾 f32 = 恒 6.2784 占位常量。见《回放与射击逆向总集》§3.1；解析器已按其做弹种指纹回填，质量标记 `shell_from_launch_code` / `shell_from_velocity`。）
 5. Version 门控：WotbTools 全部结论限定 11.19.0 China；按 `(clientVersion, entityClass, methodId)` 三元组使用，跨版本数字 ID 可能漂移。
 
 ## 四、双方一致互证（无需改动）

@@ -829,6 +829,12 @@ fn main() -> Result<()> {
                 if q.shell_from_terrain {
                     *deg.entry("shell_from_terrain".into()).or_insert(0) += 1;
                 }
+                if q.shell_from_launch_code {
+                    *deg.entry("shell_from_launch_code".into()).or_insert(0) += 1;
+                }
+                if q.shell_from_velocity {
+                    *deg.entry("shell_from_velocity".into()).or_insert(0) += 1;
+                }
                 for k in q
                     .gun_pitch_degraded
                     .iter()

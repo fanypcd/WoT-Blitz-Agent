@@ -184,14 +184,16 @@ pub fn dump_replay_streams(packets: &[(u32, f32, &[u8])]) -> serde_json::Value {
 pub const EQ_CALIBRATED_SHELLS: u8 = 103;
 pub const EQ_ENHANCED_ARMOR: u8 = 110;
 
-/// 射击一方车辆的配件搭载（Type5 物化 `0B 09` 九字节选择串解码）。
+/// 射击一方车辆的配件搭载（Type5 物化 `0B <n>` 变长选择串解码）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VehicleEquipment {
     /// 携带校准弹（ID 103）
     pub calibrated_shells: bool,
     /// 携带强化装甲（ID 110）
     pub enhanced_armor: bool,
-    /// 九槽原始配件 ID（诊断/未来扩展；未知 ID 不猜名）
+    /// 九槽配件 ID 数组（诊断/未来扩展；未知 ID 不猜名）。线路串是**变长**的
+    /// （空槽省略），此处按原序填入、空槽以 0 补齐——`0` 不是合法配件 ID，
+    /// 故不可据位置反推槽位（空槽位置信息线上不存在）。
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub raw: Vec<u8>,
 }
@@ -206,10 +208,12 @@ impl VehicleEquipment {
     }
 }
 
-/// 每实体 Type5 物化 → 9 字节配件选择（首条有效物化为准；配件开局固定，敌方再物化
+/// 每实体 Type5 物化 → 配件选择串（首条有效物化为准；配件开局固定，敌方再物化
 /// Type4→Type33→Type5 重复携带，WotbTools 683/683）。
-/// 扫描契约（Java VehicleBattleLoadout 同款）：offset 可变，搜 `0A 06` + 6×14B 描述符 +
-/// `0B 09` + 9B；字节全部落在已知配件 ID 域 100..=123 才采纳（framing 误配不猜名）。
+/// 扫描契约：offset 可变，定位 `0B <n>` + nB 配件串（**n 变长**，1..=9 = 实装件数，
+/// 空槽省略；满配 9 件），字节全部落在已知配件 ID 域 100..=123 才采纳（framing 误配
+/// 不猜名；2026-10-10 修：此前硬编码 `0B 09`，凡不满 9 件的玩家整条 loadout 被静默
+/// 丢弃——60TP 实测 `0B 02 67 6c` = 校准弹+改进型模块，查看器据此判成"未装备校准弹"）。
 pub fn collect_vehicle_equipment(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, [u8; 9]> {
     collect_vehicle_loadout(packets)
         .into_iter()
@@ -373,7 +377,9 @@ pub fn collect_module_crew_states(packets: &[(u32, f32, &[u8])]) -> Vec<ModuleCr
 
 /// 车辆开局 loadout（Type5 3+3+9 结构；WotbTools PROVEN 位置闭合）。
 ///
-/// - `equipment`：9 字节装备选择串——**每字节即装备数值 ID 本身（ASCII 码点）**；
+/// - `equipment`：配件选择串解码为 9 槽数组——**每字节 = 装备数值 ID（= 目录中该件
+///   字母的 ASCII 码，如 `g`=103 校准炮弹 / `n`=110 强化装甲）**；线路上串**变长**
+///   （`0B <n>`，空槽省略、满配 9），此处空槽补 0；
 /// - `items`：k 条 14 字节 item 描述符，位置闭合为 `item[0..2] = 3 消耗品`、
 ///   `item[3..5] = 3 给养`。**内部字段（计时器/动态状态）尚未完全解码 → 原样保留
 ///   raw，不赋内部语义**（WotbTools 明确裁决：retain raw until fully decoded）。
@@ -386,25 +392,36 @@ pub struct VehicleLoadout {
 fn scan_loadout(p: &[u8]) -> Option<VehicleLoadout> {
     let n = p.len();
     let mut pos = 0usize;
-    while pos + 11 <= n {
-        if p[pos] == 0x0B && p[pos + 1] == 0x09 {
-            let eq = &p[pos + 2..pos + 11];
-            if eq.iter().all(|&b| (100..=123).contains(&b)) {
-                for k in 6..=10usize {
-                    if pos >= 2 + k * 14 {
-                        let start = pos - 2 - k * 14;
-                        if p[start] == 0x0A && p[start + 1] as usize == k {
-                            let mut equipment = [0u8; 9];
-                            equipment.copy_from_slice(eq);
-                            let items = (0..k)
-                                .map(|i| {
-                                    let s = start + 2 + i * 14;
-                                    let mut it = [0u8; 14];
-                                    it.copy_from_slice(&p[s..s + 14]);
-                                    it
-                                })
-                                .collect();
-                            return Some(VehicleLoadout { equipment, items });
+    while pos + 2 <= n {
+        // 配件串：`0B <count>` + count×1B（**变长**，1..=9 = 实装件数，空槽省略）。
+        if p[pos] == 0x0B {
+            let count = p[pos + 1] as usize;
+            if (1..=9).contains(&count) && pos + 5 + count <= n {
+                let eq = &p[pos + 2..pos + 2 + count];
+                // 帧护栏：字节全在配件 ID 域 100..=123，且串后恒为 `0C 00 0D`
+                // （全语料 175/175 成立；变长放宽后靠它把误配面压回原量级）。
+                if eq.iter().all(|&b| (100..=123).contains(&b))
+                    && p[pos + 2 + count] == 0x0C
+                    && p[pos + 3 + count] == 0x00
+                    && p[pos + 4 + count] == 0x0D
+                {
+                    for k in 6..=10usize {
+                        if pos >= 2 + k * 14 {
+                            let start = pos - 2 - k * 14;
+                            if p[start] == 0x0A && p[start + 1] as usize == k {
+                                let mut equipment = [0u8; 9];
+                                // 变长串按原序填入，空槽补 0（0 不在 ID 域，不是合法件）
+                                equipment[..count].copy_from_slice(eq);
+                                let items = (0..k)
+                                    .map(|i| {
+                                        let s = start + 2 + i * 14;
+                                        let mut it = [0u8; 14];
+                                        it.copy_from_slice(&p[s..s + 14]);
+                                        it
+                                    })
+                                    .collect();
+                                return Some(VehicleLoadout { equipment, items });
+                            }
                         }
                     }
                 }
@@ -424,6 +441,13 @@ pub(crate) struct LaunchEntry {
     pub(crate) shot_id: u32,
     pub(crate) point: [f32; 3],
     pub(crate) vel: [f32; 3],
+    /// args[8]（旧称 rawFlag）= **弹种编码**：全局每个 shells.xml 弹种条目恒定的 1 字节码
+    /// （全语料 2440 发逐发携、137 个弹种零冲突；同一炮同弹种跨玩家一致）。
+    /// 结构：低 2 位 = 弹种类别（0=AP / 1=HE / 2=HEAT / 3=APCR，常规弹全数吻合；"现代脱壳弹族"
+    /// （T-100 LT「3VBM」/ LT-432 / Rhm. Pzw. 的 APFSDS 与其 HEAT）独立成组 0x17，低 2 位不表类别）；
+    /// 高位 = 弹种家族/口径档（观测 1/2/3 档 + 0x17 组），命名未闭合（不猜）。用途：命中通知段包
+    /// 缺失（cmpIndex=0 底盘/履带命中）时的弹种回填指纹——同场自校准 + 弹速去重，见 shots.rs。
+    pub(crate) shell_code: u8,
     /// method29 包处理时刻（**流序**）射手的最后已知 prop2 原始 u16——WI 解析器同构快照。
     /// 与时钟序"≤t 最后采样"的差异仅在同 tick 内包序：method29 包之前到达的 prop2 才计入。
     pub(crate) shooter_prop2: Option<(f32, u16)>, // (采样钟, 原始 u16)
@@ -533,6 +557,7 @@ pub(crate) fn collect_launches(
             shot_id,
             point: [f(9), f(13), f(17)],
             vel: [f(21), f(25), f(29)],
+            shell_code: a[8],
             shooter_prop2: ang2.get(&shooter).copied(),
         });
     }
@@ -1114,20 +1139,27 @@ mod consumable_tests {
 mod loadout_tests {
     use super::*;
 
-    /// 合成 Type5 loadout 块：`0A 06` + 6×14B 描述符 + `0B 09` + 9B 装备串
-    fn mk_type5_loadout() -> Vec<u8> {
+    /// 合成 Type5 loadout 块：`0A <k>` + k×14B 描述符 + `0B <n>` + nB 配件串 +
+    /// `0C 00 0D` 帧尾（真实报文串后恒有该三字节，见 scan_loadout 护栏）。
+    fn mk_type5_loadout_with(k: u8, eq: &[u8]) -> Vec<u8> {
         let mut p = vec![0u8; 60];
         p[0..4].copy_from_slice(&0x31u32.to_le_bytes());
         p[51..53].copy_from_slice(&1000u16.to_le_bytes());
-        p.extend_from_slice(&[0x0A, 0x06]);
-        for i in 0..6u8 {
+        p.extend_from_slice(&[0x0A, k]);
+        for i in 0..k {
             let mut it = [0u8; 14];
             it[0] = 0x80 + i; // 可辨识的每槽字节
             p.extend_from_slice(&it);
         }
-        p.extend_from_slice(&[0x0B, 0x09]);
-        p.extend_from_slice(&[100, 101, 102, 103, 104, 105, 106, 107, 108]); // 装备串（ASCII 数值 ID 域）
+        p.extend_from_slice(&[0x0B, eq.len() as u8]);
+        p.extend_from_slice(eq); // 装备串（数值 ID 域 100..=123）
+        p.extend_from_slice(&[0x0C, 0x00, 0x0D, 0x00, 0x00, 0x00]);
         p
+    }
+
+    /// 合成满配（9 件）Type5 loadout 块。
+    fn mk_type5_loadout() -> Vec<u8> {
+        mk_type5_loadout_with(6, &[100, 101, 102, 103, 104, 105, 106, 107, 108])
     }
 
     #[test]
@@ -1147,6 +1179,49 @@ mod loadout_tests {
                 .copied()
                 .unwrap(),
             v.equipment
+        );
+    }
+
+    /// 变长配件串（空槽省略）必须被采集：此前硬编码 `0B 09` 把不满 9 件的玩家整条
+    /// loadout 丢弃 → 查看器"校准弹"判成未装备（60TP 报障，2026-10-10）。
+    #[test]
+    fn collects_variable_length_equipment_string() {
+        // 2 件：103 校准炮弹 + 108 改进型模块（60TP 报障样本的实测串）
+        let payload = mk_type5_loadout_with(6, &[103, 108]);
+        let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &payload)];
+        let v = collect_vehicle_equipment(&packets);
+        assert_eq!(
+            v.get(&0x31),
+            Some(&[103, 108, 0, 0, 0, 0, 0, 0, 0]),
+            "变长串按原序填入、空槽补 0"
+        );
+        let eq = VehicleEquipment::from_ids(v.get(&0x31).unwrap());
+        assert!(eq.calibrated_shells, "103 = 校准弹应判为已装备");
+        assert!(!eq.enhanced_armor);
+        assert_eq!(eq.raw.len(), 9);
+
+        // 5 件、不含 103/110 → 两个标志均 false（短串不是"全 true"的兜底）
+        let payload = mk_type5_loadout_with(6, &[100, 109, 114, 104, 111]);
+        let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &payload)];
+        let eq = VehicleEquipment::from_ids(collect_vehicle_equipment(&packets).get(&0x31).unwrap());
+        assert!(!eq.calibrated_shells && !eq.enhanced_armor);
+
+        // 帧尾护栏：串后不是 `0C 00 0D`（改尾字节 / 直接截断）的伪造块不得被采纳
+        let mut bad = mk_type5_loadout_with(6, &[103, 108]);
+        let len = bad.len();
+        bad[len - 4] = 0x0E; // 0C 00 0D → 0C 00 0E
+        let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &bad)];
+        assert!(
+            collect_vehicle_equipment(&packets).is_empty(),
+            "帧尾不符 → 拒收"
+        );
+        let mut cut = mk_type5_loadout_with(6, &[103, 108]);
+        let len = cut.len();
+        cut.truncate(len - 6); // 载荷止于配件串
+        let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &cut)];
+        assert!(
+            collect_vehicle_equipment(&packets).is_empty(),
+            "帧尾缺失 → 拒收"
         );
     }
 }
@@ -1291,6 +1366,7 @@ mod shot_segments_tests {
             shot_id,
             point,
             vel: [0.0, 0.0, -680.0],
+            shell_code: 0,
             shooter_prop2: None,
         }
     }

@@ -296,6 +296,26 @@ B 为主、A 为辅：映射表为唯一事实源，新车用 WG API + 名称模
 
 改完 grep `turrets\.first|guns\.first` 应为空（测试夹具除外）——本轮就是这样发现另两处的。
 
+**同档之外还有"同字段"要求（2026-10-10）**：`tank_cache.json` / 包内 `tank/{id}.json` 顶层
+`shells[]` 是摘要投影（列表卡片与**装甲查看器"切换射击方"路径的默认弹表**都在读它），
+**必需携带等效厚度判定输入** `caliber` / `normalization` / `ricochet`（HE 的转正/跳弹数据
+本身即 0，属真值；缺项时消费方按 0° 兜底 = 判定被静默削弱）。三条投影链必须同字段：
+`tank_resolver.rs` 摘要（→ `tank_cache.json` / `/api/tank`）、
+`tank_configs.rs::tank_data_value_prefixed`（包内顶层弹表）、
+`web/assets.rs::shells_handler`（`/api/shells`）；`configs[].shells` 一直是全字段基线。
+报障形态：装甲查看器同一像素"同车检视（走 `configs[]`）"可击穿、"重选同一射击方（走顶层）"
+挡弹——界面无任何可见变化（弹表下拉只显示弹种/穿深/伤害，两表同值）。Strv K AP 转正
+5° → 0° 即翻（两倍口径规则下转正角还会放大 `1.4×norm×caliber/(2t)`）。回归锚点：单测
+`shell_summary_keeps_penetration_decision_inputs`、
+`top_level_shells_carry_decision_inputs_matching_top_gun_config`。
+
+**车级 `caliber` 同批归位（2026-10-10）**：`tank/{id}.json` 顶层 `caliber` 原取
+`configs.first()`（**初始炮**口径）、取不到按炮名解析回退 120——与"顶层弹表"不同档；
+跨车选射手时消费方把它当弹表口径用。现改为**顶级炮弹表自带弹径**（弹径是判定规则的权威
+输入；炮名解析对 189/735 辆与弹径不一致、多为 120 回退）。326 辆的车级口径值随修正变更
+（`S35 CA` 120→90、`O-I` 100→135、`E 50` 88→105…）。`configs[].caliber` 仍是炮名解析
+近似（显示口径），未动。
+
 ---
 
 ## 四、间隙甲（spaced）判定规则（权威）
@@ -328,7 +348,7 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
 ### 5.2 资产面（COS）增量发布流程
 
 桶：`wotbtools-assets-1478073677`（ap-shanghai），布局与 `release/asset_pack/` 逐项对应，
-根 `manifest.json` 含全量 sha256（**4239 条**，2026-10-10 重算）。此前"36 张 `map/*/ground.webp`
+根 `manifest.json` 含全量 sha256（**5000 条**，2026-10-10 按包内容重算）。此前"36 张 `map/*/ground.webp`
 的条目记**合成前**哈希"的偏差已闭：打包器新增 `--refresh-manifest`（不重打包、按包内容重算
 全部条目），发布链固定为**合成之后、上传之前**跑一次
 `python scripts/export_asset_pack.py --refresh-manifest`；朝向契约、重烘与读回校验见 §5.5。

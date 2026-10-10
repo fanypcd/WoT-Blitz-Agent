@@ -181,6 +181,10 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
         })
     });
 
+    // 顶层 shells = 顶级炮（末档配置）弹表的摘要投影，供列表/详情与**装甲查看器默认
+    // 弹表**消费。口径/转正角/跳弹角必须随弹透出：查看器按它们算等效厚度（两倍口径
+    // 规则还会放大转正角），缺失即按 0° 兜底——曾致"切换射击方后同一像素由可击穿
+    // 变挡弹"（2026-10-10）。字段与 `configs[].shells` 同名同义。
     let shells = info
         .as_ref()
         .map(|i| {
@@ -193,6 +197,9 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
                         "damage": s.damage,
                         "module_damage": s.module_damage,
                         "explosion_radius": s.explosion_radius,
+                        "caliber": s.caliber,
+                        "normalization": s.normalization,
+                        "ricochet": s.ricochet,
                     })
                 })
                 .collect::<Vec<_>>()
@@ -231,11 +238,24 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
     });
 
     let configs = build_configs(tank_id);
-    let caliber = configs
-        .first()
-        .and_then(|c| c.get("caliber"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(120) as u32;
+    // 车级口径 = 顶级炮**弹表自带**的弹径（权威源：判定规则按弹径算三倍/两倍口径）。
+    // 不能用炮名解析（`parse_gun_caliber`）或初始档配置：前者对 189/735 辆与弹径不一致
+    // （多为解析失败落 120 回退、VK 28.01 类车名里另有数字），后者（configs.first()）是
+    // **初始炮**口径——装甲查看器"跨车选射手"路径拿它当弹表口径用（2026-10-10 修正）。
+    let caliber = info
+        .as_ref()
+        .and_then(|i| i.shells.first())
+        .map(|s| s.caliber)
+        .filter(|c| *c > 0.0)
+        .map(|c| c.round() as u32)
+        .or_else(|| {
+            configs
+                .last()
+                .and_then(|c| c.get("caliber"))
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32)
+        })
+        .unwrap_or(120);
     let m_info = crate::wargaming::blitzkit::model_info(tank_id);
     let hull_spaced = m_info
         .as_ref()
@@ -761,5 +781,48 @@ mod synth_tests {
         let ch = am.chassis.as_ref().expect("chassis");
         assert_eq!(ch.left_track, 20.0);
         assert_eq!(ch.right_track, 20.0);
+    }
+
+    /// 顶层弹表（装甲查看器"切换射手"路径的默认弹表）必须与末档配置（顶级炮）
+    /// 同值携带口径/转正角/跳弹角：查看器两条路径——初始同车检视走 `configs[]`、
+    /// 切换射击方走顶层 `shells`——任一缺项都会让同一像素的击穿判定翻转
+    /// （2026-10-10 回归锚点：Strv K 转正 5° 缺失即 0° 兜底）。
+    #[test]
+    fn top_level_shells_carry_decision_inputs_matching_top_gun_config() {
+        for tank_id in [12161u32, 7169, 769] {
+            let v = tank_data_value(tank_id);
+            let top = v["shells"].as_array().expect("顶层 shells");
+            let last = v["configs"]
+                .as_array()
+                .and_then(|c| c.last())
+                .and_then(|c| c["shells"].as_array())
+                .expect("末档配置 shells");
+            assert_eq!(top.len(), last.len(), "tank {tank_id} 顶层/末档弹数不一致");
+            for (t, c) in top.iter().zip(last.iter()) {
+                assert_eq!(t["type"], c["type"], "tank {tank_id} 弹种顺序不一致");
+                for key in ["caliber", "normalization", "ricochet"] {
+                    assert_eq!(t[key], c[key], "tank {tank_id} {key} 顶层与末档配置不一致");
+                }
+            }
+            // 车级 caliber 与顶层弹表同源（跨车 shooter 路径的判定 fallback；此前取初始炮口径）
+            if let Some(sc) = top.first().and_then(|s| s["caliber"].as_f64()) {
+                assert_eq!(
+                    v["caliber"].as_u64(),
+                    Some(sc.round() as u64),
+                    "tank {tank_id} 车级 caliber 与顶层弹表不同源"
+                );
+            }
+        }
+        // 锚点：Strv K 顶级炮 AP = 105mm / 转正 5° / 跳弹 70°
+        let strvk = tank_data_value(12161);
+        let ap = strvk["shells"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["type"] == "ap")
+            .expect("Strv K AP");
+        assert_eq!(ap["caliber"], 105.0);
+        assert_eq!(ap["normalization"], 5.0);
+        assert_eq!(ap["ricochet"], 70.0);
     }
 }

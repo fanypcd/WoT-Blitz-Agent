@@ -22,7 +22,7 @@
 |---|---|---|---|---|---|
 | 1 | `data/tanks.pb`（整车数值：弹种/火炮/HP/机动/模块） | **BlitzKit CDN（现役）** `/definitions/tanks.pb`（`blitzkit.rs::fetch_and_save`；包内直发 pb） | 客户端解包 `tools/extract_vehicles.py` → `tools/emit_vehicle_pb.py` 可编码为**同格式 pb**（工具已备，**未接线**） | 🟢 数据 ~99.5% / 接线 0% | ⚠️ **2026-10-09 试接当日已回退**（本地版本验证未完成，不得直接替换 `data/*.pb`）。与 BK 的剩余差异共 **122 处**、已全部定性（§一注）：119 枪序（研发序口径）+ 10625 explosion_radius（**BK 单点错值**，客户端 0.1）+ 名字 2 条；试接批实测：重建 `tank_cache.json` 仅 1 行差异 |
 | 2 | `data/models.pb`（逐板装甲/spaced/履带厚/模型原点/包围盒/限位） | **BlitzKit CDN（现役）** `/definitions/models.pb`（同上） | 客户端解包 `local_pb/models.json` + `game_data`（编码器同 #1，未接线） | 🟢 数据 ~99% / 接线 0% | ⚠️ 试接已回退（同 #1）。接线时按**游戏研发序**选档（BK 为模块 id 升序：105 辆枪序不同、91 辆末位主炮不同、**15 辆**板集实际不同；试接批实测包内 `armor_model.gun` 与 `game_data` 收敛，仅 2 辆 f32 量化差）；`initial_turret_rotation` 已找到客户端直源（车辆 XML `<turretInitialRotation>`，4 辆非零值与 BK 逐值一致、731 辆无元素=BK 的 None，对照 0 差异）；43 辆无炮塔 TD 的炮塔 bbox 为**空心占位**（两侧皆空，见 [game-data-sources.md](game-data-sources.md) §2.3） |
-| 3 | `data/tank_cache.json` | 本机自产（派生自**现役 BlitzKit pb**；俯仰 ← models.pb；六面装甲摘要 ← game_data 客户端优先） | 同一派生链改接客户端 pb（未接线） | 🟢 随 ①② | `shells[].shell_type_id` 已透出（§1a） |
+| 3 | `data/tank_cache.json` | 本机自产（派生自**现役 BlitzKit pb**；俯仰 ← models.pb；六面装甲摘要 ← game_data 客户端优先） | 同一派生链改接客户端 pb（未接线） | 🟢 随 ①② | `shells[].shell_type_id` 已透出（§1a）；`shells[].caliber/normalization/ricochet` 已透出（**2026-10-10**，§1a——等效厚度判定输入，装甲查看器两条弹表路径曾因此判定翻转） |
 | 4/5 | `data/game_data/{id}.json`（装甲模型 + 碰撞盒） | **客户端解包（现役）**：`XML/item_defs/vehicles/{nation}/{model}.xml.dvpl` + `3d/Tanks/Parameters/{nation}/{model}.yaml.dvpl` | 它本身就是 | ✅ 100/100 | 链内 2 处 pb 依赖待拆：文件定位用 pb 的 `model_name`（field32）；炮塔/炮管碰撞盒**选段**用 models.pb 的 module→node 映射（缺失回退"末位"） |
 | 6 | `data/tank_data/{id}.json`（→ 包 `tank/{id}.json`） | **混合三源**：models.pb（板/spaced/履带/原点/限位/bbox）+ tanks.pb（数值/弹种）+ game_data（primary、chassis/gun bbox） | 客户端三源齐备 | 🟡 数据 ~95% / 接线 0% | 缺口同 ①②；`configs[]` 的节点数/索引已走客户端 GLB（`model.glb` 节点名）✅；⚠️ 43 辆无炮塔 TD 的 `collision_boxes.turret` 为 null——**两侧都只有空心占位**（客户端 YAML 无 turret 段，models.pb 是 4 字节空 bbox），非缺数据，见 [game-data-sources.md](game-data-sources.md) §2.3 |
 | 7 | 弹种反解表（全局 shell id → 弹种数据） | 本机自产（`ShellKindTable::from_tanks_pb` + CLI `dump-shell-kinds`，输入为现役 BlitzKit pb） | 客户端 `shells.xml <kind>`（4 值闭集，已实测；提取器与编码器均已支持，未接线） | 🟢 数据 100% / 接线 0% | `atgm_heat`→HOLLOW_CHARGE 验证一致；接线随 #1 |
@@ -66,6 +66,7 @@ tanks.pb 未动）。
 | `is_premium` / `is_collector` | 车型标记。**两者是 `tanks.pb` field13 的同一枚举**（1=金币 `is_premium`、2=收藏 `is_collector`），故互斥——实测 735 辆：金币 91 / 收藏 338 / 同时为真 0。WotbTools 据此给卡片上不同颜色的边框（金币=警告色、收藏=`--color-info` 蓝） |
 | `shells` | 弹种表（`penetration`/`damage`/…）。**取顶级炮塔 × 顶级主炮**（§3.5 口径），消费方由此派生 `pen_max` |
 | `shells[].shell_type_id` | 弹种权威 id（**2026-10-09 新增**）：tanks.pb field9 翻译，1=APCR / 2=HEAT / 3=HE；空值仅出现在 AP 系（proto3 零值省略 → 按 0=AP 或 icon 回退，语义一致）。判定弹种（跳弹角/溅射分支）应以此为准，icon 串仅作显示 |
+| `shells[].caliber` / `normalization` / `ricochet` | **等效厚度判定输入**（**2026-10-10 新增**）：弹径（mm）/ 转正角（°）/ 跳弹临界角（°），2079/2079 全量有值（HE 的转正/跳弹数据本身即 0，属真值）。装甲查看器按弹算 `eff = t / cos(angle − 转正)`，两倍口径规则还会把转正角放大（`1.4×norm×caliber/(2t)`）；**缺失即按 0° 兜底 = 判定被静默削弱**——同一像素在"同车检视（走 `configs[]`，全字段）"与"切换射击方（走本表）"两条路径下曾出现可击穿↔挡弹翻转（Strv K 报障）。包内 `tank/{id}.json` 顶层弹表与 `/api/shells` 同步补齐（[game-data-sources.md](game-data-sources.md) §3.5） |
 | `armor` | 六面装甲摘要（**顶级**炮塔档位，见 [game-data-sources.md](game-data-sources.md) §3.5） |
 | `view_range` / `turret_traverse_speed` | 视野 / 炮塔转速，**顶级**炮塔 |
 | `speed_forward` / `speed_reverse` / `hull_traverse` / `gun_depression` / `gun_elevation` | 机动与俯仰 |
@@ -115,7 +116,16 @@ tanks.pb 未动）。
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测 **2026-10-10 按包内容重算**：**5000 个文件 / 4310.6 MB**——第二十三次为
+包内布局（本地实测 **2026-10-10 按包内容重算**：**5000 个文件 / 4310.9 MB**——第二十四次为
+**"顶层弹表补等效厚度判定输入"**（735 辆 `tank/{id}.json` 顶层 `shells[]` + `data/tank_cache.json`
+逐弹增 `caliber`/`normalization`/`ricochet` 三字段，**文件数不变、约 +0.3 MB**；同批车级
+`caliber` 改为顶级炮弹径（326 辆值变更，见 [game-data-sources.md](game-data-sources.md) §3.5）；
+`data/data_version.json` 的 `tank_cache_updated_at` 同步记为 2026-10-10T12:19:17Z，
+`--refresh-manifest` 重算本地 manifest；**COS 已同步**：`--only tank/ --only data/` 上传
+**737 件 / 8.8 MB**（跳过 3 = 未变的 `tanks.pb`/`models.pb`/`tank_names.json`，均按 sha256
+命中），`manifest.json` 走**远端清单就地补丁**（登记这 737 条，远端清单保持 5000 条 /
+4310.9 MB）；回拉 740/740 逐对象 sha256 与本地一致、0 失败。
+见 [index.md](index.md) 同名条目）；第二十三次为
 **"36 图全量重导 + 俯视重渲合成 + 掩码回填 + COS 全量差分上传"**（地面+场景全量重导后重建包，
 `composite_overhead.py --all --write` 重烘、`bake_terrain_cover.py` 回填 36 掩码、`--refresh-manifest`
 重算；**COS 已同步**：成功 947 / 失败 0 / 跳过 4053，`manifest.json` 强传，远端清单 5000 条 /
@@ -245,6 +255,12 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
 > 清单就地补丁**（只登记这 294 条；桶内 manifest 现 4167 条，其余条目照原样）。回拉校验：
 > **1470/1470 glb 逐对象 sha256 一致、0 失败**。地图侧（36 张 ground 条目转正、13 图 scenery
 > 旧欠、整份 manifest 重传）随地图会话的发布会一并处理。
+> **2026-10-10 顶层弹表补判定输入后**：包内 `tank/` 735 件 + `data/tank_cache.json` +
+> `data/data_version.json`（`tank_cache_updated_at`）已替换、`--refresh-manifest` 重算
+> （5000 文件 / 4310.9 MB）——**COS 已同步**：`--only tank/ --only data/` 上传 737 件 /
+> 8.8 MB（3 件未变按 sha256 跳过；`manifest.json` 远端清单就地补丁登记 737 条），回拉
+> **740/740 逐对象 sha256 与本地一致、0 失败**；`.json` 走 `no-cache` ⇒ 前端即时可见
+> （不经 3600s 二进制缓存窗口）。
 
 **不进包的**：`data/cache/local_*`（见第三节）、`data/replay_samples/`、
 `data/sessions/`、`data/snapshots/`、`data/token_usage.json`。

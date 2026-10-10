@@ -321,6 +321,7 @@ pub(crate) async fn shells_handler(
 ) -> Json<Value> {
     // 取**顶级炮塔 × 顶级主炮**：与 models.pb 的装甲/俯仰档位、`configs[]`、
     // 以及列表 `shells` 同档；取初始炮会与同屏渲染的顶级炮塔装甲对不上。
+    // 口径/转正角/跳弹角随弹透出（等效厚度判定输入，缺项消费方按 0° 兜底）。
     let result: Value = crate::wargaming::blitzkit::tank_full(tank_id)
         .and_then(|t| t.turrets.last().and_then(|tur| tur.guns.last()).map(|g| {
             let caliber_mm = parse_gun_caliber(&g.name).map(|c| c.round() as u32).unwrap_or(120);
@@ -334,6 +335,9 @@ pub(crate) async fn shells_handler(
                 "damage": s.damage,
                 "module_damage": s.module_damage,
                 "explosion_radius": s.explosion_radius,
+                "caliber": s.caliber,
+                "normalization": s.normalization,
+                "ricochet": s.ricochet,
             })).collect();
             json!({ "caliber": caliber_mm, "shells": shells })
         }))

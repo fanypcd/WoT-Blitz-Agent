@@ -60,7 +60,8 @@ pub struct ArmorData {
     pub hull_rear: u32,
 }
 
-/// 一种弹（弹药）的数据：类型、穿深、血量伤害、模块伤害。
+/// 一种弹（弹药）的数据：类型、穿深、血量伤害、模块伤害，以及等效厚度判定所需的
+/// 弹径 / 转正角 / 跳弹角。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShellData {
     pub shell_type: String,
@@ -76,6 +77,17 @@ pub struct ShellData {
     /// HE 爆炸半径（m）；缓存缺失该字段时为 0。
     #[serde(default)]
     pub explosion_radius: f64,
+    /// 弹径（mm）——三倍口径 overmatch 与两倍口径转正放大两项判定的输入；
+    /// 逐弹自带（同车不同炮口径不同，不能拿车级口径代替）。
+    #[serde(default)]
+    pub caliber: f64,
+    /// 转正角（度）——穿深判定的等效厚度修正（`effective = t / cos(angle - norm)`）。
+    /// 缺失（旧缓存）时为 0 = 转正不生效，属降级值而非真值。
+    #[serde(default)]
+    pub normalization: f64,
+    /// 跳弹临界角（度）；HEAT 数据为 85°、HE 为 0（爆炸弹判定侧另有 90° 覆盖）。
+    #[serde(default)]
+    pub ricochet: f64,
 }
 
 /// 归一化名称索引项：坦克名预归一结果，避免每次模糊查询对全部坦克重新归一。
@@ -316,6 +328,9 @@ impl TankResolver {
 
             // 弹种：取**顶级炮塔的顶级主炮**的 shells——与详情页 `configs[]`（按炮逐项展开）
             // 和 models.pb 的 `turrets.last() × guns.last()` 同档。
+            // 口径/转正角/跳弹角随弹透出：消费方（装甲查看器）按弹算等效厚度与击穿判定，
+            // 缺这三项时转正按 0° 兜底——同一发弹的判定会明显偏保守（曾致"切换射击方后
+            // 同一点由可击穿变挡弹"，2026-10-10）。
             let mut shells = Vec::new();
             if let Some(gun) = tank.turrets.last().and_then(|t| t.guns.last()) {
                 for s in &gun.shells {
@@ -326,6 +341,9 @@ impl TankResolver {
                         damage: s.damage.round() as u32,
                         module_damage: s.module_damage.round() as u32,
                         explosion_radius: s.explosion_radius,
+                        caliber: s.caliber,
+                        normalization: s.normalization,
+                        ricochet: s.ricochet,
                     });
                 }
             }
@@ -486,5 +504,40 @@ mod tests {
             fallback.as_ref().map(|r| (r.dep, r.ele)),
             Some((top.dep, top.ele))
         );
+    }
+
+    /// 弹种摘要必须带等效厚度判定输入（口径/转正角/跳弹角）：装甲查看器按弹算
+    /// 转正与三倍/两倍口径规则，缺项即按 0° 兜底——曾致"切换射击方后同一像素由
+    /// 可击穿变挡弹"（2026-10-10 回归锚点）。
+    #[test]
+    fn shell_summary_keeps_penetration_decision_inputs() {
+        let resolver = TankResolver::from_blitzkit().expect("tanks.pb present");
+        // 锚点：Strv K（bug 报告车）顶级炮 AP = 105mm / 转正 5° / 跳弹 70°
+        let strvk = resolver.resolve_info(12161).expect("Strv K in tanks.pb");
+        let ap = strvk
+            .shells
+            .iter()
+            .find(|s| s.shell_type == "ap")
+            .expect("Strv K 顶级炮有 AP");
+        assert_eq!(ap.caliber, 105.0);
+        assert_eq!(ap.normalization, 5.0);
+        assert_eq!(ap.ricochet, 70.0);
+        // 全量不变量：弹径一切弹种 > 0；动能弹（type 含 ap）转正/跳弹角 > 0
+        for id in crate::wargaming::blitzkit::load_tanks().keys() {
+            let Some(info) = resolver.resolve_info(*id) else {
+                continue;
+            };
+            for s in &info.shells {
+                assert!(s.caliber > 0.0, "tank {id} {} 弹径缺失", s.shell_type);
+                if s.shell_type.contains("ap") {
+                    assert!(
+                        s.normalization > 0.0,
+                        "tank {id} {} 转正角缺失",
+                        s.shell_type
+                    );
+                    assert!(s.ricochet > 0.0, "tank {id} {} 跳弹角缺失", s.shell_type);
+                }
+            }
+        }
     }
 }

@@ -239,6 +239,64 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 | [docs/decoupling-status.md](decoupling-status.md) | **解耦的剩余决策与已定案差异**（2026-10-03 收敛；**2026-10-07 更新：GLB 自产管线已接线**——`data/cache/models/` 换为客户端解包导出，`cache/models` ≡ `local_models` 735/735）：已完成时间线；待决策口径（数据模型塌缩 / 25 辆无显示名 / `hull_traverse` 非同量）；封面图与 BK 复核为**同源同画**（旧 NCC 0.21/非同一幅画结论已撤销）；已定案的 BlitzKit 侧差异清单；对外沟通材料。进度/接线/分发现状见 [data-inventory.md](data-inventory.md) |
 | [docs/local-model-export.md](local-model-export.md) | ✅ 已实施（2026-10-01，2026-10-02 补 §4 贴图实测）：报告 B 的几何替代做成 `tools/export_tank_glb.py`，验收口径从"按可达节点求和"收紧到**逐字节 + 节点顺序**——`collision.glb` **735/735**、`model.glb` **733/735** 等价（余 2 辆为 BlitzKit 侧行为、另 23 辆 2026-10-10 起**有意修正**（静态变换烘焙 / 状态过滤，等价数 710/735），见该文 §5/§5.1）；贴图槽位与 BlitzKit 完全对齐（731/735 图片数相同、无缺槽位）。§4 逐通道实测推翻了报告 B §3.3 的图源判断，并定下 `baseRMMap` 的**通道搬迁**（ch0→G 粗糙度、ch1→B 金属度）。**2026-10-07 起已替换运行期数据源**：`data/cache/models/` 换为本地导出（`cache/models` ≡ `local_models` 735/735，包与 COS 随发；见 [data-inventory.md](data-inventory.md) §一 #8） |
 
+### Type5 配件串改变长解析（解析器，2026-10-10，未发版）
+
+**报障**（WotbTools 射击复现）：60TP 射击 Strv K 那发，车辆与装备面板的"校准弹"未勾选
+（对面 60TP 实际装配了校准炮弹）。
+
+**根因**：Type5 物化尾部配件串在线路上是 **`0B <n>` + nB 变长**（n = 实装件数 1..=9，
+空槽省略；满配 9），解析器（ported 自 Java `VehicleBattleLoadout`）硬编码只认 `0B 09`+9B
+→ 凡不满 9 件的玩家**整条 loadout 被静默丢弃** → `shooter_equipment=null` → 前端按"未装备"
+渲染。实测该场 14 人中 7 人落此形态（对面 60TP 串 = `0B 02 67 6c` = 103 校准弹 + 108
+改进型模块）；全语料 `0B <n>` 直方图 {1..9}（n=9 占多数）。
+
+**修复**：`replay-core combat::collect::scan_loadout` 改变长解析——`0B <n>`（n∈1..=9）+
+n 字节 + ID 域校验（100..=123）+ 新帧尾护栏（串后恒 `0C 00 0D`，全语料 175/175 成立）
++ 原有 `0A KK`+KK×14B 描述符回找对齐；短串按原序填入 9 槽、空槽补 0（`equipment` 形状与
+facet 不变，`raw` 仍是 9 字节）。回归：`collects_variable_length_equipment_string`
+（含缺帧尾拒收负例）+ 既有满配用例。真实回放校验：该场 loadout 采集 7/14 → **14/14**，
+`t=125.33` 那发 `shooter_equipment.calibrated_shells = true`。
+
+**blast radius**：只改"漏采 → 采到"；此前为空值的少数玩家现在有值（additive），满配玩家
+行为逐字节不变，`shooter_equipment`/`raw` 形状（9 字节）不变。**消费侧连带**：校准弹从
+"未知→已装备"后，该发的穿深模拟会按 ×1.06 计入校准加成（此前漏计）。文档：总集 §2.6
+尾部表同步更正（定长 9 → 变长）。注：`collect.rs` 与另一会话在途的"弹种指纹回填"改动同
+文件，提交时两批一起走。
+
+### 顶层弹表补等效厚度判定输入（数据面，2026-10-10，未发版）
+
+**报障**（WotbTools 装甲查看器）：同一位置，初始"同车检视"（Strv K 射击 Strv K）显示蓝色可
+击穿，手动重选同一射击方后变红挡弹——界面无任何可见变化（弹表下拉只显示弹种/穿深/伤害）。
+
+**根因**：射手弹表两条取数路径不同源——初始同车检视经 `applyConfig` 走 `configs[].shells`
+（全字段），重选射击方经 `loadShooter` 走**顶层摘要** `shells`；而顶层投影缺 `normalization`
+（转正角）等判定输入，消费方按 0° 兜底 ⇒ 等效厚度被抬高（`eff = t/cos(angle − norm)`，两倍
+口径规则下转正角还会放大 `1.4×norm×caliber/(2t)`）。Strv K AP：5° → 0°，实测 100mm 板 @68°
+由"可击穿（等效 220）"翻为"挡弹（等效 267）"。同缺陷对**任何射手≠目标的检视**从打开起就
+存在（一律走顶层表）。
+
+**修复**（本仓数据面字段全量补齐，消费方零改动）：
+- `tank_resolver.rs`：`ShellData` 增 `caliber`/`normalization`/`ricochet`（serde default，
+  旧缓存可读），顶级炮投影随弹填值 → `tank_cache.json` 重生成（735 辆 / **2079/2079** 弹
+  全量有值；与换字段前逐车 diff **仅**新增三项）
+- `tank_configs.rs::tank_data_value_prefixed`（包内 `tank/{id}.json` 顶层弹表）与
+  `web/assets.rs::shells_handler`（`/api/shells`）同步补齐；`/api/tank` 走缓存透传自动获得
+- 回归：`shell_summary_keeps_penetration_decision_inputs`（全量动能弹三项 > 0；锚点 Strv K
+  AP = 105mm / 5° / 70°）+ `top_level_shells_carry_decision_inputs_matching_top_gun_config`
+  （顶层弹表 ≡ 末档配置：弹种顺序 + 三项逐值相等；车级 `caliber` ≡ 顶层弹表弹径）
+- **同批修正车级 `caliber` 档位**：`tank_data_value_prefixed` 原取 `configs.first()`（初始炮）
+  口径，取不到时按炮名解析回退 **120**——与"顶层弹表"不同档。跨车选射手时查看器把车级口径
+  当弹表口径用（三倍/两倍口径规则 + 转正放大），216 辆多炮车因此用错口径（E 50：88 vs 顶级炮
+  105；BT-2/AT 7 类落 120 回退）。现改为**顶级炮弹表自带弹径**（权威源），炮名解析（189/735
+  与弹径不一致）与初始档彻底退出该字段；326 辆车道级口径值变更（`S35 CA` 120→90、`O-I`
+  100→135、`E 50` 88→105…）
+- **blast radius**：735 辆 `tank/{id}.json` + `data/tank_cache.json` + `data/data_version.json`
+  内容变更（文件数不变，约 +0.3 MB；additive 字段 + 一处车级口径修正，消费方零适配）；
+  `release/asset_pack` 已替换并 `--refresh-manifest` 重算（5000 文件 / 4310.9 MB）——
+  **COS 已同步**：`--only tank/ --only data/` 上传 737 件 / 8.8 MB、`manifest.json` 就地补丁
+  登记 737 条，回拉 740/740 逐对象 sha256 一致（`.json` 走 no-cache，前端即时可见）
+- 数据面契约注记见 [game-data-sources.md](game-data-sources.md) §3.5
+
 ### 代码加固（2026-10-08，未发版）
 
 **DVPL 解码 fail-closed**（[src/wargaming/dvpl.rs](../src/wargaming/dvpl.rs)）：补上 footer 的
@@ -1389,6 +1447,53 @@ prop2 在场按交集 / 样本阈值过滤）；**回归夹具** `crates/replay-
 （`scripts/build-agent-wasm.sh` 也是按该 SHA 远程浅克隆）⇒ 本修复要生效需：上游**提交 + 发版**
 （bump `workspace.metadata.release.version` + 本文档条目）→ WotbTools 更新 pin 并重跑
 `fetch-agent-wasm.sh`（按 AGENTS 的 Android/黄金样例规则随 PR 处理）。
+
+### 弹种指纹回填：method29 args[8] 弹种编码（解析器，2026-10-10）
+
+**报障**：用户回放（`20261010_1928__Anonyme_S31_Strv_K_…`，BurningGames）"射击复现"里
+敌方 60TP 打我方 Strv K 那发（t=125.33、dmg 977）**弹种未知**。
+
+**根因（协议面缺口，非解析 bug）**：弹种唯一权威载体是 type=32 的 26/27B 段包，而
+**cmpIndex=0（底盘/履带）的命中游戏一律不发段包**——本场 123 条 method8 直击中 cmp=0 的
+26 条全无、cmp≥1 的 97 条全有；另 3 场样本回放复现（41/41 无、228 发中仅 1 例 res=0 未发）。
+该发客户端只收到 method8（result=4/cmp=0）+ 11/12B 短广播（模块 token 提示，不含弹种）；
+他人路径的既有来源全部不覆盖（0x07 广播 = 仅作者 avatar 弹药、0x1b 地形 = 仅脱靶弹）⇒
+`shell_id=0` ⇒ 前端"弹种未知"徽章。本场此类"命中但弹种未知"共 24 发。
+
+**定案：method29 args[8]（原 rawFlag，文档标记"语义封存"）= 弹种编码**——全语料（36 场含
+`data/replay_samples`）**2440 发逐发携**（args 恒 37B）、**137 弹种 (弹种 → 码) 零冲突**、
+同炮同弹种跨玩家/跨场一致：低 2 位 = 类别（0=AP/1=HE/2=HEAT/3=APCR，常规弹全数吻合；
+"现代脱壳弹族"——T-100 LT「3VBM」/LT-432/Rhm. Pzw. 的 APFSDS 与其 HEAT——独立成组 0x17）；
+高位 = 弹种家族（基数 4/8/12/20 + 类别偏移；命名未闭合，不猜）。同场 (射手, 码) 冲突 19 处
+**全为同车标准/金币弹同族共码**（如 FV215b 183 he/he_premium 同 0x0d）→ 用**发射弹速**
+去重（同场同炮逐弹种恒定：实测 = BlitzKit `shells[].velocity` ×0.8 ×（超充/改进型火药
+×1.35），全语料 2440 发的浮点抖动 ≤2e-3 m/s）。旁证：3 场回放全部"命中但弹种未知"发次
+（28 处判定）两路独立判定 **28/28 一致、0 冲突**；弹速撞车时（Obj268 三弹同 608 m/s）
+编码仍可唯一区分，同码多弹时弹速反过来去重——两路互补。
+
+**修改**：`LaunchEntry` 增 `shell_code`（args[8]）；新增
+`fill_shells_from_launch_fingerprints`（shots.rs）——对 `shell_id==0` 的射击，用同场同射手
+已判定发次（段包/0x07/0x1b，均服务器权威）现建"编码 → 弹种/弹速 → 弹种"映射，
+**编码优先、弹速去重/兜底**，唯一才回填（fail-closed，不猜），置质量标记
+`shell_from_launch_code` / `shell_from_velocity`；作者/他人两路径出口各调一次（只补弹种，
+不增删发次）。他人路径日志与 `combat`/`dataset` 诊断出具回填计数。
+
+**效果（本场实测）**：他人路径 160 发中回填 **63 发（编码 60 / 编码+弹速 0 / 弹速 3、
+未唯一 0）**；含目标发次 t=125.33 → `shell_id=23434`（60TP AP，与弹速指纹独立同判），
+全部 24 发"命中但弹种未知"中 23 发得解（余 1 发为该射手此前从未有已判定同码发次——
+保持未知；要再进一步需消费方注入坦克炮弹表，见下）。作者路径同场不变（0x07 已覆盖）。
+
+**测试**：单元 `shell_fingerprint_tests`（唯一/多候选+弹速去重/不可唯一/兜底/弹速键抖动
+5 例）；集成回归 `crates/replay-core/tests/shell_fill_from_launch_code.rs`（样本
+`20260930_2127__Anonyme_GB48_FV215b_183_…`：回填前 8 发履带命中空壳 → 回填后无"命中但
+弹种未知"，定点 t≈180.89 → 32138）。`cargo test -p wotb-replay-core` 全绿；
+`cargo check --workspace` 通过。
+
+**契约与消费端**：facet 输出新增两个质量字段（附加、可缺省反序列化），WotbTools 前端
+`ReplayShotsPane` 的 `q_shell_unknown` 徽章将自然消失于被回填的发次；如要给回填发次出
+"指纹来源"徽章（类似 `shell_from_broadcast`）需在 WotbTools 仓加一行映射。**残留覆盖
+边界**：仅"同场该射手有过同码/同弹速的已判定发次"可补；要全覆盖需把坦克炮弹表
+（tanks.pb shells）注入消费层按"码类别 + 车炮弹表"定案——本次未做。
 
 ### 状态切换器的骨骼网格导出（信号灯"组件不完全"，2026-10-10）
 
