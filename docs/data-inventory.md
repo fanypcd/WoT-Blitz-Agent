@@ -115,7 +115,15 @@ tanks.pb 未动）。
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测 **2026-10-10 按包内容重算**：**5000 个文件 / 4310.5 MB**——第二十次为
+包内布局（本地实测 **2026-10-10 按包内容重算**：**5000 个文件 / 4310.6 MB**——第二十三次为
+**"36 图全量重导 + 俯视重渲合成 + 掩码回填 + COS 全量差分上传"**（地面+场景全量重导后重建包，
+`composite_overhead.py --all --write` 重烘、`bake_terrain_cover.py` 回填 36 掩码、`--refresh-manifest`
+重算；**COS 已同步**：成功 947 / 失败 0 / 跳过 4053，`manifest.json` 强传，远端清单 5000 条 /
+4310.6MB、`cover.u16.bin` 36、`suspension/` 725 均在线上且按 sha256 逐条比对一致。**同时修两处
+中间件泄漏**：打包器补掩码缓存源路径（`data/cache/maps/<space>.cover.u16.bin`——此前重建会静默
+丢掩码，实测 5000→4964 文件、`terrain.json.cover` 消失），`--refresh-manifest` 与
+`tools/upload_asset_pack_cos.py` 均排除 `overhead/` 中间渲染件（防 2026-10-09 的 2.4GB 误传复现）。
+见 [index.md](index.md) v0.4.2 条目）；切面以下为历史记录：第二十次为
 **"状态切换器的骨骼网格（`SkinnedMesh`）导出"**（36 图 `scenery.glb` 替换：导出器白名单纳入 `SkinnedMesh`、只取激活状态 `State 0`、按静止绑定姿态导出 ⇒ 信号灯灯头/悬臂等"组件不全"补齐；**+3.2 MB**，4307.3 → 4310.5 MB，文件数不变；并随同重烘 36 图让位掩码、`--refresh-manifest` 重算；**COS 未同步**。见 [index.md](index.md) 同名条目）；第二十一次为**"让位掩码适用范围修正（水面/水下件排除）"**（36 图 `cover.u16.bin` **重烘**：水面片自身与水下薄板（冰面）不再入贴地判定 ⇒ 不再扰动可见岸线；文件数/总大小不变（5000 / 4310.5 MB）、内容哈希变化，`--refresh-manifest` 重算；**COS 未同步**。见 [index.md](index.md) "地形让位掩码"条目的同日修正）；第十九次为
 **"地形让位掩码（数据面）"**（36 图各新增 `map/<key>/cover.u16.bin` 0.5 MB + `terrain.json`
 增 `cover` 字段：**+36 文件 / +19.1 MB**，4964 → 5000 文件、4288.2 → 4307.3 MB；
