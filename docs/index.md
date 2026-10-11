@@ -1281,6 +1281,22 @@ clearance 0.1、margin 20）、450 m 残余 78 点，且经 coastLine 的高度�
 400m=0.63——大视距的羽化是**引擎 morph 的自身输出**（客户端贴地相机不可达）；聚合一类修复在
 "细节被本层采样漏掉"的地形上使我们的细分/羽化与客户端一致。
 
+### 画质档与地形：细分/几何不随档位变化（2026-10-11 核查）
+
+用户问"最高画质档是否导致地形加载逻辑不同"：**否**（三重证据）。
+①引擎机制（`LandscapeSystem::AddEntity`）：landscape 画质预设会覆盖细分阈值，但本版客户端
+`Data/quality.yaml`（引擎加载的 `~res:/quality.yaml`）**无 `landscape:` 块** ⇒
+`GetLandscapeQuality()==nullptr` ⇒ 阈值恒为出厂默认；②`wotblitz.exe` 里那组默认常量立即数
+（70/6.5、0.014/0.45/3、0.03/0.9/3）与开源 .h 逐字一致；③morph 开关出自
+`EngineSettings.yaml = Landscape.RenderMode.Morphing`（非档位控制）。⇒ **任何档位下地形网格
+生成 = 同一组阈值 = 我们的实现**。
+画质档真正影响地形的是**材质层**：`TileMaskAllQualities.material` 的
+QualityDependentUniqueDefines（ULTRA/HIGH = `LANDSCAPE_RELAXMAP + LANDSCAPE_HEIGHT_BLEND_ALLOWED`，
+MEDIUM 空）。①RELAXMAP 需 landscape 材质绑 `relaxmap` 槽才生效——plant/forgecity 均无该槽 ⇒
+本图空转；②HEIGHT_BLEND 在 plant 等 9 图 ULTRA/HIGH 实际开启，我们的分层地面复刻按开启状态
+导出（`ground.layers.json height_blend=true`）⇒ 已对齐。纹理档与 PBR 路径属材质档，与地形
+网格无关。
+
 ### 地形细分差分验证 + 全包重导（2026-10-11）
 
 引擎源码对照的收口：用 Python 独立重写 `UpdatePatchInfo`/`SubdividePatch` 参考实现
