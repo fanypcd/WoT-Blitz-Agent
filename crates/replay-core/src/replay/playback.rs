@@ -896,14 +896,24 @@ pub fn from_model(
             .filter(|p| p.eid == *eid)
             .cloned()
             .collect();
-        let tl = filter::SegmentedPoseTimeline::build(&st10[eid], &presences);
-        let Some(tl) = tl else { continue };
-        let clocks: Vec<f32> = st10[eid].iter().map(|s| s.clock).collect();
-
         let nickname = entity_names.get(eid).cloned().unwrap_or_default();
         // 身份 = 模型实体并表（scan 期一次 JOIN 的产物；此处只读取不重联）
         let rec = ent_by_eid.get(eid).copied();
         let is_author = rec.map(|r| r.is_author).unwrap_or(false);
+        // 作者车：type=10 流先做接收突发时间轴重建（见 filter::respace_same_clock_bursts
+        // 的证据与范围）——客户端里自车是本地物理（不经这段流渲染），玩家看到的是匀速；
+        // 录制端把突发包压成同一 clock 会把"保持→跳变"如实喂进滤波器（用户报障形态）。
+        let respaced: Option<Vec<combat::St10Sample>> = if is_author {
+            let mut v = st10[eid].clone();
+            filter::respace_same_clock_bursts(&mut v);
+            Some(v)
+        } else {
+            None
+        };
+        let st_series: &[combat::St10Sample] = respaced.as_deref().unwrap_or(&st10[eid]);
+        let tl = filter::SegmentedPoseTimeline::build(st_series, &presences);
+        let Some(tl) = tl else { continue };
+        let clocks: Vec<f32> = st_series.iter().map(|s| s.clock).collect();
         // 俯仰极限锚定：本车昵称优先；作者无锚定时沿用其表项（与作者路径 prop9 兜底同级）
         let limits = render.pitch_limits.get(nickname.as_str()).or_else(|| {
             render
@@ -922,8 +932,7 @@ pub fn from_model(
         let mut pos = Vec::with_capacity(samples_n * 3);
         let mut hull_yaw = Vec::with_capacity(samples_n);
         let mut hull_pitch = Vec::with_capacity(samples_n);
-        // 侧倾列取自原始 type=10 序列（滤波层不输出侧倾，见 VehicleTrack.hull_roll 注释）
-        let st_series: &[combat::St10Sample] = &st10[eid];
+        // 侧倾列取自（作者车已重排的）type=10 序列（滤波层不输出侧倾，见 hull_roll 注释）
         let mut hull_roll = Vec::with_capacity(samples_n);
         let mut turret_yaw = Vec::with_capacity(samples_n);
         let mut gun_pitch = Vec::with_capacity(samples_n);
@@ -1209,6 +1218,104 @@ pub(crate) fn collect_all_shots(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 作者车接收突发时间轴重建（真实回放回归，2026-10-11）。
+    ///
+    /// 夹具 = 用户报障回放（T100LT 训练房）：录制端在 clock≈27.58 把 4 个 type=10 包压成
+    /// 同一时间戳（0.4s 接收突发）。修复前作者车（自车；客户端里是本地物理、不经这段流
+    /// 渲染）的渲染位姿被滤波器如实重放为"保持 0.4s → 一帧跳 ~5.6 m"（用户："0:15 卡在
+    /// 原地、随后突然前滑一小段，客户端匀速"）。本测试锁两件事：
+    /// ① 原始流确实存在同 clock 连包（证据/夹具有效性，防夹具替换后测试静默失效）；
+    /// ② 修复后作者车 0.1s 渲染网格全程无超速步进（≤2.2 m/步 = 22 m/s，含加速余量；
+    ///    修复前该段 5.6 m/步 ≈ 56 m/s）。
+    #[test]
+    fn author_burst_respacing_smooths_real_replay() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let path = manifest.join(
+            "../../data/replay_samples/20261011_1924__Anonyme_R132_T100LT_5451148513997276.wotbreplay",
+        );
+        if !path.exists() {
+            eprintln!("(跳过：夹具缺失 {})", path.display());
+            return;
+        }
+        let f = std::fs::File::open(&path).unwrap();
+        let mut replay = wotbreplay_parser::replay::Replay::open(f).unwrap();
+        let data = replay.read_data().unwrap();
+        let packets = crate::replay::packets::test_data_tuples(&data);
+        let br = replay.read_battle_results().ok();
+        let players: Vec<PlaybackPlayer> = br
+            .as_ref()
+            .map(|br| {
+                br.player_results
+                    .iter()
+                    .map(|pr| PlaybackPlayer {
+                        account_id: pr.info.account_id,
+                        nickname: String::new(),
+                        team: 0,
+                        tank_id: pr.info.tank_id,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let input = PlaybackInput {
+            packets: &packets,
+            players,
+            author_account_id: br.as_ref().map(|b| b.author.account_id).unwrap_or(0),
+            winner_team: 0,
+            map_id: 0,
+            map_name: String::new(),
+            pitch_limits: &GunPitchLimits::new(),
+            tank_names: HashMap::new(),
+        };
+        let pb = build_playback_data(&input).expect("夹具回放应可构建");
+        let author = pb
+            .vehicles
+            .iter()
+            .find(|v| v.is_author)
+            .expect("夹具应含作者车");
+
+        // ① 证据锁：作者车原始 type=10 流存在 ≥2 的同 clock 连包
+        let eid = author.eid;
+        let mut clocks: Vec<f32> = packets
+            .iter()
+            .filter(|(t, _, p)| {
+                *t == 10 && p.len() >= 48 && u32::from_le_bytes([p[0], p[1], p[2], p[3]]) == eid
+            })
+            .map(|(_, c, _)| *c)
+            .collect();
+        clocks.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let max_run = clocks
+            .chunk_by(|a, b| a == b)
+            .map(|c| c.len())
+            .max()
+            .unwrap_or(0);
+        assert!(
+            max_run >= 4,
+            "夹具原始流应含 4 连包突发（实测 clock≈27.58），实际最大连包 {max_run}"
+        );
+
+        // ② 渲染网格全程无超速步进
+        let pos = &author.pos;
+        let mut max_step = 0.0f32;
+        let mut max_at = 0.0f32;
+        for i in 1..(pos.len() / 3) {
+            let d = ((pos[i * 3] - pos[(i - 1) * 3]).powi(2)
+                + (pos[i * 3 + 1] - pos[(i - 1) * 3 + 1]).powi(2)
+                + (pos[i * 3 + 2] - pos[(i - 1) * 3 + 2]).powi(2))
+            .sqrt();
+            if d > max_step {
+                max_step = d;
+                max_at = pb.meta.t_start + i as f32 * GRID_DT;
+            }
+        }
+        assert!(
+            max_step <= 2.2,
+            "作者车渲染网格出现超速步进 {max_step:.2} m/0.1s（t≈{max_at:.1}）——             接收突发时间轴重建失效（修复前该段实测 ≈5.6 m/步）"
+        );
+        eprintln!(
+            "作者车 0.1s 网格最大步进 {max_step:.3} m（t≈{max_at:.1}），原始最大连包 {max_run}"
+        );
+    }
 
     #[test]
     fn vehicle_candidates_fall_back_when_turret_stream_absent() {
