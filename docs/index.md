@@ -1254,6 +1254,43 @@ x≈54–60 齐平段 **+5.5~7.0 cm**；x≈90–93.5 段最大 +22.6 cm；x≈1
 clearance 0.1、margin 20）、450 m 残余 78 点，且经 coastLine 的高度场读取外溢到水面表现。
 渲染高度场 ≠ 客户端渲染高度场，即用户判定的"不准确"。
 
+### 场景材质 alpha 裁切判据对齐客户端（enabledPresets；2026-10-11）
+
+**报障**：plant walls.sc2 墙基处"地形塌陷、客户端没有"——墙基两级平台（22.1/24.8）间的
+真地形被看到（标注点悬浮于空中的墙面上，屏幕渲染的是下方地形）。
+
+**排查（全链路实测）**：①地形高度场本身无偏差——悬崖沿线全部顶点 Δ=0.000 vs texel 原值
+（此前让位掩码/脚印/morph 三代补偿均与该现象无关：墙板才是元凶）；②提取链核查：
+`map_assets.rs parse_heightmap` = 客户端高度图**原始 u16 逐字节拷贝 + 块重排 + 列翻转**，
+无任何插值/平滑（用户"提取是否做了平滑"的排查结论：没有）；③命中面 = walls.sc2
+wall_03 的大板（30 顶点、跨 62m、恒等变换、顶点烘焙世界坐标，客户端 bbox 逐位吻合），
+可拾取但不可见（射线只查对象可见链，alphaTest 在材质层丢弃片元）。
+
+**根因（客户端权威证据）**：墙板材质 nmatname 77870 = **`Detail.material`**、
+albedo=`landscape/plant_colormap_test.tex`、`enabledPresets: {}`。客户端
+`Detail.material` 基础层 = **`Layers: [ OpaqueRenderLayer ]`**，`ALPHATEST` 只在
+`AlphaTest` 预设里——**未启用 ⇒ 按基础不透明渲染，albedo alpha 不参与**。我方导出器的
+`has_alpha` 启发式（贴图有 alpha 通道 ⇒ MASK 0.33）未核对 enabledPresets，而该板 UV 区
+53% 像素 alpha<0.33 ⇒ 整板被裁 ⇒ 露出真地形。与 B6（rays.sc2）同类：预设未读/判据过宽。
+
+**修复（导出器，对齐客户端）**：`MaterialLibrary` 解析增加 `alpha_test_top`（材质文件
+Presets: 前顶层段含 ALPHATEST）与 `alpha_test_presets`（声明 ALPHATEST 的预设名单），
+新增 `alpha_test_capable(mat_desc, family)`（与 lightmap/detail 判据同口径）；MASK 分支
+加门：`has_alpha and (SpeedTree 豁免 or alpha_test or AlphaBlend 预设)`——AlphaBlend
+实例维持既有 MASK 取舍（audit B6 记录的"植被/建筑裁切路径"），其余无声明者一律不透明。
+同 albedo 不同预设的实例经 mat_key 隔离不串用。plant GLB 已 `--scenery-only` 重导
+（wall_03 三 prim 均无 alphaMode），包内 scenery.glb 替换 + manifest 重算
+（4964 文件 / 4292.0 MB 不变，内容哈希变化）；**COS 未同步**。用户确认墙位下陷消失。
+
+**地形平坦度结论（用户"台阶分界处下陷/上浮"的量化）**：墙基两级平台分界带的
+|mesh−真值| 随相机距离 = **400m 1.10m / 300m 1.17m / 100m 0.11m / 30m 0 / 15m 0**
+（同一段真值场、同一套客户端判据 + morph）。即：远距回放相机下的下陷/上浮是**客户端
+算法自身**在粗 LOD 的输出（morph 向"双抽头均值"通道混合，坎两侧分别下陷/上浮）；
+客户端的平整观感来自其贴地相机（15–30m ⇒ 判据天然给最细网格、morph≈0）。**同一相机
+位置下我方渲染与客户端算法逐位一致**（30m 实测 0.000）；更远处的平整只能靠
+"比客户端更细的 LOD"——属自创处理，按用户裁示不做。地形提取/加载/显示与客户端的
+不一致清单：**无**。
+
 ### 贴地结构脚印判据（2026-10-11 提出 → **同日撤销**：只对齐客户端）
 
 **经过**：让位掩码撤销后，曾以"只标位置、不改高度"的脚印判据替代（scenery GLB 扫描贴地结构 →
