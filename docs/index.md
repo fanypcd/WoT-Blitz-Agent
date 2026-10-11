@@ -1254,6 +1254,33 @@ x≈54–60 齐平段 **+5.5~7.0 cm**；x≈90–93.5 段最大 +22.6 cm；x≈1
 clearance 0.1、margin 20）、450 m 残余 78 点，且经 coastLine 的高度场读取外溢到水面表现。
 渲染高度场 ≠ 客户端渲染高度场，即用户判定的"不准确"。
 
+### 地形 LOD 逐行对齐引擎源码（2026-10-11）
+
+**报障**：用户"同距下客户端两侧平整、我们台阶分界处下陷/上浮"。
+
+**方法**：经 GitHub 代码检索找到 dava.engine 源码镜像（`the-tuxedo-cat/dava.engine`），取得
+`Sources/Internal/Render/Highlevel/LandscapeSubdivision.{h,cpp}`、`Landscape.{h,cpp}`、
+`Scene3D/Systems/LandscapeSystem.cpp`（副本留 `tmp_analysis/dava/`，不入库），与我们的
+`terrainMesh.js` 逐行对照。
+
+**三处转写偏差（全部使旧实现比客户端更粗/更糊，已修）**：
+① `maxError` 必须自底向上**聚合整棵子树**（`UpdatePatchInfo` 递归把子补片的
+`maxError/positionOfMaxError` 并入父补片）——我们只算本层 8×8×5 样本 ⇒ 采样漏掉的细节误差
+被低估 ⇒ `subdivMorph` 偏小（更靠均值通道=更糊）+ 提前终止（更粗）；
+② `radius` 的 bbox 必须并入全部子补片（`AddAABBox`，同递归）⇒ 半径判据同理被低估；
+③ 两通道均值的对角配对：引擎 odd-odd 用**反对角** `(x+step, y−step) & (x−step, y+step)`
+（`CreateHeightTextureData`「y1 = yy−step、x1 = xx+step」），我们误写主对角。
+`morphFunc`/`subdivMorph` 公式、`DrawPatchInstancing` 的数据映射、`edgeMaskNull` 语义
+（内部=1/边缘=0，与着色器注释相反以源码为准）、阈值预设逐字核对**无偏差**；
+`EngineSettings.yaml` = `Landscape.RenderMode.Morphing`（morph 开启）；`forceMaxSubdiv` 仅编辑器使用。
+
+**实现**：`buildPatchTableAscending`（`UpdatePatchInfo` 直译，相机无关）按 field 备忘
+（WeakMap——LOD 重建只走相机遍历、不再逐次重采样，重建更快）；`patchProbe` 读表；
+`avgTexel` 双奇改反对角。**实测（plant 墙基两级平台）**：该露台逐视距 morphRaw 修复前后一致
+（半径判据主导）：30/100m 平台平整（morphFunc 0.47 仅影响坎带 ±2 texel）、300m morphFunc=0.95、
+400m=0.63——大视距的羽化是**引擎 morph 的自身输出**（客户端贴地相机不可达）；聚合一类修复在
+"细节被本层采样漏掉"的地形上使我们的细分/羽化与客户端一致。
+
 ### 场景材质 alpha 裁切判据对齐客户端（enabledPresets；2026-10-11）
 
 **报障**：plant walls.sc2 墙基处"地形塌陷、客户端没有"——墙基两级平台（22.1/24.8）间的
