@@ -116,7 +116,12 @@ tanks.pb 未动）。
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测 **2026-10-11 按包内容重算**：**4964 个文件 / 4292.0 MB**——第二十六次为
+包内布局（本地实测 **2026-10-11 按包内容重算**：**4964 个文件 / 4292.0 MB**——第二十七次为
+**"场景材质 alpha 裁切判据对齐客户端 + plant GLB 重导"**（walls.sc2 墙板被整批 MASK 裁掉修复：
+`export_map_glb.py` 增 `alpha_test_capable`、MASK 分支加门；plant GLB `--scenery-only` 重导
+（50.41MB，wall_03 三 prim 均转不透明）、包内 `map/plant/scenery.glb` 替换；manifest 重算
+文件数/总大小不变、内容哈希变化；**COS 未同步**。同条目含地形提取/加载/显示与客户端
+一致性的核查结论（无差异）。见 [index.md](index.md) 同名条目）；第二十六次为
 **"撤销贴地结构脚印（structs）——地形附加数据全部出清，只对齐客户端"**（plant/forgecity 的
 `structs.u8.bin` 删除、`terrain.json` 清 structs 字段；`tools/bake_ground_structs.py` 删除、
 打包器不再复制任何地形附加件并清除历史 cover/structs 字段；`--refresh-manifest` 重算
