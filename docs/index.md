@@ -266,8 +266,9 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
   资产面发布合并）。
 
 **消费侧（WotbTools，同日进行）**：`scene/treadMarks.js` 生成纯函数 + `playbackScene`
-几何贴花接线（InstancedMesh + `sampleHeight` 贴地，destructibles 同构）+ seek 全量重算
-+ 回放开关 + Android `wotbVersion` bump；观感由用户在测试页验收。
+几何接线（逐车动态合并几何：**扫掠四边形戳，相邻戳共享横截面 ⇒ 转弯无缝**——与客户端
+`deferred-decal-vp.sl` 的剪切几何同构；四角逐角 `sampleHeight` 贴地）+ seek 全量重算 +
+回放开关 + Android `wotbVersion` bump；观感由用户在测试页验收。
 ### 作者车 type=10 接收突发时间轴重建（解析器，2026-10-11，未发版）
 
 **报障**（用户 3D 回放）：T100LT 训练房回放 0:15 处"坦克姿态完全没有更新（卡在原地、
