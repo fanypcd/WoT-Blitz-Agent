@@ -371,6 +371,51 @@ impl AvatarFilter {
 /// 60Hz 帧网格步长（客户端每帧渲染一次 `output()`）
 pub const FRAME_DT: f64 = 1.0 / 60.0;
 
+/// type=10 的协议标称发送周期（10Hz/车，《回放与射击逆向总集》第一篇 §2）。
+/// 用途：录制端接收突发把多包压成同一时间戳时的**时间轴重建**步长（见下）。
+pub const ST10_NOMINAL_DT: f32 = 0.1;
+
+/// **作者车**先按 10Hz 重建被接收突发压扁的时间戳（就地修改）。
+///
+/// 证据与动因（2026-10-11，用户报"0:15 处坦克卡在原地、随后突然前滑一小段，客户端匀速"）：
+/// 录制端按**到达时间**给每个包打 clock；网络突发时若干包在同一毫秒到达 ⇒ 文件里出现
+/// **同 clock 连包**（实测 `20261011_1924 … T100LT`：clock 27.580 处 4 连包，位置却是
+/// 标准的 ~1.0 m/0.1 s 等距步进，且恰好填补 27.182→27.682 之间的 4 个 10Hz 槽位）。
+/// 该流喂进 AvatarFilter 后如实重放为「保持 0.4 s → 一帧跳 5.6 m」——但**作者自己的车在
+/// 客户端里是本地物理（不经过这段流渲染）**，玩家看到的是匀速 ⇒ 对作者车重排时间戳才是
+/// 客户端同构。远程车保持原样：录制端收到包的时序就是当时客户端滤器的输入时序，
+/// 保持重放才是"远程车在客户端里的观感"（见 docs/index.md 同名条目）。
+///
+/// 规则：同 clock 的连续 n（≥2）个采样，按标称 10Hz 从该 clock **向前回填**——
+/// `clock[k] = T − (n−1−k)·0.1`。fail-closed 护栏：回填后首个采样必须仍晚于前一个采样
+/// 的 clock（否则整段放弃、保持原值——不猜时序）。输入按文件序（该流 clock 单调不减）。
+pub fn respace_same_clock_bursts(samples: &mut [St10Sample]) {
+    let n = samples.len();
+    let mut i = 0usize;
+    while i < n {
+        let mut j = i + 1;
+        while j < n && samples[j].clock == samples[i].clock {
+            j += 1;
+        }
+        let run = j - i;
+        if run >= 2 {
+            let t = samples[i].clock;
+            let first = t - (run as f32 - 1.0) * ST10_NOMINAL_DT;
+            let ok = if i == 0 {
+                first > 0.0
+            } else {
+                first > samples[i - 1].clock
+            };
+            if ok {
+                for (k, s) in samples[i..j].iter_mut().enumerate() {
+                    s.clock = t - (run as f32 - 1.0 - k as f32) * ST10_NOMINAL_DT;
+                }
+            }
+        }
+        i = j;
+    }
+}
+
 /// 60Hz 帧网格时间线：按文件序喂入 type=10 采样，逐帧推进 output()（游戏每帧渲染一次），
 /// 查询 = 取事件时刻所在帧的渲染位姿。帧率影响 latency 缓动的离散化，量级可忽略。
 pub struct FilteredTimeline {
@@ -916,6 +961,57 @@ mod tests {
             pitch: 0.0,
             roll: 0.0,
         }
+    }
+
+    /// 接收突发时间轴重建（作者车）：同 clock 连包按 10Hz 回填；护栏失败不改。
+    #[test]
+    fn respace_same_clock_bursts_10hz() {
+        // 实测形态（T100LT 报障回放 clock≈27.58）：1 个正常包 + 4 连包 + 1 个正常包
+        let mut v = vec![
+            sample(27.182, [0.0, 0.0, 0.0], 0.1),
+            sample(27.580, [1.0, 0.0, 0.0], 0.1),
+            sample(27.580, [2.0, 0.0, 0.0], 0.1),
+            sample(27.580, [3.0, 0.0, 0.0], 0.1),
+            sample(27.580, [4.0, 0.0, 0.0], 0.1),
+            sample(27.682, [5.0, 0.0, 0.0], 0.1),
+        ];
+        respace_same_clock_bursts(&mut v);
+        let clocks: Vec<f32> = v.iter().map(|s| s.clock).collect();
+        assert_eq!(clocks, vec![27.182, 27.280, 27.380, 27.480, 27.580, 27.682]);
+        // 间距全部 ≈0.1（10Hz），无同刻连包
+        for w in clocks.windows(2) {
+            let d = w[1] - w[0];
+            assert!((d - 0.098).abs() < 0.004, "间距异常 {d}");
+        }
+        // 位置序列的每步速度均匀（1 m / 0.1 s）
+        // （重排只动 clock，不动位置与顺序）
+        assert_eq!(v[2].pos[0], 2.0);
+    }
+
+    /// 护栏：回填会越过前一个采样时整段放弃（fail-closed，不猜时序）。
+    #[test]
+    fn respace_same_clock_bursts_guard_fail_closed() {
+        let mut v = vec![
+            sample(10.00, [0.0, 0.0, 0.0], 0.1),
+            sample(10.05, [0.0, 0.0, 0.0], 0.1), // 前一个采样太近
+            sample(10.05, [0.0, 0.0, 0.0], 0.1), // 3 连包回填需 0.2s > 0.05s 间隔 → 放弃
+            sample(10.05, [0.0, 0.0, 0.0], 0.1),
+        ];
+        respace_same_clock_bursts(&mut v);
+        assert_eq!(v[1].clock, 10.05);
+        assert_eq!(v[3].clock, 10.05);
+    }
+
+    /// 无突发时逐字节不变（正常 10Hz 流零影响）。
+    #[test]
+    fn respace_same_clock_bursts_noop_without_bursts() {
+        let mut v: Vec<St10Sample> = (0..20)
+            .map(|i| sample(i as f32 * 0.1, [i as f32, 0.0, 0.0], 0.1))
+            .collect();
+        let before: Vec<f32> = v.iter().map(|s| s.clock).collect();
+        respace_same_clock_bursts(&mut v);
+        let after: Vec<f32> = v.iter().map(|s| s.clock).collect();
+        assert_eq!(before, after);
     }
 
     /// 静止目标：任意时刻渲染位姿 == 输入位置（精确相等）
