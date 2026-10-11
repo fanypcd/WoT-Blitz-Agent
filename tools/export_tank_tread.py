@@ -1,0 +1,195 @@
+"""逐车地面履带印参数导出（客户端 `treadParameters` → `tank_tread/<tank_id>.json` + 贴图解码）。
+
+客户端 TreadSystem（车开过后地面上的暗色碾压痕）的作者数据有三处、全部在可得数据面：
+- `Parameters/<nation>/<stem>.yaml` 的 `treadParameters:` 块（5 字段，88/764 辆有）：
+  `forceManualWidth/manualWidth`（印记条带宽，m）、`forceManualSpace/manualSpace`（沿路
+  前进多少米铺一段）、`texturePath`（`~res:/3d/Tanks/Common/images/<Nation>_NN_tread.tex`）。
+- 贴图本体：`3d/Tanks/Common/images/<stem>.dx11.dds.dvpl`（DDS BC1/2/3/5，256²），
+  经 export_tank_glb.decode_dds 解码后转 webp（**无损**，保客户端像素）。
+- 本导出器**只搬数据不做语义推断**：force*=false 时客户端如何派生宽度/间距未逆向，
+  照原样透出 flag + authored 值；无 treadParameters 块的车**不产文件**（前端回落策略
+  见 docs/feasibility-track-marks.md，fail-closed）。
+
+贴图导出与逐车参数解耦：对 `3d/Tanks/Common/images/*tread*.dx11.dds.dvpl` 全量解码
+（含未被任何 yaml 引用的 `Tread`/`Japan_01` 等回落候选），幂等可重跑。
+
+用法：
+    python tools/export_tank_tread.py                 # 全表（tanks.pb）+ 全部贴图
+    python tools/export_tank_tread.py --tank 7169
+    python tools/export_tank_tread.py --textures      # 只重导贴图
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import pathlib
+import sys
+
+_HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(_HERE))
+sys.path.insert(0, str(_HERE / "wotbtools"))
+
+from dlc_packs import client_path  # noqa: E402
+from export_tank_glb import decode_dds, default_game_data, read_tank_table  # noqa: E402
+from export_tank_suspension import SuspensionParseError, _b as _sus_bool  # noqa: E402
+from export_tank_suspension import _section  # noqa: E402  (行式解析共用件)
+from wotb_sc2 import decode_dvpl  # noqa: E402
+
+ROUND = 6                     # yaml 字面量 6 位小数，round-trip 无损
+IMAGES_REL = "3d/Tanks/Common/images"
+TEX_FIELDS = ("force_manual_width", "manual_width", "force_manual_space", "manual_space")
+
+
+class TreadParseError(RuntimeError):
+    """结构不符合已知契约（fail-closed：跳过该车，不造缺省值）。"""
+
+
+def _b(v) -> bool:
+    """布尔解析：复用 suspension 的行式解析件，异常统一成本模块的 TreadParseError。"""
+    try:
+        return _sus_bool(v)
+    except SuspensionParseError as e:
+        raise TreadParseError(str(e)) from e
+
+
+def _f(v) -> float:
+    try:
+        return round(float(v), ROUND)
+    except (TypeError, ValueError) as e:
+        raise TreadParseError(f"浮点解析失败: {v!r}") from e
+
+
+def parse_tread_parameters(txt: str) -> dict | None:
+    """Parameters yaml 文本 → treadParameters 块（无段 → None）。
+
+    88/764 辆的块字段形状完全一致（5 字段全带）；缺 texturePath 或数值坏 → fail-closed。
+    """
+    try:
+        blk = _section(txt.splitlines(), "treadParameters")
+    except SuspensionParseError as e:
+        # 形如 `treadParameters: {}` 的内联值段：同为契约外形状，fail-closed
+        raise TreadParseError(str(e)) from e
+    if blk is None:
+        return None
+    if "texturePath" not in blk:
+        raise TreadParseError("缺 texturePath")
+    return {
+        "texture_path": str(blk["texturePath"]).strip(),
+        "force_manual_width": _b(blk["forceManualWidth"]),
+        "manual_width": _f(blk["manualWidth"]),
+        "force_manual_space": _b(blk["forceManualSpace"]),
+        "manual_space": _f(blk["manualSpace"]),
+    }
+
+
+def texture_stem(texture_path: str) -> str:
+    """`~res:/3d/Tanks/Common/images/USSR_01_tread.tex` → `USSR_01_tread`。
+
+    客户端 `.tex` 在数据面的实体是 `<stem>.dx11.dds.dvpl`；已普查 88/88 全是
+    `~res:/3d/Tanks/Common/images/<stem>.tex` 这一形状，其它一律拒绝（fail-closed，
+    防止 stem 与贴图导出目录脱钩）。
+    """
+    p = texture_path.strip()
+    prefix = "~res:/" + IMAGES_REL + "/"
+    if not p.startswith(prefix) or not p.endswith(".tex"):
+        raise TreadParseError(f"texturePath 形状不符: {texture_path!r}")
+    stem = p[len(prefix):][:-len(".tex")]
+    if not stem or "/" in stem:
+        raise TreadParseError(f"texturePath 形状不符: {texture_path!r}")
+    return stem
+
+
+def export_textures(game_data: pathlib.Path, out_dir: pathlib.Path) -> dict:
+    """`images/*tread*.dx11.dds.dvpl` 全量解码 → `<stem>.webp`（无损）。幂等。"""
+    from PIL import Image
+    src = client_path(game_data, IMAGES_REL)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    n, total = 0, 0
+    for f in sorted(src.glob("*tread*.dx11.dds.dvpl")):
+        stem = f.name[: -len(".dx11.dds.dvpl")]
+        arr, _tag = decode_dds(decode_dvpl(f.read_bytes()))
+        Image.fromarray(arr.astype("uint8")).save(out_dir / f"{stem}.webp", lossless=True)
+        n += 1
+        total += (out_dir / f"{stem}.webp").stat().st_size
+    return {"count": n, "bytes": total}
+
+
+def export_one(game_data: pathlib.Path, tank_id: int, nation: str, stem: str,
+               out_dir: pathlib.Path) -> dict:
+    st: dict[str, object] = {"tank_id": tank_id, "stem": stem, "nation": nation}
+    rel = f"3d/Tanks/Parameters/{nation}/{stem}.yaml.dvpl"
+    p = client_path(game_data, rel)
+    if not p.exists():
+        st["skip"] = "no_yaml"
+        return st
+    txt = decode_dvpl(p.read_bytes()).decode("utf-8", "replace")
+    try:
+        tread = parse_tread_parameters(txt)
+    except TreadParseError as e:
+        st["skip"] = f"parse_error: {e}"
+        return st
+    if tread is None:
+        st["skip"] = "no_tread_block"
+        return st
+    doc = {"tank_id": tank_id, "nation": nation, "stem": stem, "source": rel,
+           "texture": f"tread/textures/{texture_stem(tread['texture_path'])}.webp",
+           **{k: tread[k] for k in TEX_FIELDS}}
+    (out_dir / f"{tank_id}.json").write_text(
+        json.dumps(doc, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8")
+    st["width"] = tread["manual_width"]
+    return st
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="逐车履带印参数导出（客户端 yaml + 贴图 → 资产包）")
+    ap.add_argument("--game-data", type=pathlib.Path, default=None)
+    ap.add_argument("--tanks-pb", type=pathlib.Path,
+                    default=_HERE.parent / "data" / "tanks.pb")
+    ap.add_argument("--out", type=pathlib.Path,
+                    default=_HERE.parent / "data" / "tank_tread")
+    ap.add_argument("--textures-out", type=pathlib.Path,
+                    default=_HERE.parent / "data" / "tank_tread_textures")
+    ap.add_argument("--tank", type=int, action="append", default=[],
+                    help="tank_id（可重复）；缺省 = 全表")
+    ap.add_argument("--textures", action="store_true", help="只导贴图")
+    args = ap.parse_args()
+
+    game_data = args.game_data or default_game_data()
+    if not game_data.is_dir():
+        print(f"!! 客户端 Data 目录不存在: {game_data}（用 --game-data 指定）", file=sys.stderr)
+        return 2
+
+    tex = export_textures(game_data, args.textures_out)
+    print(f"贴图 {tex['count']} 张 → {args.textures_out}（{tex['bytes']/1024:.0f} KB, webp 无损）")
+    if args.textures:
+        return 0
+
+    table = read_tank_table(args.tanks_pb)
+    ids = sorted(args.tank) if args.tank else sorted(table)
+    args.out.mkdir(parents=True, exist_ok=True)
+    ok = 0
+    skipped: dict[str, int] = {}
+    widths: list[float] = []
+    for tid in ids:
+        info = table.get(tid)
+        if not info:
+            continue
+        st = export_one(game_data, tid, info["nation"], info["stem"], args.out)
+        if "skip" in st:
+            key = str(st["skip"]).split(":")[0]
+            skipped[key] = skipped.get(key, 0) + 1
+            continue
+        ok += 1
+        widths.append(float(st["width"]))  # type: ignore[arg-type]
+    total = sum(f.stat().st_size for f in args.out.glob("*.json"))
+    print(f"导出 {ok} 辆 → {args.out}（{total/1024:.0f} KB）")
+    if widths:
+        print(f"  manualWidth {min(widths):.3f}..{max(widths):.3f} m")
+    if skipped:
+        print("  跳过: " + ", ".join(f"{k}×{v}" for k, v in sorted(skipped.items())))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
