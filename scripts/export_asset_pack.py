@@ -214,6 +214,11 @@ def main() -> None:
         for f in sorted(tt.glob("*.webp")):
             if cp(f, f"tread/textures/{f.name}"):
                 tread_n += 1
+        # alpha 归一化表放 **tread/textures.json**（与前端 `/tread/textures.json` 的取用
+        # 路径一致；2026-10-11 首传曾误放 tread/textures/ 下 ⇒ 生产 404、归一化静默失效）
+        meta = tt / "textures.json"
+        if meta.is_file() and cp(meta, "tread/textures.json"):
+            tread_n += 1
 
     # ---- 核心数据（前端展示名/弹种表的自足来源） ----
     core_n = 0
