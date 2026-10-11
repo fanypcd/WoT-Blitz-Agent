@@ -116,7 +116,11 @@ tanks.pb 未动）。
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测 **2026-10-11 按包内容重算**：**4964 个文件 / 4292.0 MB**——第二十七次为
+包内布局（本地实测 **2026-10-11 按包内容重算**：**4964 个文件 / 4284.9 MB**——第二十八次为
+**"TEST_OCCLUSION 旗标实现（plant 五件盖板 rgb×alpha）"**（`export_map_glb.py` 按客户端
+`materials-fp.sl:187-192` 对带旗标材质逐 texel 烘 `rgb×a`；plant GLB 重导、包内替换；
+manifest 重算 **4292.2 → 4284.9 MB**（暗图 JPEG 压缩更小，文件数不变）；**COS 未同步**。
+见 [index.md](index.md) 同名条目）；第二十七次为
 **"场景材质 alpha 裁切判据对齐客户端 + plant GLB 重导"**（walls.sc2 墙板被整批 MASK 裁掉修复：
 `export_map_glb.py` 增 `alpha_test_capable`、MASK 分支加门；plant GLB `--scenery-only` 重导
 （50.41MB，wall_03 三 prim 均转不透明）、包内 `map/plant/scenery.glb` 替换；manifest 重算
