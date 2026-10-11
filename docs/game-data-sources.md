@@ -189,7 +189,8 @@ T1_hvy / R71_IS_2B 图标"的结论均已撤销：声明分别为 `usa-T1Heavy`�
 同文件族的 `treadParameters:` 块（地面履带印：印记条带宽/间距 + `texturePath`，
 88/764 辆有、5 字段形状一致）与 `Data/3d/Tanks/Common/images/*tread*.dx11.dds.dvpl`
 贴图（13 张，256² 软边泥痕条带）已由 `tools/export_tank_tread.py` 导出为包内
-`tread/<tank_id>.json`（311/735 辆）+ `tread/textures/*.webp`（DDS 无损转码）；
+`tread/<tank_id>.json`（**735/735 辆**：311 authored + 424 国别主贴图回落）+
+`tread/textures/*.webp`（13 张 DDS 无损转码）+ `tread/textures.json`（alpha 归一化表）；
 `.tex` 引用在数据面的落点规则 = `<stem>.tex` → `<stem>.dx11.dds.dvpl`（与坦克贴图同）。
 可行性定案、fail-closed 边界与前端消费口径见
 [feasibility-track-marks.md](feasibility-track-marks.md)；分发状态见

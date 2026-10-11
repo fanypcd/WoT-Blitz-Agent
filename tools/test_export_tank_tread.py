@@ -111,21 +111,63 @@ def test_texture_stem_shape():
 
 
 def test_pack_artifact_consistency():
-    """本地已跑过导出时：json 引用的贴图必须存在（数据面自洽）。"""
+    """本地已跑过导出时：**全部 735 辆**各产一份 json、贴图引用自洽、回落实例形状正确
+    （2026-10-11 起无块车不再"不产文件"，改国别主贴图回落——统一深浅的用户裁示）。"""
     out = _HERE.parent / "data" / "tank_tread"
     tex = _HERE.parent / "data" / "tank_tread_textures"
     if not out.is_dir() or not tex.is_dir():
         print("  (跳过：本地无导出产物)")
         return
-    n = 0
+    import json
+    from export_tank_tread import NATION_DEFAULT_TEXTURE
+
+    n = n_fb = 0
     for f in sorted(out.glob("*.json")):
-        import json
         doc = json.loads(f.read_text(encoding="utf-8"))
         assert doc["texture"].startswith("tread/textures/"), doc
         name = doc["texture"].split("/")[-1]
         assert (tex / name).is_file(), f"{f.name} 引用的贴图缺失: {name}"
+        if doc.get("fallback"):
+            n_fb += 1
+            assert doc["manual_width"] is None, doc            # 回落车不造 authored 宽度
+            assert doc["source"] is None, doc
+            dflt = NATION_DEFAULT_TEXTURE[doc["nation"]]
+            assert name == f"{dflt}.webp", doc                 # 国别主贴图
+        else:
+            assert isinstance(doc["manual_width"], (int, float)), doc
         n += 1
-    print(f"  {n} 个 json 的贴图引用全部自洽")
+    assert n >= 700, f"应全量产文件（735），实际 {n}"
+    kr = json.loads((out / "4481.json").read_text(encoding="utf-8"))   # Kranvagn 实例
+    assert kr["fallback"] is True and kr["texture"].endswith("European_01_tread.webp"), kr
+    print(f"  {n} 个 json 全部自洽（authored {n - n_fb} / 回落 {n_fb}；Kranvagn→European_01）")
+
+
+def test_texture_alpha_normalization():
+    """textures.json：目标 = 全库中位；scale = clamp(目标/α)；GB 与 European 归一后近乎等密度。"""
+    tex = _HERE.parent / "data" / "tank_tread_textures"
+    meta_path = tex / "textures.json"
+    if not meta_path.is_file():
+        print("  (跳过：本地无 textures.json)")
+        return
+    import json
+    import statistics
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    texs = meta["textures"]
+    assert len(texs) == 13, len(texs)
+    med = statistics.median(t["alpha_mean"] for t in texs.values())
+    assert abs(meta["target_alpha_mean"] - med) < 0.01, (meta["target_alpha_mean"], med)
+    lo, hi = meta["clamp"]
+    for stem, t in texs.items():
+        if t["alpha_mean"] > 1e-6:
+            want = min(hi, max(lo, meta["target_alpha_mean"] / t["alpha_mean"]))
+            assert abs(t["scale"] - want) < 1e-3, (stem, t, want)
+    # 归一化后 GB/European 的有效密度（α×scale）应彼此接近且≈目标
+    import math
+    eff = {k: texs[k]["alpha_mean"] * texs[k]["scale"] for k in ("GB_01_tread", "European_01_tread")}
+    assert abs(eff["GB_01_tread"] - eff["European_01_tread"]) < 3.0, eff
+    assert math.isclose(eff["GB_01_tread"], meta["target_alpha_mean"], rel_tol=0.02)
+    print(f"  13 张归一化自洽（目标 {meta['target_alpha_mean']}；GB/European 有效 "
+          f"{eff['GB_01_tread']:.1f}/{eff['European_01_tread']:.1f}）")
 
 
 def test_real_client_sample():

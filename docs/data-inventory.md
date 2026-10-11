@@ -368,8 +368,9 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
   → 包内 `tread/textures/`，additive）。客户端 TreadSystem（车开过后的暗色碾压痕）的
   作者数据**全在数据面**：逐车 yaml `treadParameters` 块（88/764 yaml = **311/735** 辆，
   5 字段形状一致）+ 13 张 `*tread*.dx11.dds.dvpl` 贴图（256²，DDS **无损**转 webp /
-  983 KB）。无块的 424 辆**不产文件**（fail-closed；前端回落策略 = 产品决定，见
-  [feasibility-track-marks.md](feasibility-track-marks.md) §四）。
+  983 KB）。**全部 735 辆都产文件**：无块的 424 辆按国别主贴图回落（width=null 由前端从
+  模型履带盒实测）+ `tread/textures.json` alpha 归一化表（2026-10-11；见
+  [feasibility-track-marks.md](feasibility-track-marks.md) §二/§四）。
   规模 79 KB / 311 json + 983 KB / 13 贴图（前端按需取：单场 ≤14 json + ≤9 贴图）。
   回归：`python tools/test_export_tank_tread.py`（6 项，含真实客户端抽样）。
   **分发**：本地包已增量补入（`tread/` 324 文件 / 1.04 MB）+ `--refresh-manifest`；

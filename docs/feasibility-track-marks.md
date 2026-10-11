@@ -61,8 +61,10 @@
 ## 二、数据面导出（已落地，本仓）
 
 - `tools/export_tank_tread.py`：
-  - `data/tank_tread/<tank_id>.json` → 包内 `tread/<tank_id>.json`（**311 文件 / 79 KB**，
-    additive；无块的 424 辆**不产文件**，fail-closed）。schema：
+  - `data/tank_tread/<tank_id>.json` → 包内 `tread/<tank_id>.json`（**735 文件**，additive；
+    **全部车辆都产文件**——311 辆 authored + **424 辆国别主贴图回落**（`fallback:true`、
+    `manual_width:null` 由前端从模型履带盒实测；2026-10-11 用户报"215b 比 Kranvagn 黑"
+    后不再 fail-closed 留白）。schema：
 
     ```json
     {"tank_id":7169,"nation":"ussr","stem":"IS-7",
@@ -120,10 +122,13 @@
    进地图前预载全部车辆模型**——印记左右轨距取 suspension 模型实测 halfW，允许中途切
    低模会让同一车前后印记轨距突变（用户实测））；贴图/宽度/间距三样有客户端依据，
    与 2026-10-09 撤除的"全自创"近似已不是同一性质。
-3. **无 `treadParameters` 的 424 辆**：建议回落 = 国别默认贴图（`<Nation>_01_tread`，
-   13 张里国别齐备）+ 宽度从模型履带盒量 + 间距 1.0 m；此回落**无客户端 authored
-   依据**（客户端真实回落行为未逆向），是产品近似——若要严格 fail-closed 则
-   该 424 辆不画印（同场观感不一致，不建议）。
+3. **无 `treadParameters` 的 424 辆**（**已落地，2026-10-11**）：回落 = 国别主贴图
+   （`<Nation>_01_tread`）+ **宽度从模型履带盒实测**（前端 `beltW`，对应该类车
+   `forceManualWidth=false` 的"从履带几何现算"语义）+ 间距 1.0 m；客户端对无块车的
+   真实回落行为未逆向，国别主贴图是"同族深色"的最佳可得代理（产品近似）。
+   另：13 张贴图 alpha 按全库中位**归一化**（`tread/textures.json` 的 per-stem scale，
+   钳位 [0.65, 1.8]），前端乘入不透明度——authored 贴图间密度差 1.7~4×（USSR 127.6 →
+   USA 75.3 → 通用 64.4，RGB/色调本已一致），按用户裁示"统一颜色深浅"归一。
 4. **贴地高度只有地形**：桥面/码头/残骸上的印记会贴到地形面（客户端轮子射线打结构面）
    ——与悬挂 T2/T3 的既有已知差异同源，见
    [tank-suspension-client-re.md](tank-suspension-client-re.md) §地面口径一致性核对。

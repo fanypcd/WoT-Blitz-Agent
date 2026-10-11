@@ -257,8 +257,11 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 - `tools/export_tank_tread.py` → `data/tank_tread/<tank_id>.json`（311 文件 / 79 KB，
   只搬数据：`force_manual_width/manual_width/force_manual_space/manual_space/texture`）
   + `data/tank_tread_textures/*.webp`（13 文件 / 983 KB，DDS **无损**转 webp）→
-  包内 `tread/`（additive，紧随 suspension 段）。无块的车辆**不产文件**（fail-closed，
-  前端回落策略见 feasibility 文档 §四）。
+  包内 `tread/`（additive，紧随 suspension 段）。**全部 735 辆都产文件**：无
+  treadParameters 块的 **424 辆按国别主贴图回落**（width=null，前端从模型履带盒实测；
+  2026-10-11 用户报"215b 比 Kranvagn 黑"——无块车此前回落浅色通用张+固定宽，墨量差约
+  3 倍）。另产 `tread/textures.json` **alpha 归一化表**（13 张贴图按全库中位归一，
+  消除跨贴图 1.7~4× 的密度差——用户裁示"统一颜色深浅"）。
 - 回归：`python tools/test_export_tank_tread.py`（6 项：块解析/fail-closed/贴图路径形状/
   产物自洽/真实客户端抽样含 alpha 软边断言）。
 - 分发：本地包已增量补入 + `--refresh-manifest`（4964 → **5288 文件** / 4285.1 →

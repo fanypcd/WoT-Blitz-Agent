@@ -39,6 +39,23 @@ ROUND = 6                     # yaml 字面量 6 位小数，round-trip 无损
 IMAGES_REL = "3d/Tanks/Common/images"
 TEX_FIELDS = ("force_manual_width", "manual_width", "force_manual_space", "manual_space")
 
+# 无 treadParameters 块的车辆（424/735）的**国别主贴图**回落（2026-10-11 用户报
+# "215b 比 Kranvagn 黑"：无块车此前回落浅色通用张 Tread.webp（α 64.4、可见亮度 82.7
+# 的浅棕）+ 固定宽 0.6，与有块车的深色国别张（α ~100-128、亮度 30）墨量差约 3 倍；
+# 客户端对无块车的行为未逆向，国别主贴图是"同族深色"的最佳可得代理，属产品近似）。
+# 注：authored 面的贴图是**逐车（底盘来源）**而非按国别（普查：uk 国亦有 USSR_01 等），
+# 但无块车无从取底盘来源 ⇒ 按国别回落。
+NATION_DEFAULT_TEXTURE = {
+    "ussr": "USSR_01_tread", "germany": "German_01_tread", "usa": "USA_01_tread",
+    "uk": "GB_01_tread", "china": "China_01_tread", "japan": "Japan_01_tread",
+    "france": "France_01_tread", "european": "European_01_tread", "other": "Other_01_tread",
+}
+# alpha 归一化（2026-10-11 用户裁示"统一颜色深浅"）：13 张 authored 贴图的整图 alpha
+# 均值极差 4.4×（USSR 127.6 → STT 28.8；RGB/色调本已一致，可见亮度全 ≈30），
+# 按中位数为目标缩放每张的 alpha 权重，前端以 per-texture 系数乘入印记不透明度。
+# 钳位 [0.65, 1.8]：避免近全透明张（STT 0.40 覆盖）被推到失真。
+ALPHA_SCALE_CLAMP = (0.65, 1.8)
+
 
 class TreadParseError(RuntimeError):
     """结构不符合已知契约（fail-closed：跳过该车，不造缺省值）。"""
@@ -100,44 +117,82 @@ def texture_stem(texture_path: str) -> str:
 
 
 def export_textures(game_data: pathlib.Path, out_dir: pathlib.Path) -> dict:
-    """`images/*tread*.dx11.dds.dvpl` 全量解码 → `<stem>.webp`（无损）。幂等。"""
+    """`images/*tread*.dx11.dds.dvpl` 全量解码 → `<stem>.webp`（无损）+ `textures.json`。
+
+    `textures.json` = per-stem `{alpha_mean, scale}`：scale = 目标(全库中位)/该张 alpha_mean
+    （钳位见 ALPHA_SCALE_CLAMP），前端乘入印记不透明度以**统一跨贴图的深浅**（用户裁示）。
+    幂等可重跑。"""
+    import statistics
+
     from PIL import Image
     src = client_path(game_data, IMAGES_REL)
     out_dir.mkdir(parents=True, exist_ok=True)
     n, total = 0, 0
+    entries: dict[str, dict] = {}
+    arrs: list[tuple[str, "np.ndarray"]] = []
     for f in sorted(src.glob("*tread*.dx11.dds.dvpl")):
         stem = f.name[: -len(".dx11.dds.dvpl")]
         arr, _tag = decode_dds(decode_dvpl(f.read_bytes()))
         Image.fromarray(arr.astype("uint8")).save(out_dir / f"{stem}.webp", lossless=True)
+        arrs.append((stem, arr))
         n += 1
         total += (out_dir / f"{stem}.webp").stat().st_size
-    return {"count": n, "bytes": total}
+    alpha_means = {stem: float(arr[..., 3].astype("float64").mean()) for stem, arr in arrs}
+    target = statistics.median(alpha_means.values()) if alpha_means else 0.0
+    lo, hi = ALPHA_SCALE_CLAMP
+    for stem, m in alpha_means.items():
+        scale = 1.0 if m <= 1e-6 else min(hi, max(lo, target / m))
+        entries[stem] = {"alpha_mean": round(m, 2), "scale": round(scale, 4)}
+    meta = {"target_alpha_mean": round(target, 2), "clamp": list(ALPHA_SCALE_CLAMP),
+            "textures": {k: entries[k] for k in sorted(entries)}}
+    (out_dir / "textures.json").write_text(
+        json.dumps(meta, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8")
+    total += (out_dir / "textures.json").stat().st_size
+    return {"count": n, "bytes": total, "target": meta["target_alpha_mean"]}
 
 
 def export_one(game_data: pathlib.Path, tank_id: int, nation: str, stem: str,
                out_dir: pathlib.Path) -> dict:
+    """有块 → authored json；无块/解析失败 → **国别主贴图回落** json（2026-10-11 起
+    全部 735 辆都产文件：统一深浅的前提是每辆车都有同族深色贴图，此前无块车回落通用
+    浅色张导致"215b 比 Kranvagn 黑"）。回落车宽度置 `null`（无 authored 宽度；客户端
+    forceManualWidth=false 的语义务是"从履带几何现算"，前端从模型履带盒实测）。"""
     st: dict[str, object] = {"tank_id": tank_id, "stem": stem, "nation": nation}
     rel = f"3d/Tanks/Parameters/{nation}/{stem}.yaml.dvpl"
     p = client_path(game_data, rel)
-    if not p.exists():
-        st["skip"] = "no_yaml"
+    if p.exists():
+        txt = decode_dvpl(p.read_bytes()).decode("utf-8", "replace")
+        try:
+            tread = parse_tread_parameters(txt)
+        except TreadParseError as e:
+            tread = None
+            st["note"] = f"parse_error: {e}"
+        if tread is not None:
+            doc = {"tank_id": tank_id, "nation": nation, "stem": stem, "source": rel,
+                   "fallback": False,
+                   "texture": f"tread/textures/{texture_stem(tread['texture_path'])}.webp",
+                   **{k: tread[k] for k in TEX_FIELDS}}
+            (out_dir / f"{tank_id}.json").write_text(
+                json.dumps(doc, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                encoding="utf-8")
+            st["width"] = tread["manual_width"]
+            st["authored"] = True
+            return st
+    # 回落：国别主贴图 + width=null（前端从模型履带盒实测）+ space 1.0
+    dflt = NATION_DEFAULT_TEXTURE.get(nation)
+    if dflt is None:
+        st["skip"] = f"no_nation_default: {nation}"
         return st
-    txt = decode_dvpl(p.read_bytes()).decode("utf-8", "replace")
-    try:
-        tread = parse_tread_parameters(txt)
-    except TreadParseError as e:
-        st["skip"] = f"parse_error: {e}"
-        return st
-    if tread is None:
-        st["skip"] = "no_tread_block"
-        return st
-    doc = {"tank_id": tank_id, "nation": nation, "stem": stem, "source": rel,
-           "texture": f"tread/textures/{texture_stem(tread['texture_path'])}.webp",
-           **{k: tread[k] for k in TEX_FIELDS}}
+    doc = {"tank_id": tank_id, "nation": nation, "stem": stem, "source": None,
+           "fallback": True,
+           "texture": f"tread/textures/{dflt}.webp",
+           "manual_width": None, "manual_space": 1.0}
     (out_dir / f"{tank_id}.json").write_text(
         json.dumps(doc, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
         encoding="utf-8")
-    st["width"] = tread["manual_width"]
+    st["width"] = None
+    st["authored"] = False
     return st
 
 
@@ -161,14 +216,15 @@ def main() -> int:
         return 2
 
     tex = export_textures(game_data, args.textures_out)
-    print(f"贴图 {tex['count']} 张 → {args.textures_out}（{tex['bytes']/1024:.0f} KB, webp 无损）")
+    print(f"贴图 {tex['count']} 张 → {args.textures_out}（{tex['bytes']/1024:.0f} KB, webp 无损；"
+          f"alpha 归一化目标 {tex['target']:.1f}）")
     if args.textures:
         return 0
 
     table = read_tank_table(args.tanks_pb)
     ids = sorted(args.tank) if args.tank else sorted(table)
     args.out.mkdir(parents=True, exist_ok=True)
-    ok = 0
+    ok = authored = 0
     skipped: dict[str, int] = {}
     widths: list[float] = []
     for tid in ids:
@@ -181,13 +237,17 @@ def main() -> int:
             skipped[key] = skipped.get(key, 0) + 1
             continue
         ok += 1
-        widths.append(float(st["width"]))  # type: ignore[arg-type]
+        if st.get("authored"):
+            authored += 1
+            widths.append(float(st["width"]))  # type: ignore[arg-type]
+        if st.get("note"):
+            skipped[str(st["note"]).split(":")[0]] = skipped.get(str(st["note"]).split(":")[0], 0) + 1
     total = sum(f.stat().st_size for f in args.out.glob("*.json"))
-    print(f"导出 {ok} 辆 → {args.out}（{total/1024:.0f} KB）")
+    print(f"导出 {ok} 辆（authored {authored} / 国别回落 {ok - authored}）→ {args.out}（{total/1024:.0f} KB）")
     if widths:
-        print(f"  manualWidth {min(widths):.3f}..{max(widths):.3f} m")
+        print(f"  authored manualWidth {min(widths):.3f}..{max(widths):.3f} m")
     if skipped:
-        print("  跳过: " + ", ".join(f"{k}×{v}" for k, v in sorted(skipped.items())))
+        print("  备注: " + ", ".join(f"{k}×{v}" for k, v in sorted(skipped.items())))
     return 0
 
 
