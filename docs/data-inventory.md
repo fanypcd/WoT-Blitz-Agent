@@ -28,7 +28,7 @@
 | 7 | 弹种反解表（全局 shell id → 弹种数据） | 本机自产（`ShellKindTable::from_tanks_pb` + CLI `dump-shell-kinds`，输入为现役 BlitzKit pb） | 客户端 `shells.xml <kind>`（4 值闭集，已实测；提取器与编码器均已支持，未接线） | 🟢 数据 100% / 接线 0% | `atgm_heat`→HOLLOW_CHARGE 验证一致；接线随 #1 |
 | 8 | `data/cache/models/{id}/*.glb` | **客户端解包（现役，2026-10-07 换源）**；BlitzKit CDN 退为缺失兜底（`web/assets.rs::ensure_glb_bytes` / `wargaming/model_fetch.rs`，当前休眠） | 它本身就是 | ✅ 100/100 | 735/735；与 BlitzKit 逐字节一致在 **23 辆上刻意打破**（静态变换烘焙 / 状态过滤，2026-10-10，见 [local-model-export.md](local-model-export.md) §5.1）；包内 `glb/` 已替换；**COS 已同步**（2026-10-10 只传坦克 glb：294 件 = 本批 23 ∪ MR 因子批 271，回拉 1470/1470 一致；§2.1 上传链） |
 | 9 | `data/cache/tank_images/{id}.webp` | **BlitzKit CDN**（离线 `download_all_icons` + 运行期懒下载 `web/assets.rs:235`） | `tools/export_tank_icons.py` → `local_tank_icons/` **735/735**（2026-10-10 改为**逐车 `bigIconPath` 声明**精确匹配——764 份参数文件中 755 份逐车文件全含、按整文件名含国家标签解析；备选链=注册表/短名/全名/模型名/别名 + 唯一性护栏） | ⚪ 数据 100%（接线待做；同源美术、接近视觉无损） | 与 BK **同源同画**（1:1 像素、左上角对齐、BK 画布为裁剪后小画布；轮廓 IoU 中位 0.986；旧 NCC 0.21 结论已撤销，见 [decoupling-status.md](decoupling-status.md) §3.4） |
-| 10 | `data/cache/maps/`、`data/cache/terrain/` | **客户端解包（现役）** `.sc2`/`.scg`、heightmap、colormap；地面再经 `tools/composite_overhead.py` 叠俯视合成（渲染缓存 `release/overhead-bake/`；⚠️ 该缓存为 **09:49 版**、早于当日光照/水面对齐批——俯视层里的建筑是 Lambert 时代观感，刷新口径见 [game-data-sources.md](game-data-sources.md) §5.5） | 它本身就是 | ✅ 100/100 | 2026-10-09 全量重导随包（§2.1） |
+| 10 | `data/cache/maps/`、`data/cache/terrain/` | **客户端解包（现役）** `.sc2`/`.scg`、heightmap、colormap；地面再经 `tools/composite_overhead.py` 叠俯视合成（渲染缓存 `release/overhead-bake/` 已于 **2026-10-11 全量重烘**为现役材质版——此前停在 10-09 Lambert 时代观感的遗留已销账，刷新口径见 [game-data-sources.md](game-data-sources.md) §5.5） | 它本身就是 | ✅ 100/100 | 2026-10-11 全量重导 + 画质第二档底图重烘随包并 **COS 已同步**（§2.1 第二十九次） |
 | 10a | `data/cache/maps/{key}/destructibles.json`（可破坏物清单） | **客户端解包（现役）** `.sc2` + `XML/destructibles.xml.dvpl` | 它本身就是 | ✅ 100/100 | 消费方与回放切面 `destructible_events` 联表（逆向总集 §5.4） |
 | 11 | `data/data_version.json` | 本机自产（`game_version` 取客户端 `Data/version.txt.dvpl`） | 它本身就是 | ✅ 100/100 | `blitzkit_updated_at` 仅溯源戳 |
 
@@ -116,7 +116,18 @@ tanks.pb 未动）。
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测 **2026-10-11 按包内容重算**：**4964 个文件 / 4284.9 MB**——第二十八次为
+包内布局（本地实测 **2026-10-11 按包内容重算**：**4964 个文件 / 4285.1 MB**——第二十九次为
+**"全量重导 + 均衡档底图重烘 + COS 全量差分发布"**（36 图重导 **203s / 36 ok / 0 失败**，
+plant GLB 与 14:06 单图版逐字节一致 = 导出确定性对照；包重建合成前 **4372.0MB** → 俯视重烘
+`bake-ground-overhead.mjs --all` 36/36 渲染 + `composite_overhead.py --all --write
+--base-dir data/cache/maps` 36/36 写回（orient 恒 YX）、`--verify` 读回 **36/36 ok** →
+manifest 重算 **4964 文件 / 4285.1MB**；**COS 已同步**：上传 **92 件 / 788.1MB**、失败 0、
+跳过 4872（全部按桶内 manifest sha256 命中）、`manifest.json` 强传——上传面 = **36 张
+`ground.webp`（画质第二档/均衡档底图）** + 36 张 `terrain.json` + **19 张 scenery.glb**
+（历次"本地已重导、未同步"的累积）+ `index.json`；**回拉 92/92 逐对象 sha256 一致**、远端
+manifest 4964 条与本地逐条零差异；渲染件归档 `release/overhead-bake/`（缓存为 10-11 现役
+材质版）。bake 工具的 Vite 6 裸导入修复（WotbTools `fb4ceaae1`）见 [index.md](index.md)
+同名条目）；第二十八次为
 **"TEST_OCCLUSION 旗标实现（plant 五件盖板 rgb×alpha）"**（`export_map_glb.py` 按客户端
 `materials-fp.sl:187-192` 对带旗标材质逐 texel 烘 `rgb×a`；plant GLB 重导、包内替换；
 manifest 重算 **4292.2 → 4284.9 MB**（暗图 JPEG 压缩更小，文件数不变）；**COS 未同步**。

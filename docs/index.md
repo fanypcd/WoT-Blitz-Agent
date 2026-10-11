@@ -1674,6 +1674,41 @@ vs 公式 (0.422, 0.2767)）⇒ 直接用 UV1 采 colormap，**无需翻转**。
 其余 54 图未重导（其贴花批次待各自 `--scenery-only` 时随导；判据已就位，未命中时不改变输出）。
 **COS 未同步**（本地包即测试面）。
 
+### 全量重导 + 均衡档底图重烘 + COS 全量差分发布（2026-10-11）
+
+**动因**：用户指示"按现在实现全面重导地图和画质第二档的底图，传 COS"——把此前累积的
+"本地已重导、COS 未同步"批次一并发布，并把 game-data-sources §5.5 遗留的俯视重烘做掉
+（渲染缓存此前停在 10-09、仍是 Lambert 时代观感）。
+
+**数据面**：
+- 36 图全量重导（`export_map_glb.py`，jobs=4，**203s、36/36 ok**）；**确定性对照**：plant
+  GLB 与 14:06 单图版逐字节一致（`d0cea49…`）。
+- 包重建（`export_asset_pack.py`，provenance 取 feat 分支工作树）：**4964 文件 / 4372.0MB**（合成前）。
+- **均衡档（画质第二档）底图重烘**：`bake-ground-overhead.mjs --all` **36/36** 渲染（工具修复
+  见下）→ `composite_overhead.py --all --write --render-dir <pack>/overhead
+  --base-dir data/cache/maps` **36/36 写回**（orient 恒 YX，非 argmax）、`--verify` 读回
+  **36/36 ok**；渲染件归档 `release/overhead-bake/`（缓存即现役材质版）。
+- 合成后 `--refresh-manifest`：**4964 文件 / 4285.1MB**。
+- **COS 全量差分发布**（桶内 manifest 逐文件 sha256 为准）：本地 4965 文件 / 4285.8MB → 跳过
+  4872（全 sha256 命中）、上传 **92 件 / 788.1MB**、失败 0；`manifest.json` 强传。上传面 =
+  **36 张 `map/*/ground.webp`**（第二档底图）+ 36 张 `map/*/terrain.json` + **19 张
+  `map/*/scenery.glb`**（历次"本地已重导、未同步"的累积） + `index.json`——`map/` 之外仅
+  index.json，无坦克等其它在途产物。**回拉 92/92 逐对象 sha256 一致**、远端 manifest 4964
+  条与本地逐条零差异。远端上一版发布于 2026-10-10T12:32Z（`f2c61f1c`）。
+
+**工具修复（WotbTools 侧 `fb4ceaae1`）**：`bake-ground-overhead.mjs` 烘焙页写死
+`/node_modules/three/...` 原始路径，而 Vite 6 起不再改写 node_modules 深层路径的裸导入 ⇒
+页面 12s 未就绪（页面错误仅一行 `Failed to resolve module specifier "three"`；上一次成功重烘
+在 10-10 17:37、`node_modules` 于 18:04 重装后失效）。修法：三处 three 导入改裸符 + `/bake`
+页走 `transformIndexHtml`（内联 module 抽成虚拟模块） + `optimizeDeps.include` 预打包 three
+与 GLTFLoader 深路径。冒烟对照：plant coverPct 18.03 vs 旧缓存 17.99，像素因 TEST_OCCLUSION
+等材质修正而更新。
+
+**blast radius**：均衡档地面（36 张 ground.webp）+ 19 图场景 GLB + 36 图 terrain.json 元数据 +
+index/manifest；3D 档（high/ultra 读 scenery.glb 与分层地面）受影响面 = 那 19 图（内容为各批
+已入档的重导，上线前远端为旧版）；解析/回放链无关。
+**验收归用户**：均衡档俯瞰各图（建筑/树冠层）与 3D 档 19 图现场观感。
+
 ## 约定
 
 - 逆向结论的**唯一权威**是 [docs/回放与射击逆向总集.md](回放与射击逆向总集.md)；其余文档与其冲突时，

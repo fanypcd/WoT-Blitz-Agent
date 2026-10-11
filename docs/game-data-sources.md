@@ -540,17 +540,18 @@ python tools/composite_overhead.py --pack release/asset_pack --render-dir releas
 后的代码以 `--base-dir data/cache/maps` 重跑全量 36 图，产物与现盘**逐字节相同 36/36**
 （回归 0）；`manifest.json` 对这 36 张记的仍是合成前哈希的语义**未变**（见 §5.2 文首例外）。
 
-⚠️ **渲染缓存的年份与它限制的观感（2026-10-09 复核，勿当成"当前材质的样子"）**：
-`release/overhead-bake/*.rgba` 是 **09:49 版**渲染——**早于当日"光照/水面对齐批"**
-（烘焙光照图、逐图 IBL、环境反射、逐图太阳、水面 LOW 档，均在其后落地）。故俯视层里的
-建筑是按**当时**的材质渲的（Lambert 时代观感），不是现役着色器；本批水面改动**不影响**
-俯视层（`bake-ground-overhead.mjs` 的剔除表按名丢掉 `sky/dome/water/sea/river/lake/plane`
-等节点，水面从不进俯视渲染），且地面烘焙与渲染缓存本批均未改动（`git diff` 无
-`export_ground`/`bake_ground` 命中）——本批以**同一缓存** + 重导后的合成前底图重跑全量 36 图，
-`--verify` 读回 **36/36 `orient=YX, ok=true`**（本次未留存上一版合成日志，故不主张"逐字节相同"）。
-刷新俯视到现役观感需在 WotbTools 侧重跑
-`node frontend/scripts/bake-ground-overhead.mjs --pack <pack> --all`（headless Chrome +
-SwiftShader）**再**执行上面的合成命令——**本批未做**（属当日光照批的遗留，非本批引入）。
+✅ **渲染缓存已刷新为现役材质版（2026-10-11）**：此前遗留的"缓存停在 09:49 版、俯视层里的
+建筑是 Lambert 时代观感"已随**全量重烘**销账——`node frontend/scripts/bake-ground-overhead.mjs
+--pack <pack> --all` **36/36** 重新渲染（现役着色器：烘焙光照图 / 逐图 IBL / 环境反射 / 逐图
+太阳 / TEST_OCCLUSION 盖板），随后以上面同一条合成命令（`--render-dir <pack>/overhead
+--base-dir data/cache/maps --write`）36/36 写回，`--verify` 读回 **36/36 `orient=YX, ok=true`**；
+渲染件归档 `release/overhead-bake/`（缓存即现役版，后续 `--all --write` 可直接复用）。同批把
+重烘工具在 Vite 6 下的裸导入问题修掉（WotbTools `fb4ceaae1`：烘焙页三处 three 导入写死
+`/node_modules/three/...` 原始路径、Vite 6 起不再改写 node_modules 深层裸导入 ⇒ 页面 12s
+未就绪，错误仅一行 `Failed to resolve module specifier "three"`；改裸符 + `transformIndexHtml`
++ `optimizeDeps.include`）。水面依旧不进俯视渲染（剔除表按名丢 `sky/dome/water/...`），
+ORIENT 契约常量未变。发布记录（包重建 / manifest / COS 差分与回拉）见
+[data-inventory.md](data-inventory.md) §2.1 第二十九次与 [index.md](index.md) 同名条目。
 
 ---
 
