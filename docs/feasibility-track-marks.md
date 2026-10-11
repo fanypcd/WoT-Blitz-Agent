@@ -88,10 +88,10 @@
 - **生成**（纯函数，可单测）：沿 `posAt/yawAt` 位姿流扫描，车辆移动每满
   `manual_space`（缺省 1.0 m）emit 一段；速度门控（静止不铺）；`coverage[]` 空洞断链；
   左右两条带，横向偏移 = 履带中心距（suspension 折线 x 范围或模型履带盒）。
-- **渲染**：InstancedMesh 逐段四边形（~1.5 m × `manual_width`），四角 `sampleHeight`
-  贴地 + 0.05~0.12 m 偏移惯例，logdepth 抗 z-fighting；材质 = 不受光
-  （`MeshBasicMaterial` + tread 贴图，alpha blend）——与基地圆盘同一贴地惯例，
-  全画质档可用。
+- **渲染**：逐车动态合并几何（每段 4 顶点、两侧各 1536 段环形覆写），段四边形**逐角
+  独立采样高度贴地**（+12 cm 抬升盖住全景视距下 LOD 网格 vs 真值场 5~15 cm 的残差，
+  首版单平面曾成片被网格盖住；段长 ×1.25 重叠盖转弯缝）；材质 = 不受光
+  （`MeshBasicMaterial` + tread 贴图，alpha blend）——全画质档可用。
 - **seek/回退语义**：印记是路径累积态，但**由回放数据确定性生成** ⇒ seek 一律
   "从 t=0 重算到 T"（20 车 × 4200 网格点扫描 <10 ms，比增量回滚简单且无漂移）；
   参照 `updateDestructibles` 的 rewind 分支挂进主循环。
