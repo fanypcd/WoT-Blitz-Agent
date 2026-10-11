@@ -407,6 +407,27 @@ def detail_capable(mat_desc: dict, family: dict | None) -> bool:
     return bool(enabled & set((family or {}).get("detail_presets") or ()))
 
 
+def alpha_test_capable(mat_desc: dict, family: dict | None) -> bool:
+    """客户端是否会为该材质做 **alpha 裁切**（`ALPHATEST`，决定 alphaMode=MASK 与否）。
+
+    客户端证据（`Data/Materials/Detail.material` 全文 + `materials-fp.sl`）：
+      贴图有 alpha 通道 ≠ 客户端做裁切。`Detail.material` 基础层 =
+      `Layers: [ OpaqueRenderLayer ]`（UniqueDefines 仅 MATERIAL_TEXTURE/MATERIAL_DETAIL），
+      `ALPHATEST` 只在 `AlphaTest` **预设**里（`UniqueDefines: [ ALPHATEST ]`）；
+      NMaterial **未启用该预设**（`enabledPresets: {}`）⇒ 按基础不透明渲染，
+      albedo alpha 不参与（opaque 层不 discard）。
+    反例（2026-10-11 plant walls.sc2）：其 wall_03 大板（nmatname 77870，
+    albedo=`plant_colormap_test.tex`，UV 区 53% 像素 alpha<0.33）被我们的
+    `has_alpha` 启发式判成 MASK 0.33 ⇒ 整板被裁掉 ⇒ 露出真地形 ⇒ 用户"地面塌陷、
+    客户端没有"。判据与 lightmap/detail 同口径：材质文件链**顶层**声明 ALPHATEST、
+    或实例启用声明了 ALPHATEST 的预设。
+    """
+    if family and family.get("alpha_test_top"):
+        return True
+    enabled = set((mat_desc.get("presets") or {}).keys())
+    return bool(enabled & set((family or {}).get("alpha_test_presets") or ()))
+
+
 class ClientMaterialFamily:
     """材质 fx 名 → 客户端 shader 族与 define（决定叶卡/树材质的复刻方式）。
 
@@ -465,6 +486,15 @@ class ClientMaterialFamily:
                     "lm_top": "MATERIAL_LIGHTMAP" in text.partition("Presets:")[0],
                     "lm_presets": {n for n in preset_names(text)
                                    if "MATERIAL_LIGHTMAP" in preset_defines(text, n)},
+                    # alpha 裁切判据用（见 alpha_test_capable）：与光照图同口径——只看
+                    # Presets: 之前的顶层段；预设来源由实例的 enabledPresets 决定。
+                    # 客户端证据（Detail.material 全文）：基础层 = OpaqueRenderLayer，
+                    # ALPHATEST 只经 `AlphaTest` 预设启用（`UniqueDefines: [ ALPHATEST ]`）
+                    # ⇒ 贴图有 alpha 通道 ≠ 客户端做裁切（2026-10-11 plant walls.sc2
+                    # 墙板整批被裁致"地形塌陷"观感的根因）。
+                    "alpha_test_top": "ALPHATEST" in text.partition("Presets:")[0],
+                    "alpha_test_presets": {n for n in preset_names(text)
+                                           if "ALPHATEST" in preset_defines(text, n)},
                     # 细节层判据用（见 detail_capable）：与光照图同口径——只看 Presets:
                     # 之前的顶层段（UniqueDefines / QualityDependentUniqueDefines）。
                     # 实测 36 图里 MATERIAL_DETAIL 只出现在 `Detail.material`
@@ -489,6 +519,8 @@ class ClientMaterialFamily:
                         info["detail"] |= sub["detail"]
                         info["decal"] |= sub["decal"]
                         info["decal_presets"] |= sub["decal_presets"]
+                        info["alpha_test_top"] |= sub["alpha_test_top"]
+                        info["alpha_test_presets"] |= sub["alpha_test_presets"]
                         info["shader"] = info["shader"] or sub["shader"]
             return info
         return None
@@ -1686,6 +1718,21 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
             img = flat_tint_cache[tint_key]
             tint_applied = True
             stats["flat_tinted"] = stats.get("flat_tinted", 0) + 1
+        # TEST_OCCLUSION（客户端 `materials-fp.sl:187-192` 直译）：带该旗标的批次按
+        # `textureColor0.rgb = albedo.rgb × albedo.a` 采样。作者用"遮挡测试"占位材质
+        # （plant 的四面墙盖板 + 一块楼板地面件，albedo=plant_colormap_test、其 alpha 区
+        # 实测 15–111/255）让这些盖板在客户端读成**近黑的暗色覆盖层**（墙脚一带像阴影）；
+        # 我们此前按满色渲染 ⇒ 同一几何读成"亮褐色土包"（2026-10-11 用户"客户端墙面上
+        # 没有土包、我们的 3D 回放里有"）。逐 texel 乘积在导出期烘进嵌入贴图，消费端
+        # 无需认识新旗标。
+        tocc_applied = False
+        if img is not None and (mat_desc.get("flags") or {}).get("TEST_OCCLUSION"):
+            _rgba = np.asarray(img.convert("RGBA"), dtype=np.float32)
+            _premul = _rgba[:, :, :3] * (_rgba[:, :, 3:4] / 255.0)
+            img = Image.fromarray(np.clip(_premul, 0, 255).astype(np.uint8), "RGB")
+            has_alpha = False
+            tocc_applied = True
+            stats["test_occlusion_premul"] = stats.get("test_occlusion_premul", 0) + 1
         # 嵌入图片的**内容变体**：染色/UV1 烘焙改写的像素已不是"原贴图"，而
         # GlbBuilder.add_texture 按 key 去重（同 key 复用首张）——必须把变体参数并进 key。
         # 2026-10-09 实测事故：forgecity 同一 albedo（bitumen）两个材质——Textured.material
@@ -1697,6 +1744,8 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
             img_variant = ("bake", decal_path, mask_path, tuple(flat_rgb))
         elif tint_applied:
             img_variant = ("tint", tuple(flat_rgb))
+        if tocc_applied:
+            img_variant = ("tocc", img_variant)
         # SpeedTree 材质族（客户端 speedtree-materials.sl）：无场景光照，
         # color = albedo × varVertexColor，alpha discard 0.5——标记 ST| 让前端走
         # 不受光材质（我们此前的 Lambert+太阳让随机卡片亮度随朝向乱变，与客户端
@@ -1843,9 +1892,17 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
             if env_mask_img is not None and env_cube_img is not None:
                 env_desc = {"mask": env_mask_img, "cube": env_cube_img, "props": env_props(mat_desc)}
                 stats["env_mapped"] = stats.get("env_mapped", 0) + 1
+        # alpha 裁切判据（见 alpha_test_capable）：客户端只有声明 ALPHATEST（顶层 define
+        # 或实例启用 AlphaTest 预设）才 discard。AlphaBlend 预设实例维持既有 MASK 取舍
+        # （audit B6 记录的植被/建筑裁切路径）；SpeedTree 卡片由其着色器自带 discard（豁免）。
+        alpha_cut = alpha_test_capable(mat_desc, fam)
+        alpha_blend_preset = bool((mat_desc.get("presets") or {}).get("AlphaBlend"))
         mat_key = (albedo_path, decal_path, mask_path, flat_rgb, has_alpha,
                    bool(img is not None), anim_layer and mask_path is not None,
-                   is_water, st_tint, card_occ,
+                   is_water, st_tint, card_occ, tocc_applied,
+                   # alpha 裁切判据进键：同 albedo 的实例可一个声明 AlphaTest、一个不声明
+                   #（客户端一个裁一个不裁），不得串用首个的材质（2026-10-11 walls.sc2）
+                   alpha_cut, alpha_blend_preset,
                    lm_tex_path if lm_img is not None else None,
                    # 细节层：同 albedo 不同 detail 贴图/平铺倍率不得串用
                    (detail_tex_path, tuple(detail_scale)) if detail_img is not None else None,
@@ -1873,6 +1930,7 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
                       or blend_by_angle is not None,
                 opacity=0.7 if is_water else None,
                 st_tint=st_tint, occ_mean=1.0 if card_occ is not None else None,
+                alpha_cut=alpha_cut, alpha_blend_preset=alpha_blend_preset,
                 # 真混合层标记：仅动画+掩码的效果层（水另有前端分支，不进此列）
                 blend_layer=anim_mask_layer,
                 # 掩码单独成贴图 + 位移参数（仅动画混合层；静止掩码层仍走 UV1 烘焙进 alpha）
@@ -2223,6 +2281,7 @@ def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | 
                     mat_desc: dict, img: Image.Image | None, has_alpha: bool,
                     blend: bool = False, opacity: float | None = None,
                     st_tint=None, occ_mean: float | None = None,
+                    alpha_cut: bool = False, alpha_blend_preset: bool = False,
                     blend_layer: bool = False, mask_img: Image.Image | None = None,
                     shift_anim=None, shift_static=None,
                     lightmap_img: Image.Image | None = None,
@@ -2371,8 +2430,12 @@ def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | 
             base["alphaMode"] = "BLEND"
         elif has_alpha and blend:
             base["alphaMode"] = "BLEND"
-        elif has_alpha:
-            # alpha cutout：SpeedTree 材质（ST|）按客户端 discard 0.5，其余 0.33
+        elif has_alpha and (st_tint is not None or alpha_cut or alpha_blend_preset):
+            # alpha cutout：**仅当客户端声明裁切**（材质链顶层/实例启用 AlphaTest 预设；
+            # AlphaBlend 预设维持既有 MASK 取舍——audit B6；SpeedTree 卡片由其着色器
+            # 自带 discard 0.5，其余 0.33）。无声明 ⇒ 不透明（客户端 OpaqueRenderLayer
+            # 同款，albedo alpha 不参与）——2026-10-11 plant walls.sc2 墙板整批被裁
+            # （"地形塌陷"观感）的修复。
             base["alphaMode"] = "MASK"
             base["alphaCutoff"] = 0.5 if st_tint is not None else 0.33
     else:

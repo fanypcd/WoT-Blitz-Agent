@@ -540,17 +540,18 @@ python tools/composite_overhead.py --pack release/asset_pack --render-dir releas
 后的代码以 `--base-dir data/cache/maps` 重跑全量 36 图，产物与现盘**逐字节相同 36/36**
 （回归 0）；`manifest.json` 对这 36 张记的仍是合成前哈希的语义**未变**（见 §5.2 文首例外）。
 
-⚠️ **渲染缓存的年份与它限制的观感（2026-10-09 复核，勿当成"当前材质的样子"）**：
-`release/overhead-bake/*.rgba` 是 **09:49 版**渲染——**早于当日"光照/水面对齐批"**
-（烘焙光照图、逐图 IBL、环境反射、逐图太阳、水面 LOW 档，均在其后落地）。故俯视层里的
-建筑是按**当时**的材质渲的（Lambert 时代观感），不是现役着色器；本批水面改动**不影响**
-俯视层（`bake-ground-overhead.mjs` 的剔除表按名丢掉 `sky/dome/water/sea/river/lake/plane`
-等节点，水面从不进俯视渲染），且地面烘焙与渲染缓存本批均未改动（`git diff` 无
-`export_ground`/`bake_ground` 命中）——本批以**同一缓存** + 重导后的合成前底图重跑全量 36 图，
-`--verify` 读回 **36/36 `orient=YX, ok=true`**（本次未留存上一版合成日志，故不主张"逐字节相同"）。
-刷新俯视到现役观感需在 WotbTools 侧重跑
-`node frontend/scripts/bake-ground-overhead.mjs --pack <pack> --all`（headless Chrome +
-SwiftShader）**再**执行上面的合成命令——**本批未做**（属当日光照批的遗留，非本批引入）。
+✅ **渲染缓存已刷新为现役材质版（2026-10-11）**：此前遗留的"缓存停在 09:49 版、俯视层里的
+建筑是 Lambert 时代观感"已随**全量重烘**销账——`node frontend/scripts/bake-ground-overhead.mjs
+--pack <pack> --all` **36/36** 重新渲染（现役着色器：烘焙光照图 / 逐图 IBL / 环境反射 / 逐图
+太阳 / TEST_OCCLUSION 盖板），随后以上面同一条合成命令（`--render-dir <pack>/overhead
+--base-dir data/cache/maps --write`）36/36 写回，`--verify` 读回 **36/36 `orient=YX, ok=true`**；
+渲染件归档 `release/overhead-bake/`（缓存即现役版，后续 `--all --write` 可直接复用）。同批把
+重烘工具在 Vite 6 下的裸导入问题修掉（WotbTools `fb4ceaae1`：烘焙页三处 three 导入写死
+`/node_modules/three/...` 原始路径、Vite 6 起不再改写 node_modules 深层裸导入 ⇒ 页面 12s
+未就绪，错误仅一行 `Failed to resolve module specifier "three"`；改裸符 + `transformIndexHtml`
++ `optimizeDeps.include`）。水面依旧不进俯视渲染（剔除表按名丢 `sky/dome/water/...`），
+ORIENT 契约常量未变。发布记录（包重建 / manifest / COS 差分与回拉）见
+[data-inventory.md](data-inventory.md) §2.1 第二十九次与 [index.md](index.md) 同名条目。
 
 ---
 
@@ -603,17 +604,38 @@ BlitzKit 把游戏模型名从 `tanks.pb` **field 2 移到 field 32**，field 2 
 从游戏文件提取的数据（装甲数值、模型、图标）版权归 Wargaming，README 已有声明。
 解除 BlitzKit 依赖只把来源从"第三方整理"换成"第一手提取"，**不改变权属**。
 
-## 地形让位掩码（`cover.u16.bin`）的生成与分发
+## 地形附加数据（让位掩码 / 贴地结构脚印）——已全部撤销
 
-- **生成**：`python tools/bake_terrain_cover.py [--map KEY]… [--stats]`（约 4 s/图，36 图 2m36s）。
+让位掩码（`cover.u16.bin`，v0.4.2）与贴地结构脚印（`structs.u8.bin`，2026-10-11）两代地形
+附加件均已撤销（用户裁示：**只对齐客户端，不自行发明处理方法**）。**最终态：地形没有任何
+客户端之外的附加数据**——包内 `map/<key>/` 只含 `terrain.u16.bin` + `terrain.json`
+（客户端高度图与元数据）+ 场景/地面资产；打包器在 sidecar 化时清除历史 cover/structs 字段。
+地形渲染 = 纯客户端口径（三判据 LOD + 两通道 morph，见 [index.md](index.md)）。
+
+## 七、许可
+
+从游戏文件提取的数据（装甲数值、模型、图标）版权归 Wargaming，README 已有声明。
+解除 BlitzKit 依赖只把来源从"第三方整理"换成"第一手提取"，**不改变权属**。
+
+## 贴地结构脚印（`structs.u8.bin`）的生成与分发
+
+> 2026-10-11 起**替代已撤销的地形让位掩码**（`cover.u16.bin`，v0.4.2 引入）：掩码把渲染用高度场
+> 逐 texel 压到结构面之下，是数据面造高度的有意偏离——客户端侧机制穷尽后（地形着色器直出高度图、
+> 材质 52/52 无 `DepthBias`、36 图场景组件无地形协调组件、引擎二进制地形系统全是"往地上画"）
+> 确认客户端没有反遮挡机制、冲突不显形全靠贴地相机，故撤销造高度路线，改为**只标位置、不改高度**。
+
+- **生成**：`python tools/bake_ground_structs.py [--map KEY]… [--stats]`。
   输入 = 包内 `map/<key>/scenery.glb` + `terrain.u16.bin` + `terrain.json`（size/span/zmin/zmax）；
-  缓存优先取 `data/cache/maps/<space>.glb`。烘焙期常量（非渲染期开关）：贴地带
-  `[地形−0.15 m, 地形+0.5 m]`、压低上限 0.5 m、**几何间隙 0.1 m**（压到结构面上会共面闪烁）、收尾 20 texel。
-- **产出**：包内 `map/<key>/cover.u16.bin`（512² u16 LE；`0` = 无覆盖，否则结构面高度量化 +1）
-  + `terrain.json` 的 `cover` / `coverStats`；同时写 `data/cache/maps/<space>.cover.u16.bin`，
-  供 `export_asset_pack.py` 随包复制（**重打包不会丢**：脚本按缓存名复制并在 `terrain.json` 声明）。
-- **消费**：前端 `terrainCover.js` 把**渲染用**高度场夹到天花板之下；查询/放置（`sampleHeight`）
-  必须继续用真值高度场（守卫锁）。缺掩码/旧包 ⇒ fail-open（按无掩码渲染）。
+  缓存优先取 `data/cache/maps/<space>.glb`。烘焙期常量（非渲染期开关，误判只费三角形、不改几何）：
+  贴地带 `[地形−0.15 m, 地形+0.5 m]`、**膨胀 4 texel**（细/粗缝合边顶点取粗侧值 ⇒ 结构须离缝合边
+  ≥1 细格）；水面片与水下薄板排除出贴地判定（掩码时代 2026-10-10 岸线位移教训的承继）。
+- **产出**：包内 `map/<key>/structs.u8.bin`（512² u8；`1` = 贴地结构 texel）
+  + `terrain.json` 的 `structs` / `structsStats`（并清除已撤销的 `cover` / `coverStats`）；
+  同时写 `data/cache/maps/<space>.structs.u8.bin`，供 `export_asset_pack.py` 随包复制
+  （**重打包不会丢**：脚本按缓存名复制并在 `terrain.json` 声明）。
+- **消费**：前端 `terrainMesh.js` 第五条细分判据（`structures`）——与脚印相交的地形补片强制细分到
+  1 texel，带内网格 = 真值高度场；**高度场一份到底**（渲染/查询/放置同源，客户端同构）。
+  缺脚印/旧包 ⇒ fail-open（纯客户端三判据 LOD）。
 - **发布**：与其它包内资产同链路——本地重建包后 `COS_SECRET_ID=… COS_SECRET_KEY=… python
   tools/upload_asset_pack_cos.py --local release/asset_pack`（可 `--only map/<key>/` 逐图发）。
-  掩码是**渲染资产**，不进回放数据面（不改 replay 契约）。
+  脚印是**渲染资产**，不进回放数据面（不改 replay 契约）。

@@ -267,15 +267,6 @@ def main() -> None:
                          "span": round(span_h, 1)}
         terrain_srcs = [data / "maps" / f"{key}.heightmap.u16.bin",
                         terrain_cache / f"{key}.hm.u16.bin"]
-        # 地形让位掩码（tools/bake_terrain_cover.py 的输出；贴地结构覆盖处的渲染上限）。
-        # 缺失不阻断：前端按无掩码继续。
-        cover_srcs = [data / "maps" / f"{key}.cover.u16.bin",
-                      terrain_cache / f"{space}.cover.u16.bin",
-                      # 烘焙工具（tools/bake_terrain_cover.py）的默认缓存位置（--cache 缺省
-                      # data/cache/maps）：此前只找前两处 ⇒ 包重建时静默丢掉全部掩码
-                      # （2026-10-10 实测：重建后 5000 → 4964 文件、terrain.json.cover 字段消失）
-                      cache_maps / f"{space}.cover.u16.bin"]
-        cover_hit = copy_first(cover_srcs, mdir / "cover.u16.bin")
         hit = copy_first(terrain_srcs, mdir / "terrain.u16.bin")
         if hit and scale:
             # terrain.json = X-Terrain-Meta 头的 sidecar 化：顶层必须是前端消费的
@@ -290,10 +281,10 @@ def main() -> None:
                 except Exception:
                     side = {}
             side.update(scale or {})
-            if cover_hit:
-                side["cover"] = "cover.u16.bin"
-            else:
-                side.pop("cover", None)   # 包内无掩码 ⇒ 不宣称有（前端据此跳过加载）
+            # 让位掩码（cover）与贴地结构脚印（structs）均已撤销（2026-10-11 用户裁示：
+            # 只对齐客户端）——清掉历史字段，terrain.json 只承载客户端已有的元数据
+            for legacy in ("cover", "coverStats", "structs", "structsStats"):
+                side.pop(legacy, None)
             (out / f"map/{key}/terrain.json").write_text(
                 json.dumps(side, ensure_ascii=False), encoding="utf-8")
             files.append(out / f"map/{key}/terrain.json")
