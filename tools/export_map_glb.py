@@ -1739,6 +1739,21 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
             img = flat_tint_cache[tint_key]
             tint_applied = True
             stats["flat_tinted"] = stats.get("flat_tinted", 0) + 1
+        # TEST_OCCLUSION（客户端 `materials-fp.sl:187-192` 直译）：带该旗标的批次按
+        # `textureColor0.rgb = albedo.rgb × albedo.a` 采样。作者用"遮挡测试"占位材质
+        # （plant 的四面墙盖板 + 一块楼板地面件，albedo=plant_colormap_test、其 alpha 区
+        # 实测 15–111/255）让这些盖板在客户端读成**近黑的暗色覆盖层**（墙脚一带像阴影）；
+        # 我们此前按满色渲染 ⇒ 同一几何读成"亮褐色土包"（2026-10-11 用户"客户端墙面上
+        # 没有土包、我们的 3D 回放里有"）。逐 texel 乘积在导出期烘进嵌入贴图，消费端
+        # 无需认识新旗标。
+        tocc_applied = False
+        if img is not None and (mat_desc.get("flags") or {}).get("TEST_OCCLUSION"):
+            _rgba = np.asarray(img.convert("RGBA"), dtype=np.float32)
+            _premul = _rgba[:, :, :3] * (_rgba[:, :, 3:4] / 255.0)
+            img = Image.fromarray(np.clip(_premul, 0, 255).astype(np.uint8), "RGB")
+            has_alpha = False
+            tocc_applied = True
+            stats["test_occlusion_premul"] = stats.get("test_occlusion_premul", 0) + 1
         # 嵌入图片的**内容变体**：染色/UV1 烘焙改写的像素已不是"原贴图"，而
         # GlbBuilder.add_texture 按 key 去重（同 key 复用首张）——必须把变体参数并进 key。
         # 2026-10-09 实测事故：forgecity 同一 albedo（bitumen）两个材质——Textured.material
@@ -1750,6 +1765,8 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
             img_variant = ("bake", decal_path, mask_path, tuple(flat_rgb))
         elif tint_applied:
             img_variant = ("tint", tuple(flat_rgb))
+        if tocc_applied:
+            img_variant = ("tocc", img_variant)
         # SpeedTree 材质族（客户端 speedtree-materials.sl）：无场景光照，
         # color = albedo × varVertexColor，alpha discard 0.5——标记 ST| 让前端走
         # 不受光材质（我们此前的 Lambert+太阳让随机卡片亮度随朝向乱变，与客户端
@@ -1903,7 +1920,7 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         alpha_blend_preset = bool((mat_desc.get("presets") or {}).get("AlphaBlend"))
         mat_key = (albedo_path, decal_path, mask_path, flat_rgb, has_alpha,
                    bool(img is not None), anim_layer and mask_path is not None,
-                   is_water, st_tint, card_occ,
+                   is_water, st_tint, card_occ, tocc_applied,
                    # alpha 裁切判据进键：同 albedo 的实例可一个声明 AlphaTest、一个不声明
                    #（客户端一个裁一个不裁），不得串用首个的材质（2026-10-11 walls.sc2）
                    alpha_cut, alpha_blend_preset,
