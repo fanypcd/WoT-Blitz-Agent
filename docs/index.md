@@ -1268,7 +1268,11 @@ wotbVersion 2.1.25）`terrainMesh.js` 新增**第五条细分判据**（`structu
 tessellation、不改任何高度（顶点恒在真值值域，反掩码不变式入单测）；误判脚印的代价只是三角形。
 **高度场一份到底**：渲染/查询/放置全用真值 `heightField`（客户端同构——它也只有一份高度图）；
 `terrainCover.js` 与"渲染场"（`renderField`）双场概念删除，守卫禁止复活。缺脚印/旧包 ⇒
-fail-open（纯客户端三判据）。
+fail-open（纯客户端三判据）。**特征强制带内 morph 归零（同日补丁）**：悬崖带父补片高程误差超阈值
+⇒ 客户端 morph 公式给全部更细子层恒 >0 的 subdivMorph ⇒ 强制细分的 1-texel 顶点被 blend ~44%
+向"双抽头均值" ⇒ 悬崖处均值 ≈ 坎中值 ⇒ 带内偏离真值最多 0.80 m（plant wall_03 用户"地面塌陷、
+客户端没有"）。morph 与"带内网格=真值"契约冲突 ⇒ 特征判据强制的子树 morph 归零；判据驱动的细分
+不受影响。修复后带内偏差 0.000 m（150/300 m 实测）。
 
 **产出与消费**：包内 `map/<key>/structs.u8.bin`（0.24 MB/图）+ `terrain.json.structs`；
 `scripts/export_asset_pack.py` 同步复制（缓存 `<space>.structs.u8.bin`，三处缓存源路径沿用掩码
