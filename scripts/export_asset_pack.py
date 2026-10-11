@@ -264,16 +264,6 @@ def main() -> None:
                          "span": round(span_h, 1)}
         terrain_srcs = [data / "maps" / f"{key}.heightmap.u16.bin",
                         terrain_cache / f"{key}.hm.u16.bin"]
-        # 贴地结构脚印（tools/bake_ground_structs.py 的输出；渲染端"贴地结构带细分"判据的
-        # 输入——2026-10-11 替代已撤销的让位掩码 cover.u16.bin：只标位置、不改任何高度）。
-        # 缺失不阻断：前端按无脚印继续（纯客户端三判据 LOD）。
-        structs_srcs = [data / "maps" / f"{key}.structs.u8.bin",
-                        terrain_cache / f"{space}.structs.u8.bin",
-                        # 烘焙工具（tools/bake_ground_structs.py）的默认缓存位置（--cache 缺省
-                        # data/cache/maps）：掩码时代曾因只找前两处而在包重建时静默丢文件
-                        # （2026-10-10 实测：重建后 5000 → 4964 文件、terrain.json.cover 字段消失）
-                        cache_maps / f"{space}.structs.u8.bin"]
-        structs_hit = copy_first(structs_srcs, mdir / "structs.u8.bin")
         hit = copy_first(terrain_srcs, mdir / "terrain.u16.bin")
         if hit and scale:
             # terrain.json = X-Terrain-Meta 头的 sidecar 化：顶层必须是前端消费的
@@ -288,12 +278,10 @@ def main() -> None:
                 except Exception:
                     side = {}
             side.update(scale or {})
-            side.pop("cover", None)       # 让位掩码已撤销：清掉旧字段（前端据此跳过加载）
-            side.pop("coverStats", None)
-            if structs_hit:
-                side["structs"] = "structs.u8.bin"
-            else:
-                side.pop("structs", None)   # 包内无脚印 ⇒ 不宣称有（前端据此跳过加载）
+            # 让位掩码（cover）与贴地结构脚印（structs）均已撤销（2026-10-11 用户裁示：
+            # 只对齐客户端）——清掉历史字段，terrain.json 只承载客户端已有的元数据
+            for legacy in ("cover", "coverStats", "structs", "structsStats"):
+                side.pop(legacy, None)
             (out / f"map/{key}/terrain.json").write_text(
                 json.dumps(side, ensure_ascii=False), encoding="utf-8")
             files.append(out / f"map/{key}/terrain.json")

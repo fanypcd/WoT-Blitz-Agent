@@ -116,14 +116,16 @@ tanks.pb 未动）。
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测 **2026-10-11 按包内容重算**：**4965 个文件 / 4292.3 MB**——第二十五次为
-**"撤销地形让位掩码 + 贴地结构脚印（试点幽灵工厂 plant）"**（36 图 `cover.u16.bin` **全部删除**
-（−18 MB）、`terrain.json` 清 `cover/coverStats`；`map/plant/structs.u8.bin` +0.24 MB +
-`terrain.json` 增 `structs/structsStats`（贴地 12,892 → 膨胀脚印 59,672 texel，**只标位置、不改
-高度**）；`tools/bake_terrain_cover.py` 删除、新 `tools/bake_ground_structs.py`（+单测）；
-`export_asset_pack.py` 改 structs 复制 + 清 legacy cover 字段；`--refresh-manifest` 重算
-**5000 → 4965 文件 / 4310.9 → 4292.3 MB**；**COS 未同步**（旧前端读不到 `terrain.json.cover` ⇒
-按无掩码渲染，部署先后顺序无破坏）。见 [index.md](index.md) "贴地结构脚印判据"条目）；第二十四次为
+包内布局（本地实测 **2026-10-11 按包内容重算**：**4964 个文件 / 4292.0 MB**——第二十六次为
+**"撤销贴地结构脚印（structs）——地形附加数据全部出清，只对齐客户端"**（plant/forgecity 的
+`structs.u8.bin` 删除、`terrain.json` 清 structs 字段；`tools/bake_ground_structs.py` 删除、
+打包器不再复制任何地形附加件并清除历史 cover/structs 字段；`--refresh-manifest` 重算
+**4966 → 4964 文件 / 4292.6 → 4292.0 MB**；**COS 未同步**。见 [index.md](index.md)
+"贴地结构脚印判据"条目）；第二十五次为
+**"撤销地形让位掩码 + 试点贴地结构脚印（幽灵工厂 plant）"**（36 图 `cover.u16.bin` **全部删除**
+（−18 MB）、`terrain.json` 清 `cover/coverStats`；`map/plant/structs.u8.bin` 曾随包后于
+第二十六次撤销；`tools/bake_terrain_cover.py` 删除；`--refresh-manifest` 重算
+**5000 → 4965 文件 / 4310.9 → 4292.3 MB**；**COS 未同步**。见 [index.md](index.md) 同名条目）；第二十四次为
 **"顶层弹表补等效厚度判定输入"**（735 辆 `tank/{id}.json` 顶层 `shells[]` + `data/tank_cache.json`
 逐弹增 `caliber`/`normalization`/`ricochet` 三字段，**文件数不变、约 +0.3 MB**；同批车级
 `caliber` 改为顶级炮弹径（326 辆值变更，见 [game-data-sources.md](game-data-sources.md) §3.5）；
