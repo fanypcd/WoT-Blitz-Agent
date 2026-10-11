@@ -116,7 +116,13 @@ tanks.pb 未动）。
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测 **2026-10-11 按包内容重算**：**4964 个文件 / 4285.1 MB**——第二十九次为
+包内布局（本地实测 **2026-10-11 按包内容重算**：**5288 个文件 / 4286.1 MB**——第三十次为
+**"履带印数据面（tread/）增量补入"**（`tools/export_tank_tread.py` 产物：`tread/` 311 个
+逐车 json（79 KB）+ `tread/textures/` 13 张 webp（983 KB，客户端 DDS 无损转码）
+= **+324 文件 / +1.0 MB**，4964 → 5288 / 4285.1 → 4286.1；additive 接线在
+`export_asset_pack.py`，`--refresh-manifest` 重算；**COS 未同步**（常规增量
+`--only tread/`，见 [index.md](index.md) 同名条目与
+[feasibility-track-marks.md](feasibility-track-marks.md)）；第二十九次为
 **"全量重导 + 均衡档底图重烘 + COS 全量差分发布"**（36 图重导 **203s / 36 ok / 0 失败**，
 plant GLB 与 14:06 单图版逐字节一致 = 导出确定性对照；包重建合成前 **4372.0MB** → 俯视重烘
 `bake-ground-overhead.mjs --all` 36/36 渲染 + `composite_overhead.py --all --write
@@ -357,6 +363,17 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
   **分发**：本地包已增量补入（`release/asset_pack/suspension/`，725 文件 / 3.1 MB）；
   生产面需按常规流程重跑 `scripts/export_asset_pack.py`（现已含该目录）并
   `tools/upload_asset_pack_cos.py` 上传增量（COS 凭据仅环境变量）。
+- **地面履带印参数已导出（2026-10-11）**：`tools/export_tank_tread.py`
+  （`data/tank_tread/<tank_id>.json` → 包内 `tread/<tank_id>.json` + `data/tank_tread_textures/`
+  → 包内 `tread/textures/`，additive）。客户端 TreadSystem（车开过后的暗色碾压痕）的
+  作者数据**全在数据面**：逐车 yaml `treadParameters` 块（88/764 yaml = **311/735** 辆，
+  5 字段形状一致）+ 13 张 `*tread*.dx11.dds.dvpl` 贴图（256²，DDS **无损**转 webp /
+  983 KB）。无块的 424 辆**不产文件**（fail-closed；前端回落策略 = 产品决定，见
+  [feasibility-track-marks.md](feasibility-track-marks.md) §四）。
+  规模 79 KB / 311 json + 983 KB / 13 贴图（前端按需取：单场 ≤14 json + ≤9 贴图）。
+  回归：`python tools/test_export_tank_tread.py`（6 项，含真实客户端抽样）。
+  **分发**：本地包已增量补入（`tread/` 324 文件 / 1.04 MB）+ `--refresh-manifest`；
+  **COS 未同步**（增量 `--only tread/`）。
 
 ## 五、完成度汇总
 

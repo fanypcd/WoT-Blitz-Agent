@@ -230,6 +230,7 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 | [docs/feasibility-pb-local-extraction.md](feasibility-pb-local-extraction.md) | `tanks.pb`/`models.pb` 可替代；735/735 覆盖、零实质分歧；唯一缺口 `tank_id`（有两条替代路径）。⚠️ 个别结论有 2026-10-03 注记修正（uk 段名 / 显示名缺失数），见文首 | ⬜ 提取器待实施（约 3–5 人日，见 [data-inventory.md](data-inventory.md) §四） |
 | [docs/feasibility-glb-local-export.md](feasibility-glb-local-export.md) | 历史评估留档：实施结果见"实现记录" [local-model-export.md](local-model-export.md)；其 §3.3 槽位指派结论已被逐通道实测修正，见文首注记 | ✅ 已实施（2026-10-01） |
 | [docs/feasibility-map-lighting.md](feasibility-map-lighting.md) | **3D 地图光照画质对齐可行性（2026-10-09）**：客户端光照**全部数据驱动、数据都在已会解的容器里**——逐图太阳/环境色/雾/阴影三档/IBL 在 `.sc2` 的 `#sceneComponentSets.Default`；静态场景走**烘焙光照图**（每图 2–11 张 2048² 图集 + 网格 UV1 × 每实例 `uvScale/uvOffset`，后者正是此前两次烘焙失败的缺项）；天空穹 35/36 图已在 `scenery.glb` 内（仅被前端隐藏）；IBL diffuse/specular cube 逐图齐备；**110 个客户端着色器源码可解**（方程可逐行复刻，不必猜）。收益排序：烘焙光照图 > 逐图太阳/环境色 > 天空+雾 > 坦克 IBL。体积预算 +40~+155 MB（现包 3.6 GB）；缺口在导出器与消费端渲染，不在逆向。含 36 图光照参数表、三期实施、8 项未定项（fail-closed） | ⬜ 待决策（报告已出，未改代码/资产；前端侧改动归 WotbTools） |
+| [docs/feasibility-track-marks.md](feasibility-track-marks.md) | **履带印（TreadSystem 地面碾压痕）可行性定案（2026-10-11）**：客户端 TreadSystem 的作者数据**全部在可得数据面**——`Parameters/*.yaml` 的 `treadParameters` 块（88/764 辆、5 字段形状一致：印记宽/间距 + 贴图引用）与 `3d/Tanks/Common/images/` 的 **13 个** `*tread*.dx11.dds.dvpl` 贴图（256² 软边泥痕条带）——2026-10-10 D2"不做"的重做前置（定位客户端贴图）对碾压痕**已满足**（弹坑/血迹仍无源维持不做）。数据面已导出：`tools/export_tank_tread.py` → 包内 `tread/`（311 json + 13 贴图 / 1.04 MB，回归 6 项）；前端路线 = 几何贴花（destructibles 同构）+ seek 全量重算，呈现归 WotbTools | 🟨 数据面已落地；前端 WotbTools 进行中 |
 | ↳ [docs/map-render-align-audit.md](map-render-align-audit.md) | **地图渲染 × 客户端差异总账（2026-10-09）**：36 图 / 9.3 万批次全量普查后的 **23 条**对齐清单（另 1 条已对齐基线），分**错误 7 / 缺失 9 / 画质档取舍 7**。三方对照（客户端 36 图实测 + 本仓导出物 + WotbTools 现役渲染）。**已对齐基线**：分层地面（`tilemask-fp.sl` 四分支）、SpeedTree 染色与叶卡。**最大三类**：① 静态场景烘焙光照图（42,651 批）② 逐图太阳 + 线性曝光（替掉 ACES 与一批补偿 hack）③ 天空 + 雾（36/36 图）。**P0 里另有 3 项可独立先合**：天空穹（35/36 图网格已在 GLB 内，只被隐藏，~20 行）、场景 GLB 贴图各向异性（一行）、关 `flatShading`（现前端把 v0.4.1 的 authored 法线丢掉了）。未定口径 4 项（逐贴图 sRGB 空间、客户端画质档默认值、exposure、`materialLightmapAdjustment` 缺省）| ⬜ 待决策 |
 | ↳ [docs/map-lighting-plan.md](map-lighting-plan.md) | **实施设计（2026-10-09，待批准）**——上一条的落地版：四个关键决策（① 光照图交付＝**原始 UV1 + 逐节点 `{atlas,scale,offset}`**，附被否方案实测依据：预变换 UV1 会让顶点膨胀 10–30×、逐实例烘贴图＝2497 实例↔2320 组唯一变换；② 图集 WebP 2048² q92 = 1.6 MB/张、全量 +145 MB，1024² 备选 +40 MB；③ IBL 立方图逐面逐 mip WebP（+44 KB/图）；④ 天空 flowmap 公式 / 雾 `vp-fog-math` / 曝光 = `LinearToneMapping`）。期 0 标定（含无需用户的自证校验：天空最亮点反投影验太阳方向）、期 1 本仓数据面（3–5 人日，含"无光照图批次逐字节零回归"验收线）、期 2 WotbTools 五步（5–8 人日，含 Android `wotbVersion` 递增与降级门）、期 3 精修 | ⬜ 待批准（未动代码/资产） |
 
@@ -239,6 +240,34 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 |---|---|
 | [docs/decoupling-status.md](decoupling-status.md) | **解耦的剩余决策与已定案差异**（2026-10-03 收敛；**2026-10-07 更新：GLB 自产管线已接线**——`data/cache/models/` 换为客户端解包导出，`cache/models` ≡ `local_models` 735/735）：已完成时间线；待决策口径（数据模型塌缩 / 25 辆无显示名 / `hull_traverse` 非同量）；封面图与 BK 复核为**同源同画**（旧 NCC 0.21/非同一幅画结论已撤销）；已定案的 BlitzKit 侧差异清单；对外沟通材料。进度/接线/分发现状见 [data-inventory.md](data-inventory.md) |
 | [docs/local-model-export.md](local-model-export.md) | ✅ 已实施（2026-10-01，2026-10-02 补 §4 贴图实测）：报告 B 的几何替代做成 `tools/export_tank_glb.py`，验收口径从"按可达节点求和"收紧到**逐字节 + 节点顺序**——`collision.glb` **735/735**、`model.glb` **733/735** 等价（余 2 辆为 BlitzKit 侧行为、另 23 辆 2026-10-10 起**有意修正**（静态变换烘焙 / 状态过滤，等价数 710/735），见该文 §5/§5.1）；贴图槽位与 BlitzKit 完全对齐（731/735 图片数相同、无缺槽位）。§4 逐通道实测推翻了报告 B §3.3 的图源判断，并定下 `baseRMMap` 的**通道搬迁**（ch0→G 粗糙度、ch1→B 金属度）。**2026-10-07 起已替换运行期数据源**：`data/cache/models/` 换为本地导出（`cache/models` ≡ `local_models` 735/735，包与 COS 随发；见 [data-inventory.md](data-inventory.md) §一 #8） |
+
+### 履带印（TreadSystem 地面碾压痕）数据面导出（2026-10-11，未发版）
+
+**背景**：2026-10-10 D2（[map-render-align-audit.md](map-render-align-audit.md)，index 同名条目）
+把"地面动态贴花（碾压痕/弹坑/血迹）"定案不做，重做前置 = 先定位客户端贴图。本轮在
+客户端数据里把**碾压痕这一支**的数据源全部找到了（弹坑/血迹的 geo-decal 贴图仍是游戏层
+传入、不在数据面，维持不做）；用户裁示做，两仓分支落地。
+
+**数据面（本仓，本次）**：
+- 新件：`Data/3d/Tanks/Common/images/` 的 **13 个** `*tread*.dx11.dds.dvpl`（256²，
+  DXT3/DXT5，软边暗色泥痕条带；被引用 9 种 + `Tread`/`Japan_01` 等回落候选）与
+  `Parameters/*.yaml` 的 `treadParameters:` 块（**88/764** 个 yaml、5 字段形状完全一致；
+  按 tanks.pb 展开为 **311/735** 辆有、424 辆无）。机制锚点与普查数字见
+  [feasibility-track-marks.md](feasibility-track-marks.md)。
+- `tools/export_tank_tread.py` → `data/tank_tread/<tank_id>.json`（311 文件 / 79 KB，
+  只搬数据：`force_manual_width/manual_width/force_manual_space/manual_space/texture`）
+  + `data/tank_tread_textures/*.webp`（13 文件 / 983 KB，DDS **无损**转 webp）→
+  包内 `tread/`（additive，紧随 suspension 段）。无块的车辆**不产文件**（fail-closed，
+  前端回落策略见 feasibility 文档 §四）。
+- 回归：`python tools/test_export_tank_tread.py`（6 项：块解析/fail-closed/贴图路径形状/
+  产物自洽/真实客户端抽样含 alpha 软边断言）。
+- 分发：本地包已增量补入 + `--refresh-manifest`（4964 → **5288 文件** / 4285.1 →
+  **4286.1 MB**，tread 324 条目）；**COS 未同步**（常规增量 `--only tread/`，可与下次
+  资产面发布合并）。
+
+**消费侧（WotbTools，同日进行）**：`scene/treadMarks.js` 生成纯函数 + `playbackScene`
+几何贴花接线（InstancedMesh + `sampleHeight` 贴地，destructibles 同构）+ seek 全量重算
++ 回放开关 + Android `wotbVersion` bump；观感由用户在测试页验收。
 
 ### 全仓注释/死代码/重复逻辑清理（WotbAgent + WotbTools，2026-10-11，未发版）
 
@@ -1181,6 +1210,12 @@ Windows 默认档（High）`HitMarks=true`、`TankTreads=false`。
 上限三处都是自定参数、**没有客户端依据** ⇒ 2026-10-10 依"只保留客户端有实际依据者"全部撤除
 （含 `impactDecals.js` 与其单测）。要重做的前置条件是**先定位到客户端弹痕贴图**（游戏层资产，
 当前数据面无）；碾压痕客户端 Windows 默认档即关、血迹无数据源 ⇒ 本就不做。
+**2026-10-11 更新（碾压痕一支翻案）**：TreadSystem 的作者数据**在数据面**——逐车
+`treadParameters` 块（宽/间距/贴图引用，88/764 yaml）+ `3d/Tanks/Common/images/` 的
+13 个 `*_tread.dx11.dds.dvpl` 贴图——重做前置对碾压痕已满足，数据面已导出（`tread/`，
+311 json + 13 贴图）、前端由 WotbTools 按
+[feasibility-track-marks.md](feasibility-track-marks.md) 落地；**弹坑/血迹仍无源**，
+本条对它们维持不做。
 
 ### 图片注册表撞键修复（"新湾桥面变黑"，2026-10-09，未发版）
 

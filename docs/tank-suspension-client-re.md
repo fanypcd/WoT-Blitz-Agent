@@ -440,5 +440,8 @@ T1/T2 做完后，用户报障的 1:21 处：**轮**最多只能贴 5.6/8.4 cm�
   逐轮/逐带解算天然吃掉。
 - 36 图 `worldBounds` 全居中且正方（普查）⇒ 前端"只取 span、按居中"的采样假设在本包成立。
 
-**不做/超范围**：地面履带印（TreadSystem）、断带物理、悬挂的弹簧/阻尼（客户端本来就没有
-——§六.2 第 4 条：没有弹簧阻尼项，只有行程夹紧 + 限速）。
+**不做/超范围**：~~地面履带印（TreadSystem）~~（**2026-10-11 翻案**：其作者数据——逐车
+`treadParameters` 块与 `3d/Tanks/Common/images/*_tread.dx11.dds.dvpl` 贴图——**在可得
+数据面**，数据面已导出为包内 `tread/`、前端由 WotbTools 按
+[feasibility-track-marks.md](feasibility-track-marks.md) 落地）、断带物理、悬挂的弹簧/阻尼
+（客户端本来就没有——§六.2 第 4 条：没有弹簧阻尼项，只有行程夹紧 + 限速）。

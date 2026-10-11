@@ -199,6 +199,22 @@ def main() -> None:
             if cp(f, f"suspension/{f.name}"):
                 sus_n += 1
 
+    # ---- 逐车地面履带印（tools/export_tank_tread.py 产物；additive） ----
+    # 客户端 `Parameters/*.yaml` 的 treadParameters 块（印记条带宽/间距 + 贴图引用）与
+    # 解码好的 `tread/textures/*.webp`（客户端 DDS 无损转码），供 3D 回放画碾压痕。
+    # 无 treadParameters 块的 tank 不产 json（前端回落策略见 docs/feasibility-track-marks.md）。
+    tread_n = 0
+    td = data / "tank_tread"
+    if td.is_dir():
+        for f in sorted(td.glob("*.json")):
+            if cp(f, f"tread/{f.name}"):
+                tread_n += 1
+    tt = data / "tank_tread_textures"
+    if tt.is_dir():
+        for f in sorted(tt.glob("*.webp")):
+            if cp(f, f"tread/textures/{f.name}"):
+                tread_n += 1
+
     # ---- 核心数据（前端展示名/弹种表的自足来源） ----
     core_n = 0
     for name in ["tanks.pb", "models.pb", "tank_cache.json", "data_version.json"]:
