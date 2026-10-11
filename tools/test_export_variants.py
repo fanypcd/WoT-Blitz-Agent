@@ -81,7 +81,6 @@ def test_decode_group_uvs_tiling_not_rejected():
     """平铺 UV（|v|>64）是合法 TEXCOORD0，不得按幅值拒绝回退到位 4 备用对
     （Dead Rail 铁轨灰带实测根因）。vf=411 布局：pos12+normal12+uv0(8)+uv1(8)+…"""
     import struct as _s
-    import numpy as np
     from export_map_glb import decode_group_uvs
 
     vf = 411

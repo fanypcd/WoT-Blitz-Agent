@@ -596,6 +596,23 @@ async fn usage_get(axum::extract::State(state): axum::extract::State<AppState>) 
     .into_response()
 }
 
+/// spawn_blocking 阻塞段 `Result<anyhow::Result<Value>, JoinError>` 的统一应答映射
+/// （player/scan/snapshot/prematch 四个 handler 共用）：内层错误与 join 失败同以 500 + 文本返回。
+fn blocking_value_response(res: Result<anyhow::Result<Value>, tokio::task::JoinError>) -> Response {
+    fn err_response<E: std::fmt::Display>(e: E) -> Response {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("{e}"),
+        )
+            .into_response()
+    }
+    match res {
+        Ok(Ok(v)) => Json(v).into_response(),
+        Ok(Err(e)) => err_response(e),
+        Err(e) => err_response(e),
+    }
+}
+
 async fn player_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
     axum::extract::Path(nickname): axum::extract::Path<String>,
@@ -630,19 +647,7 @@ async fn player_handler(
     })
     .await;
 
-    match res {
-        Ok(Ok(v)) => Json(v).into_response(),
-        Ok(Err(e)) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("{e}"),
-        )
-            .into_response(),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("{e}"),
-        )
-            .into_response(),
-    }
+    blocking_value_response(res)
 }
 
 async fn scan_handler(
@@ -697,19 +702,7 @@ async fn scan_handler(
     })
     .await;
 
-    match res {
-        Ok(Ok(v)) => Json(v).into_response(),
-        Ok(Err(e)) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("{e}"),
-        )
-            .into_response(),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("{e}"),
-        )
-            .into_response(),
-    }
+    blocking_value_response(res)
 }
 
 async fn snapshot_handler(
@@ -777,19 +770,7 @@ async fn snapshot_handler(
     })
     .await;
 
-    match res {
-        Ok(Ok(v)) => Json(v).into_response(),
-        Ok(Err(e)) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("{e}"),
-        )
-            .into_response(),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("{e}"),
-        )
-            .into_response(),
-    }
+    blocking_value_response(res)
 }
 
 /// 对局前瞻：批量查玩家战绩，或用回放提取双方阵容后分析强度。
@@ -867,23 +848,23 @@ async fn prematch_handler(
     })
     .await;
 
-    match res {
-        Ok(Ok(v)) => Json(v).into_response(),
-        Ok(Err(e)) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("{e}"),
-        )
-            .into_response(),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("{e}"),
-        )
-            .into_response(),
-    }
+    blocking_value_response(res)
 }
 
 /// 最近一次 /api/replay/shots 的响应缓存，供内嵌 3D 查看器拉取。
 static LAST_REPLAY_SHOTS: std::sync::OnceLock<std::sync::Mutex<Value>> = std::sync::OnceLock::new();
+
+/// 回放路径的配置口径转换（Windows/WSL 风格按 replay.path_translate；配置读取失败按
+/// auto 兜底并不让路径转换阻断解析）。`tag` = 兜底日志前缀（replay_shots/playback）。
+fn translate_replay_path(state: &AppState, raw: &str, tag: &str) -> String {
+    match state.config.load() {
+        Ok(c) => c.replay.translate(raw),
+        Err(e) => {
+            eprintln!("[{tag}] config load failed, pathTranslate=auto fallback: {e}");
+            crate::models::config::ReplayConfig::translate_with_mode(raw, "auto")
+        }
+    }
+}
 
 /// 解析单个回放文件，返回每发射击的复现数据（双方位置/朝向/伤害/目标）。
 /// POST { file: "..." } → [{ index, time_s, damage, target_name, is_kill, shooter_pos, shooter_ang, target_pos, target_ang }]
@@ -897,13 +878,7 @@ async fn replay_shots_handler(
     }
     // Windows / WSL 两种运行版本的路径风格按配置转换（replay.path_translate，默认 auto）；
     // 配置读取失败按 auto 兜底，不让路径转换阻断解析。
-    let file = match state.config.load() {
-        Ok(c) => c.replay.translate(&file),
-        Err(e) => {
-            eprintln!("[replay_shots] config load failed, pathTranslate=auto fallback: {e}");
-            crate::models::config::ReplayConfig::translate_with_mode(&file, "auto")
-        }
-    };
+    let file = translate_replay_path(&state, &file, "replay_shots");
     let path = std::path::PathBuf::from(&file);
     if !path.exists() {
         return (
@@ -965,20 +940,7 @@ fn replay_shots_blocking(
                 .into_response()
         }
     };
-    let raw_packets: Vec<(u32, f32, &[u8])> = data
-        .packets
-        .iter()
-        .map(|pkt| {
-            let t = match &pkt.payload {
-                wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate { .. } => 0,
-                wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
-                wotbreplay_parser::models::data::payload::Payload::Unknown { packet_type } => {
-                    *packet_type
-                }
-            };
-            (t, pkt.clock_secs, &pkt.raw_payload[..])
-        })
-        .collect();
+    let raw_packets = crate::replay::raw_packet_tuples(&data, 0);
 
     eprintln!("[replay_shots] file={}", file);
     eprintln!("[replay_shots] packets={}", raw_packets.len());
@@ -988,11 +950,8 @@ fn replay_shots_blocking(
     let br = replay.read_battle_results().ok();
     let author_nick = br
         .as_ref()
-        .and_then(|br| {
-            br.players
-                .iter()
-                .find(|p| p.account_id == br.author.account_id)
-                .map(|p| p.info.nickname.clone())
+        .map(|br| {
+            crate::replay::combat::author_nick_from_battle_results(br)
         })
         .or_else(|| meta.as_ref().map(|m| m.player_name.clone()))
         .unwrap_or_default();
@@ -1266,13 +1225,7 @@ async fn playback_data_handler(
     if file.is_empty() {
         return (axum::http::StatusCode::BAD_REQUEST, "missing file").into_response();
     }
-    let file = match state.config.load() {
-        Ok(c) => c.replay.translate(&file),
-        Err(e) => {
-            eprintln!("[playback] config load failed, pathTranslate=auto fallback: {e}");
-            crate::models::config::ReplayConfig::translate_with_mode(&file, "auto")
-        }
-    };
+    let file = translate_replay_path(&state, &file, "playback");
     let path = std::path::PathBuf::from(&file);
     if !path.exists() {
         return (

@@ -33,14 +33,12 @@ pub fn build_viewer_router(
     tank_resolver: TankResolver,
     tank_id: u32,
     shooter_id: Option<u32>,
-    base_prefix: &str,
 ) -> axum::Router {
     set_global_resolver(tank_resolver);
 
     // 页面已切流至 Vue SPA（crate::web 嵌入产物）；根路径重定向到检视路由。
     // 原 query（headless/shot/shell/scfg 等查看参数）必须透传——307 重定向不合并
     // query，丢了它们无头截图与射击复现参数全部失效
-    let _ = base_prefix;
     let redirect_target = match shooter_id {
         Some(s) if s != tank_id => format!("/armor_view/view/{tank_id}?shooter={s}"),
         _ => format!("/armor_view/view/{tank_id}"),

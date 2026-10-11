@@ -110,7 +110,7 @@ pub struct Timeline {
     pub destructible_areas: Vec<crate::replay::destructibles::DestructibleArea>,
     /// 区域可破坏物事件（type=32 短广播、envelope=区域实体；时钟升序）
     pub destructible_events: Vec<crate::replay::destructibles::AreaDestructibleEvent>,
-    /// 实时装填相位（arena subtype 15/17，**仅本方全队**；相位码 f2 与计数 f4 原样透传）
+    /// 实时装填相位（arena subtype 15/16/17，**仅本方全队**；相位码 f2 与计数 f4 原样透传）
     pub reloads: Vec<RawReloadPhase>,
     /// 权威「当前生效完整装填时长」（方法 35；时间升序）
     pub reload_effective: Vec<RawReloadDuration>,
@@ -163,7 +163,7 @@ impl ReplayModel {
         // comp 条目的 account_id（P3 探针 field7 定案）是作者实体解析的精确键
         let arena_updates = combat::collect_arena_updates_filtered(packets, |s| {
             s == 1 || s == 3 || s == 6
-            // 装填相位（subtype 15/17）也在此收集：本方全队的装填开始/就绪/弹夹内间隔
+            // 装填相位（subtype 15/16/17）也在此收集：本方全队的装填开始/就绪/弹夹内间隔
             || s == combat::ARENA_SUB_RELOAD_TIME
             || s == combat::ARENA_SUB_RELOAD_TIME_UPDATE
             || s == combat::ARENA_SUB_RELOAD_TIME_LIST

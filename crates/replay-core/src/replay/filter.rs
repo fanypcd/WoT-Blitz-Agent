@@ -366,12 +366,6 @@ impl AvatarFilter {
         self.previous_waypoint = cur;
         self.next_waypoint = new_wp;
     }
-
-    /// 当前延迟（秒）——裁判探针与质量标注用。
-    #[allow(dead_code)]
-    pub fn latency(&self) -> f32 {
-        self.latency
-    }
 }
 
 /// 60Hz 帧网格步长（客户端每帧渲染一次 `output()`）
@@ -685,22 +679,7 @@ mod referee {
             let data = replay.read_data().unwrap();
             let u32le = |b: &[u8]| u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
             let f32le = |b: &[u8]| f32::from_le_bytes([b[0], b[1], b[2], b[3]]);
-            let packets: Vec<(u32, f32, &[u8])> = data
-                .packets
-                .iter()
-                .map(|pkt| {
-                    let t = match &pkt.payload {
-                        wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate {
-                            ..
-                        } => 0,
-                        wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
-                        wotbreplay_parser::models::data::payload::Payload::Unknown {
-                            packet_type,
-                        } => *packet_type,
-                    };
-                    (t, pkt.clock_secs, &pkt.raw_payload[..])
-                })
-                .collect();
+            let packets = crate::replay::packets::test_data_tuples(&data);
 
             // per-entity type=10 流（含 pos_error）
             let mut st10: HashMap<u32, Vec<St10Sample>> = HashMap::new();

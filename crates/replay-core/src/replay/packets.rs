@@ -68,6 +68,26 @@ pub fn frame_packets(data: &[u8]) -> Result<Vec<RawPacket>> {
     Ok(packets)
 }
 
+/// 测试助手：把 crate `Replay::read_data()` 的反序列化产物映射为 `(type, clock, payload)`
+/// 元组流（映射式与本库管线一致；仅 ignored 探针测试用——管线一律走 [`read_raw_packets`]，
+/// 不吃 crate 反序列化，见本文件头注的连坐说明）。
+#[cfg(test)]
+pub(crate) fn test_data_tuples(data: &wotbreplay_parser::models::data::Data) -> Vec<(u32, f32, &[u8])> {
+    data.packets
+        .iter()
+        .map(|pkt| {
+            let t = match &pkt.payload {
+                wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate { .. } => 0,
+                wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
+                wotbreplay_parser::models::data::payload::Payload::Unknown { packet_type } => {
+                    *packet_type
+                }
+            };
+            (t, pkt.clock_secs, &pkt.raw_payload[..])
+        })
+        .collect()
+}
+
 fn packet_stream_offset(b: &[u8]) -> Result<usize> {
     if b.len() < 14 || u32_le(b, 0) != MAGIC {
         bail!("data.wotreplay header: bad magic");

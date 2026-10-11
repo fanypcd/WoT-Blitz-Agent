@@ -42,17 +42,14 @@
 from __future__ import annotations
 
 import argparse
-import bisect
 import concurrent.futures
 import io
 import json
 import math
 import pathlib
-import random
 import re
 import struct
 import sys
-import os
 import time
 
 import numpy as np
@@ -70,7 +67,7 @@ try:
 except ImportError:
     Image = None
 
-from wotb_sc2 import Reader, decode_dvpl, read_archive, read_sc2  # noqa: E402
+from wotb_sc2 import decode_dvpl, read_sc2  # noqa: E402
 from wotb_cube import cube_to_equirect, decode_cube  # noqa: E402
 from wotb_scg import decode_polygon_normals  # noqa: E402
 from wotb_scg import (  # noqa: E402
@@ -178,24 +175,6 @@ def resolve_entry(entries: list[MapEntry], name: str) -> MapEntry | None:
 
 MAGIC_PREFIX = b"PVR" + bytes([3])
 MAGIC_MARKER = MAGIC_PREFIX + b"CRC_"
-
-
-def extract_string_table(raw: bytes) -> dict[int, str]:
-    """SC2 KeyedArchive 头部的 fastname 字符串表（id → 字符串）。"""
-    reader = Reader(raw)
-    reader.take(4)
-    reader.u32(), reader.u32()
-    read_archive(reader)
-    desc = reader.u32()
-    reader.take(desc)
-    reader.take(2)
-    ver = reader.u16()
-    if ver != 2:
-        return {}
-    n = reader.u32()
-    strings = [reader.text(reader.u16()) for _ in range(n)]
-    ids = [reader.u32() for _ in range(n)]
-    return dict(zip(ids, strings, strict=True))
 
 
 def iter_entities_recursive(container: dict, path: str = "$"):
@@ -745,7 +724,6 @@ def collect_renderables(scene: dict) -> dict:
             "variant_labels": variant_labels}
 
 
-
 # 顶点布局（SCG 交错顶点，实测 7 种 vertexFormat 反推，bit 求和 == stride）
 # DAVA 顶点位表（权威来源：dava.engine `Sources/Internal/Render/RenderBase.h`
 # `EVF_*` 位定义 :158-177 + `GetVertexSize` :213-261）。逐位语义：
@@ -1085,14 +1063,15 @@ def decode_pvr3(d: bytes, max_dim: int = 0) -> Image.Image | None:
     布局：**52B 头**（PVR3/ver/'rgba'/bits[4]/colourSpace/channelType/**height@24**/
     **width@28**/depth/surfaces/faces/mips/**metaDataSize@48**）
     + PVR3 版本字节 0x03 + 'CRC_' 元数据块（len + crc）| 像素（未压缩 mip 链，mip0 在前）。
-    像素起点按 CRC_ 子块定位（真字节含 0x03 版本字节，故匹配串是 `PVR` + 0x03 + `CRC_`）；
+    像素起点按 CRC_ 子块定位（匹配串含 0x03 版本字节：`PVR\x03CRC_`，
+    与 wotbtools/wotb_cube.py 的立方图路径同款标记）。
     尺寸/位深按"载荷长度与 mip 链总量精确相等"校验，头部尺寸字段与载荷不符时
     （如 TileTxRock 头写 512²、载荷实为 1024² 图集）以 2 倍尺寸重试。
 
     尺寸字段序见 PVRFormatHelper.h 结构体：@24 是 height、@28 是 width（旧实现读反，
     非方形贴图会被 reshape 成转置图；方形图宽度相同故长期未暴露）。
     """
-    if d[:4] != b"PVR":
+    if d[:4] != b"PVR\x03":
         return None
     fmt = d[8:12]
     bits = tuple(d[12:16])
@@ -1132,7 +1111,7 @@ def decode_pvr3(d: bytes, max_dim: int = 0) -> Image.Image | None:
         return _cap_dim(img, max_dim)
 
     starts = []
-    marker = d.rfind(b"PVRCRC_")
+    marker = d.rfind(b"PVR\x03CRC_")
     if marker != -1:
         head_len = struct.unpack_from("<I", d, marker + 8)[0]
         starts.append(marker + 12 + head_len)
@@ -1184,7 +1163,7 @@ def decode_tiletx_planes(d: bytes):
 
     载荷 = 4 个平面顺序存储，每平面 = 单通道 4444 mip 链（512² 时 699050B）。
     """
-    if d[:4] != b"PVR":
+    if d[:4] != b"PVR\x03":
         return None
     # 同 decode_pvr3：**height@24、width@28**（旧实现读反，非方形贴图会错切）
     h0 = struct.unpack_from("<I", d, 24)[0]
@@ -1202,7 +1181,7 @@ def decode_tiletx_planes(d: bytes):
         return total
 
     per = chain(w0, h0)
-    marker = d.rfind(b"PVRCRC_")
+    marker = d.rfind(b"PVR\x03CRC_")
     px_start = None
     if marker != -1:
         head_len = struct.unpack_from("<I", d, marker + 8)[0]
@@ -2045,9 +2024,6 @@ def _prop_floats(mat_desc: dict, key: str, default) -> tuple:
     return vals + tuple(default)[n:]
 
 
-
-
-
 def mask_channel_values(mask_img: Image.Image) -> np.ndarray:
     """掩码贴图 → 0..1 单通道值（烘焙与"单独成图"两条路共用同一口径）。
 
@@ -2406,12 +2382,6 @@ def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | 
     return len(glb.materials) - 1
 
 
-def _decode_landscape_tex(textures: TextureStore, tex_path: str) -> Image.Image | None:
-    """按贴图槽路径解码（colormap/tilemask/tile 等，RGBA）。"""
-    img, _ = textures.get(tex_path)
-    return img
-
-
 def decode_tiletx_planes_from_slot(tile_tex: str, map_dir: pathlib.Path):
     """TileTex 槽 -> [4 张灰度细节 ndarray]；文件缺失/结构不符返回 None。"""
     stem = tile_tex[:-4] if tile_tex.lower().endswith(".tex") else tile_tex
@@ -2423,12 +2393,6 @@ def decode_tiletx_planes_from_slot(tile_tex: str, map_dir: pathlib.Path):
             d = decode_dvpl(cand.read_bytes())
             return decode_tiletx_planes(d)
     return None
-
-
-def _srgb_to_linear(arr):
-    """sRGB -> 线性（客户端 shader 的硬件解码行为）。"""
-    c = np.clip(np.asarray(arr, dtype=np.float32), 0.0, 1.0)
-    return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
 
 
 def _linear_to_srgb(arr):

@@ -20,7 +20,7 @@ pub async fn serve(
     tank_id: u32,
     shooter_id: Option<u32>,
 ) -> anyhow::Result<()> {
-    let app = build_viewer_router(tank_resolver, tank_id, shooter_id, "");
+    let app = build_viewer_router(tank_resolver, tank_id, shooter_id);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 0));
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -68,20 +68,7 @@ pub async fn start_viewer_server_for_replay(
     let mut replay = Replay::open(std::fs::File::open(replay_path)?)?;
     let meta = replay.read_meta().ok();
     let data = replay.read_data()?;
-    let raw_packets: Vec<(u32, f32, &[u8])> = data
-        .packets
-        .iter()
-        .map(|pkt| {
-            let t = match &pkt.payload {
-                wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate { .. } => 0,
-                wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
-                wotbreplay_parser::models::data::payload::Payload::Unknown { packet_type } => {
-                    *packet_type
-                }
-            };
-            (t, pkt.clock_secs, &pkt.raw_payload[..])
-        })
-        .collect();
+    let raw_packets = crate::replay::raw_packet_tuples(&data, 0);
 
     // 作者昵称 = battle_results 权威来源（meta.json 非 UTF-8 时 read_meta 整体失败，不可依赖；
     // meta.player_name 仅作兜底）
@@ -262,7 +249,7 @@ pub async fn start_viewer_server_with_data(
     shooter_id: Option<u32>,
     replay_shots: Option<serde_json::Value>,
 ) -> anyhow::Result<u16> {
-    let mut app = build_viewer_router(tank_resolver, tank_id, shooter_id, "");
+    let mut app = build_viewer_router(tank_resolver, tank_id, shooter_id);
     if let Some(shots) = replay_shots {
         app = app.route(
             "/api/replay_shot",

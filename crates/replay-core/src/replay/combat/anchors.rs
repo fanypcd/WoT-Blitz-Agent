@@ -362,62 +362,7 @@ pub(crate) fn trim_tick_samples(samples: &mut Vec<TickSample>, cluster_dt: Optio
     samples.sort_by(|a, b| a.dt.partial_cmp(&b.dt).unwrap());
 }
 
-/// type=10 相邻快照段的运动学检验（回放流含服务器纠偏"倒车滑移"段，速度可达真实极限 2~3 倍且弹道几何不可达）。
-/// 坦克约束：倒车 ≤5.5 m/s（全游戏上限）、侧移 ≤5.0、前向 ≤30、加速度 ≤8 m/s²；位移 <0.25 m 微跳不截断（避免误杀厘米级纠偏）。
-/// 已弃用（不再调用；函数体保留供参考）：该检验会把真实倒车（轻坦倒车极速
-/// 可超 5.5 m/s 阈值）整段误杀导致 tick 切换丢失——项目约定完全按回放原始数据渲染。
-#[allow(dead_code)]
-fn seg_speed(a: &TickSample, b: &TickSample) -> (f32, f32, f32, f32) {
-    let dt = (b.dt - a.dt).abs().max(1e-3);
-    let dx = b.pos[0] - a.pos[0];
-    let dz = b.pos[2] - a.pos[2];
-    let v = (dx * dx + dz * dz).sqrt() / dt;
-    let mut err = (dx.atan2(dz) - b.yaw).rem_euclid(std::f32::consts::TAU);
-    if err > std::f32::consts::PI {
-        err -= std::f32::consts::TAU;
-    }
-    (v, err.abs(), dt, (dx * dx + dz * dz).sqrt())
-}
-
-#[allow(dead_code)]
-fn cut_needed(v: f32, err: f32, disp: f32, prev_v: Option<(f32, f32)>) -> bool {
-    if disp < 0.25 || v <= 0.5 {
-        return false;
-    }
-    let hard = if err < 45.0f32.to_radians() {
-        v > 30.0
-    } else if err > 135.0f32.to_radians() {
-        v > 5.5
-    } else {
-        v > 5.0
-    };
-    if hard {
-        return true;
-    }
-    // 反向/侧向段附加加速度检验：坦克加/制动 ≤8 m/s²，纠偏滑移远超此限
-    if err > 45.0f32.to_radians() {
-        if let Some((pv, pdt)) = prev_v {
-            if pdt > 0.03 && (v - pv).abs() / pdt > 8.0 {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-/// 全链扫描，截除最后一段不合理样本之前的前缀（其后样本已收敛到服务器权威基线）。
-#[allow(dead_code)]
-fn truncate_implausible_prefix(samples: &mut Vec<TickSample>) {
-    let mut cut = 0usize; // 保留 samples[cut..]
-    let mut prev: Option<(f32, f32)> = None;
-    for i in 1..samples.len() {
-        let (v, err, dt, disp) = seg_speed(&samples[i - 1], &samples[i]);
-        if cut_needed(v, err, disp, prev) {
-            cut = i;
-        }
-        prev = Some((v, dt));
-    }
-    if cut > 0 {
-        samples.drain(0..cut);
-    }
-}
+// 曾试过对相邻快照段做运动学检验（倒车 ≤5.5 m/s、侧移 ≤5.0、前向 ≤30、加速度 ≤8 m/s²，
+// 位移 <0.25 m 微跳豁免），截除"服务器纠偏倒车滑移"前缀——已否决：会把真实倒车（轻坦
+// 倒车极速可超 5.5 m/s）整段误杀导致 tick 切换丢失。项目约定完全按回放原始数据渲染，
+// 不做任何运动学合理性过滤。

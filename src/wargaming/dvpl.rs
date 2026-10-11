@@ -338,6 +338,42 @@ fn parse_armor_plates(
     (plates, spaced)
 }
 
+/// `<armor>…</armor>` 块体（开标签首个/末个由 `last` 选：嵌套段的顶级炮塔口径取 rfind）。
+fn armor_block_of(text: &str, last: bool) -> Option<&str> {
+    let armor_start = if last {
+        text.rfind("<armor>")?
+    } else {
+        text.find("<armor>")?
+    };
+    let armor_end = text[armor_start..].find("</armor>")?;
+    Some(&text[armor_start + 7..armor_start + armor_end])
+}
+
+/// `<primaryArmor>front side rear</primaryArmor>`（hull/turret 两段共用）。
+/// 标签缺失时按段默认回退 armor_1/3/4；有开无闭 → None（与既有 fail-closed 一致）。
+fn primary_armor_of(text: &str, last: bool) -> Option<PrimaryArmor> {
+    let pa_start = if last {
+        text.rfind("<primaryArmor>")
+    } else {
+        text.find("<primaryArmor>")
+    };
+    let Some(pa_start) = pa_start else {
+        return Some(PrimaryArmor {
+            front: "armor_1".to_string(),
+            sides: "armor_3".to_string(),
+            rear: "armor_4".to_string(),
+        });
+    };
+    let pa_end = text[pa_start..].find("</primaryArmor>")?;
+    let pa_text = &text[pa_start + 14..pa_start + pa_end];
+    let parts: Vec<&str> = pa_text.split_whitespace().collect();
+    Some(PrimaryArmor {
+        front: parts.first().map(|s| s.to_string()).unwrap_or_default(),
+        sides: parts.get(1).map(|s| s.to_string()).unwrap_or_default(),
+        rear: parts.get(2).map(|s| s.to_string()).unwrap_or_default(),
+    })
+}
+
 /// 解析某个部件的装甲块（含 `vehicleDamageFactor` 识别 spaced 装甲）。
 fn parse_section_armor(text: &str, section_tag: &str) -> Option<SectionArmor> {
     let section_start = text.find(section_tag)?;
@@ -345,28 +381,8 @@ fn parse_section_armor(text: &str, section_tag: &str) -> Option<SectionArmor> {
     let section_end = text[section_start..].find(&close_tag)?;
     let section = &text[section_start..section_start + section_end];
 
-    let armor_start = section.find("<armor>")?;
-    let armor_end_marker = section[armor_start..].find("</armor>")?;
-    let armor_block = &section[armor_start + 7..armor_start + armor_end_marker];
-
-    let (plates, spaced) = parse_armor_plates(armor_block);
-
-    let primary = if let Some(pa_start) = section.find("<primaryArmor>") {
-        let pa_end = section[pa_start..].find("</primaryArmor>")?;
-        let pa_text = &section[pa_start + 14..pa_start + pa_end];
-        let parts: Vec<&str> = pa_text.split_whitespace().collect();
-        PrimaryArmor {
-            front: parts.first().map(|s| s.to_string()).unwrap_or_default(),
-            sides: parts.get(1).map(|s| s.to_string()).unwrap_or_default(),
-            rear: parts.get(2).map(|s| s.to_string()).unwrap_or_default(),
-        }
-    } else {
-        PrimaryArmor {
-            front: "armor_1".to_string(),
-            sides: "armor_3".to_string(),
-            rear: "armor_4".to_string(),
-        }
-    };
+    let (plates, spaced) = parse_armor_plates(armor_block_of(section, false)?);
+    let primary = primary_armor_of(section, false)?;
 
     Some(SectionArmor {
         plates,
@@ -415,28 +431,8 @@ fn parse_turret_armor(text: &str) -> Option<SectionArmor> {
 
     // 段内已截到本炮塔的 <guns> 之前，故此处 <armor> 必为炮塔本体装甲（非炮管装甲）；
     // 顶级炮塔无装甲块时返回 None，不回头抓上一个炮塔的板。
-    let armor_start = turret_only.rfind("<armor>")?;
-    let armor_end = turret_only[armor_start..].find("</armor>")?;
-    let armor_block = &turret_only[armor_start + 7..armor_start + armor_end];
-
-    let (plates, spaced) = parse_armor_plates(armor_block);
-
-    let primary = if let Some(pa_start) = turret_only.rfind("<primaryArmor>") {
-        let pa_end = turret_only[pa_start..].find("</primaryArmor>")?;
-        let pa_text = &turret_only[pa_start + 14..pa_start + pa_end];
-        let parts: Vec<&str> = pa_text.split_whitespace().collect();
-        PrimaryArmor {
-            front: parts.first().map(|s| s.to_string()).unwrap_or_default(),
-            sides: parts.get(1).map(|s| s.to_string()).unwrap_or_default(),
-            rear: parts.get(2).map(|s| s.to_string()).unwrap_or_default(),
-        }
-    } else {
-        PrimaryArmor {
-            front: "armor_1".to_string(),
-            sides: "armor_3".to_string(),
-            rear: "armor_4".to_string(),
-        }
-    };
+    let (plates, spaced) = parse_armor_plates(armor_block_of(turret_only, true)?);
+    let primary = primary_armor_of(turret_only, true)?;
 
     Some(SectionArmor {
         plates,
@@ -450,10 +446,7 @@ fn parse_turret_armor(text: &str) -> Option<SectionArmor> {
 fn parse_gun_armor(text: &str) -> Option<SectionArmor> {
     let (_turret, guns_section) = top_turret_span(turrets_section_of(text)?);
 
-    let armor_start = guns_section.rfind("<armor>")?;
-    let armor_end = guns_section[armor_start..].find("</armor>")?;
-    let armor_block = &guns_section[armor_start + 7..armor_start + armor_end];
-
+    let armor_block = armor_block_of(guns_section, true)?;
     let (mut plates, spaced) = parse_armor_plates(armor_block);
 
     if let Some(gun_start) = armor_block.find("<gun>") {
@@ -561,12 +554,7 @@ fn parse_section_bbox(text: &str, section_name: &str) -> Option<BoundingBox> {
 /// 厚度引用行（`turret_01: 186.08`）会抢先命中，400 字符窗口抓到后续段（常为 chassis）的包围盒。
 fn parse_section_bbox_from(text: &str, from: usize, section_name: &str) -> Option<BoundingBox> {
     let section_idx = find_section_header(text.get(from..)?, section_name)? + from;
-    // 固定 400 字节窗口可能落在多字节 UTF-8 字符中间：向左回退到安全边界再切片
-    let mut end = (section_idx + 400).min(text.len());
-    while end > section_idx && !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    let section = &text[section_idx..end];
+    let section = section_window(text, section_idx);
 
     let min_idx = section.find("min:")?;
     let max_idx = section.find("max:")?;
@@ -637,15 +625,20 @@ pub(crate) fn parse_numbered_section_bboxes(text: &str, prefix: &str) -> Vec<Num
     out
 }
 
-/// 解析某部件的 `points:` 数组（部件定位偏移）。
-fn parse_section_points(text: &str, section_name: &str) -> Option<[f32; 3]> {
-    let section_idx = find_section_header(text, section_name)?;
-    // 固定 400 字节窗口可能落在多字节 UTF-8 字符中间：向左回退到安全边界再切片
+/// 段头起的固定 400 字节窗口（包围盒/points 的搜索范围）。窗口可能落在多字节
+/// UTF-8 字符中间：向左回退到安全边界再切片。
+fn section_window(text: &str, section_idx: usize) -> &str {
     let mut end = (section_idx + 400).min(text.len());
     while end > section_idx && !text.is_char_boundary(end) {
         end -= 1;
     }
-    let section = &text[section_idx..end];
+    &text[section_idx..end]
+}
+
+/// 解析某部件的 `points:` 数组（部件定位偏移）。
+fn parse_section_points(text: &str, section_name: &str) -> Option<[f32; 3]> {
+    let section_idx = find_section_header(text, section_name)?;
+    let section = section_window(text, section_idx);
 
     let points_idx = section.find("points:")?;
     let after = &section[points_idx + 7..];

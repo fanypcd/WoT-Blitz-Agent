@@ -515,12 +515,11 @@ pub fn comp_descriptors_from_updates(
     valid_tanks: &[u32],
 ) -> HashMap<String, CompDescriptor> {
     let mut out: HashMap<String, CompDescriptor> = HashMap::new();
-    let valid: Vec<u32> = valid_tanks.to_vec();
     for u in updates {
         if u.subtype != 1 || u.payload.len() < 15 {
             continue;
         }
-        for d in CompDescriptor::parse_args(&u.payload, &valid) {
+        for d in CompDescriptor::parse_args(&u.payload, valid_tanks) {
             out.insert(d.nickname.clone(), d);
         }
     }
@@ -739,7 +738,7 @@ fn flight_secs(from: &[f32; 3], to: &[f32; 3], vel: &[f32; 3]) -> f32 {
 }
 
 /// 从射击复现数据映射回放弹道记录
-fn to_playback_shot(s: &ShotReplayData, _name_to_eid: &HashMap<String, u32>) -> PlaybackShot {
+fn to_playback_shot(s: &ShotReplayData) -> PlaybackShot {
     // 受击方身份 = 原始 eid 直传（method38/method8 服务器权威）——
     // eid 是身份域，名字仅显示域。
     let target_eid = s.target_eid;
@@ -844,14 +843,6 @@ pub fn from_model(
     let candidates = vehicle_candidates(st10, prop2);
     if candidates.is_empty() {
         bail!("无任何车辆姿态流（type=10 + prop2 双流交集为空；prop2 全局缺失时按仅 st10 退化，仍空才报此错）");
-    }
-
-    // name→eid 反查表（限车辆实体；射击目标归属用）
-    let mut name_to_eid: HashMap<String, u32> = HashMap::new();
-    for eid in candidates.keys() {
-        if let Some(name) = entity_names.get(eid) {
-            name_to_eid.entry(name.clone()).or_insert(*eid);
-        }
     }
 
     // 全部弹道（模型一次扫描产物；时间轴末端扩展与列表共用）
@@ -1043,7 +1034,7 @@ pub fn from_model(
 
     let mut shots: Vec<PlaybackShot> = shots_raw
         .iter()
-        .map(|s| to_playback_shot(s, &name_to_eid))
+        .map(to_playback_shot)
         .collect();
     shots.sort_by(|a, b| a.t_fire.partial_cmp(&b.t_fire).unwrap());
 
@@ -1636,22 +1627,7 @@ mod tests {
             let f = std::fs::File::open(file).unwrap();
             let mut replay = wotbreplay_parser::replay::Replay::open(f).unwrap();
             let data = replay.read_data().unwrap();
-            let packets: Vec<(u32, f32, &[u8])> = data
-                .packets
-                .iter()
-                .map(|pkt| {
-                    let t = match &pkt.payload {
-                        wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate {
-                            ..
-                        } => 0,
-                        wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
-                        wotbreplay_parser::models::data::payload::Payload::Unknown {
-                            packet_type,
-                        } => *packet_type,
-                    };
-                    (t, pkt.clock_secs, &pkt.raw_payload[..])
-                })
-                .collect();
+            let packets = crate::replay::packets::test_data_tuples(&data);
             let br = replay.read_battle_results().ok();
             let players: Vec<PlaybackPlayer> = br
                 .as_ref()

@@ -15,7 +15,8 @@ XML / `.sc2`/`.scg` 解包），只编码 `src/wargaming/blitzkit.rs` 运行期�
   * `dev_name`     —— BK 的 slug；客户端无此概念（`game_data` 写产物用，丢它会全量重写 735 文件）
   * `tank_name` / `shell_name` / `gun_name` / `track_name` / `engine_name`
                    —— 客户端缺专名的 145 处（车名 24 / 弹 73 / 枪 17 / 履带 19 / 引擎 12）
-  * `initial_turret_rotation` —— 4 辆；源在 `.sc2` 节点变换，两端尚未解析
+  * `initial_turret_rotation` —— 已客户端化（extract_vehicles.py 读车辆 XML
+                   `<turretInitialRotation>` 直出，4 辆非零）；本地补充表仅兜底
 
 用法：
     python tools/emit_vehicle_pb.py --emit-supplement   # 从现有 pb + local_pb 生成补充表

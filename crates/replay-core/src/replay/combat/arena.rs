@@ -664,81 +664,93 @@ pub struct SupremacyBaseStateTransition {
     pub capture_progress: Option<u8>,
 }
 
+/// subtype48 包络的统一块流扫描（supremacy/assault 收集器共用）：
+/// Method=48 envelope → updateArena2 `(wrapper, root)` → root 下 `field_no` 号
+/// length-delimited 块，产出 `(clock, block)`。包长不足/非 48/wrapper 号不匹配/
+/// 解码失败/缺 proto 字段的包静默跳过（收集器口径：不合法块整体跳过，绝不产出部分状态）。
+fn collect_arena2_blocks<'a>(
+    packets: &'a [(u32, f32, &'a [u8])],
+    wrapper_no: u32,
+    field_no: u32,
+) -> impl Iterator<Item = (f32, &'a [u8])> {
+    packets
+        .iter()
+        .filter_map(move |(_t, clock, p)| {
+            if p.len() < 15 {
+                return None;
+            }
+            if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != ARENA_UPDATE_METHOD {
+                return None;
+            }
+            let alen = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
+            if 12 + alen > p.len() || alen < 2 {
+                return None;
+            }
+            let (wrapper, root) = decode_update_arena2(&p[12..12 + alen])?;
+            if wrapper != wrapper_no {
+                return None;
+            }
+            let fields = proto_fields(root)?;
+            Some(
+                fields
+                    .into_iter()
+                    .filter(move |(f, wire, _, _)| *f == field_no && *wire == 2)
+                    .map(move |(_, _, s, len)| (*clock, &root[s..s + len])),
+            )
+        })
+        .flatten()
+}
+
 /// 收集 wrapper12/root11 sparse 基地更新。校验（Java 同式）：base_index 0..=3、
 /// owner/capturing ∈ {0,1,2}、progress 0..=99；不合法块整体跳过，绝不产出部分状态。
 pub fn collect_supremacy_base_updates(
     packets: &[(u32, f32, &[u8])],
 ) -> Vec<RawSupremacyBaseUpdate> {
     let mut out = Vec::new();
-    for (_t, clock, p) in packets {
-        if p.len() < 15 {
-            continue;
-        }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != ARENA_UPDATE_METHOD {
-            continue;
-        }
-        let alen = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if 12 + alen > p.len() || alen < 2 {
-            continue;
-        }
-        let Some((wrapper, root)) = decode_update_arena2(&p[12..12 + alen]) else {
+    for (clock, block) in collect_arena2_blocks(packets, WRAPPER_SUPREMACY_BASE, 11) {
+        let Some(bf) = proto_fields(block) else {
             continue;
         };
-        if wrapper != WRAPPER_SUPREMACY_BASE {
-            continue;
-        }
-        let Some(fields) = proto_fields(root) else {
-            continue;
+        let mut u = RawSupremacyBaseUpdate {
+            clock,
+            base_index: None,
+            owner_team: None,
+            capturing_team: None,
+            capture_progress: None,
+            raw_field5: None,
+            raw_field6: None,
         };
-        for (f, wire, s, len) in fields {
-            if f != 11 || wire != 2 {
+        for (n, w, vs, _vl) in bf {
+            if w != 0 {
                 continue;
             }
-            let block = &root[s..s + len];
-            let Some(bf) = proto_fields(block) else {
+            let Some(mut vo) = (vs <= block.len()).then_some(vs) else {
                 continue;
             };
-            let mut u = RawSupremacyBaseUpdate {
-                clock: *clock,
-                base_index: None,
-                owner_team: None,
-                capturing_team: None,
-                capture_progress: None,
-                raw_field5: None,
-                raw_field6: None,
-            };
-            for (n, w, vs, _vl) in bf {
-                if w != 0 {
-                    continue;
-                }
-                let Some(mut vo) = (vs <= block.len()).then_some(vs) else {
-                    continue;
-                };
-                let Some(v) = pb_varint(block, &mut vo) else {
-                    continue;
-                };
-                match n {
-                    1 => u.base_index = Some(v as u8),
-                    2 => u.owner_team = Some(v as u8),
-                    3 => u.capturing_team = Some(v as u8),
-                    4 => u.capture_progress = Some(v as u8),
-                    5 => u.raw_field5 = Some(v),
-                    6 => u.raw_field6 = Some(v),
-                    _ => {}
-                }
-            }
-            let valid_base = u.base_index.is_none_or(|b| b <= 3);
-            let valid_team = |t: Option<u8>| t.is_none_or(|x| x <= 2);
-            let valid_progress = u.capture_progress.is_none_or(|x| x <= 99);
-            if !valid_base
-                || !valid_team(u.owner_team)
-                || !valid_team(u.capturing_team)
-                || !valid_progress
-            {
+            let Some(v) = pb_varint(block, &mut vo) else {
                 continue;
+            };
+            match n {
+                1 => u.base_index = Some(v as u8),
+                2 => u.owner_team = Some(v as u8),
+                3 => u.capturing_team = Some(v as u8),
+                4 => u.capture_progress = Some(v as u8),
+                5 => u.raw_field5 = Some(v),
+                6 => u.raw_field6 = Some(v),
+                _ => {}
             }
-            out.push(u);
         }
+        let valid_base = u.base_index.is_none_or(|b| b <= 3);
+        let valid_team = |t: Option<u8>| t.is_none_or(|x| x <= 2);
+        let valid_progress = u.capture_progress.is_none_or(|x| x <= 99);
+        if !valid_base
+            || !valid_team(u.owner_team)
+            || !valid_team(u.capturing_team)
+            || !valid_progress
+        {
+            continue;
+        }
+        out.push(u);
     }
     out
 }
@@ -851,61 +863,36 @@ pub struct AssaultBaseStateTransition {
 /// 收集 wrapper8/root8 原始更新（不做族过滤；族判定见重建器）。
 pub fn collect_assault_base_updates(packets: &[(u32, f32, &[u8])]) -> Vec<RawAssaultBaseUpdate> {
     let mut out = Vec::new();
-    for (_t, clock, p) in packets {
-        if p.len() < 15 {
-            continue;
-        }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != ARENA_UPDATE_METHOD {
-            continue;
-        }
-        let alen = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if 12 + alen > p.len() || alen < 2 {
-            continue;
-        }
-        let Some((wrapper, root)) = decode_update_arena2(&p[12..12 + alen]) else {
+    for (clock, block) in collect_arena2_blocks(packets, WRAPPER_ASSAULT_BASE, 8) {
+        let Some(bf) = proto_fields(block) else {
             continue;
         };
-        if wrapper != WRAPPER_ASSAULT_BASE {
-            continue;
-        }
-        let Some(fields) = proto_fields(root) else {
-            continue;
+        let mut u = RawAssaultBaseUpdate {
+            clock,
+            raw_field1: None,
+            raw_field2: None,
+            raw_field3: None,
+            raw_field4: None,
         };
-        for (f, wire, st, len) in fields {
-            if f != 8 || wire != 2 {
+        for (n, w, vs, _vl) in bf {
+            if w != 0 {
                 continue;
             }
-            let block = &root[st..st + len];
-            let Some(bf) = proto_fields(block) else {
+            let Some(mut vo) = (vs <= block.len()).then_some(vs) else {
                 continue;
             };
-            let mut u = RawAssaultBaseUpdate {
-                clock: *clock,
-                raw_field1: None,
-                raw_field2: None,
-                raw_field3: None,
-                raw_field4: None,
+            let Some(v) = pb_varint(block, &mut vo) else {
+                continue;
             };
-            for (n, w, vs, _vl) in bf {
-                if w != 0 {
-                    continue;
-                }
-                let Some(mut vo) = (vs <= block.len()).then_some(vs) else {
-                    continue;
-                };
-                let Some(v) = pb_varint(block, &mut vo) else {
-                    continue;
-                };
-                match n {
-                    1 => u.raw_field1 = Some(v),
-                    2 => u.raw_field2 = Some(v),
-                    3 => u.raw_field3 = Some(v),
-                    4 => u.raw_field4 = Some(v),
-                    _ => {}
-                }
+            match n {
+                1 => u.raw_field1 = Some(v),
+                2 => u.raw_field2 = Some(v),
+                3 => u.raw_field3 = Some(v),
+                4 => u.raw_field4 = Some(v),
+                _ => {}
             }
-            out.push(u);
         }
+        out.push(u);
     }
     out
 }
@@ -1076,7 +1063,7 @@ pub struct RawReloadPhase {
     pub count: Option<u64>,
 }
 
-/// 从已收集的 arena update 流（keep_subtype 需含 15/17）解析装填相位条目，按 clock 升序。
+/// 从已收集的 arena update 流（keep_subtype 需含 15/16/17）解析装填相位条目，按 clock 升序。
 ///
 /// 消费方（前端进度条）口径：每车取 ≤ t 的最后一条**已闭环**条目——f2=3/7 带时长者 =
 /// 正在装填（`progress = clamp((t − clock) / duration_s)`），f4=1 = 就绪（条到 1 后停住）。
@@ -1178,67 +1165,42 @@ pub struct SupremacyPointsSample {
 
 pub fn collect_supremacy_points(packets: &[(u32, f32, &[u8])]) -> Vec<SupremacyPointsSample> {
     let mut out = Vec::new();
-    for (_t, clock, p) in packets {
-        if p.len() < 15 {
-            continue;
-        }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != ARENA_UPDATE_METHOD {
-            continue;
-        }
-        let alen = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if 12 + alen > p.len() || alen < 2 {
-            continue;
-        }
-        let Some((wrapper, root)) = decode_update_arena2(&p[12..12 + alen]) else {
+    for (clock, block) in collect_arena2_blocks(packets, WRAPPER_SUPREMACY_POINTS, 12) {
+        let Some(bf) = proto_fields(block) else {
             continue;
         };
-        if wrapper != WRAPPER_SUPREMACY_POINTS {
-            continue;
+        let mut team = None;
+        let mut points = None;
+        for (n, w, vs, _vl) in bf {
+            if w != 0 {
+                continue;
+            }
+            let Some(mut vo) = (vs <= block.len()).then_some(vs) else {
+                continue;
+            };
+            let Some(v) = pb_varint(block, &mut vo) else {
+                continue;
+            };
+            match n {
+                1 => team = Some(v as u8),
+                2 => points = Some(v as u32),
+                _ => {}
+            }
         }
-        let Some(fields) = proto_fields(root) else {
+        let (Some(team), Some(points)) = (team, points) else {
             continue;
         };
-        for (f, wire, s, len) in fields {
-            if f != 12 || wire != 2 {
-                continue;
-            }
-            let block = &root[s..s + len];
-            let Some(bf) = proto_fields(block) else {
-                continue;
-            };
-            let mut team = None;
-            let mut points = None;
-            for (n, w, vs, _vl) in bf {
-                if w != 0 {
-                    continue;
-                }
-                let Some(mut vo) = (vs <= block.len()).then_some(vs) else {
-                    continue;
-                };
-                let Some(v) = pb_varint(block, &mut vo) else {
-                    continue;
-                };
-                match n {
-                    1 => team = Some(v as u8),
-                    2 => points = Some(v as u32),
-                    _ => {}
-                }
-            }
-            let (Some(team), Some(points)) = (team, points) else {
-                continue;
-            };
-            if team != 1 && team != 2 {
-                continue;
-            }
-            if points > 100_000 {
-                continue;
-            }
-            out.push(SupremacyPointsSample {
-                clock: *clock,
-                team,
-                points,
-            });
+        if team != 1 && team != 2 {
+            continue;
         }
+        if points > 100_000 {
+            continue;
+        }
+        out.push(SupremacyPointsSample {
+            clock,
+            team,
+            points,
+        });
     }
     out
 }

@@ -5,12 +5,11 @@
   notes = 可选，"时刻,类型" 逗号分隔的碾压顺序备注（如 "18,栅栏; 25,树"）
 
 对每个 AreaDestructibles 事件：
-  - 事件时刻作者车的回放坐标（0.1s 网格插值，x 取反 = 场景系）
+  - 事件时刻作者车的回放坐标（0.1s 网格插值，直接坐标、无镜像——cell 直接用回放 x/z）
   - 候选物体 = 场景坐标距作者 ≤8m 的可破坏物（含 lka serverId 若有）
   - 无轨迹（未点亮视角）时回退：事件格子内的全部物体
 """
 import json
-import math
 import pathlib
 import sys
 
@@ -75,7 +74,6 @@ def main():
         srv = i.get("serverId")
         if srv:
             inv[(srv["cell"][0], srv["cell"][1], srv["slot"])] = i
-    spos = {i["id"]: i for i in d["instances"]}
     for e in facet.get("destructible_events", []):
         a = next((a for a in facet.get("destructible_areas", []) if a["eid"] == e["area_eid"]), None)
         if a is None:

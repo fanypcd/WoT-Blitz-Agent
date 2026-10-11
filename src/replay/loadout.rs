@@ -95,14 +95,6 @@ impl ShellKindTable {
         }
     }
 
-    /// 单点查询工具（诊断/探针用；主管线走 annotate）。
-    #[allow(dead_code)]
-    pub fn kind_of(&self, global_id: u32) -> Option<&str> {
-        self.by_global
-            .get(&global_id)
-            .map(|e| e.shell_type.as_str())
-    }
-
     /// 导出为 JSON 对象（{全局弹种 id: {type, penetration, damage, module_damage,
     /// explosion_radius}}）：静态资产面/前端常量表与 WASM parseShotReplays 注入参数的
     /// 离线生成入口（`wotb-agent dump-shell-kinds`）——浏览器侧无 tanks.pb，射击复现

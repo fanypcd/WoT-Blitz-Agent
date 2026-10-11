@@ -101,7 +101,7 @@ except ImportError:  # 贴图解码需要
     imagecodecs = None
 
 try:
-    from PIL import Image, ImageFilter
+    from PIL import Image
 except ImportError:
     Image = None
 
@@ -209,7 +209,9 @@ def decode_dds(d: bytes, max_dim: int = 0):
     fourcc = d[84:88].decode("latin1")
     off, tag = 128, fourcc
     if fourcc == "DX10":
-        # DAVA 写头整体 +4：dxgi 码在 128（标准 124），像素自 148
+        # DDS 头在 4 字节 magic 之后，dwFourCC 标准绝对偏移本就是 84：DX10 的 dxgiFormat
+        # 落在 128、像素落在 148——全是标准偏移，无任何 DAVA 偏移（同 export_map_glb decode_dds）。
+        # 保留 (124, 144) 兜底只为容忍非标准写入方。
         bcn = None
         for dxgi_off, doff in ((128, 148), (124, 144)):
             val = struct.unpack_from("<I", d, dxgi_off)[0]

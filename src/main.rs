@@ -25,6 +25,22 @@ struct Cli {
     command: Commands,
 }
 
+/// 字节序列的空格分隔 hex（RE 打印用）。
+fn hex(b: &[u8]) -> String {
+    b.iter()
+        .map(|x| format!("{:02x}", x))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn u32le(b: &[u8], o: usize) -> u32 {
+    u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]])
+}
+
+fn u16le(b: &[u8], o: usize) -> u16 {
+    u16::from_le_bytes([b[o], b[o + 1]])
+}
+
 /// CombatTimeline 的 CLI 打印（表现层；核心库不绑定 IO，字段均 pub）。
 fn print_combat_timeline(tl: &CombatTimeline) {
     println!();
@@ -347,9 +363,6 @@ enum Commands {
         /// Output JSON instead of text
         #[arg(short, long)]
         json: bool,
-        /// Dump raw packet analysis (type/sub histograms + per-shot packet windows) for reverse engineering
-        #[arg(long)]
-        dump: bool,
         /// Write per-shot replay data (positions/orientations) as JSON to this path
         #[arg(long)]
         shots_json: Option<PathBuf>,
@@ -593,10 +606,9 @@ fn main() -> Result<()> {
             let n = tokio::runtime::Runtime::new()?
                 .block_on(wotb_agent::wargaming::blitzkit::fetch_and_save(&output))?;
             println!(
-                "Saved tanks.pb ({}) — parsed {} tanks -> {}",
+                "Saved tanks.pb ({}) — parsed {} tanks",
                 output.display(),
-                n,
-                output.display()
+                n
             );
             return Ok(());
         }
@@ -710,22 +722,7 @@ fn main() -> Result<()> {
             // 诊断层：包流直方图 + 未消费数据段 + 质量降级聚合
             let mut replay = wotbreplay_parser::replay::Replay::open(std::fs::File::open(&file)?)?;
             let data = replay.read_data()?;
-            let raw_packets: Vec<(u32, f32, &[u8])> = data
-                .packets
-                .iter()
-                .map(|pkt| {
-                    let t = match &pkt.payload {
-                        wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
-                        wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate {
-                            ..
-                        } => 0,
-                        wotbreplay_parser::models::data::payload::Payload::Unknown {
-                            packet_type,
-                        } => *packet_type,
-                    };
-                    (t, pkt.clock_secs, &pkt.raw_payload[..])
-                })
-                .collect();
+            let raw_packets = wotb_agent::replay::raw_packet_tuples(&data, 0);
 
             let mut dataset =
                 wotb_agent::models::replay_dataset::ReplayDataset::from_summary(&summary);
@@ -1481,7 +1478,6 @@ fn main() -> Result<()> {
         Commands::Combat {
             file,
             json,
-            dump: _,
             shots_json,
             streams_json,
         } => {
@@ -1503,22 +1499,7 @@ fn main() -> Result<()> {
                 .read_data()
                 .map_err(|e| anyhow::anyhow!("Failed to read data: {}", e))?;
 
-            let raw_packets: Vec<(u32, f32, &[u8])> = data
-                .packets
-                .iter()
-                .map(|pkt| {
-                    let pkt_type = match &pkt.payload {
-                        wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate {
-                            ..
-                        } => 0,
-                        wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
-                        wotbreplay_parser::models::data::payload::Payload::Unknown {
-                            packet_type,
-                        } => *packet_type,
-                    };
-                    (pkt_type, pkt.clock_secs, &pkt.raw_payload[..])
-                })
-                .collect();
+            let raw_packets = wotb_agent::replay::raw_packet_tuples(&data, 0);
 
             let timeline = CombatTimeline::parse_packets(&raw_packets);
 
@@ -1614,22 +1595,7 @@ fn main() -> Result<()> {
                 .read_battle_results()
                 .map_err(|e| anyhow::anyhow!("Failed to read battle results: {}", e))?;
 
-            let raw_packets: Vec<(u32, f32, &[u8])> = data
-                .packets
-                .iter()
-                .map(|pkt| {
-                    let pkt_type = match &pkt.payload {
-                        wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate {
-                            ..
-                        } => 5,
-                        wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
-                        wotbreplay_parser::models::data::payload::Payload::Unknown {
-                            packet_type,
-                        } => *packet_type,
-                    };
-                    (pkt_type, pkt.clock_secs, &pkt.raw_payload[..])
-                })
-                .collect();
+            let raw_packets = wotb_agent::replay::raw_packet_tuples(&data, 5);
 
             let loadouts = wotb_agent::replay::loadout::collect_player_loadouts(&raw_packets, &br);
             if json {
@@ -1678,32 +1644,7 @@ fn main() -> Result<()> {
                 .read_data()
                 .map_err(|e| anyhow::anyhow!("Failed to read data: {}", e))?;
 
-            let raw_packets: Vec<(u32, f32, &[u8])> = data
-                .packets
-                .iter()
-                .map(|pkt| {
-                    let pkt_type = match &pkt.payload {
-                        wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate {
-                            ..
-                        } => 0,
-                        wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
-                        wotbreplay_parser::models::data::payload::Payload::Unknown {
-                            packet_type,
-                        } => *packet_type,
-                    };
-                    (pkt_type, pkt.clock_secs, &pkt.raw_payload[..])
-                })
-                .collect();
-
-            let hex = |b: &[u8]| {
-                b.iter()
-                    .map(|x| format!("{:02x}", x))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            };
-            let u32le =
-                |b: &[u8], o: usize| u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]);
-            let u16le = |b: &[u8], o: usize| u16::from_le_bytes([b[o], b[o + 1]]);
+            let raw_packets = wotb_agent::replay::raw_packet_tuples(&data, 0);
 
             // ---- method38 (0x26) 命中结果：完整 args 解码 ----
             println!("=== Avatar method38 (0x26) hit results ===");
@@ -1845,12 +1786,6 @@ fn main() -> Result<()> {
             let data = replay
                 .read_data()
                 .map_err(|e| anyhow::anyhow!("Failed to read data: {}", e))?;
-            let hex = |b: &[u8]| {
-                b.iter()
-                    .map(|x| format!("{:02x}", x))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            };
             let pat_bytes: Vec<Vec<u8>> = pat
                 .as_ref()
                 .map(|s| {

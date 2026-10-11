@@ -240,6 +240,95 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 | [docs/decoupling-status.md](decoupling-status.md) | **解耦的剩余决策与已定案差异**（2026-10-03 收敛；**2026-10-07 更新：GLB 自产管线已接线**——`data/cache/models/` 换为客户端解包导出，`cache/models` ≡ `local_models` 735/735）：已完成时间线；待决策口径（数据模型塌缩 / 25 辆无显示名 / `hull_traverse` 非同量）；封面图与 BK 复核为**同源同画**（旧 NCC 0.21/非同一幅画结论已撤销）；已定案的 BlitzKit 侧差异清单；对外沟通材料。进度/接线/分发现状见 [data-inventory.md](data-inventory.md) |
 | [docs/local-model-export.md](local-model-export.md) | ✅ 已实施（2026-10-01，2026-10-02 补 §4 贴图实测）：报告 B 的几何替代做成 `tools/export_tank_glb.py`，验收口径从"按可达节点求和"收紧到**逐字节 + 节点顺序**——`collision.glb` **735/735**、`model.glb` **733/735** 等价（余 2 辆为 BlitzKit 侧行为、另 23 辆 2026-10-10 起**有意修正**（静态变换烘焙 / 状态过滤，等价数 710/735），见该文 §5/§5.1）；贴图槽位与 BlitzKit 完全对齐（731/735 图片数相同、无缺槽位）。§4 逐通道实测推翻了报告 B §3.3 的图源判断，并定下 `baseRMMap` 的**通道搬迁**（ch0→G 粗糙度、ch1→B 金属度）。**2026-10-07 起已替换运行期数据源**：`data/cache/models/` 换为本地导出（`cache/models` ≡ `local_models` 735/735，包与 COS 随发；见 [data-inventory.md](data-inventory.md) §一 #8） |
 
+### 全仓注释/死代码/重复逻辑清理（WotbAgent + WotbTools，2026-10-11，未发版）
+
+**动机**：两仓全面整理——修正注释与代码的失真、删除死代码、收敛重复逻辑；**不改任何行为**
+（全部为等价变换或死代码删除，逐项验证见下）。
+
+**WotbAgent（Rust）**：
+- 注释失真修正：`shooter_aim.state_before/after` 注释从"未定名状态常量（非扩散度）"改为
+  method36 field6.field1 **bloom**（与 `AimSnapshot::bloom` 及实填充代码一致，三处注释两处错）；
+  `collect.rs` 两处文档粘错符号（`scan_loadout`/`collect_warnings32` 的函数文档归位）；
+  装填相位 subtype 口径 15/17 → **15/16/17**（model.rs ×2 + arena.rs，与
+  `ARENA_SUB_RELOAD_TIME_UPDATE=16` 及 playback.rs 既有表述一致）；
+  `facets/mod.rs` 过时行删除；`fetch-blitzkit` 重复路径输出；shots.rs 收尾步骤编号撞号
+  （循环内已用 ⑨–⑮，收尾 ⑧'/⑨ → ⑯/⑯'）。
+- 死代码删除：shots.rs 三个零调用便捷包装器（`extract_shot_replays`/`_auto`/
+  `extract_other_shot_replays`——全仓使用面是 `*_with_limits` 形态）；anchors.rs 已弃用
+  运动学检验链（会误杀真实倒车，RE 阈值压成注释保留）；`filter.rs latency()`、
+  `loadout.rs kind_of()`（注释谎称"诊断/探针用"）、playback.rs `to_playback_shot` 死参数及
+  调用方专属 name→eid 表、web/assets.rs `base_prefix` 死参数、main.rs `combat --dump`
+  摆设旗标（首次提交起即接受即丢弃，无文档/脚本引用）。
+- 重复逻辑收敛：`raw_packet_tuples`（12 处 `(type, clock, payload)` 映射块 → 1 助手，
+  BasePlayerCreate 口径参数化——loadout 管线 5、其余 0）；arena.rs subtype48 包络扫描三连 →
+  `collect_arena2_blocks`；shots.rs 作者/他人两路共用五小助手（`hash6_hex`/`decode_segment`/
+  `shot_impact_time`/`bearing_shooter_to_target`/`aim_point_rels`）；15° 阈值单一常量
+  （`INC_YAW_TOL` pub(super)，collect.rs 两处 0.262 硬编码并入）；web/mod.rs
+  `blocking_value_response` ×4 + `translate_replay_path` ×2 + 作者昵称解析复用核心助手；
+  tools.rs `resolve_tank_or_message` ×5（LLM 话术逐字保留）；scanner.rs scan_dir 委托
+  scan_files；dvpl.rs `armor_block_of`/`primary_armor_of`/`section_window`；main.rs
+  hex/u32le/u16le 闭包文件级化。`select_dhit_by_inc_yaw` 返回值 (Option, bool) 中 bool 恒随
+  None（调用端还配了 unreachable! 臂 + `let _`）→ 收敛为纯 Option。
+- 保留未动：`TankResolver::len/is_empty` 成对保留（clippy `len_without_is_empty`，len 有
+  2 处真实调用）；两处 Chrome 无头截图错误文案各不相同（面向 LLM 的协议文案），合并会改
+  可观察字符串。
+
+**WotbAgent（Python 工具）**：
+- 死代码：`export_map_glb.py` `extract_string_table`/`_decode_landscape_tex`/`_srgb_to_linear`
+  及 bisect/random/os/Reader/read_archive 死导入；`export_map_ibl.py` 4 个死导入；
+  `wotb_cube._bcn`、`extract_vehicles._key_of_el`、`decode_experiment` 死 dict、
+  `bake_terrain_cover` 死 wotbtools path insert 与死局部、`export_map_destructibles` 死局部、
+  `probe_switch.walk` 死参数线程、`upload_asset_pack_cos` 恒空插值 + 内联清单哈希理解式
+  （改调 `manifest_hashes(man)`——**不二次网络拉取**）。
+- 注释失真：`export_tank_glb.py` "DAVA 写头整体 +4"误读（同 export_map_glb 已勘误口径）；
+  `bake_terrain_cover.py` margin 默认 8→20、press_max 0.4→0.5（对齐常量实值）；
+  `emit_vehicle_pb.py` initial_turret_rotation"两端尚未解析"→已客户端化；
+  `export_asset_pack.py` 文档串从已弃用的 bake_ground_roofs 链改指 composite_overhead +
+  --refresh-manifest（§5.5 现行契约）；`decode_experiment.py` 头注"x 取反"与代码"直接坐标"矛盾。
+- 修复：`export_asset_pack.py` `--out` 错误路径缺 `import sys`（NameError）；`export_map_glb.py`
+  PVR 标记串源码里的**裸 0x03 控制字节**转义为可读 `\x03`（运行时值不变——grep/sed 渲染成
+  不可见曾致"死分支"误判，实际代码/文档本就一致）。
+
+**WotbTools（frontend，独立提交进对方仓）**：
+- 注释：`suspension.js` 头注（"本模块不依赖 three.js"→仅求解层；花纹公式改指实测 dV/ds
+  勘误）、孤立的 `applyChainToVertices` JSDoc 归位（原悬在 `chainDrift` 上）、
+  `suspension.test.js` 头注同款公式、`agent-replay-facets.ts` 双叠 JSDoc（v0.1.9 前旧形状块
+  删除）、`glbRig.js` 骨架拆分段头注标明"2026-10-10 回退后的未接线准备件、正式路径 =
+  suspension.js"（SUSP_TRAVEL_M 内文"客户端悬挂常数未逆向"同步更正——逐车行程已导出）、
+  `sceneryMaterials.test.js` 守卫标题"逐轮悬挂待实现"更正。
+- 死代码：`tankMeta.js` TYPE_LABEL/NATION_LABEL/armorColorStyle；`facts.ts firstHpObservation`；
+  `battlePlayback.js` shortestArcDeg/lastKnownPosition（V2 迁移遗留，各自测试块同删）；
+  `pickDebug.js nearestDestructibleState`（生产走 nearestInstance/buildMeshOwnerMap）；
+  `suspension.js` 三常量（SAG_SHAPE_PEAK/GROUND_CONTACT_EPS/DEFORM_EPS——文档描述的
+  接触余量/形变闸门/垂弧形状常数行为均不存在，实际闸门是 `chainChanged`/bend 公式）；
+  `playbackScene.js` `chunkLength` 调试字段（"仅供调试/观察"但无任何读者）；
+  `reloadBar.js` reloadVisualKey/reloadViewAt（生产走 createReloadStateResolver；fillOf(null)=1
+  口径断言并入 fake-full 回归块）。
+- 收敛：`magazineSizeForVehicle` 弹容夹紧复用 `magazineSizeOfVehicle`（MAX_PLAUSIBLE_MAG
+  策略单点化）；`shotPath.pointAt/pointAtArc` 已是包装器形态（勘察误报，未动）。
+- **glbRig 骨架拆分家族按其守卫注释的既定决策保留**（仅更正注释），不做删除。
+
+**证据**：WotbAgent `cargo test` 与基线逐项一致（core 83 / wasm 7 / agent 76；
+`render_heatmap_smoke` 为改动前即失败的 headless-Chrome 环境项）、
+`cargo clippy --workspace --all-targets` **0 警告**（顺手修掉本机 clippy 1.96 暴露的 examples
+3 处存量告警）；Python 14 个工具测试脚本全过（test_dvpl_decode 13 / test_export_variants 7 /
+test_upload_asset_pack_skip 8 / 其余详见各脚本）。WotbTools 定向 vitest 全过
+（suspension 29 / reloadBar+shotPath 58 / pickDebug+battlePlayback+tankMeta / playbackScene
+±occlusion+staticFreeze+glbRig+sceneryMaterials 守卫 134 / canonical 33 / facets API 36）+
+`vue-tsc` typecheck 干净。
+
+**blast radius**：**切面契约未变**（PlaybackData v2 / AiReviewFacet v1）；三个包装器删除属
+wotb-replay-core 库内 Rust API 收窄，WASM 导出面（parseShotReplays 等经 `_with_limits`）
+与消费方无感；`combat --dump` 删除属 CLI 表面收窄（从未生效）。WotbTools 侧全为注释/死
+代码/单文件收敛，无行为变化；Android Version-as-Code 门禁按 `android/` 路径触发，本批不
+触发、无需 wotbVersion bump；无渲染路径改动，无需视觉验收。
+
+**遗留（发现未动，需决策）**：`export_asset_pack.py` 缺地形尺度分支不可达（文档说"缺尺度
+不打包 terrain"、实际打包）——修哪边是行为决策；`upload_asset_pack_cos.py` `--only` 清单
+note 为 2026-10-10 一次性硬编码（每次局部发布都会写进桶清单）；Python 工具侧三处大块
+重复（protobuf varint 解析 ×3、游戏目录解析 ×7、GLB 容器解析 ×3）宜以 `tools/wotbtools`
+共享模块收敛，属独立改动未并入本批。
+
 ### Type5 配件串改变长解析（解析器，2026-10-10，未发版）
 
 **报障**（WotbTools 射击复现）：60TP 射击 Strv K 那发，车辆与装备面板的"校准弹"未勾选

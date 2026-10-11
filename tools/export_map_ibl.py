@@ -27,13 +27,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import pathlib
-import struct
 import sys
 
-import numpy as np
-from PIL import Image
 
 TOOLS_DIR = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS_DIR))

@@ -18,10 +18,6 @@ import numpy as np
 from PIL import Image
 
 
-def _bcn(bcn: int) -> int:
-    return {1: 1, 3: 3, 5: 5}[bcn]
-
-
 def decode_dds_cube(raw: bytes) -> tuple[int, int, list[np.ndarray]] | None:
     """DDS 立方图 → (w, mips, [6 个 HxWx3 float 0..1 面]，mip0)。非立方图返回 None。"""
     if raw[:4] != b"DDS ":

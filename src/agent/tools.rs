@@ -455,43 +455,17 @@ impl AgentTools {
 
         let resolver = self.load_resolver()?;
 
-        let target = self.resolve_tank(&resolver, target_ref);
-        let target = match target {
-            ResolveTank::One(id) => id,
-            ResolveTank::Ambiguous(cands) => {
-                return Ok(format!(
-                    "The name '{}' matches multiple tanks. Please pick one:\n{}",
-                    target_ref,
-                    format_candidates(&cands)
-                ));
-            }
-            ResolveTank::None => {
-                return Ok(format!(
-                    "Could not find a tank matching '{}'. Ask for a specific tank name (e.g. IS-7, E 100) or numeric ID.",
-                    target_ref
-                ));
-            }
+        let target = match self.resolve_tank_or_message(&resolver, target_ref, "name", "a tank", true) {
+            Ok(id) => id,
+            Err(msg) => return Ok(msg),
         };
 
-        let shooter = if let Some(sref) = shooter_ref {
-            match self.resolve_tank(&resolver, sref) {
-                ResolveTank::One(id) => Some(id),
-                ResolveTank::Ambiguous(cands) => {
-                    return Ok(format!(
-                        "The shooter name '{}' matches multiple tanks. Please pick one:\n{}",
-                        sref,
-                        format_candidates(&cands)
-                    ));
-                }
-                ResolveTank::None => {
-                    return Ok(format!(
-                        "Could not find a shooter tank matching '{}'. Ask for a specific tank name (e.g. IS-7, E 100) or numeric ID.",
-                        sref
-                    ));
-                }
-            }
-        } else {
-            None
+        let shooter = match shooter_ref {
+            Some(sref) => match self.resolve_tank_or_message(&resolver, sref, "shooter name", "a shooter tank", true) {
+                Ok(id) => Some(id),
+                Err(msg) => return Ok(msg),
+            },
+            None => None,
         };
 
         let target_name = resolver
@@ -570,18 +544,9 @@ impl AgentTools {
             return Ok("Please provide a tank name or ID (e.g. target: 'E 100').".to_string());
         }
         let resolver = self.load_resolver()?;
-        let target = match self.resolve_tank(&resolver, target_ref) {
-            ResolveTank::One(id) => id,
-            ResolveTank::Ambiguous(cands) => {
-                return Ok(format!(
-                    "The name '{}' matches multiple tanks. Please pick one:\n{}",
-                    target_ref,
-                    format_candidates(&cands)
-                ));
-            }
-            ResolveTank::None => {
-                return Ok(format!("Could not find a tank matching '{}'.", target_ref))
-            }
+        let target = match self.resolve_tank_or_message(&resolver, target_ref, "name", "a tank", false) {
+            Ok(id) => id,
+            Err(msg) => return Ok(msg),
         };
         let name = resolver
             .resolve(target)
@@ -663,37 +628,13 @@ impl AgentTools {
             return Ok("Please provide both `target` (defending) and `shooter` (attacking) tank names or IDs.".to_string());
         }
         let resolver = self.load_resolver()?;
-        let target = match self.resolve_tank(&resolver, target_ref) {
-            ResolveTank::One(id) => id,
-            ResolveTank::Ambiguous(cands) => {
-                return Ok(format!(
-                    "The target name '{}' matches multiple tanks. Please pick one:\n{}",
-                    target_ref,
-                    format_candidates(&cands)
-                ))
-            }
-            ResolveTank::None => {
-                return Ok(format!(
-                    "Could not find a target tank matching '{}'.",
-                    target_ref
-                ))
-            }
+        let target = match self.resolve_tank_or_message(&resolver, target_ref, "target name", "a target tank", false) {
+            Ok(id) => id,
+            Err(msg) => return Ok(msg),
         };
-        let shooter = match self.resolve_tank(&resolver, shooter_ref) {
-            ResolveTank::One(id) => id,
-            ResolveTank::Ambiguous(cands) => {
-                return Ok(format!(
-                    "The shooter name '{}' matches multiple tanks. Please pick one:\n{}",
-                    shooter_ref,
-                    format_candidates(&cands)
-                ))
-            }
-            ResolveTank::None => {
-                return Ok(format!(
-                    "Could not find a shooter tank matching '{}'.",
-                    shooter_ref
-                ))
-            }
+        let shooter = match self.resolve_tank_or_message(&resolver, shooter_ref, "shooter name", "a shooter tank", false) {
+            Ok(id) => id,
+            Err(msg) => return Ok(msg),
         };
         let target_name = resolver
             .resolve(target)
@@ -869,38 +810,14 @@ impl AgentTools {
             .filter(|s| !s.is_empty());
 
         let resolver = self.load_resolver()?;
-        let target = match self.resolve_tank(&resolver, target_ref) {
-            ResolveTank::One(id) => id,
-            ResolveTank::Ambiguous(cands) => {
-                return Ok(format!(
-                    "The target name '{}' matches multiple tanks. Please pick one:\n{}",
-                    target_ref,
-                    format_candidates(&cands)
-                ));
-            }
-            ResolveTank::None => {
-                return Ok(format!(
-                    "Could not find a target tank matching '{}'.",
-                    target_ref
-                ))
-            }
+        let target = match self.resolve_tank_or_message(&resolver, target_ref, "target name", "a target tank", false) {
+            Ok(id) => id,
+            Err(msg) => return Ok(msg),
         };
         let shooter = match shooter_ref {
-            Some(sref) => match self.resolve_tank(&resolver, sref) {
-                ResolveTank::One(id) => Some(id),
-                ResolveTank::Ambiguous(cands) => {
-                    return Ok(format!(
-                        "The shooter name '{}' matches multiple tanks. Please pick one:\n{}",
-                        sref,
-                        format_candidates(&cands)
-                    ));
-                }
-                ResolveTank::None => {
-                    return Ok(format!(
-                        "Could not find a shooter tank matching '{}'.",
-                        sref
-                    ))
-                }
+            Some(sref) => match self.resolve_tank_or_message(&resolver, sref, "shooter name", "a shooter tank", false) {
+                Ok(id) => Some(id),
+                Err(msg) => return Ok(msg),
             },
             None => None,
         };
@@ -1072,7 +989,7 @@ impl AgentTools {
         ))
     }
 
-    /// replay_shot：回放解析（extract_shot_replays_auto）→ 带复现数据的查看器 → 射手 POV 无头截图。
+    /// replay_shot：回放解析（extract_shot_replays_auto_with_limits）→ 带复现数据的查看器 → 射手 POV 无头截图。
     fn execute_replay_shot(&self, args: &Value) -> Result<String> {
         let file = args["replay_file"]
             .as_str()
@@ -1166,6 +1083,37 @@ impl AgentTools {
             "Shot #{} replay view saved (世界模式双车视角): {}\n相机置于双车侧后 3/4 视角，弹着点按服务器部件约束；◎渲染位/双 tick 下拉可对照渲染滞后。",
             shot_no, result
         ))
+    }
+
+    /// resolve_tank + 应答折叠：命中即 id；歧义/未命中返回给模型的选择/纠正话术（逐字
+    /// 保持各调用点原文案——label/noun 按 target/shooter 角色变化，hint 补未命中的示例提示）。
+    fn resolve_tank_or_message(
+        &self,
+        resolver: &TankResolver,
+        tank_ref: &str,
+        label: &str,
+        noun: &str,
+        hint: bool,
+    ) -> Result<u32, String> {
+        match self.resolve_tank(resolver, tank_ref) {
+            ResolveTank::One(id) => Ok(id),
+            ResolveTank::Ambiguous(cands) => Err(format!(
+                "The {} '{}' matches multiple tanks. Please pick one:\n{}",
+                label,
+                tank_ref,
+                format_candidates(&cands)
+            )),
+            ResolveTank::None => Err(format!(
+                "Could not find {} matching '{}'.{}",
+                noun,
+                tank_ref,
+                if hint {
+                    " Ask for a specific tank name (e.g. IS-7, E 100) or numeric ID."
+                } else {
+                    ""
+                }
+            )),
+        }
     }
 
     /// 模糊解析坦克：One 唯一命中 / Ambiguous 多候选 / None 未命中。

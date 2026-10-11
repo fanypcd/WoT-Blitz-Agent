@@ -76,20 +76,7 @@ fn build_playback_json_uncached(
     let mut replay = Replay::open(std::fs::File::open(path)?)?;
     let meta = replay.read_meta().ok();
     let data = replay.read_data()?;
-    let packets: Vec<(u32, f32, &[u8])> = data
-        .packets
-        .iter()
-        .map(|pkt| {
-            let t = match &pkt.payload {
-                wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate { .. } => 0,
-                wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
-                wotbreplay_parser::models::data::payload::Payload::Unknown { packet_type } => {
-                    *packet_type
-                }
-            };
-            (t, pkt.clock_secs, &pkt.raw_payload[..])
-        })
-        .collect();
+    let packets = crate::replay::raw_packet_tuples(&data, 0);
 
     let br = replay.read_battle_results().ok();
     let resolver = resolver.unwrap_or_else(crate::wargaming::tank_configs::global_resolver);

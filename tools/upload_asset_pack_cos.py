@@ -61,9 +61,8 @@ def remote_manifest_raw(client) -> dict:
         return {}
 
 
-def remote_manifest_hashes(client) -> dict:
-    """桶内 manifest.json → {path: sha256}（`remote_manifest_raw` 的薄封装）。"""
-    man = remote_manifest_raw(client)
+def manifest_hashes(man: dict) -> dict:
+    """manifest dict → {path: sha256}（调用方先自取清单，避免二次网络拉取）。"""
     return {f["path"]: f["sha256"] for f in man.get("files", [])
             if isinstance(f, dict) and f.get("path") and f.get("sha256")}
 
@@ -155,9 +154,7 @@ def main():
     print(f"本地 {len(files)} 文件 / {total_bytes/1e6:.1f}MB{scope}，开始比对远端…", flush=True)
 
     remote_manifest = {} if args.patch_headers else remote_manifest_raw(client)
-    remote_hashes = {f["path"]: f["sha256"] for f in remote_manifest.get("files", [])
-                     if isinstance(f, dict) and f.get("path") and f.get("sha256")} \
-                    if remote_manifest else {}
+    remote_hashes = manifest_hashes(remote_manifest) if remote_manifest else {}
     if args.only and not remote_manifest and not args.patch_headers:
         print("!! --only 需要桶内 manifest 才能做清单补丁，但取不到（见上文告警）", file=sys.stderr)
         return 2
@@ -203,8 +200,8 @@ def main():
         print(f"  ⚠ 同尺寸不同内容 {same_size_changed} 个——按旧 Content-Length 逻辑本会被静默跳过，"
               f"本次按 sha256 上传", flush=True)
     if args.only:
-        print(f"  （--only 模式：manifest.json 走远端清单就地补丁，登记 {len(tasks)} 个待传条目"
-              f"{'' if args.dry_run else ''}）", flush=True)
+        print(f"  （--only 模式：manifest.json 走远端清单就地补丁，登记 {len(tasks)} 个待传条目）",
+              flush=True)
 
     if args.dry_run:
         return 0

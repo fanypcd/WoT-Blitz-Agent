@@ -51,7 +51,6 @@ pub fn export_cli(
         .map(|s| s.to_string())
         .unwrap_or_else(|| summary.map_name.clone());
 
-    // 包流（与 playback_probe 同款类型映射）
     // 原始分帧（不反序列化 payload，与 WASM 通道同源）
     let raw = crate::replay::packets::read_raw_packets(&std::fs::read(file)?)?;
     let packets: Vec<(u32, f32, &[u8])> = raw

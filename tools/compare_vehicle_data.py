@@ -28,8 +28,7 @@ import argparse
 import json
 import pathlib
 import struct
-import sys
-from collections import Counter, defaultdict
+from collections import Counter
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 

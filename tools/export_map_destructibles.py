@@ -140,7 +140,6 @@ def parse_lka(entry: X.MapEntry, game_data: pathlib.Path) -> dict:
 
 
 def export_map(entry: X.MapEntry, game_data: pathlib.Path, types: dict) -> dict:
-    sc2 = game_data / "3d" / "Maps" / entry.space
     sc2_rel = entry.local_name.replace("/", "\\")
     sc2_path = (game_data / "3d" / "Maps" / sc2_rel).with_name(
         pathlib.PurePath(sc2_rel).name + ".dvpl"

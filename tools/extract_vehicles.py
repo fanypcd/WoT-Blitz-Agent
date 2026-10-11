@@ -46,6 +46,7 @@ import json
 import os
 import pathlib
 import re
+import struct
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -121,7 +122,6 @@ def _pb_fields(b: bytes) -> list[tuple[int, int, object]]:
 
 
 def struct_unpack_f(b: bytes, i: int) -> float:
-    import struct
     return struct.unpack_from("<f", b, i)[0]
 
 
@@ -853,10 +853,6 @@ def user_key_text(list_el: ET.Element | None, tag: str) -> str | None:
 def _key_of(list_el: ET.Element | None, tag: str) -> str | None:
     t = last_text(list_el, tag) if list_el is not None else None
     return t.split(":", 1)[1] if t and ":" in t else t
-
-
-def _key_of_el(el: ET.Element | None, tag: str) -> str | None:
-    return _key_of(el, tag)
 
 
 def _node_from_model_path(r: DefResolver, kind: str) -> int:

@@ -20,10 +20,9 @@ def main():
     print("sc2:", res["model_sc2"])
     scene = read_sc2(decode_dvpl(res["model_sc2"].read_bytes()))
 
-    def walk(e, depth, path):
+    def walk(e, depth):
         comps = X.entity_components(e)
         name = e.get("name") or e.get("##name") or "?"
-        p = f"{path}/{name}"
         rc = comps.get("RenderComponent")
         sw = comps.get("StateSwitcherComponent")
         bits = []
@@ -41,10 +40,10 @@ def main():
         if key.lower() in name.lower() or (depth <= 2):
             print(f"{'  ' * depth}{name}  {' '.join(bits)}")
         for c in X.nested(e):
-            walk(c, depth + 1, p)
+            walk(c, depth + 1)
 
     for e in X.nested(scene):
-        walk(e, 0, "")
+        walk(e, 0)
 
 
 if __name__ == "__main__":

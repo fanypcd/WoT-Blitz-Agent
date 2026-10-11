@@ -63,22 +63,7 @@ fn main() -> anyhow::Result<()> {
         let mut replay = Replay::open(File::open(f)?)?;
         let data = replay.read_data()?;
         // (type, clock, payload)
-        let pkts: Vec<(u32, f32, &[u8])> = data
-            .packets
-            .iter()
-            .map(|pkt| {
-                let t = match &pkt.payload {
-                    wotbreplay_parser::models::data::payload::Payload::EntityMethod(_) => 8,
-                    wotbreplay_parser::models::data::payload::Payload::BasePlayerCreate {
-                        ..
-                    } => 0,
-                    wotbreplay_parser::models::data::payload::Payload::Unknown { packet_type } => {
-                        *packet_type
-                    }
-                };
-                (t, pkt.clock_secs, &pkt.raw_payload[..])
-            })
-            .collect();
+        let pkts = wotb_agent::replay::raw_packet_tuples(&data, 0);
 
         // ---- 收集 method29 发射：shotId → (shooter, launchPoint, vel) ----
         let mut launches: std::collections::HashMap<u32, (u32, [f32; 3], [f32; 3])> =

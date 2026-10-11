@@ -240,10 +240,6 @@ pub fn collect_vehicle_loadout(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, Ve
     out
 }
 
-/// 在单条 Type5 载荷内扫描 loadout 块：先定位 `0B 09` + 9B 配件串（字节域 100..=123 校验），
-/// 再回找计数标记 `0A KK`——要求 `0A KK` + KK×14B 描述符 + `0B 09` 严丝合缝且 KK≥6
-/// （6 条=标准 3 消耗品+3 给养；7 条=受控场变体，多 1 条 14B 描述符、
-/// 配件串本身完好；4 条=观察者族，勿当战斗者搭载，拒收）。
 /// Avatar method16：车辆模块/乘员状态事件（WotbTools PROVEN 移植）。
 ///
 /// 线格式（`VehicleModuleCrewStateDecoder`，恒定 22B）：
@@ -389,6 +385,10 @@ pub struct VehicleLoadout {
     pub items: Vec<[u8; 14]>,
 }
 
+/// 在单条 Type5 载荷内扫描 loadout 块：先定位 `0B 09` + 9B 配件串（字节域 100..=123 校验），
+/// 再回找计数标记 `0A KK`——要求 `0A KK` + KK×14B 描述符 + `0B 09` 严丝合缝且 KK≥6
+/// （6 条=标准 3 消耗品+3 给养；7 条=受控场变体，多 1 条 14B 描述符、
+/// 配件串本身完好；4 条=观察者族，勿当战斗者搭载，拒收）。
 fn scan_loadout(p: &[u8]) -> Option<VehicleLoadout> {
     let n = p.len();
     let mut pos = 0usize;
@@ -768,8 +768,6 @@ pub fn collect_hit_notices(packets: &[(u32, f32, &[u8])]) -> Vec<HitNotice> {
     out
 }
 
-/// type=32 警告/命中通知收集（作者/他人路径共用）。不排序：作者路径取窗口内最早一条（取后自排），
-/// 他人路径按 hash6 令牌精确配对与顺序无关——各自保持原语义。
 /// Type32 mobile `flag=0` 长体的**消耗品生命周期**事件（WotbTools PROVEN 移植）。
 ///
 /// 数据链（docs/research/replay/consumable-lifecycle.md，Blitz 11.19 国服 34 场）：
@@ -829,6 +827,8 @@ pub fn collect_consumable_transitions(packets: &[(u32, f32, &[u8])]) -> Vec<Cons
     out
 }
 
+/// type=32 警告/命中通知收集（作者/他人路径共用）。不排序：作者路径取窗口内最早一条（取后自排），
+/// 他人路径按 hash6 令牌精确配对与顺序无关——各自保持原语义。
 pub(crate) fn collect_warnings32(packets: &[(u32, f32, &[u8])]) -> Vec<ArenaWarning32> {
     let mut warnings32: Vec<ArenaWarning32> = Vec::new();
     for (t, clock, p) in packets {
@@ -927,7 +927,7 @@ pub(crate) fn decoded_target_gun_pitch(
                 std::f32::consts::TAU,
             ) - std::f32::consts::PI)
                 .abs();
-            if err <= 0.262 && w.inc_pitch.to_degrees().abs() <= 30.0 {
+            if err <= super::shots::INC_YAW_TOL && w.inc_pitch.to_degrees().abs() <= 30.0 {
                 return Some((w.inc_pitch, w.inc_yaw));
             }
         }
@@ -943,9 +943,9 @@ pub(crate) fn decoded_target_gun_pitch(
         let err = ((w.inc_yaw - bearing + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
             - std::f32::consts::PI)
             .abs();
-        if err > 0.262 {
+        if err > super::shots::INC_YAW_TOL {
             continue;
-        } // 15°
+        }
         if best.as_ref().map(|(be, _, _)| err < *be).unwrap_or(true) {
             best = Some((err, w.inc_pitch, w.inc_yaw));
         }

@@ -16,8 +16,8 @@
   2. 逐 texel 取该处**最高**的朝上面高度（同一 texel 多面片取最高者）；
   3. **贴地判定**：|结构面 − 地形| ≤ `--band`（默认 0.8 m）——实测要修的是 ≤0.5 m 的戳出，
      而离地 ≥1 m 的桥/高架不在此列（两者之间取 0.8 m 分开）；
-  4. **单向天花板 + 边缘坡道**：覆盖处天花板 = 结构面；覆盖外 `--margin` 个 texel 内（默认 8 =
-     网格最粗层一格 = 8 texel）按距离线性升到原地形高度；**只压不抬**（地形本来低于结构面时
+  4. **单向天花板 + 边缘坡道**：覆盖处天花板 = 结构面；覆盖外 `--margin` 个 texel 内（默认 20，
+     ≈2.5 个最粗层格）按距离线性升到原地形高度；**只压不抬**（地形本来低于结构面时
      天花板不生效）⇒ 不会在低处开槽，也不会改动离地结构下方的地形；
   5. 量化与地形一致（u16 / zmin..zmax），存 `ceil + 1`（**0 = 无覆盖**，避免真值 0 与哨兵冲突）。
 
@@ -31,11 +31,8 @@ import argparse
 import json
 import pathlib
 import struct
-import sys
 
 import numpy as np
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "wotbtools"))
 
 BAND_LOW_DEFAULT = 0.15   # 结构面可比地形**低**多少（米）仍算"吸附齐平"：实测齐平缝 |Δ|≤1 cm，
                           # 略低者 75% ≤2 cm；0.15 m 容下"吸附设计"而排除"埋在铺装下 ≥0.3 m 的箱体"
@@ -96,7 +93,7 @@ def envelope(nat: np.ndarray, mask_h: np.ndarray, covered: np.ndarray, margin: i
         clearance**（共面会 z-fight 闪烁，故留几何间隙）；
       · 覆盖外 margin 个 texel 内：同一压低量按 (1 − d/margin) 线性收尾到 0（边界连续，无台阶）。
 
-    压低量**恒 ≤ press_max**（0.4 m）⇒ 不会在陡坡旁挖出沟槽（首版按"升到原地形"的坡道在陡坡旁
+    压低量**恒 ≤ press_max**（0.5 m，`PRESS_DEFAULT`）⇒ 不会在陡坡旁挖出沟槽（首版按"升到原地形"的坡道在陡坡旁
     实测可压低 3.6 m，已被此式取代）；地形本就低于结构面处压低量 = 0 ⇒ 只压不抬。
 
     返回 ceil（应由前端夹到 ≤ ceil；无影响处为 +inf）。"""
@@ -265,7 +262,6 @@ def rasterize_max_height(tris_world: np.ndarray, nat: np.ndarray, span: float) -
     """逐 texel 取最高的朝上面高度（无覆盖 = NaN）。tris_world: 世界 (x,y,z)，只喂朝上面。"""
     n = nat.shape[0]
     surface = np.full((n, n), np.nan, dtype=np.float64)
-    tex = span / n
     # 粗地形 min/max（64×64 块）用于跳过大范围无关面片
     blk = max(1, n // 64)
     nb = (n + blk - 1) // blk
