@@ -120,7 +120,10 @@ pub fn export_cli(
                     pitch_limits: &limits,
                     tank_names: &tank_names,
                 };
-                let facet = crate::replay::playback::from_model(&model, &render)?;
+                let mut facet = crate::replay::playback::from_model(&model, &render)?;
+                // 与 WASM 通道同源：from_model（渲染层入口）不持 packets，原始包证据
+                // （armor_states 时间轴 + 逐弹弹着状态）在此回填——漏掉则导出文件缺字段。
+                crate::replay::playback::attach_packet_evidence(&mut facet, &packets);
                 let path = write_json(&dir, &format!("{stem}.facet.playback.json"), &facet)?;
                 println!(
                     "  回放切面   → {}（{} 车 / {} 发 / 可见窗口 {}）",

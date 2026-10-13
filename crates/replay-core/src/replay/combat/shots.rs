@@ -75,10 +75,10 @@ pub struct ShotReplayData {
     /// 名字缺失不作为提取失败条件（fail-soft）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_eid: Option<u32>,
-    /// 受击方**弹着时刻**的 armorsStates 状态号（additive，skip-when-none）。
-    /// None = 受击车无状态流或弹着早于首次切换（初态域——初态是声明文件
-    /// `data/armor_states.json` 里 `<default/>` 态，不猜）。仅动态装甲车（全库 6 辆）
-    /// 会有值；由 [`attach_shot_armor_states`] 在持 packets 的生产入口回填，
+    /// 受击方**弹着时刻**的 armorsStates 状态号（Vehicle propID 16，additive，skip-when-none）。
+    /// None = 受击车无状态流或弹着早于首个样本（首样本 = 入视野 create 快照；更早区间
+    /// 按声明文件 `data/armor_states.json` 里 `<default/>` 态兜底，不猜）。仅动态装甲车
+    /// （全库 6 辆）会有值；由 [`attach_shot_armor_states`] 在持 packets 的生产入口回填，
     /// 消费方（射击复现）按声明门控后取该态的激活板集。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_armor_state: Option<u8>,
@@ -255,7 +255,7 @@ pub struct ShotReplayData {
 /// （[`ShotReplayData::target_armor_state`]）。在**持 packets 的生产入口**调用
 /// （wasm `shot_replays_json` / agent CLI / viewer 路径），提取层本身不持有全量包流。
 /// 弹着时刻 = `fire_time + Σleg_secs`（无折线 = 直线估计，与 PlaybackShot 同式）；
-/// 无轨道 / 初态域（早于首次切换）不注入——消费方按声明 `<default/>` 态兜底。
+/// 无轨道 / 快照前区间不注入——消费方按声明 `<default/>` 态兜底。
 pub fn attach_shot_armor_states(
     shots: &mut [ShotReplayData],
     packets: &[(u32, f32, &[u8])],

@@ -343,10 +343,10 @@ pub struct PlaybackShot {
     pub shooter_name: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub target_name: String,
-    /// 受击方**弹着时刻**的 armorsStates 状态号（additive；skip-when-none）。
-    /// None = 受击车无状态流或弹着早于首次切换（初态见声明文件
-    /// `data/armor_states.json` 的 `<default/>` 态）。仅动态装甲车（全库 6 辆）会有值；
-    /// 消费方（射击复现）按声明门控后用该态的激活板集做等效装甲。
+    /// 受击方**弹着时刻**的 armorsStates 状态号（Vehicle propID 16，additive；skip-when-none）。
+    /// None = 受击车无状态流或弹着早于首个样本（首样本 = 入视野 create 快照；
+    /// 更早区间以声明文件 `data/armor_states.json` 的 `<default/>` 态兜底）。仅动态装甲车
+    /// （全库 6 辆）会有值；消费方（射击复现）按声明门控后用该态的激活板集做等效装甲。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_armor_state: Option<u8>,
 }
@@ -624,10 +624,10 @@ pub struct PlaybackData {
     /// 契约 additive：消费方忽略未知键。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reload_effective: Vec<RawReloadDuration>,
-    /// 原始 armorsStates 状态广播（type=7 prop0 u8；仅动态装甲车
-    /// `<extras><armorsStatesController>` 产生非空轨道，状态语义见 data/armor_states.json；
-    /// 普通车为空、字段整体省略）。契约 additive：同版本只加字段，消费方忽略未知键。
-    /// 行为学定案与门控要求见 `combat::RawArmorStateTrack` 文档。
+    /// 原始 armorsStates 状态轨道（Vehicle propID 16：type=7 更新 + type=5 create 快照，
+    /// 仅动态装甲车 `<extras><armorsStatesController>` 产生轨道，状态语义见
+    /// data/armor_states.json；静态车为空、字段整体省略）。契约 additive：同版本只加字段，
+    /// 消费方忽略未知键。行为学定案与门控要求见 `combat::RawArmorStateTrack` 文档。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub armor_states: Vec<crate::replay::combat::RawArmorStateTrack>,
     pub meta: PlaybackMeta,

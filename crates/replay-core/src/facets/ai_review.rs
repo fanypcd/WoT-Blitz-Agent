@@ -29,9 +29,9 @@ pub struct AiReviewFacet {
     pub poses: Vec<RawPoseTrack>,
     /// 原始炮塔属性广播（type=7 prop2 u16，未解码；高 10 位 = 相对偏航 coarse、低 6 位 = 俯仰比例）
     pub turrets: Vec<RawTurretTrack>,
-    /// 原始 armorsStates 状态广播（type=7 prop0 u8）。仅动态装甲车
-    /// （车辆 XML `<extras><armorsStatesController>`，状态语义见 data/armor_states.json）
-    /// 会产生非空轨道；普通车辆 prop0 无更新、轨道为空，序列化时整体省略（契约向后兼容）。
+    /// 原始 armorsStates 状态轨道（Vehicle propID 16；type=7 更新 + type=5 create 快照 =
+    /// 首样本）。仅动态装甲车（车辆 XML `<extras><armorsStatesController>`，状态语义见
+    /// data/armor_states.json）产生轨道；静态车为空，序列化时整体省略（契约向后兼容）。
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub armor_states: Vec<RawArmorStateTrack>,
 }
@@ -56,7 +56,7 @@ pub struct RawTurretTrack {
     pub raw: Vec<u16>,
 }
 
-/// 单实体原始 armorsStates 观测（type=7 prop0 u8，列式）。
+/// 单实体动态装甲状态轨道（Vehicle propID 16 `armorsStates`，列式）。
 ///
 /// 定义与行为学定案在 `replay::combat::collect`（数据面单一定义源）；此处 re-export
 /// 维持切面消费方的既有导入路径。

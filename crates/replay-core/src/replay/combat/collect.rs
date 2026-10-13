@@ -1174,16 +1174,22 @@ pub(crate) fn tick_at_anchored(
     }
 }
 
-/// 单实体原始 armorsStates 观测（type=7 prop0 u8，列式）
+/// 单实体动态装甲状态轨道（`armorsStates` = Vehicle propID 16，列式）
 ///
-/// 行为学定案（2026-10-13，Oth71_Titan_Strife 实测样本 `data/replay_samples/`）：
-/// Vehicle 实体 prop0 载荷为 1 字节状态号，值域 = 车辆 XML
-/// `<extras><armorsStatesController>` 声明的状态 id 集（实测 0/1 交替 6 轮，切换瞬间
-/// 同实体 prop4 的消耗品态字节同步翻转）；`armorMover` 消耗品每次使用产生一条更新。
-/// 初始态不经本流（在 ON_ENTITY_CREATE 属性表 / XML `<default/>` 中，本层不解析——
-/// 消费方以声明文件的默认态为初值，见 `data/armor_states.json`）。propID 0 ↔
-/// `Vehicle::armorsStates` 的命名映射为 def 注册表行为学归因，def 表反汇编定证前
-/// 不得当作命名已证；消费方须按声明文件门控：值 ∉ 该车状态集的更新丢弃。
+/// 行为学定案（2026-10-13 两回放交叉实证：0954/1615 Oth71 作者车 + 1615 Oth44 受击车）：
+/// prop16 载荷 = `[u8 n][n × u32 LE 状态描述符]`——n = 该车 XML
+/// `<extras><armorsStatesController>` 声明的状态数（无该控制器者值域为空，n=0）。
+/// 描述符仅允许 bit0/bit16 两位（实测全集 {0, 1, 0x10000, 0x10001}）：**bit16 = 该状态
+/// 当前激活**（恒恰一组置位）；bit0 不随切换变化（疑似 XML default 标记，未闭合不消费）。
+/// 解码 = bit16 置位组的下标 = XML 状态 id。初始态经 ON_ENTITY_CREATE(type=5) 属性表
+/// materialize（含"入视野前已切换"的正确快照）；此后每次 `armorMover` 使用
+/// （type=32 flag=0 槽位事件）伴随恰一条 prop16 更新。
+///
+/// 反例存档：propID 0（1B 交替布尔，全车皆有的 6 万+ 级事件流）与装甲状态**无关**——
+/// 早期误判已由交叉实证证伪（0954 作者车 prop0 翻 12 次而 armorMover 仅用 1 次；
+/// 1615 受击车 prop0 停在 0 而 prop16 如实切换）。本收集器只信 prop16。
+///
+/// 消费方按声明文件门控：值 ∉ 该车状态集（`data/armor_states.json`）的样本丢弃。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawArmorStateTrack {
     pub eid: u32,
@@ -1192,8 +1198,8 @@ pub struct RawArmorStateTrack {
 }
 
 impl RawArmorStateTrack {
-    /// 任一时刻的状态号：≤ t 的最近更新。**早于首次切换 → `None`**——初态在声明文件
-    /// （XML `<default/>` 态，`data/armor_states.json`），状态流不含它，不猜。
+    /// 任一时刻的状态号：≤ t 的最近样本。**早于首样本 → `None`**——首样本通常是
+    /// 入视野 create 表快照；在此之前消费方以声明文件默认态为初值（fail-closed）。
     pub fn state_at(&self, t: f32) -> Option<u8> {
         let i = self.t.partition_point(|&c| c <= t);
         if i == 0 {
@@ -1204,36 +1210,105 @@ impl RawArmorStateTrack {
     }
 }
 
-/// type=7 prop0 的 1 字节原始值（armorsStates 状态号；按 eid 升序、每实体包序）。
+/// prop16 载荷解码：`[u8 n][n × u32 LE 描述符]` → 唯一 bit16 置位组的下标。
+/// n=0（无状态控制器）/ 长度不符 / 出现未知位 / 多位或多组置位 → None（fail-closed）。
+fn decode_armors_states(v: &[u8]) -> Option<u8> {
+    let n = usize::from(*v.first()?);
+    if v.len() != 1 + 4 * n {
+        return None;
+    }
+    let mut active: Option<u8> = None;
+    for i in 0..n {
+        let g = u32::from_le_bytes(v[1 + 4 * i..5 + 4 * i].try_into().ok()?);
+        if g & !0x0001_0001 != 0 {
+            return None; // 未知位：形状未闭合，不猜
+        }
+        if g & 0x0001_0000 != 0 {
+            if active.is_some() {
+                return None; // 多组置位非已知形状
+            }
+            active = Some(i as u8);
+        }
+    }
+    active
+}
+
+/// ON_ENTITY_CREATE(type=5) 属性表的 prop16 条目解析：锚定签名
+/// `10 <n∈1..=4> <n×4B 描述符> 11`，任何一步不符或整体解码失败 → None。
+/// `10 00`（n=0 空表，静态车）不产生快照点。
+fn parse_create_armors_states(p: &[u8]) -> Option<u8> {
+    for i in 0..p.len() {
+        if p[i] != 0x10 {
+            continue;
+        }
+        let n = usize::from(*p.get(i + 1)?);
+        if !(1..=4).contains(&n) {
+            continue;
+        }
+        let vlen = 1 + 4 * n;
+        if p.get(i + 1 + vlen) != Some(&0x11) {
+            continue;
+        }
+        if let Some(state) = decode_armors_states(&p[i + 1..i + 1 + vlen]) {
+            return Some(state);
+        }
+    }
+    None
+}
+
+fn record_armor_state_point(
+    tracks: &mut HashMap<u32, RawArmorStateTrack>,
+    order: &mut Vec<u32>,
+    eid: u32,
+    clock: f32,
+    state: u8,
+) {
+    let tr = tracks.entry(eid).or_insert_with(|| {
+        order.push(eid);
+        RawArmorStateTrack {
+            eid,
+            t: Vec::new(),
+            state: Vec::new(),
+        }
+    });
+    tr.t.push(clock);
+    tr.state.push(state);
+}
+
+/// 逐车动态装甲状态轨道（按 eid 升序；列式，wire 序 = 时钟序）。
 ///
-/// 只收 valueLen==1 的更新；其余形状（若出现）非状态广播，静默跳过。
+/// 数据源：type=5 create 表 materialize 快照 + type=7 propID 16 更新。
+/// **全零轨道（全程默认态）丢弃**——与消费方"缺轨道 = 默认态"语义等价，
+/// 不给每辆静态车发单点噪声轨道。
 pub fn collect_armor_state_tracks(packets: &[(u32, f32, &[u8])]) -> Vec<RawArmorStateTrack> {
     let mut tracks: HashMap<u32, RawArmorStateTrack> = HashMap::new();
     let mut order: Vec<u32> = Vec::new();
     for (ptype, clock, p) in packets {
-        if *ptype != 7 || p.len() < 13 || u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0 {
-            continue;
-        }
-        let vlen = u32::from_le_bytes([p[8], p[9], p[10], p[11]]);
-        if vlen != 1 {
-            continue;
-        }
-        let eid = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
-        let tr = tracks.entry(eid).or_insert_with(|| {
-            order.push(eid);
-            RawArmorStateTrack {
-                eid,
-                t: Vec::new(),
-                state: Vec::new(),
+        match *ptype {
+            5 if p.len() > 40 => {
+                if let Some(state) = parse_create_armors_states(p) {
+                    let eid = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
+                    record_armor_state_point(&mut tracks, &mut order, eid, *clock, state);
+                }
             }
-        });
-        tr.t.push(*clock);
-        tr.state.push(p[12]);
+            7 if p.len() >= 13 && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 16 => {
+                let vlen = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
+                if vlen == 0 || 12 + vlen > p.len() {
+                    continue; // 截断帧：无法读出完整载荷，丢弃（形状未闭合不猜）
+                }
+                if let Some(state) = decode_armors_states(&p[12..12 + vlen]) {
+                    let eid = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
+                    record_armor_state_point(&mut tracks, &mut order, eid, *clock, state);
+                }
+            }
+            _ => {}
+        }
     }
     order.sort_unstable();
     order
         .into_iter()
-        .map(|eid| tracks.remove(&eid).expect("eid recorded above"))
+        .filter_map(|eid| tracks.remove(&eid))
+        .filter(|tr| tr.state.iter().any(|&s| s != 0))
         .collect()
 }
 
