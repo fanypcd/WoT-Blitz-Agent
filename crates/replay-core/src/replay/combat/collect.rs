@@ -176,6 +176,7 @@ pub fn dump_replay_streams(packets: &[(u32, f32, &[u8])]) -> serde_json::Value {
         "direct_hits8": collect_direct_hits8(packets).iter().map(|d| json!({
             "t": d.t, "shooter": d.shooter, "victim": d.victim, "result": d.result,
         })).collect::<Vec<_>>(),
+        "type33_pairing": collect_entity_cache_pairing(packets),
     })
 }
 
@@ -1062,6 +1063,73 @@ pub(crate) fn collect_tick_timeline(packets: &[(u32, f32, &[u8])]) -> Vec<(f32, 
         .collect()
 }
 
+/// type=36 会话十分秒计数**全值**（每场至多 1 条，载荷恒 4B u32）：(clock, 全值)。
+/// 与 type=35 同源——全语料 31/31 场（含 2 场全值=0 边界）低字节与该场 t35 起始值一致
+/// （investigation/client-usage-vs-agent-implementation.md §2.2 P1-1）。
+/// 用途：[`tick_at_anchored`] 的绝对刻度锚。
+pub(crate) fn collect_session_tick(packets: &[(u32, f32, &[u8])]) -> Option<(f32, u32)> {
+    packets.iter().find_map(|(t, clock, p)| {
+        (*t == 36 && p.len() == 4).then(|| (*clock, u32::from_le_bytes([p[0], p[1], p[2], p[3]])))
+    })
+}
+
+/// type=33（实体缓存校验，`MSG_ON_ENTITY_CACHE_TEST`）与 type=5（实体创建）的配对诊断。
+///
+/// 协议不变式（2026-10-13 全语料 31/31 场验证，二进制枚举名
+/// `MSG_ON_ENTITY_CACHE_TEST,33`）：每条实体创建必伴随**同 eid** 的一条缓存校验记录
+/// （载荷恒 `[eid u32][u32 0]`）。count 相等且 eid 集合一致 = 流完整；失配 = 截断 /
+/// 损坏 / 异常版本——**fail-closed 信号，不猜成因**。
+/// （investigation/client-usage-vs-agent-implementation.md §2.2 P3-2）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntityCachePairing {
+    /// type=5 实体创建条数
+    pub created: usize,
+    /// type=33 缓存校验条数
+    pub tested: usize,
+    /// 有创建无校验的 eid（升序）
+    pub created_without_test: Vec<u32>,
+    /// 有校验无创建的 eid（升序）
+    pub tested_without_create: Vec<u32>,
+}
+
+impl EntityCachePairing {
+    /// 配对一致（count 相等且双向 eid 集合为空）。
+    pub fn is_consistent(&self) -> bool {
+        self.created == self.tested
+            && self.created_without_test.is_empty()
+            && self.tested_without_create.is_empty()
+    }
+}
+
+/// 收集 type=5 / type=33 配对诊断（全库原始流导出与语料质量扫描消费）。
+pub fn collect_entity_cache_pairing(packets: &[(u32, f32, &[u8])]) -> EntityCachePairing {
+    let mut created: Vec<u32> = Vec::new();
+    let mut tested: Vec<u32> = Vec::new();
+    for (t, _, p) in packets {
+        if p.len() < 4 {
+            continue;
+        }
+        if *t == 5 {
+            created.push(u32::from_le_bytes([p[0], p[1], p[2], p[3]]));
+        } else if *t == 33 {
+            tested.push(u32::from_le_bytes([p[0], p[1], p[2], p[3]]));
+        }
+    }
+    let created_set: std::collections::HashSet<u32> = created.iter().copied().collect();
+    let tested_set: std::collections::HashSet<u32> = tested.iter().copied().collect();
+    let mut created_without_test: Vec<u32> = created_set.difference(&tested_set).copied().collect();
+    let mut tested_without_create: Vec<u32> =
+        tested_set.difference(&created_set).copied().collect();
+    created_without_test.sort_unstable();
+    tested_without_create.sort_unstable();
+    EntityCachePairing {
+        created: created.len(),
+        tested: tested.len(),
+        created_without_test,
+        tested_without_create,
+    }
+}
+
 /// type=35 tick 计数器插值（作者/他人路径共用）：timeline 按 clock 排序 → 二分定位首个 clock ≥ t 的相邻段线性内插；
 /// u8 回绕展开（差值掩 0xFF，>128 视为回退取负）；t 早于首包按首段向后外推（与原线性实现一致），t 晚于末包取末值，样本 <2 条取末值。
 pub(crate) fn tick_at(tick_timeline: &[(f32, u8)], t: f32) -> f32 {
@@ -1085,6 +1153,164 @@ pub(crate) fn tick_at(tick_timeline: &[(f32, u8)], t: f32) -> f32 {
         return v0 as f32;
     }
     v0 as f32 + dv * (t - t0) / dt
+}
+
+/// [`tick_at`] 的锚定变体：type=36 全值（clock, value）存在时，把启发式展开的相对值
+/// 整体平移到绝对会话刻度——**锚点样本精确等于全值**，其余样本随整体平移（样本间距
+/// 不变；锚点之前的段内启发式误计不因此消除，协议上 tick 连续广播、该形态未观测）。
+/// 无锚（缺记录/形状异常）行为与 [`tick_at`] 完全一致。平移不改变相对单调性与窗口内
+/// 一致性——fire_tick 的窗口键语义不受影响。
+pub(crate) fn tick_at_anchored(
+    tick_timeline: &[(f32, u8)],
+    session_tick: Option<(f32, u32)>,
+    t: f32,
+) -> f32 {
+    let base = tick_at(tick_timeline, t);
+    match session_tick {
+        Some((anchor_clock, anchor_value)) if !tick_timeline.is_empty() => {
+            base - (tick_at(tick_timeline, anchor_clock) - anchor_value as f32)
+        }
+        _ => base,
+    }
+}
+
+#[cfg(test)]
+mod tick_anchor_tests {
+    use super::*;
+
+    fn mk35(clock: f32, v: u8) -> (u32, f32, Vec<u8>) {
+        (35, clock, vec![v])
+    }
+    fn mk36(clock: f32, v: u32) -> (u32, f32, Vec<u8>) {
+        (36, clock, v.to_le_bytes().to_vec())
+    }
+
+    /// type=36 收集：恰取唯一一条 4B 记录；缺失/形状异常 → None。
+    #[test]
+    fn collects_session_tick_once() {
+        let packets: Vec<(u32, f32, Vec<u8>)> =
+            vec![mk35(0.1, 244), mk36(0.2, 0x0582F4), mk35(0.2, 245)];
+        let refs: Vec<(u32, f32, &[u8])> = packets
+            .iter()
+            .map(|(t, c, p)| (*t, *c, p.as_slice()))
+            .collect();
+        assert_eq!(collect_session_tick(&refs), Some((0.2, 0x0582F4)));
+
+        let no36: Vec<(u32, f32, Vec<u8>)> = vec![mk35(0.1, 5), mk35(0.2, 6)];
+        let refs: Vec<(u32, f32, &[u8])> = no36
+            .iter()
+            .map(|(t, c, p)| (*t, *c, p.as_slice()))
+            .collect();
+        assert_eq!(collect_session_tick(&refs), None);
+
+        let bad_shape: Vec<(u32, f32, Vec<u8>)> = vec![(36, 1.0, vec![1, 2])]; // 2B ≠ 4B
+        let refs: Vec<(u32, f32, &[u8])> = bad_shape
+            .iter()
+            .map(|(t, c, p)| (*t, *c, p.as_slice()))
+            .collect();
+        assert_eq!(collect_session_tick(&refs), None);
+    }
+
+    /// 无锚（缺 type=36）时 tick_at_anchored 与 tick_at 完全一致。
+    #[test]
+    fn no_anchor_matches_tick_at() {
+        let tl = vec![(0.0f32, 0u8), (0.1, 1), (0.2, 2)];
+        for t in [0.05f32, 0.1, 0.15, 0.2] {
+            assert_eq!(tick_at_anchored(&tl, None, t), tick_at(&tl, t));
+        }
+    }
+
+    /// 锚定修正：样本间隔 >128 tick（12.8s+ 丢包）时启发式把 +200 误读为 −56——
+    /// 锚定后锚点样本精确等于 type=36 全值（绝对刻度正确），整体平移保持样本间距
+    /// （单锚无法修正锚点之前的段内误计；协议上 tick 连续广播，>12.8s 空档未观测）。
+    #[test]
+    fn anchor_corrects_heuristic_wrap_miscount() {
+        // 0.0s 计数 0 → 20.0s 计数 200（丢 199 个样本：启发式 200 > 128 误判为 −56）
+        let tl = vec![(0.0f32, 0u8), (20.0, 200)];
+        let session = Some((20.0f32, 200u32));
+        // 启发式：dv = 200 & 0xFF = 200 > 128 → 视为 −56
+        assert_eq!(tick_at(&tl, 20.0), -56.0);
+        // 锚定后：锚点处精确 = 200（绝对刻度正确）；整体平移保持相对间距
+        assert_eq!(tick_at_anchored(&tl, session, 20.0), 200.0);
+        assert_eq!(tick_at_anchored(&tl, session, 0.0), 256.0);
+    }
+
+    /// 锚点不落首样本：锚定值 = 锚点样本精确对齐全值（真实语料形态：t36 常在开局附近）。
+    #[test]
+    fn anchor_shifts_uniformly() {
+        // 从 250 起始（会话中段）：250, 251, 252（+1 小步，启发式无歧义）
+        let tl = vec![(0.0f32, 250u8), (0.1, 251), (0.2, 252)];
+        // 全值取低字节 == 锚点样本 u8（251）的数，符合协议不变式（361211 & 0xFF == 251）
+        let session = Some((0.1f32, 361_211u32));
+        // 无锚展开：0.1s 处 = 251；锚定后整体平移到绝对会话刻度
+        let base = tick_at(&tl, 0.1);
+        let anchored = tick_at_anchored(&tl, session, 0.1);
+        assert_eq!(base, 251.0);
+        assert_eq!(anchored, 361_211.0, "锚点样本精确等于全值");
+        assert_eq!(
+            tick_at_anchored(&tl, session, 0.0),
+            361_210.0,
+            "整体平移，不改变样本间距"
+        );
+    }
+}
+
+#[cfg(test)]
+mod entity_cache_pairing_tests {
+    use super::*;
+
+    fn mk(t: u32, eid: u32) -> (u32, f32, Vec<u8>) {
+        (t, 1.0, eid.to_le_bytes().to_vec())
+    }
+    fn refs(p: &[(u32, f32, Vec<u8>)]) -> Vec<(u32, f32, &[u8])> {
+        p.iter().map(|(t, c, b)| (*t, *c, b.as_slice())).collect()
+    }
+
+    /// 配对一致：count 相等且 eid 集合一致（真实语料 31/31 场形态）。
+    #[test]
+    fn matched_creates_and_tests_are_consistent() {
+        let packets = vec![
+            mk(5, 100),
+            mk(33, 100),
+            mk(10, 100), // 无关类型不参与
+            mk(5, 200),
+            mk(33, 200),
+        ];
+        let d = collect_entity_cache_pairing(&refs(&packets));
+        assert_eq!((d.created, d.tested), (2, 2));
+        assert!(d.is_consistent());
+    }
+
+    /// 有校验无创建（流截断/损坏形态）→ 失配，多出的 eid 原样列出。
+    #[test]
+    fn test_without_create_is_inconsistent() {
+        let packets = vec![mk(5, 100), mk(33, 100), mk(33, 300)];
+        let d = collect_entity_cache_pairing(&refs(&packets));
+        assert_eq!((d.created, d.tested), (1, 2));
+        assert!(!d.is_consistent());
+        assert!(d.created_without_test.is_empty());
+        assert_eq!(d.tested_without_create, vec![300]);
+    }
+
+    /// 双向失配：eid 集合不相交 → 两侧各自列出（升序）。
+    #[test]
+    fn disjoint_eid_sets_report_both_sides() {
+        let packets = vec![mk(5, 30), mk(5, 10), mk(33, 20), mk(33, 40)];
+        let d = collect_entity_cache_pairing(&refs(&packets));
+        assert_eq!((d.created, d.tested), (2, 2));
+        assert!(!d.is_consistent(), "count 相等但集合不同也算失配");
+        assert_eq!(d.created_without_test, vec![10, 30]);
+        assert_eq!(d.tested_without_create, vec![20, 40]);
+    }
+
+    /// 短载荷（<4B）不参与配对（防御：畸形包不计入任何一侧）。
+    #[test]
+    fn malformed_short_payloads_are_ignored() {
+        let packets = vec![(5, 1.0, vec![1, 2]), (33, 1.0, vec![]), mk(5, 7), mk(33, 7)];
+        let d = collect_entity_cache_pairing(&refs(&packets));
+        assert_eq!((d.created, d.tested), (1, 1));
+        assert!(d.is_consistent());
+    }
 }
 
 #[cfg(test)]

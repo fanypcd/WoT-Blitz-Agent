@@ -242,6 +242,39 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 | [docs/decoupling-status.md](decoupling-status.md) | **解耦的剩余决策与已定案差异**（2026-10-03 收敛；**2026-10-07 更新：GLB 自产管线已接线**——`data/cache/models/` 换为客户端解包导出，`cache/models` ≡ `local_models` 735/735）：已完成时间线；待决策口径（数据模型塌缩 / 25 辆无显示名 / `hull_traverse` 非同量）；封面图与 BK 复核为**同源同画**（旧 NCC 0.21/非同一幅画结论已撤销）；已定案的 BlitzKit 侧差异清单；对外沟通材料。进度/接线/分发现状见 [data-inventory.md](data-inventory.md) |
 | [docs/local-model-export.md](local-model-export.md) | ✅ 已实施（2026-10-01，2026-10-02 补 §4 贴图实测）：报告 B 的几何替代做成 `tools/export_tank_glb.py`，验收口径从"按可达节点求和"收紧到**逐字节 + 节点顺序**——`collision.glb` **735/735**、`model.glb` **733/735** 等价（余 2 辆为 BlitzKit 侧行为、另 23 辆 2026-10-10 起**有意修正**（静态变换烘焙 / 状态过滤，等价数 710/735），见该文 §5/§5.1）；贴图槽位与 BlitzKit 完全对齐（731/735 图片数相同、无缺槽位）。§4 逐通道实测推翻了报告 B §3.3 的图源判断，并定下 `baseRMMap` 的**通道搬迁**（ch0→G 粗糙度、ch1→B 金属度）。**2026-10-07 起已替换运行期数据源**：`data/cache/models/` 换为本地导出（`cache/models` ≡ `local_models` 735/735，包与 COS 随发；见 [data-inventory.md](data-inventory.md) §一 #8） |
 
+### 回放对照调查：P1/P2 加固落地（2026-10-13，未发版）
+
+**背景**：对 wotblitz.exe 11.20.0.887 的独立逆向（协议 + 消费链，报告在
+`investigation/`，不入 docs）与本项目实现的逐消费点对照——解析/镜像计算
+12+8 处全部一致，无冲突项；按对照结论落地 P1/P2 四项加固。
+
+**改动（本仓，本次）**：
+- **type=36 接入 tick 展开**（P1-1）：实测 type=36 = 会话十分秒计数**全值**（u32，
+  每场恰 1 条），31/31 场低字节与该场 type=35 起始值一致。新增
+  `collect_session_tick` + `tick_at_anchored`（锚定展开；无锚回退原启发式），
+  `ShotScanShared.session_tick` 贯通作者/他人两路径的 `fire_tick` 与 tick 采样窗口。
+- **批量扫描跳过 `recording_*`**（P1-2）：二进制证实 `recording_%s` 是客户端
+  未完成录制的临时名（必然缺 restLen 回填与终止记录），`list_replays_in_dir` 不再吸入。
+- **restLen 30MB 预检 + 旧魔数注释**（P2-1）：`packet_stream_offset` 对 +4 字段加
+  客户端同款 `0x1E00000` 上限校验；注明旧魔数 `0x12343210`（无头块旧格式）被拒是**有意行为**。
+- **作者 comp descriptor 双源交叉验证**（P2-2）：`BattleSummary` 新增
+  `author_comp_descriptor_{meta,settlement,mismatch}`（meta.json `vehicleCompDescriptor`
+  × 结算 #301 f103，两源独立、实测逐值一致；双有不一致 = 数据异常信号，不猜谁对）。
+- **type=33 配对哨兵**（P3-2）：`collect_entity_cache_pairing` + `EntityCachePairing`
+  （`is_consistent()`）——协议不变式"每条 type=5 实体创建伴随同 eid 缓存校验"
+  （31/31 场验证）；接入 `dump_replay_streams` 诊断导出（`type33_pairing` 键），
+  失配 = 流截断/损坏/异常版本（fail-closed 信号，不猜成因）。
+- **docs 知识同步**：总集 §2.1 type=10 误差字段定名（`ON_ENTITY_MOVE_WITH_ERROR`）、
+  §三/§2.5 type=7/8 信封精确化（u32 methodID/propID + len 前缀）、§6.6 type=26 修订
+  （语义成立；0..44 条/载荷恒 u32 0）、type=28 槽号注 + 枚举分叉注、type=33 独立行、
+  §6.1/§八 t36 锚定补录；网络面消费结论（`Ignore Invalid Replay Digest` 为客户端
+  设置且默认忽略摘要失配）见 `investigation/` 协议报告 §4.6 与对照报告 §四。
+
+**验证**：`cargo test -p wotb-replay-core` 全绿（新增 tick 锚定 4 用例、recording 跳过、
+restLen 超限、夹具双源一致共 7 用例）；`cargo check --workspace` 干净。
+对照证据与未落地项（P3 验证课题、总集 §2.1/§6.6 其余修订）见
+`investigation/client-usage-vs-agent-implementation.md`。
+
 ### 履带印（TreadSystem 地面碾压痕）数据面导出（2026-10-11，未发版）
 
 **背景**：2026-10-10 D2（[map-render-align-audit.md](map-render-align-audit.md)，index 同名条目）

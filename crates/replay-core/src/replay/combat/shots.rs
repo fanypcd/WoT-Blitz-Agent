@@ -372,6 +372,10 @@ pub(crate) struct ShotScanShared {
     pub vehicle_equipment: HashMap<u32, [u8; 9]>,
     /// type=35 tick 计数器（保持包序）
     pub tick_timeline: Vec<(f32, u8)>,
+    /// type=36 会话十分秒计数全值 (clock, value)——[`tick_at_anchored`] 的绝对刻度锚
+    /// （每场至多 1 条；缺省 None = 无锚，展开回退启发式）。全语料 31/31 场低字节
+    /// 与 t35 起始值一致（investigation/client-usage-vs-agent-implementation.md）。
+    pub session_tick: Option<(f32, u32)>,
     /// per-entity type=10 状态采样（**已按 clock 稳定排序**——锚点选择与 roll 线性插值依赖时序）
     pub st10: HashMap<u32, Vec<St10Sample>>,
     /// per-entity prop2 打包角流（**已按 clock 稳定排序**，等钟保持包序——prop2_at 的
@@ -416,6 +420,7 @@ pub(crate) fn build_shot_scan_shared(
     let names = extract_entity_names(packets);
     let vehicle_equipment = collect_vehicle_equipment(packets);
     let tick_timeline = collect_tick_timeline(packets);
+    let session_tick = collect_session_tick(packets);
     let (mut st10, mut prop2) = build_entity_indexes(packets);
     for v in st10.values_mut() {
         v.sort_by(|a, b| a.clock.partial_cmp(&b.clock).unwrap());
@@ -615,6 +620,7 @@ pub(crate) fn build_shot_scan_shared(
         names,
         vehicle_equipment,
         tick_timeline,
+        session_tick,
         st10,
         prop2,
         refresh_clusters,
@@ -926,6 +932,7 @@ fn shot_render_pack(
 fn tick_window_samples(
     st10: &St10Index,
     tick_timeline: &[(f32, u8)],
+    session_tick: Option<(f32, u32)>,
     refresh_clusters: &HashMap<u32, Vec<f32>>,
     eid: u32,
     base_t: f32,
@@ -951,7 +958,7 @@ fn tick_window_samples(
             };
             out.push(TickSample::raw(
                 dt,
-                tick_at(tick_timeline, s.clock),
+                tick_at_anchored(tick_timeline, session_tick, s.clock),
                 pos,
                 s.yaw,
                 s.pitch,
@@ -1055,6 +1062,8 @@ pub(crate) fn extract_shot_replays_from_shared(
 
     // ⑤'' type=35 服务器竞技场 tick 计数器（u8 递增 @10Hz，自然回绕）。
     let tick_timeline = &shared.tick_timeline;
+    // type=36 会话十分秒全值锚（tick_at_anchored 的绝对刻度；缺记录时 None = 纯启发式）
+    let session_tick = shared.session_tick;
 
     // ⑥ per-entity 索引（共享一次预建，st10/prop2 均已按 clock 排序）：type=10 状态采样 / type=7 prop2 炮塔偏航。
     let (st10, prop2) = (&shared.st10, &shared.prop2);
@@ -1128,7 +1137,7 @@ pub(crate) fn extract_shot_replays_from_shared(
         // （与 method8 同刻），否则取终点时刻。命中归属、受击方状态快照、prop2 取样窗都以此为基准。
         let end_time = shot_impact_time(chain, end_time);
         let (via, leg_secs) = shot_legs(l.point, l.vel, chain, ball_b);
-        let fire_tick = tick_at(tick_timeline, fire_time);
+        let fire_tick = tick_at_anchored(tick_timeline, session_tick, fire_time);
 
         // ⑦' 弹药槽位：发射时刻的最后选择（type=28 时间线 ≤ fire_time 的最新值）
         let mut shell_slot: u32 = 0;
@@ -1533,6 +1542,7 @@ pub(crate) fn extract_shot_replays_from_shared(
                     tick_window_samples(
                         st10,
                         tick_timeline,
+                        session_tick,
                         refresh_clusters,
                         victim,
                         end_time,
@@ -1548,6 +1558,7 @@ pub(crate) fn extract_shot_replays_from_shared(
         let shooter_tick_samples = tick_window_samples(
             st10,
             tick_timeline,
+            session_tick,
             refresh_clusters,
             author_player_eid,
             fire_time,
@@ -2022,6 +2033,8 @@ pub(crate) fn extract_other_shot_replays_from_shared(
 
     // ④ type=35 tick 计数器展开（与作者路径同构）
     let tick_timeline = &shared.tick_timeline;
+    // type=36 会话十分秒全值锚（与作者路径同构）
+    let session_tick = shared.session_tick;
 
     // ⑤ 血量链降幅区间（全 source 保留——作者路径 ⑥' 的无过滤版本，cause=0 炮弹直击；含 type=5 满血锚点）
     let dmg_losses = derive_dmg_losses(&shared.hp_events, None, &shared.initial_hp);
@@ -2107,7 +2120,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
                 (ball_a, [yaw, pitch, 0.0], 0.0, "nearest", true)
             }
         };
-        let fire_tick = tick_at(tick_timeline, l.t);
+        let fire_tick = tick_at_anchored(tick_timeline, session_tick, l.t);
 
         // 目标 = method8（同射手 ±0.05s 命中窗）：唯一候选直接绑定（语料 98%+，绑定
         // 唯一即精确）；多候选先按几何判别（来向角自洽门 + 弹道射线门，见
@@ -2340,6 +2353,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
                 tick_window_samples(
                     st10,
                     tick_timeline,
+                    session_tick,
                     refresh_clusters,
                     victim,
                     end_time,
@@ -2352,6 +2366,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
         let shooter_tick_samples = tick_window_samples(
             st10,
             tick_timeline,
+            session_tick,
             refresh_clusters,
             l.shooter,
             l.t,

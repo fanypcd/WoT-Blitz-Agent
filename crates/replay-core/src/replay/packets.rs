@@ -92,6 +92,18 @@ fn packet_stream_offset(b: &[u8]) -> Result<usize> {
     if b.len() < 14 || u32_le(b, 0) != MAGIC {
         bail!("data.wotreplay header: bad magic");
     }
+    // 客户端读路径对 +4 的 restLen 有 0x1E00000（30MB）上限校验（ReplayFile 头解析，
+    // wotblitz.exe 0x13c6311/0x13c6395）；录制期写 0 占位、收尾回填。超限 = 非本项目
+    // 支持的形态，fail-fast（现语料最大单场 ~3.4MB，距上限两个数量级）。
+    // 另：客户端魔数还接受 0x12343210（旧格式、无头块、无版本串）——本项目不支持，
+    // 按坏魔数拒绝是**有意行为**而非数据损坏。
+    let rest_len = u32_le(b, 4);
+    if rest_len > 0x01E0_0000 {
+        bail!(
+            "data.wotreplay header: restLen {} exceeds client cap (30MB)",
+            rest_len
+        );
+    }
     let mut o = 12usize; // magic(4) + u64(8)
     let hash_len = *b.get(o).context("data.wotreplay header truncated")? as usize;
     o += 1 + hash_len;
@@ -161,5 +173,14 @@ mod tests {
         data.truncate(data.len() - 2);
         assert!(frame_packets(&data).is_err());
         assert!(frame_packets(&[0u8; 32]).is_err());
+    }
+
+    /// restLen 超客户端 30MB 上限（0x1E00000）→ fail-fast（与 wotblitz.exe 读路径同界限）。
+    #[test]
+    fn rest_len_over_client_cap_is_rejected() {
+        let mut data = header();
+        data[4..8].copy_from_slice(&0x0200_0000u32.to_le_bytes()); // 32MB > 30MB
+        let err = frame_packets(&data).unwrap_err().to_string();
+        assert!(err.contains("exceeds client cap"), "err={err}");
     }
 }

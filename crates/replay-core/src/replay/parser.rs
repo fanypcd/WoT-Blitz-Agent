@@ -358,6 +358,20 @@ impl<'a> ReplayParser<'a> {
         summary.author = author_stats;
         summary.players = players;
 
+        // 作者 comp descriptor 双源交叉验证：meta.json `vehicleCompDescriptor`
+        // （crate `Meta.tank_id`，u16）× 结算 #301 f103（`PlayerSettlement.tank_id`）。
+        // 实测逐值一致（user-2：9489==9489）；双有不一致 = 数据异常信号，不猜谁对。
+        summary.author_comp_descriptor_meta = meta.as_ref().map(|m| m.tank_id as u32);
+        summary.author_comp_descriptor_settlement =
+            settlements.get(&author_account_id).map(|s| s.tank_id);
+        summary.author_comp_descriptor_mismatch = match (
+            summary.author_comp_descriptor_meta,
+            summary.author_comp_descriptor_settlement,
+        ) {
+            (Some(a), Some(b)) => Some(a != b),
+            _ => None,
+        };
+
         Ok(summary)
     }
 
@@ -379,13 +393,23 @@ impl<'a> Default for ReplayParser<'a> {
 }
 
 /// 列出目录下所有后缀为 `.wotbreplay` 的回放文件（按文件名排序）。
+///
+/// 跳过 `recording_*`：客户端写入线程（NewWritableReplayFile）对**未完成录制**使用
+/// `recording_%s` 临时名（字符串 @ wotblitz.exe 0x36ea7e0），收尾时才改名——这类文件
+/// 必然缺 restLen 回填与终止记录，解析必然失败，批量扫描跳过而非报错。
 pub fn list_replays_in_dir(dir: &Path) -> Result<Vec<std::path::PathBuf>> {
     let mut files = Vec::new();
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) == Some("wotbreplay") {
-            files.push(path);
+            let is_recording = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map_or(false, |n| n.starts_with("recording"));
+            if !is_recording {
+                files.push(path);
+            }
         }
     }
     files.sort();
@@ -412,6 +436,29 @@ mod tests {
         assert_eq!(players[0].killer_account_id, Some(2));
         assert_eq!(players[1].killer_account_id, None);
         assert_eq!(players[2].killer_account_id, None);
+    }
+
+    /// 批量扫描跳过 `recording_*`（客户端未完成录制的临时名，必然解析失败）。
+    #[test]
+    fn list_replays_skips_in_progress_recordings() {
+        let dir = std::env::temp_dir().join(format!(
+            "wotb-test-recskip-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let done = dir.join("20260101_1200__player.wotbreplay");
+        let rec = dir.join("recording_20260101_1201.wotbreplay");
+        std::fs::write(&done, b"x").unwrap();
+        std::fs::write(&rec, b"x").unwrap();
+
+        let listed = list_replays_in_dir(&dir).unwrap();
+
+        assert_eq!(listed, vec![done], "recording_* 必须被跳过");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

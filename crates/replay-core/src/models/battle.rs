@@ -59,6 +59,18 @@ pub struct BattleSummary {
     pub author: AuthorStats,
     /// 全部 14 名玩家（含作者）的战绩
     pub players: Vec<PlayerSummary>,
+    /// 作者车辆 comp descriptor——meta.json `vehicleCompDescriptor`（crate `Meta.tank_id`）。
+    /// 与 [`Self::author_comp_descriptor_settlement`] 独立来源，实测逐值一致。
+    #[serde(default)]
+    pub author_comp_descriptor_meta: Option<u32>,
+    /// 作者车辆 comp descriptor——结算 #301 f103（`PlayerSettlement.tank_id`）。
+    #[serde(default)]
+    pub author_comp_descriptor_settlement: Option<u32>,
+    /// 双源交叉验证：`Some(true)` = 两源不一致（数据异常信号，不猜谁对）；
+    /// `None` = 任一源缺失（无法比较）。2026-10-13 对照调查新增
+    /// （investigation/client-usage-vs-agent-implementation.md §2.2 P2-2）。
+    #[serde(default)]
+    pub author_comp_descriptor_mismatch: Option<bool>,
 }
 
 /// 作者（当前玩家）的详细战斗统计，主要来自回放的 `battle_results.dat`。
@@ -185,6 +197,9 @@ impl BattleSummary {
             map_key: None,
             roster_complete: None,
             author_vehicle_codename: None,
+            author_comp_descriptor_meta: None,
+            author_comp_descriptor_settlement: None,
+            author_comp_descriptor_mismatch: None,
             battle_duration_secs: 0.0,
             winner_team: 0,
             author_account_id: 0,
