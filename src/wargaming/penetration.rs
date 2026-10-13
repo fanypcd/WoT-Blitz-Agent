@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 
 // 统一击穿判定（POST /api/penetrate）。逐行对齐 BlitzKit SpacedArmorSceneComponent
 // shoot()：跳弹/转正/overmatch/多层消耗/外部模块 flat 抵消/HE 特殊/HEAT 间隙衰减
-// （含 gap 层记录）/末层状态决定结果与伤害归属。穿深只取 near × 装备系数（无距离衰减）。
+// （含 gap 层记录）/末层状态决定结果与伤害归属。基础穿深 = near × 装备系数；可选
+// 距离衰减（distance_m + penetration_far：d>100m 起 400m 区间线性到 far，HE 豁免）
+// 对齐客户端装甲指示器 0x719740（反汇编证据：investigation/...md §8.7）。HEAT 间隙
+// 衰减系数 0.5 为项目裁定（客户端 shells.xml 的 0.05 系数据错误，见 gap 分支注释）。
 
 /// 装甲部件分类（对齐 BlitzKit ArmorType：Primary / Spaced / External）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -187,6 +190,18 @@ pub struct PenetrationRequest {
     /// 主射入（true）可跳弹；跳弹后的出射射线（blitzkit 递归 shoot(...,false,...)）传 false。
     #[serde(default = "default_true")]
     pub allow_ricochet: bool,
+    /// 交战距离（米）。与 `penetration_far` 同时提供且 >100 时启用距离衰减：
+    /// `pen = near + (far − near) × (d−100)/400`（线性外推、最终 max(0)），对齐客户端
+    /// 装甲指示器（wotblitz.exe 0x719740，常量 100/400 为反汇编实测；证据链见
+    /// investigation/blitz-client-protocol-and-replay.md §8.7）。HE 豁免（客户端
+    /// flag 分支 = kind==kHighExplosive）；d≤100 或任一字段缺省 → 与旧版（仅 near）
+    /// 行为一致。HEAT 数据 far==near → 飞行段天然恒平（其专属衰减是间隙项）。
+    #[serde(default)]
+    pub distance_m: Option<f32>,
+    /// 远距穿深（guns.xml `<piercingPower>` 第二值；tanks.pb field8.2，已随
+    /// tank/{id}.json 的 `penetration_far` 透出）。缺省 → 视为等于 near（不衰减）。
+    #[serde(default)]
+    pub penetration_far: Option<f32>,
 }
 
 fn default_true() -> bool {
@@ -227,8 +242,19 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
     } else {
         1.0
     };
-    // BlitzKit 仅使用 near 穿深（shell.penetration.near × 系数），无距离衰减
-    let pen = req.penetration * calib_coeff;
+    // 基础穿深：near × 装备系数；提供 distance_m + penetration_far 时叠加客户端
+    // 指示器的距离衰减（d>100m 起 400m 区间线性到 far，不截断插值、最终 max(0)；
+    // HE 豁免——客户端 flag 分支 = kind==kHighExplosive，见 §8.7）。注意 HEAT 数据
+    // far==near，飞行段天然恒平，其专属衰减是间隙项（见下方 gap 分支）。
+    let mut base_pen = req.penetration;
+    if shell != ShellType::HE {
+        if let (Some(distance_m), Some(pen_far)) = (req.distance_m, req.penetration_far) {
+            if distance_m > 100.0 {
+                base_pen += (pen_far - req.penetration) * (distance_m - 100.0) / 400.0;
+            }
+        }
+    }
+    let pen = base_pen.max(0.0) * calib_coeff;
     let thickness_coeff = if req.enhanced_armor { 1.04 } else { 1.0 };
     // 每发弹参数（blitzkit：normalization ?? 0；HEAT/HE 的 ricochet 上游即为 90°——永不跳弹）
     let norm_deg = req.normalization_deg.unwrap_or(0.0);
@@ -301,6 +327,11 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
             let prev_point = filtered_hits[layer_index - 1].point;
             let distance = dist3(ah.point, prev_point);
             let before = remaining_pen;
+            // 系数 0.5 为项目裁定（2026-10-13）：WG 客户端 shells.xml 的
+            // piercingPowerLossFactorByDistance=0.05（HEAT 全量）与实际判定不符，
+            // 判定为数据填写错误。客户端装甲指示器确实按 0.05/米计算（0x6b54da
+            // `mulss xmm1,[eax+0x154]`，反汇编证据见 investigation §8.7）——即客户端
+            // 指示器偏乐观，实现以 BlitzKit 经验值 0.5/米为准。勿"对齐修正"回 0.05。
             remaining_pen -= 0.5 * remaining_pen * distance;
             let gap_blocked = remaining_pen <= 0.0;
             layers.push(LayerResult {
@@ -503,6 +534,8 @@ mod tests {
             normalization_deg: None,
             ricochet_deg: None,
             allow_ricochet: true,
+            distance_m: None,
+            penetration_far: None,
         }
     }
 
@@ -618,6 +651,92 @@ mod tests {
         assert_eq!(r.result, "BLOCKED");
         assert!(r.layers.iter().any(|l| l.part_name.starts_with("Gap")));
         assert!(!r.layers.last().unwrap().penetrated);
+    }
+
+    #[test]
+    fn distance_decay_applies_beyond_100m_for_ap() {
+        // near 400 / far 300（ guns.xml `<piercingPower>400 300</piercingPower>` 口径）：
+        // d≤100 → 400；d=300 → 400−100×(200/400)=350；d=500 → far=300；
+        // d=1000 → 400−100×(900/400)=175（线性继续外推，不截断插值）。
+        let mk = |d: f32| {
+            let mut rq = req(
+                "ap",
+                400.0,
+                100.0,
+                vec![hit(ArmorSection::Hull, 250.0, [0.0, 0.0, 0.0])],
+            );
+            rq.distance_m = Some(d);
+            rq.penetration_far = Some(300.0);
+            calculate(&rq)
+        };
+        assert!((mk(50.0).layers[0].remaining_before - 400.0).abs() < 1e-3);
+        assert!((mk(100.0).layers[0].remaining_before - 400.0).abs() < 1e-3);
+        assert!((mk(300.0).layers[0].remaining_before - 350.0).abs() < 1e-3);
+        assert!((mk(500.0).layers[0].remaining_before - 300.0).abs() < 1e-3);
+        assert!((mk(1000.0).layers[0].remaining_before - 175.0).abs() < 1e-3);
+        // 判定随距离翻转：300m 剩 350 > 250 → 穿透；1000m 剩 175 < 250 → blocked
+        assert_eq!(mk(300.0).result, "PENETRATION");
+        assert_eq!(mk(1000.0).result, "BLOCKED");
+    }
+
+    #[test]
+    fn distance_decay_he_is_exempt() {
+        // HE 豁免（客户端 flag = kind==kHighExplosive）：远 100 仍给 near。
+        let mut rq = req(
+            "he",
+            400.0,
+            100.0,
+            vec![hit(ArmorSection::Hull, 250.0, [0.0, 0.0, 0.0])],
+        );
+        rq.distance_m = Some(1000.0);
+        rq.penetration_far = Some(300.0);
+        let r = calculate(&rq);
+        assert!((r.layers[0].remaining_before - 400.0).abs() < 1e-3);
+        assert_eq!(r.result, "PENETRATION");
+    }
+
+    #[test]
+    fn distance_decay_heat_flat_when_far_equals_near() {
+        // HEAT 数据 far==near（全量统计 96%+）→ 飞行段恒平；其专属衰减是间隙项
+        // （系数 0.5，见 gap 分支裁定注释）。同时验证缺 far 字段时不衰减。
+        let mut rq = req(
+            "heat",
+            300.0,
+            100.0,
+            vec![hit(ArmorSection::Hull, 100.0, [0.0, 0.0, 0.0])],
+        );
+        rq.distance_m = Some(1000.0);
+        rq.penetration_far = Some(300.0);
+        let r = calculate(&rq);
+        assert!((r.layers[0].remaining_before - 300.0).abs() < 1e-3);
+        let mut rq2 = req(
+            "ap",
+            400.0,
+            100.0,
+            vec![hit(ArmorSection::Hull, 250.0, [0.0, 0.0, 0.0])],
+        );
+        rq2.distance_m = Some(1000.0); // 无 penetration_far → 不衰减
+        let r2 = calculate(&rq2);
+        assert!((r2.layers[0].remaining_before - 400.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn distance_decay_clamps_at_zero_and_keeps_equipment_coeff_after() {
+        // 大距离外推穿零 → max(0)；装备系数（Calibrated +6% 动能）乘在衰减之后，
+        // 对齐客户端 0x719740 的 B 参位置（(插值结果)×B）。穿零后按既有语义映射 "-"
+        //（blitzkit：pen > 0 才有 BLOCKED，零穿深无判定）。
+        let mut rq = req(
+            "ap",
+            400.0,
+            100.0,
+            vec![hit(ArmorSection::Hull, 50.0, [0.0, 0.0, 0.0])],
+        );
+        rq.distance_m = Some(2000.0); // 400 − 100×(1900/400) = −75 → 0
+        rq.penetration_far = Some(300.0);
+        rq.calibrated_shells = true;
+        let r = calculate(&rq);
+        assert!((r.layers[0].remaining_before - 0.0).abs() < 1e-3);
+        assert_eq!(r.result, "-");
     }
 
     #[test]

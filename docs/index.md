@@ -428,6 +428,36 @@ note 为 2026-10-10 一次性硬编码（每次局部发布都会写进桶清单
 重复（protobuf varint 解析 ×3、游戏目录解析 ×7、GLB 容器解析 ×3）宜以 `tools/wotbtools`
 共享模块收敛，属独立改动未并入本批。
 
+### 击穿判定补距离衰减（判定契约，2026-10-13，未发版）
+
+**背景**（WotbTools 装甲查看器 + agent 穿深模拟）：判定一直只用 near 穿深、忽略距离——
+而数据面本就带远距穿深（guns.xml `<piercingPower>近 远</piercingPower>`，AP/APCR 绝大多数
+far<near），BlitzKit 自己在百科页展示"100m→远"衰减却不在判定里使用。客户端装甲指示器实测
+（wotblitz.exe 反汇编 0x719740）：d≤100m 全额 near，100→500m 每米线性插值到 far，HE 豁免
+（flag 分支 = kind==kHighExplosive，内部枚举 kUnknown=0/kHollowCharge=1/kHighExplosive=2/
+kArmorPiercing=3/kArmorPiercingHe=4/kArmorPiercingCr=5，自 eShellKind 注册函数 0x7e89c0
+实锤），HEAT 因 far==near 飞行段恒平（其专属衰减是间隙项）。证据链：
+`investigation/blitz-client-protocol-and-replay.md` §8.7（本轮装甲高亮管线 M0 反汇编）。
+
+**修复**：`PenetrationRequest` 增可选字段 `distance_m`/`penetration_far`（serde default，
+缺省 = 旧行为，既有 18 测例零改动）；两者齐备且 d>100 时对非 HE 弹做
+`near + (far−near)×(d−100)/400`（线性外推不截断、最终 max(0)，装备系数乘在衰减后——对齐
+客户端 0x719740 的 B 参位置）。`agent/tools.rs` 穿深模拟把已读取的 `distance_m` 参数与
+shell 数据的 `penetration_far`（>0 才传，缺失 fail-safe 不衰减）真正接入判定（此前
+distance 仅回显不参与）。
+
+**裁定记录（HEAT 间隙系数 0.5 维持不变）**：本轮同时反汇编了客户端指示器的 HEAT 间隙
+衰减——`remaining ×= (1 − k×gap米)`，k = shells.xml
+`piercingPowerLossFactorByDistance`（HEAT 全量 0.05，267/267；世界单位=米，由 100.0
+常量跨飞行阈值/射线定长两用锁死），豁免分支与飞行平段和数据统计完全自洽。按"对照客户端"
+本应改为 0.05，但**项目裁定 0.05 为 WG 数据填写错误**（与实际判定行为不符，BlitzKit
+经验值 0.5 为准），实现维持 0.5 不变并在此留档，防止后续"对齐修正"误改回。
+
+**回归**：新增距离衰减矩阵 4 例（AP 50/100/300/500/1000m 插值与翻转、HE 豁免、HEAT
+far==near 恒平、大距离穿零映射 "-"）；既有 22 例零改动全绿。**消费侧连带**：WotbTools
+查看器同步接线（距离滑杆 + `penetration_far` 透传，数据已在 tank/{id}.json）由对方仓 PR
+承接；blast radius = 仅显式提供 distance 的调用方（现役前端不传 → 行为逐字节不变）。
+
 ### Type5 配件串改变长解析（解析器，2026-10-10，未发版）
 
 **报障**（WotbTools 射击复现）：60TP 射击 Strv K 那发，车辆与装备面板的"校准弹"未勾选

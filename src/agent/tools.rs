@@ -746,6 +746,9 @@ impl AgentTools {
             shell_type: shell.shell_type.clone(),
             shell_type_id: shell.shell_type_id, // field9 权威；词表仅作回退
             penetration: shell.penetration as f32,
+            // 远距穿深：>0 才传入（数据缺失 → None → 判定不启用距离衰减，fail-safe）
+            penetration_far: (shell.penetration_far > 0.0)
+                .then_some(shell.penetration_far as f32),
             caliber: shell.caliber as f32,
             view_dir: view,
             hits,
@@ -761,6 +764,8 @@ impl AgentTools {
                 None
             },
             allow_ricochet: true,
+            // 距离衰减：d>100 且 far 存在时启用（对齐客户端指示器 0x719740）
+            distance_m: (distance > 0.0).then_some(distance),
         };
         let res = penetration::calculate(&req);
 
