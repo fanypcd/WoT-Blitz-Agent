@@ -26,6 +26,13 @@ Exit status: with `--exit-status` the verdict *is* the process exit code — nev
 
 Run the watch in the background and read its output when it finishes; keep working in the meantime. A push cancels in-flight runs for the same ref (workflow concurrency) — if you need the CI evidence for a specific head, let its watch finish before pushing the next commit.
 
+**The rule covers every wait, not only CI (2026-10-13 user directive).** Local background
+commands, browser gates, builds — any long-running task — must obtain their result in real time:
+use the task's own completion notification or a single blocking wait. Never use `sleep N` +
+polling; a one-off instantaneous look at a running task's log answers "where is it now" but is
+not a waiting mechanism. While waiting, advance other work first; if there is none, block until
+the result arrives.
+
 Inspecting a run while it is in flight (a snapshot, not a way to wait):
 
 - Which step a run is on now: `gh run view <run-id> --json status,conclusion,jobs --jq '.jobs[] | select(.status != "completed") | {name, status}'` (one call; do not loop it as a substitute for `gh run watch`).
