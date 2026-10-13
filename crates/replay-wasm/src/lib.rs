@@ -132,6 +132,9 @@ pub fn playback_json(
         tank_names: &tank_names,
     };
     let mut playback = wotb_replay_core::replay::playback::from_model(&model, &render)?;
+    // armorsStates 时间轴 + 逐弹弹着状态（原始包证据，与下方 comp 透传同层回填；
+    // 仅动态装甲车非空，静态车字段整体省略）
+    wotb_replay_core::replay::playback::attach_packet_evidence(&mut playback, &packets);
     // comp blob 模块局部 id 透传（纯回放证据，无坦克数据依赖）：消费端用
     // 资产面 tank/{id}.json 的 configs[].turret_local/gun_local 联表，即可在客户端
     // 路径钉定实际搭载配置（弹容 N 的上游权威 = 服务器路径的 config_idx/burst_size）。

@@ -85,6 +85,7 @@ tanks.pb 未动）。
 | WASM 注入表 `limitsJson`（炮管俯仰锚定） | 包 `tank/{id}.json` 的 `pitch_limits` ← 现役 models.pb | `local_pb` 的 `pitch_limits`（零差异） | 🟢 数据 100%（未接线） | 接线随 #2 |
 | WASM 注入表 `shellsJson`（弹种徽标/判定） | `dump-shell-kinds` ← 现役 tanks.pb | 客户端 `shells.xml <kind>` | 🟢 数据 100%（未接线） | 接线随 #7 |
 | `data/tank_id_bridge.json`（735 条 tank_id ↔ 模型名） | 现表由 `tanks.pb` 导出（`--emit-bridge`） | **纯客户端可重建（2026-10-10 实测 735/735 一致）**：`tank_id = (list.xml <id> << 8) \| 国家基数`（与 guns/shells 同编码；`--emit-bridge --from-client`）；客户端另有 **20 辆** BK 没有的车（教程 bot/超测）可顺带覆盖 | ✅ 能力已验证（slug 列无消费者可删） | 接线时改用客户端源即可自动覆盖新车 |
+| `data/armor_states.json`（**6 辆**动态装甲车的状态声明，12 态） | 客户端 item_defs `vehicles/*/<stem>.xml` 的 `<extras><armorsStatesController>`（`tools/extract_armor_states.py` 直出） | 不适用（客户端独有概念，BlitzKit 无对应） | ✅ 已接线（解析器按它门控 `AiReviewFacet.armor_states` 的状态语义；消费方查"弹着时刻激活板集"同源） | 每态 `armors` = 激活的 `<part>.<armor_N>` 集合；初态 = `<default/>` 标记的 state；propID=0 状态流见 [index.md](index.md) 待发版条目 |
 | 包内 `data/tanks.pb` / `data/models.pb` | **BlitzKit 原始文件直发** | 换源接线后可从包内移除 | ➖ 随 ①② | 移除会改变包结构——消费方若直读 pb 需同步 |
 | 运行期 web 端点（`/api/tanks` 花名册、`/api/tank_filter`、`tank_detail.is_collector`、`/api/shells`、`models_status`） | 运行期**直读 pb**（花名册 / 名 / tier / nation / type / collector / 弹种 / models.pb id 表） | 改读 tank_cache / 本地数据 | 🟢 代码改动小 | 仅本机 web GUI 用（前端已冻结，不进分发） |
 | 解包底座（DVPL/DAVA 容器、DLC `packs/` 覆盖层） | 本机自产代码（Rust `dvpl.rs` + Python `tools/wotbtools/`，fail-closed 两端对齐） | 不适用 | ✅ 100/100 | 本地链硬前提：需本机装客户端（`Data/` + `packs/`），游戏版本更新后整链重跑 |
@@ -432,6 +433,7 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
 | 坦克模型（`model.glb` + `collision.glb`） | `tools/export_tank_glb.py` | `data/cache/local_models/<id>/`（10-07 起同步进 `cache/models/`）；静态变换烘焙 / StateSwitcher 状态过滤见 [local-model-export.md](local-model-export.md) §1 铁律 14/15，单测 `tools/test_export_tank_static_transform.py` | ✅ |
 | 坦克封面图 / 图标 | `tools/export_tank_icons.py` | `data/cache/local_tank_icons/`（735/735） | ⚠️ 未接线 |
 | 车辆数值（`tanks.pb` / `models.pb` 等价物） | `tools/extract_vehicles.py`（+ `data/tank_id_bridge.json`） | `data/cache/local_pb/`（735 辆全量） | ⚠️ 未接线 |
+| 动态装甲状态声明 | `tools/extract_armor_states.py` | `data/armor_states.json`（6 车 12 态；行级解析 `<extras><armorsStatesController>`，无块车不在产物中） | ✅ |
 | 俯视地面合成 | `tools/composite_overhead.py`（现役；**朝向 = 契约常量 `YX`**，8 朝向相关只作 `audit` 诊断，见 [game-data-sources.md](game-data-sources.md) §5.5）/ `tools/bake_ground_roofs.py`（旧软光栅，已退役） | 写回 `<pack>/map/<key>/ground.webp`（**打包器之后跑**，随后按新链 `python scripts/export_asset_pack.py --refresh-manifest` 重算 manifest——2026-10-10 起，见 §2.1）；重烘须 `--base-dir data/cache/maps`（缺省读包内件会在已合成图上二次合成）；`--verify` 反解读回实际烘入朝向 | ✅ |
 
 ### 6.2 Rust 侧解包（`src/wargaming/`，由 CLI 子命令驱动）

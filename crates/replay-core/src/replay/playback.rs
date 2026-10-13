@@ -343,6 +343,12 @@ pub struct PlaybackShot {
     pub shooter_name: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub target_name: String,
+    /// 受击方**弹着时刻**的 armorsStates 状态号（additive；skip-when-none）。
+    /// None = 受击车无状态流或弹着早于首次切换（初态见声明文件
+    /// `data/armor_states.json` 的 `<default/>` 态）。仅动态装甲车（全库 6 辆）会有值；
+    /// 消费方（射击复现）按声明门控后用该态的激活板集做等效装甲。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_armor_state: Option<u8>,
 }
 
 /// 击杀事件（kill feed）
@@ -618,6 +624,12 @@ pub struct PlaybackData {
     /// 契约 additive：消费方忽略未知键。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reload_effective: Vec<RawReloadDuration>,
+    /// 原始 armorsStates 状态广播（type=7 prop0 u8；仅动态装甲车
+    /// `<extras><armorsStatesController>` 产生非空轨道，状态语义见 data/armor_states.json；
+    /// 普通车为空、字段整体省略）。契约 additive：同版本只加字段，消费方忽略未知键。
+    /// 行为学定案与门控要求见 `combat::RawArmorStateTrack` 文档。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub armor_states: Vec<crate::replay::combat::RawArmorStateTrack>,
     pub meta: PlaybackMeta,
     /// 实体 id 升序（确定性输出）
     pub vehicles: Vec<VehicleTrack>,
@@ -770,6 +782,7 @@ fn to_playback_shot(s: &ShotReplayData) -> PlaybackShot {
         damage: s.damage,
         is_kill: s.is_kill,
         is_author: s.is_author,
+        target_armor_state: None, // 原始包证据：attach_packet_evidence 持 packets 回填
         shell_kind: s.shell_kind.clone(),
         shooter_name: s.shooter_name.clone(),
         target_name: s.target_name.clone(),
@@ -792,7 +805,27 @@ pub fn build_playback_data(input: &PlaybackInput) -> anyhow::Result<PlaybackData
         pitch_limits: input.pitch_limits,
         tank_names: &input.tank_names,
     };
-    from_model(&model, &render)
+    let mut data = from_model(&model, &render)?;
+    // armorsStates 是原始包证据（与 ai_review 的 raw tracks 同层）——渲染层（from_model）
+    // 类型上不接触 packets（防投影层重新 JOIN），故在持有 packets 的本入口回填。
+    attach_packet_evidence(&mut data, input.packets);
+    Ok(data)
+}
+
+/// 原始包证据回填：armorsStates 时间轴 + 逐弹弹着时刻状态号。
+///
+/// 在**持有 packets 的入口**调用（`build_playback_data` / replay-wasm `playback_json`）；
+/// 渲染层 `from_model` 类型上不接触 packets（防投影层重新 JOIN，见 PlaybackRenderInput
+/// 文档），故回填在其后。幂等：重复调用以最新 packets 为准整体覆盖。
+pub fn attach_packet_evidence(data: &mut PlaybackData, packets: &[(u32, f32, &[u8])]) {
+    data.armor_states = crate::replay::combat::collect_armor_state_tracks(packets);
+    for shot in &mut data.shots {
+        let Some(eid) = shot.target_eid else { continue };
+        let Some(track) = data.armor_states.iter().find(|t| t.eid == eid) else {
+            continue;
+        };
+        shot.target_armor_state = track.state_at(shot.t_fire + shot.flight_secs);
+    }
 }
 
 /// 车辆实体筛选：`st10 ∧ prop2 ∧ 采样数达标`（BTreeMap 保证确定性顺序）。
@@ -1069,6 +1102,7 @@ pub fn from_model(
     Ok(PlaybackData {
         version: 2, // contract v2：+supremacy_bases/supremacy_points（消费端版本门禁）
         meta,
+        armor_states: Vec::new(), // 原始包证据：由 build_playback_data 持 packets 回填
         vehicles: vehicles_out,
         shots,
         shots_from_loose_path: model.timeline.shots_from_loose_path,

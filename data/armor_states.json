@@ -1,0 +1,150 @@
+{
+  "Oth28_Sturmfeur_HW.xml.dvpl": {
+    "file": "vehicles/other/Oth28_Sturmfeur_HW.xml",
+    "states": [
+      {
+        "id": 0,
+        "armors": [
+          "gun_01.armor_13",
+          "hull.armor_13"
+        ],
+        "type": "health",
+        "enabled": false,
+        "default": true
+      },
+      {
+        "id": 1,
+        "armors": [
+          "gun_01.armor_14",
+          "hull.armor_14"
+        ],
+        "type": "health",
+        "enabled": false,
+        "default": false
+      }
+    ]
+  },
+  "Oth30_T54MS.xml.dvpl": {
+    "file": "vehicles/other/Oth30_T54MS.xml",
+    "states": [
+      {
+        "id": 0,
+        "armors": [
+          "turret_01.armor_11",
+          "hull.armor_10"
+        ],
+        "type": "default",
+        "enabled": true,
+        "default": true
+      },
+      {
+        "id": 1,
+        "armors": [
+          "turret_01.armor_12",
+          "hull.armor_11"
+        ],
+        "type": "default",
+        "enabled": false,
+        "default": false
+      }
+    ]
+  },
+  "Oth44_Charioteer_T.xml.dvpl": {
+    "file": "vehicles/other/Oth44_Charioteer_T.xml",
+    "states": [
+      {
+        "id": 0,
+        "armors": [
+          "hull.armor_14"
+        ],
+        "type": "default",
+        "enabled": true,
+        "default": true
+      },
+      {
+        "id": 1,
+        "armors": [
+          "turret_01.armor_12",
+          "hull.armor_13",
+          "hull.armor_15"
+        ],
+        "type": "default",
+        "enabled": false,
+        "default": false
+      }
+    ]
+  },
+  "Oth71_Titan_Strife.xml.dvpl": {
+    "file": "vehicles/other/Oth71_Titan_Strife.xml",
+    "states": [
+      {
+        "id": 0,
+        "armors": [
+          "gun_01.armor_11",
+          "hull.armor_11"
+        ],
+        "type": "default",
+        "enabled": true,
+        "default": true
+      },
+      {
+        "id": 1,
+        "armors": [
+          "gun_01.armor_10",
+          "hull.armor_10"
+        ],
+        "type": "default",
+        "enabled": false,
+        "default": false
+      }
+    ]
+  },
+  "Oth92_JagdPantherII_Titan.xml.dvpl": {
+    "file": "vehicles/other/Oth92_JagdPantherII_Titan.xml",
+    "states": [
+      {
+        "id": 0,
+        "armors": [
+          "hull.armor_14"
+        ],
+        "type": "default",
+        "enabled": true,
+        "default": true
+      },
+      {
+        "id": 1,
+        "armors": [
+          "hull.armor_10"
+        ],
+        "type": "default",
+        "enabled": false,
+        "default": false
+      }
+    ]
+  },
+  "Oth98_AMX_50_100_Titan.xml.dvpl": {
+    "file": "vehicles/other/Oth98_AMX_50_100_Titan.xml",
+    "states": [
+      {
+        "id": 0,
+        "armors": [
+          "turret_01.armor_14",
+          "hull.armor_14"
+        ],
+        "type": "default",
+        "enabled": true,
+        "default": true
+      },
+      {
+        "id": 1,
+        "armors": [
+          "turret_01.armor_15",
+          "hull.armor_15"
+        ],
+        "type": "default",
+        "enabled": false,
+        "default": false
+      }
+    ]
+  }
+}

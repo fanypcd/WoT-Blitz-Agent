@@ -41,7 +41,10 @@
 
 来源是 `Data/XML/item_defs.zip`（3MB、892 条目）内：
 
-- 车辆定义 `vehicles/{nation}/{model_name}.xml.dvpl`（约 790 个）
+- 车辆定义 `vehicles/{nation}/{model_name}.xml.dvpl`（约 790 个；其中 **6 辆**在
+  `<extras><armorsStatesController>` 声明动态装甲状态（T54MS/Charioteer_T/三辆
+  Titan/Sturmfeur_HW，2026-10-13 起 `tools/extract_armor_states.py` 提取为
+  `data/armor_states.json`，运行时语义见 [data-inventory.md](data-inventory.md) §1b 同名行）
 - 共享模块 `vehicles/{nation}/components/{guns,shells,turrets,chassis,engines,radios,fuelTanks}.xml.dvpl`（72 个）
 - tier：`Data/Configs/TechTree/{nation}_tree.yaml.dvpl` 的 `position[0]`
 - 名称（**两个字符串源**，2026-10-10 勘误）：

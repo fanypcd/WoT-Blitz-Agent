@@ -1174,6 +1174,69 @@ pub(crate) fn tick_at_anchored(
     }
 }
 
+/// 单实体原始 armorsStates 观测（type=7 prop0 u8，列式）
+///
+/// 行为学定案（2026-10-13，Oth71_Titan_Strife 实测样本 `data/replay_samples/`）：
+/// Vehicle 实体 prop0 载荷为 1 字节状态号，值域 = 车辆 XML
+/// `<extras><armorsStatesController>` 声明的状态 id 集（实测 0/1 交替 6 轮，切换瞬间
+/// 同实体 prop4 的消耗品态字节同步翻转）；`armorMover` 消耗品每次使用产生一条更新。
+/// 初始态不经本流（在 ON_ENTITY_CREATE 属性表 / XML `<default/>` 中，本层不解析——
+/// 消费方以声明文件的默认态为初值，见 `data/armor_states.json`）。propID 0 ↔
+/// `Vehicle::armorsStates` 的命名映射为 def 注册表行为学归因，def 表反汇编定证前
+/// 不得当作命名已证；消费方须按声明文件门控：值 ∉ 该车状态集的更新丢弃。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawArmorStateTrack {
+    pub eid: u32,
+    pub t: Vec<f32>,
+    pub state: Vec<u8>,
+}
+
+impl RawArmorStateTrack {
+    /// 任一时刻的状态号：≤ t 的最近更新。**早于首次切换 → `None`**——初态在声明文件
+    /// （XML `<default/>` 态，`data/armor_states.json`），状态流不含它，不猜。
+    pub fn state_at(&self, t: f32) -> Option<u8> {
+        let i = self.t.partition_point(|&c| c <= t);
+        if i == 0 {
+            None
+        } else {
+            Some(self.state[i - 1])
+        }
+    }
+}
+
+/// type=7 prop0 的 1 字节原始值（armorsStates 状态号；按 eid 升序、每实体包序）。
+///
+/// 只收 valueLen==1 的更新；其余形状（若出现）非状态广播，静默跳过。
+pub fn collect_armor_state_tracks(packets: &[(u32, f32, &[u8])]) -> Vec<RawArmorStateTrack> {
+    let mut tracks: HashMap<u32, RawArmorStateTrack> = HashMap::new();
+    let mut order: Vec<u32> = Vec::new();
+    for (ptype, clock, p) in packets {
+        if *ptype != 7 || p.len() < 13 || u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0 {
+            continue;
+        }
+        let vlen = u32::from_le_bytes([p[8], p[9], p[10], p[11]]);
+        if vlen != 1 {
+            continue;
+        }
+        let eid = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
+        let tr = tracks.entry(eid).or_insert_with(|| {
+            order.push(eid);
+            RawArmorStateTrack {
+                eid,
+                t: Vec::new(),
+                state: Vec::new(),
+            }
+        });
+        tr.t.push(*clock);
+        tr.state.push(p[12]);
+    }
+    order.sort_unstable();
+    order
+        .into_iter()
+        .map(|eid| tracks.remove(&eid).expect("eid recorded above"))
+        .collect()
+}
+
 #[cfg(test)]
 mod tick_anchor_tests {
     use super::*;
