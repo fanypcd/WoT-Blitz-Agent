@@ -516,6 +516,36 @@ facet 不变，`raw` 仍是 9 字节）。回归：`collects_variable_length_equ
   登记 737 条，回拉 740/740 逐对象 sha256 一致（`.json` 走 no-cache，前端即时可见）
 - 数据面契约注记见 [game-data-sources.md](game-data-sources.md) §3.5
 
+### 顶层弹表单一权威化 —— 修跨车检视穿深衰减静默失效（数据面，2026-10-13，未发版）
+
+**报障**（WotbTools 装甲查看器）：45TP Habicha 射击 Maus，500m 交战距离下判定穿深
+只"衰减"0.5mm（238.5mm@498m ≈ 近距 225×1.06 校准）——距离衰减静默失效。
+
+**根因**：包内 `tank/{id}.json` 顶层 `shells` 与 `configs[].shells` 是**手工重抄的双表**
+（前者定位为"末档配置弹表的摘要投影"——2026-10-10 曾因漏抄 `normalization` 等出过同构
+事故，见下条）；本轮穿深衰减（`penetration_far`）只补了 `configs[].shells`（提交
+0e9193d 一线上游），顶层投影再度漏抄 ⇒ **跨车检视**（射手≠目标，查看器走顶层表）
+的 `penetration_far` 缺失、前端请求不带该字段、衰减静默关闭（同车检视走 `configs[]`
+不受影响——故 500m 验证时未暴露）。
+
+**修复（结构性单源化，消费方零改动）**：
+- `tank_configs.rs::tank_data_value_prefixed`：顶层 `shells` 改为**直接引用末档配置
+  弹表的同一份 JSON**（`configs.last()["shells"].clone()`），**删除重抄代码**——
+  此后字段集天然同步，同类漏抄在结构上不可能再发生
+- 同源契约测试 `top_level_shells_carry_decision_inputs_matching_top_gun_config`
+  扩至**全字段逐项等值**（type/type_id/penetration/penetration_far/damage/
+  module_damage/explosion_radius/velocity/range/caliber/normalization/ricochet；
+  Strv K 锚点保留）
+- `DumpTankData` 全量重导：**735/735** 顶层弹表带 `penetration_far`、**零空弹表**
+
+**验证**：agent 全 workspace 测试绿（81 + 同源契约）；WotbTools 本地端到端——
+45TP(8321)→Maus(6929) @ 相机 500m：判定面板「交战距离 494m / **155.3mm @ 494m**」
+= 理论值 `175 + (155−175)×(394/400)`（AP near/far = 175/155），修复前为 175 无衰减。
+
+**blast radius**：735 辆 `tank/{id}.json`（+additive 字段恢复；文件数不变）；本地
+`release/asset_pack/tank/` 已替换；**COS 未同步**（随发布批次 `--only tank/` + manifest
+重算）。`/api/shells` 走 `build_configs`（同源）不受影响。
+
 ### 代码加固（2026-10-08，未发版）
 
 **DVPL 解码 fail-closed**（[src/wargaming/dvpl.rs](../src/wargaming/dvpl.rs)）：补上 footer 的

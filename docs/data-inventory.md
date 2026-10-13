@@ -66,7 +66,7 @@ tanks.pb 未动）。
 | `is_premium` / `is_collector` | 车型标记。**两者是 `tanks.pb` field13 的同一枚举**（1=金币 `is_premium`、2=收藏 `is_collector`），故互斥——实测 735 辆：金币 91 / 收藏 338 / 同时为真 0。WotbTools 据此给卡片上不同颜色的边框（金币=警告色、收藏=`--color-info` 蓝） |
 | `shells` | 弹种表（`penetration`/`damage`/…）。**取顶级炮塔 × 顶级主炮**（§3.5 口径），消费方由此派生 `pen_max` |
 | `shells[].shell_type_id` | 弹种权威 id（**2026-10-09 新增**）：tanks.pb field9 翻译，1=APCR / 2=HEAT / 3=HE；空值仅出现在 AP 系（proto3 零值省略 → 按 0=AP 或 icon 回退，语义一致）。判定弹种（跳弹角/溅射分支）应以此为准，icon 串仅作显示 |
-| `shells[].caliber` / `normalization` / `ricochet` | **等效厚度判定输入**（**2026-10-10 新增**）：弹径（mm）/ 转正角（°）/ 跳弹临界角（°），2079/2079 全量有值（HE 的转正/跳弹数据本身即 0，属真值）。装甲查看器按弹算 `eff = t / cos(angle − 转正)`，两倍口径规则还会把转正角放大（`1.4×norm×caliber/(2t)`）；**缺失即按 0° 兜底 = 判定被静默削弱**——同一像素在"同车检视（走 `configs[]`，全字段）"与"切换射击方（走本表）"两条路径下曾出现可击穿↔挡弹翻转（Strv K 报障）。包内 `tank/{id}.json` 顶层弹表与 `/api/shells` 同步补齐（[game-data-sources.md](game-data-sources.md) §3.5） |
+| `shells[].caliber` / `normalization` / `ricochet` | **等效厚度判定输入**（**2026-10-10 新增**）：弹径（mm）/ 转正角（°）/ 跳弹临界角（°），2079/2079 全量有值（HE 的转正/跳弹数据本身即 0，属真值）。装甲查看器按弹算 `eff = t / cos(angle − 转正)`，两倍口径规则还会把转正角放大（`1.4×norm×caliber/(2t)`）；**缺失即按 0° 兜底 = 判定被静默削弱**——同一像素在"同车检视（走 `configs[]`，全字段）"与"切换射击方（走本表）"两条路径下曾出现可击穿↔挡弹翻转（Strv K 报障）。包内 `tank/{id}.json` 顶层弹表与 `/api/shells` 同步补齐（[game-data-sources.md](game-data-sources.md) §3.5）。**2026-10-13 单源化**：顶层表改引用末档配置弹表的同一份 JSON（消除手工重抄投影——`penetration_far` 曾因二次漏抄致跨车检视距离衰减静默失效） |
 | `armor` | 六面装甲摘要（**顶级**炮塔档位，见 [game-data-sources.md](game-data-sources.md) §3.5） |
 | `view_range` / `turret_traverse_speed` | 视野 / 炮塔转速，**顶级**炮塔 |
 | `speed_forward` / `speed_reverse` / `hull_traverse` / `gun_depression` / `gun_elevation` | 机动与俯仰 |
@@ -117,7 +117,8 @@ tanks.pb 未动）。
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测 **2026-10-11 按包内容重算**：**5288 个文件 / 4286.1 MB**——第三十次为
+包内布局（本地实测 **2026-10-11 按包内容重算**：**5288 个文件 / 4286.1 MB**——第三十一次为
+**"顶层弹表单一权威化（穿深衰减修复）"**（735 辆 `tank/{id}.json` 顶层 `shells` 改为直接引用末档配置弹表的同一份 JSON——删除手工重抄投影，恢复漏抄的 `penetration_far`（跨车检视的 500m 穿深衰减此前静默失效）；**文件数不变、仅内容哈希变化**（5288 件 / 4286.1 MB 不变）；`DumpTankData` 全量重导 735/735 顶层带 far、零空弹表；**COS 未同步**。见 [index.md](index.md) 同名条目）；第三十次为
 **"履带印数据面（tread/）增量补入"**（`tools/export_tank_tread.py` 产物：`tread/` 311 个
 逐车 json（79 KB）+ `tread/textures/` 13 张 webp（983 KB，客户端 DDS 无损转码）
 = **+324 文件 / +1.0 MB**，4964 → 5288 / 4285.1 → 4286.1；additive 接线在

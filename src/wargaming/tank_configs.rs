@@ -181,31 +181,6 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
         })
     });
 
-    // 顶层 shells = 顶级炮（末档配置）弹表的摘要投影，供列表/详情与**装甲查看器默认
-    // 弹表**消费。口径/转正角/跳弹角必须随弹透出：查看器按它们算等效厚度（两倍口径
-    // 规则还会放大转正角），缺失即按 0° 兜底——曾致"切换射击方后同一像素由可击穿
-    // 变挡弹"（2026-10-10）。字段与 `configs[].shells` 同名同义。
-    let shells = info
-        .as_ref()
-        .map(|i| {
-            i.shells
-                .iter()
-                .map(|s| {
-                    json!({
-                        "type": s.shell_type, "type_id": s.shell_type_id,
-                        "penetration": s.penetration,
-                        "damage": s.damage,
-                        "module_damage": s.module_damage,
-                        "explosion_radius": s.explosion_radius,
-                        "caliber": s.caliber,
-                        "normalization": s.normalization,
-                        "ricochet": s.ricochet,
-                    })
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-
     let armor_model_val = armor_model.as_ref().map(|m| {
         let mut v = serde_json::to_value(m).unwrap_or(json!(null));
         // f32 序列化尾差清洗：62.400001525878906 → 62.4（装甲厚度精度 0.1mm 已足够；
@@ -238,6 +213,15 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
     });
 
     let configs = build_configs(tank_id);
+    // 顶层 shells = 末档配置（顶级炮）弹表的**同一份 JSON 引用**——单一权威 = configs，
+    // 不再独立重抄字段（2026-10-13：投影漏抄 penetration_far，跨车检视的距离衰减静默
+    // 失效；双表漂移是结构性问题，直接引用后字段集天然同步）。供列表/详情与装甲查看器
+    // 默认弹表消费；口径/转正角/跳弹角随弹透出的契约（2026-10-10）由同一对象保证。
+    let shells = configs
+        .last()
+        .and_then(|c| c.get("shells"))
+        .cloned()
+        .unwrap_or_else(|| json!([]));
     // 车级口径 = 顶级炮**弹表自带**的弹径（权威源：判定规则按弹径算三倍/两倍口径）。
     // 不能用炮名解析（`parse_gun_caliber`）或初始档配置：前者对 189/735 辆与弹径不一致
     // （多为解析失败落 120 回退、VK 28.01 类车名里另有数字），后者（configs.first()）是
@@ -799,8 +783,13 @@ mod synth_tests {
                 .expect("末档配置 shells");
             assert_eq!(top.len(), last.len(), "tank {tank_id} 顶层/末档弹数不一致");
             for (t, c) in top.iter().zip(last.iter()) {
-                assert_eq!(t["type"], c["type"], "tank {tank_id} 弹种顺序不一致");
-                for key in ["caliber", "normalization", "ricochet"] {
+                // 单一权威（2026-10-13）：顶层 = 末档配置弹表的同一份 JSON，全字段逐项等值；
+                // penetration_far 曾因手工重抄漏项（跨车检视距离衰减静默失效）
+                for key in [
+                    "type", "type_id", "penetration", "penetration_far", "damage",
+                    "module_damage", "explosion_radius", "velocity", "range",
+                    "caliber", "normalization", "ricochet",
+                ] {
                     assert_eq!(t[key], c[key], "tank {tank_id} {key} 顶层与末档配置不一致");
                 }
             }
