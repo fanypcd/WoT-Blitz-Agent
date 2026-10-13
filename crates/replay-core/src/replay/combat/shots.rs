@@ -75,6 +75,13 @@ pub struct ShotReplayData {
     /// 名字缺失不作为提取失败条件（fail-soft）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_eid: Option<u32>,
+    /// 受击方**弹着时刻**的 armorsStates 状态号（additive，skip-when-none）。
+    /// None = 受击车无状态流或弹着早于首次切换（初态域——初态是声明文件
+    /// `data/armor_states.json` 里 `<default/>` 态，不猜）。仅动态装甲车（全库 6 辆）
+    /// 会有值；由 [`attach_shot_armor_states`] 在持 packets 的生产入口回填，
+    /// 消费方（射击复现）按声明门控后取该态的激活板集。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_armor_state: Option<u8>,
     pub is_kill: bool,
     /// 射手实体 id（method29 shooterEntityId；作者路径恒为作者本人实体）
     pub shooter_eid: u32,
@@ -242,6 +249,42 @@ pub struct ShotReplayData {
     /// 滑块实时驱动炮管（与 target_turret_timeline 配对）
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub target_gun_timeline: Vec<(f32, f32)>,
+}
+
+/// shots 切面 additive 回填：受击方**弹着时刻**的 armorsStates 状态号
+/// （[`ShotReplayData::target_armor_state`]）。在**持 packets 的生产入口**调用
+/// （wasm `shot_replays_json` / agent CLI / viewer 路径），提取层本身不持有全量包流。
+/// 弹着时刻 = `fire_time + Σleg_secs`（无折线 = 直线估计，与 PlaybackShot 同式）；
+/// 无轨道 / 初态域（早于首次切换）不注入——消费方按声明 `<default/>` 态兜底。
+pub fn attach_shot_armor_states(
+    shots: &mut [ShotReplayData],
+    packets: &[(u32, f32, &[u8])],
+) {
+    let tracks = crate::replay::combat::collect_armor_state_tracks(packets);
+    if tracks.is_empty() {
+        return;
+    }
+    for s in shots {
+        let Some(eid) = s.target_eid else { continue };
+        let Some(track) = tracks.iter().find(|t| t.eid == eid) else { continue };
+        let flight = if s.leg_secs.is_empty() {
+            let d2 = (s.ball_b[0] - s.ball_a[0]).powi(2)
+                + (s.ball_b[1] - s.ball_a[1]).powi(2)
+                + (s.ball_b[2] - s.ball_a[2]).powi(2);
+            let v2 = s.launch_velocity[0] * s.launch_velocity[0]
+                + s.launch_velocity[1] * s.launch_velocity[1]
+                + s.launch_velocity[2] * s.launch_velocity[2];
+            let v = v2.sqrt();
+            if v > 0.0 {
+                ((d2.sqrt()) / v).clamp(0.02, 8.0)
+            } else {
+                0.5
+            }
+        } else {
+            s.leg_secs.iter().sum()
+        };
+        s.target_armor_state = track.state_at(s.fire_time + flight);
+    }
 }
 
 /// method 0x1b 地形命中数据（字段语义见 [`ShotReplayData::terrain_impact`]）。
@@ -1573,6 +1616,7 @@ pub(crate) fn extract_shot_replays_from_shared(
             damage,
             target_name,
             target_eid,
+            target_armor_state: None, // 原始包证据：attach_shot_armor_states 持 packets 回填
             is_kill,
             shooter_eid: author_player_eid,
             shooter_name: names.get(&author_player_eid).cloned().unwrap_or_default(),
@@ -2381,6 +2425,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
             damage,
             target_name,
             target_eid,
+            target_armor_state: None, // 原始包证据：attach_shot_armor_states 持 packets 回填
             is_kill,
             shooter_eid: l.shooter,
             shooter_name: names.get(&l.shooter).cloned().unwrap_or_default(),

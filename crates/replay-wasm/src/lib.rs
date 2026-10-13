@@ -238,6 +238,8 @@ pub fn shot_replays_json(
     let mut shots = author_shots;
     shots.extend(others.shots);
     shots.sort_by(|a, b| a.fire_time.partial_cmp(&b.fire_time).unwrap());
+    // 动态装甲弹着态注入（additive：仅 6 辆声明车非缺省，消费方按声明门控）
+    wotb_replay_core::replay::combat::attach_shot_armor_states(&mut shots, &packets);
 
     // 弹种反解注入（服务端 annotate + shell 字段注入的客户端等价）：表缺失时
     // 原样输出（消费方按缺数据处理）

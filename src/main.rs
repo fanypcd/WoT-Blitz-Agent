@@ -791,17 +791,20 @@ fn main() -> Result<()> {
                     )
                 });
             let pitch_limits = Default::default();
-            let author_shots = wotb_agent::replay::combat::extract_shot_replays_auto_with_limits(
+            let mut author_shots = wotb_agent::replay::combat::extract_shot_replays_auto_with_limits(
                 &raw_packets,
                 &summary.author_nickname,
                 &pitch_limits,
             )
             .unwrap_or_default();
-            let others = wotb_agent::replay::combat::extract_other_shot_replays_with_limits(
+            let mut others = wotb_agent::replay::combat::extract_other_shot_replays_with_limits(
                 &raw_packets,
                 author_eid,
                 &pitch_limits,
             );
+            // 动态装甲弹着态注入（additive：仅 6 辆声明车非缺省）
+            wotb_agent::replay::combat::attach_shot_armor_states(&mut author_shots, &raw_packets);
+            wotb_agent::replay::combat::attach_shot_armor_states(&mut others.shots, &raw_packets);
             dataset.diagnostics.shots_author = author_shots.len();
             dataset.diagnostics.shots_others = others.shots.len();
             let mut deg: std::collections::BTreeMap<String, u64> = Default::default();
