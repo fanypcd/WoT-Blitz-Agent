@@ -406,7 +406,7 @@ pub fn list_replays_in_dir(dir: &Path) -> Result<Vec<std::path::PathBuf>> {
             let is_recording = path
                 .file_name()
                 .and_then(|n| n.to_str())
-                .map_or(false, |n| n.starts_with("recording"));
+                .is_some_and(|n| n.starts_with("recording"));
             if !is_recording {
                 files.push(path);
             }
