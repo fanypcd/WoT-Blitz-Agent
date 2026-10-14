@@ -466,7 +466,7 @@ pub(crate) fn build_shot_scan_shared(
     let session_tick = collect_session_tick(packets);
     let (mut st10, mut prop2) = build_entity_indexes(packets);
     for v in st10.values_mut() {
-        v.sort_by(|a, b| a.clock.partial_cmp(&b.clock).unwrap());
+        v.sort_by(|a, b| a.clock.total_cmp(&b.clock));
     }
     for v in prop2.values_mut() {
         v.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());

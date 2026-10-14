@@ -128,3 +128,37 @@ Assault/Encounter 的多 candidate 变体映射无证据，fail-closed（消费�
 provenance 源：WotBTools `docs/research/replay/supremacy-base-state.md`、
 `java/wotb-core/.../EntityMethodDecoder.java`（parseRawSupremacyBaseUpdates /
 parseSupremacyPoints / decodeUpdateArena2）、`SupremacyBaseStateReconstructor.java`。
+
+## 7. 独立炮塔刚体（2026-10-14，additive，v0.4.7）
+
+`PlaybackData.version` 保持 **2**。可选 `detached_turrets`（无证据时省略）按实体 id
+升序，每条为 `{eid, vehicle_eid, coverage, pose_kf}`。`vehicle_eid` 是 Type5 class=8
+初始化属性 0 的真实车辆实体 id，并且必须存在于同一 `vehicles[].eid`；不是击杀者、
+账号或坦克类型。未知归属、实体 id/class/owner 冲突、一个 owner 对应多个炮塔实体、
+初始化布局不符时不输出该轨道。**不按低 HP、死亡原因或车型推断飞头**。
+
+已验证线路形态（11.20.0_china）：Type5 恰为 48B，`entityTypeId:u16@4=8`；
+`pos:3×f32@14`、`yaw/pitch/roll:3×f32@26`；`init_len:u32@38=6`；
+初始化载荷为 `count:u8@42=1, key:u8@43=0, vehicle_eid:u32@44`。
+Type33→Type5 成对开 AoI 段；Type4 关段；同一 eid 再进场须重新验证相同 class/owner
+并用新的 Type5 world pose 起段。Type10≥48B：`pos@12`、`yaw/pitch/roll@36/40/44`。
+
+`pose_kf` 复用列式形状，包含 **t、pos、yaw、pitch、roll** 全部列；K≥1，
+`pos.length=3K`，其它列长度=K，所有值有限。时刻为**原始回放秒**，严格升序；
+初始 Type5 pose 是每段首帧，随后为该 AoI 内真实 Type10。同 clock 的 Type10
+取文件序最后一条真实 pose，不编造子帧时刻。三个角均按相邻样本短弧
+解卷绕（弧度，可超 ±π），重入段独立起链，消费端在同段内插值。已有车辆
+`pose_kf` 不新增 roll 输出、数值不变。炮塔不经过车辆 AvatarFilter、悬挂、地面
+高度修正或自动弹道；真实推碰后的位置更新按原样保存。
+
+`coverage` 为升序不相交的**闭区间**对（单帧段可 start=end）。每段首帧 t=start；
+end 是明确 Type4 离场时间，或未离场时的包流末时刻。末 Type10 停更不等于离场，
+末已知 pose 可保持到该段 end；禁止跨 Type4/AoI 缺口插值，也不按任意采样间隔
+猜离场。消费端只在 coverage 内呈现独立炮塔；身体上的炮塔从首段 start 起分离，
+seek 回 start 之前恢复完整模型。
+
+证据：用户本机 77 场 11.20 回放只读核对，50 场含 class8、27 场无此实体；
+共 83 条 class8 物化全部符合上述布局、83/83 owner 均联到 class2 战斗车辆。
+确认 AC Atlas 场次有一条独立炮塔（初始 Type5 + 420 条 Type10），同场 Carro
+死亡未出现对应独立实体；相邻场次两个独立炮塔分别有 637/367 条 Type10。
+私有回放和个人数据不入库，回归仅使用合成协议样本。

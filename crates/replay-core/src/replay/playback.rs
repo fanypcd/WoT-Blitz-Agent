@@ -25,7 +25,7 @@
 //! `coverage` = 有效数据区段（原始采样间隙 >2s 视为
 //! AoI 空洞——滤波器在无输入期会原地站住，前端按此隐藏车辆避免"幽灵车停在过期位置"）。
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 /// serde skip_serializing_if 助手：`false` 按缺省处理（= 无已证实目标）
 fn is_false(b: &bool) -> bool {
     !*b
@@ -199,6 +199,9 @@ pub struct VehicleTrack {
 /// 时序语义与网格列一致：早于首点/晚于末点按端点保持。
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct PoseKeyframes {
+    /// Full rigid-body roll for detached turrets only; omitted on vehicle tracks.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roll: Vec<f32>,
     /// 关键帧时刻（秒，回放时钟域，升序）
     pub t: Vec<f32>,
     /// flat [x,y,z] × K（回放世界系，米；与 `pos` 网格同坐标系）
@@ -574,7 +577,20 @@ pub struct PeriodPoint {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct DetachedTurretTrack {
+    pub eid: u32,
+    pub vehicle_eid: u32,
+    /// Closed raw-clock AoI intervals. Hold the final known pose inside each span.
+    pub coverage: Vec<f32>,
+    /// Raw Type5/Type10 world poses; all three Euler angles are unwrapped.
+    pub pose_kf: PoseKeyframes,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct PlaybackData {
+    /// Authoritative class-8 detached rigid bodies, linked to vehicles[].eid.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub detached_turrets: Vec<DetachedTurretTrack>,
     /// 切面契约版本（**当前 2**；不兼容变更递增，同版本只加可选字段；消费端按版本门禁拒绝错版）
     #[serde(default)]
     pub version: u32,
@@ -647,6 +663,99 @@ pub struct PlaybackData {
     /// 语义来源 = collect_aoi_lifecycle（协议精确边界）；渲染插值防护仍看 coverage。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub visibility: Vec<AoiPresence>,
+}
+
+/// Project the model's raw rigid bodies without AvatarFilter, terrain snapping,
+/// artificial launch arcs or inferred AoI gaps. Initial Type5 is the first pose.
+fn detached_turret_tracks(
+    model: &crate::replay::model::ReplayModel,
+    vehicles: &HashSet<u32>,
+) -> Vec<DetachedTurretTrack> {
+    use super::detached_turrets::valid_pose;
+    model
+        .timeline
+        .detached_turrets
+        .iter()
+        .filter_map(|record| {
+            if !vehicles.contains(&record.vehicle_eid) {
+                return None;
+            }
+            let mut out = DetachedTurretTrack {
+                eid: record.eid,
+                vehicle_eid: record.vehicle_eid,
+                coverage: Vec::new(),
+                pose_kf: PoseKeyframes::default(),
+            };
+            let raw = model
+                .timeline
+                .poses
+                .get(&record.eid)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            if raw.iter().any(|p| !valid_pose(p)) {
+                return None;
+            }
+            for span in &record.presence {
+                let start = span.pose.clock;
+                let end = span.t_out?;
+                if !valid_pose(&span.pose) || !end.is_finite() || end < start {
+                    return None;
+                }
+                out.coverage.extend_from_slice(&[start, end]);
+                let mut last_t = start;
+                let mut prev: [Option<f64>; 3] = [None; 3];
+                let mut push = |p: &combat::St10Sample| -> Option<()> {
+                    if !valid_pose(p) {
+                        return None;
+                    }
+                    out.pose_kf.t.push(p.clock);
+                    out.pose_kf.pos.extend_from_slice(&p.pos);
+                    for (i, (dst, value)) in [
+                        (&mut out.pose_kf.yaw, p.yaw),
+                        (&mut out.pose_kf.pitch, p.pitch),
+                        (&mut out.pose_kf.roll, p.roll),
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
+                        // f64 subtraction avoids overflowing finite wire f32s.
+                        let angle = match prev[i] {
+                            Some(last) => {
+                                last + ((value as f64 - last + std::f64::consts::PI)
+                                    .rem_euclid(std::f64::consts::TAU)
+                                    - std::f64::consts::PI)
+                            }
+                            None => value as f64,
+                        };
+                        if !(angle as f32).is_finite() {
+                            return None;
+                        }
+                        dst.push(angle as f32);
+                        prev[i] = Some(angle);
+                    }
+                    Some(())
+                };
+                push(&span.pose)?;
+                let mut samples = raw
+                    .iter()
+                    .filter(|p| p.clock > start && p.clock <= end)
+                    .peekable();
+                while let Some(mut p) = samples.next() {
+                    // The replay may batch multiple received poses at one clock.
+                    // Keep the final received real pose, without inventing subframe times.
+                    while samples.peek().is_some_and(|next| next.clock == p.clock) {
+                        p = samples.next().unwrap();
+                    }
+                    if p.clock <= last_t {
+                        return None;
+                    }
+                    push(p)?;
+                    last_t = p.clock;
+                }
+            }
+            (!out.pose_kf.t.is_empty()).then_some(out)
+        })
+        .collect()
 }
 
 /// 位置保留 2 位小数（0.01m）；角度 3 位（0.057°，prop2 coarse 步进 ~0.35° 之下）
@@ -873,7 +982,9 @@ pub fn from_model(
     let entity_names = &model.timeline.entity_names;
 
     // 车辆实体 = st10 ∧ prop2 ∧ 采样数达标（BTreeMap 保证确定性顺序；见 vehicle_candidates）
-    let candidates = vehicle_candidates(st10, prop2);
+    let mut candidates = vehicle_candidates(st10, prop2);
+    // Even the no-prop2 training fallback must not label a DetachedTurret as a tank.
+    candidates.retain(|eid, _| !model.timeline.detached_turret_eids.contains(eid));
     if candidates.is_empty() {
         bail!("无任何车辆姿态流（type=10 + prop2 双流交集为空；prop2 全局缺失时按仅 st10 退化，仍空才报此错）");
     }
@@ -1099,7 +1210,11 @@ pub fn from_model(
         .cloned()
         .collect();
 
+    let detached_turrets =
+        detached_turret_tracks(model, &vehicles_out.iter().map(|v| v.eid).collect());
+
     Ok(PlaybackData {
+        detached_turrets,
         version: 2, // contract v2：+supremacy_bases/supremacy_points（消费端版本门禁）
         meta,
         armor_states: Vec::new(), // 原始包证据：由 build_playback_data 持 packets 回填
@@ -1979,5 +2094,185 @@ mod tests {
             "跨断段只保持最近已知，不插值"
         );
         assert_eq!(roll_nearest(&s, 99.0), Some(-0.3), "晚于末样本 → 末样本");
+    }
+}
+
+#[cfg(test)]
+mod detached_turret_tests {
+    use super::*;
+    use crate::replay::detached_turrets::{DetachedTurretPresence, DetachedTurretRecord};
+    use crate::replay::model::ReplayModel;
+
+    fn pose(t: f32, x: f32, angles: [f32; 3]) -> combat::St10Sample {
+        combat::St10Sample {
+            clock: t,
+            pos: [x, 10.0, 20.0],
+            yaw: angles[0],
+            pitch: angles[1],
+            roll: angles[2],
+            pos_error: [0.0; 3],
+        }
+    }
+    fn model() -> ReplayModel {
+        let mut m = ReplayModel::default();
+        m.timeline.detached_turrets.push(DetachedTurretRecord {
+            eid: 20,
+            vehicle_eid: 1,
+            presence: vec![DetachedTurretPresence {
+                pose: pose(2.0, 5.0, [3.1; 3]),
+                t_out: Some(9.0),
+            }],
+        });
+        m.timeline.poses.insert(
+            20,
+            vec![pose(2.1, 6.0, [-3.1; 3]), pose(2.2, 8.0, [-3.0; 3])],
+        );
+        m
+    }
+    fn tracks(m: &ReplayModel) -> Vec<DetachedTurretTrack> {
+        detached_turret_tracks(m, &HashSet::from([1]))
+    }
+    #[test]
+    fn initial_pose_raw_motion_and_all_three_angles_are_preserved() {
+        let r = tracks(&model());
+        let p = &r[0].pose_kf;
+        assert_eq!(p.t, [2.0, 2.1, 2.2]);
+        assert_eq!(p.pos, [5.0, 10.0, 20.0, 6.0, 10.0, 20.0, 8.0, 10.0, 20.0]);
+        for angle in [&p.yaw, &p.pitch, &p.roll] {
+            assert!(angle[1] > std::f32::consts::PI);
+            assert!((angle[1] - angle[0]).abs() < 0.1);
+            assert!((angle[2] - angle[1]).abs() < 0.11);
+        }
+        assert_eq!(r[0].coverage, [2.0, 9.0]); // stationary final pose stays present
+    }
+    #[test]
+    fn same_clock_type10_updates_use_the_final_received_real_pose() {
+        let mut m = model();
+        m.timeline
+            .poses
+            .insert(20, vec![pose(2.1, 6.0, [0.0; 3]), pose(2.1, 7.0, [0.1; 3])]);
+        let r = tracks(&m);
+        assert_eq!(r[0].pose_kf.t, [2.0, 2.1]);
+        assert_eq!(r[0].pose_kf.pos[3], 7.0);
+        assert_eq!(r[0].pose_kf.roll[1], 0.1);
+    }
+    #[test]
+    fn reentry_has_its_own_seed_and_hidden_updates_do_not_bridge_it() {
+        let mut m = model();
+        m.timeline.detached_turrets[0].presence[0].t_out = Some(3.0);
+        m.timeline.detached_turrets[0]
+            .presence
+            .push(DetachedTurretPresence {
+                pose: pose(3.1, 50.0, [-3.0; 3]),
+                t_out: Some(4.0),
+            });
+        m.timeline
+            .poses
+            .get_mut(&20)
+            .unwrap()
+            .extend([pose(3.05, 30.0, [0.0; 3]), pose(3.2, 51.0, [3.1; 3])]);
+        let r = tracks(&m);
+        assert_eq!(r[0].coverage, [2.0, 3.0, 3.1, 4.0]);
+        assert_eq!(r[0].pose_kf.t, [2.0, 2.1, 2.2, 3.1, 3.2]);
+        assert_eq!(r[0].pose_kf.pos[9], 50.0);
+        assert_eq!(r[0].pose_kf.roll[3], -3.0); // new AoI has independent unwrap
+    }
+    #[test]
+    fn materialization_only_is_valid_and_absent_owner_or_nonfinite_pose_fail_closed() {
+        let mut m = model();
+        m.timeline.poses.clear();
+        let r = tracks(&m);
+        assert_eq!(r[0].pose_kf.t, [2.0]);
+        assert_eq!(r[0].coverage, [2.0, 9.0]);
+        assert!(detached_turret_tracks(&m, &HashSet::new()).is_empty());
+        m.timeline
+            .poses
+            .insert(20, vec![pose(3.0, f32::NAN, [0.0; 3])]);
+        assert!(tracks(&m).is_empty());
+        m.timeline
+            .poses
+            .insert(20, vec![pose(f32::NAN, 0.0, [0.0; 3])]);
+        assert!(tracks(&m).is_empty());
+    }
+    #[test]
+    fn build_pipeline_links_owner_and_never_mislabels_a_detached_rigidbody_as_a_vehicle() {
+        fn create(eid: u32, class: u16, owner: u32) -> Vec<u8> {
+            let mut p = vec![0; 48];
+            p[..4].copy_from_slice(&eid.to_le_bytes());
+            p[4..6].copy_from_slice(&class.to_le_bytes());
+            p[38..42].copy_from_slice(&6u32.to_le_bytes());
+            p[42] = 1;
+            p[44..48].copy_from_slice(&owner.to_le_bytes());
+            p
+        }
+        fn sample(eid: u32, x: f32) -> Vec<u8> {
+            let mut p = vec![0; 48];
+            p[..4].copy_from_slice(&eid.to_le_bytes());
+            p[12..16].copy_from_slice(&x.to_le_bytes());
+            p
+        }
+        let mut packets = vec![(5, 0.0, create(1, 2, 0))];
+        for i in 0..30 {
+            packets.push((10, i as f32 * 0.1, sample(1, i as f32)));
+        }
+        let limits = GunPitchLimits::default();
+        let build = |p: &[(u32, f32, Vec<u8>)]| {
+            let tuples = p
+                .iter()
+                .map(|(kind, t, b)| (*kind, *t, b.as_slice()))
+                .collect::<Vec<_>>();
+            build_playback_data(&PlaybackInput {
+                packets: &tuples,
+                players: vec![],
+                author_account_id: 0,
+                winner_team: 0,
+                map_id: 0,
+                map_name: String::new(),
+                pitch_limits: &limits,
+                tank_names: HashMap::new(),
+            })
+            .unwrap()
+        };
+        let baseline = build(&packets);
+        packets.extend([
+            (33, 3.0, 20u32.to_le_bytes().to_vec()),
+            (5, 3.1, create(20, 8, 1)),
+        ]);
+        for i in 0..30 {
+            packets.push((10, 3.2 + i as f32 * 0.1, sample(20, i as f32)));
+        }
+        let pb = build(&packets);
+        assert_eq!(
+            pb.vehicles.len(),
+            1,
+            "class8 excluded from prop2-absent fallback"
+        );
+        assert_eq!(pb.vehicles[0].eid, 1);
+        assert_eq!(pb.detached_turrets[0].vehicle_eid, pb.vehicles[0].eid);
+        assert_eq!(pb.detached_turrets[0].pose_kf.t.len(), 31);
+        assert_eq!(
+            serde_json::to_value(&baseline.vehicles[0].pose_kf).unwrap(),
+            serde_json::to_value(&pb.vehicles[0].pose_kf).unwrap()
+        );
+        assert!(serde_json::to_value(baseline)
+            .unwrap()
+            .get("detached_turrets")
+            .is_none());
+        packets.push((10, f32::NAN, sample(20, 0.0)));
+        let invalid = build(&packets);
+        assert_eq!(invalid.vehicles.len(), 1);
+        assert!(
+            invalid.detached_turrets.is_empty(),
+            "invalid detached clock must not panic or leak"
+        );
+    }
+    #[test]
+    fn roll_is_optional_on_vehicle_keyframes_and_complete_on_detached_track() {
+        let old = serde_json::to_value(PoseKeyframes::default()).unwrap();
+        assert!(old.get("roll").is_none());
+        let r = serde_json::to_value(&tracks(&model())[0]).unwrap();
+        assert_eq!(r["pose_kf"]["roll"].as_array().unwrap().len(), 3);
+        assert_eq!(r["eid"], 20);
+        assert_eq!(r["vehicle_eid"], 1);
     }
 }
