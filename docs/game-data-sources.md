@@ -625,6 +625,31 @@ BlitzKit 把游戏模型名从 `tanks.pb` **field 2 移到 field 32**，field 2 
 （客户端高度图与元数据）+ 场景/地面资产；打包器在 sidecar 化时清除历史 cover/structs 字段。
 地形渲染 = 纯客户端口径（三判据 LOD + 两通道 morph，见 [index.md](index.md)）。
 
+## 地形高度图布局与提取链（`terrainLayout` 2）
+
+高度图自客户端 `3d/Maps/<space>/landscape/` 下唯一 `*heightmap*.dvpl` 提取（`fetch-terrain`
+命令；size/tile 非 512/16 一律拒绝），经 `parse_heightmap` 两步：tile 块重排（块行主序 →
+行主序）+ **corner 口径列镜像** `out[c] = grid[min(size−c, size−1)]`——引擎顶点 k 在游戏
+x = min + k/size·span（`Heightmap::GetPoint` / `tilemask-vp.sl` 同口径），场景 x = −游戏 x
+⇒ 输出列 c 的位置 (c/n−0.5)·span 对应源列 n−c，c=0 夹取到源列 n−1；源列 0（场景 +x 包围盒
+边缘、可玩区之外）整列丢弃（n 列表示不下 n+1 个顶点）。产物 = u16 LE 行主序（行 0=南），
+以 `map/<key>/terrain.u16.bin` 进包，配 `terrain.json`（`X-Terrain-Meta` 头的 sidecar 化，
+写 **`terrainLayout: 2`**）；服务端 `/api/playback/terrain` 同链伺服（响应头同标记）。
+
+- **缓存自描述**：`data/cache/terrain/{key}.hm.c2.u16.bin`（文件名带布局）。修正前的旧名
+  `{key}.hm.u16.bin` 是离散翻转布局（`out[c] = src[size−1−c]`，corner 口径下消费端读出
+  整张地形沿场景 −x 偏一格 = WotbTools PR #615 根因）——打包器仅无 c2 时兜底打包且**不写
+  布局标记**（前端读取边界按旧布局平移一列补正，打警告提示重跑 `fetch-terrain --force`）；
+  服务端不再伺服旧名（视作未命中走实时提取重写）；`fetch-terrain` 成功写入 c2 后清除旧名。
+- **标记必须与字节一致**：消费端（WotbTools `decodeTerrainField`）对 `terrainLayout: 2`
+  原样使用、缺省按旧布局补正、未知值 fail-closed 回退 2D——错标比缺省更糟。四组合
+  （新/旧包 × 新/旧前端）除"旧包+旧前端=原有偏移"外全部正确，与消费方部署无时序约束。
+- 手动覆盖 `data/maps/<key>.heightmap.u16.bin` 的契约 = corner 口径镜像数据（即
+  `parse_heightmap` 的输出格式）。
+- 重导链：`fetch-terrain --force` → `export_asset_pack.py` → `composite_overhead`（重导会
+  覆写 overhead 烘焙地面，必须重烘）→ `--refresh-manifest` → COS 差分上传（§5.2）；
+  地形件 ~512 KB/图 × 36 图，模型/地面纹理/场景 GLB 不受影响。
+
 ## 七、许可
 
 从游戏文件提取的数据（装甲数值、模型、图标）版权归 Wargaming，README 已有声明。

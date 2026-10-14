@@ -267,8 +267,10 @@ def main() -> None:
             cp(cache_maps / f"{space}.minimap.webp", f"map/{key}/mini.webp")
             got.append("mini")
 
-        # terrain：手动覆盖 data/maps/{key}.heightmap.u16.bin
-        #          → 缓存 data/cache/terrain/{key}.hm.u16.bin；
+        # terrain：手动覆盖 data/maps/{key}.heightmap.u16.bin（契约 = corner 口径镜像数据）
+        #          → 缓存 data/cache/terrain/{key}.hm.c2.u16.bin（文件名自描述布局；
+        #            修正前的旧名 {key}.hm.u16.bin 是离散翻转布局，仅无 c2 时兜底且不写
+        #            terrainLayout——前端读取边界按旧布局自行平移一列补正）；
         # 尺度 = sidecar data/cache/maps/{space}.json 的 worldBounds（缺尺度不打包 terrain
         # ——与服务端"错标尺度比 404 更糟"同一裁决），sidecar 物化为 terrain.json
         scale_src = cache_maps / f"{space}.json"
@@ -287,8 +289,10 @@ def main() -> None:
                          "zmin": round(float(mn[2]), 1),
                          "span": round(span_h, 1)}
         terrain_srcs = [data / "maps" / f"{key}.heightmap.u16.bin",
+                        terrain_cache / f"{key}.hm.c2.u16.bin",
                         terrain_cache / f"{key}.hm.u16.bin"]
         hit = copy_first(terrain_srcs, mdir / "terrain.u16.bin")
+        terrain_src = next((s for s in terrain_srcs if s.is_file()), None) if hit else None
         if hit and scale:
             # terrain.json = X-Terrain-Meta 头的 sidecar 化：顶层必须是前端消费的
             # size/zmax/zmin/span（worldBounds 等导出器原字段保留在子对象）
@@ -302,6 +306,13 @@ def main() -> None:
                 except Exception:
                     side = {}
             side.update(scale or {})
+            # terrainLayout 必须与字节一致（WotbTools PR #615 decodeTerrainField：2 原样用、
+            # 缺省按旧布局平移一列、未知值 fail-closed 回退 2D）——错标比缺省更糟
+            if terrain_src.name.endswith(".hm.u16.bin"):
+                print(f"  ⚠ terrain {key}: 只有旧布局缓存（{terrain_src.name}），"
+                      f"terrain.json 不写 terrainLayout——请重跑 fetch-terrain --force")
+            else:
+                side["terrainLayout"] = 2
             # 让位掩码（cover）与贴地结构脚印（structs）均已撤销（2026-10-11 用户裁示：
             # 只对齐客户端）——清掉历史字段，terrain.json 只承载客户端已有的元数据
             for legacy in ("cover", "coverStats", "structs", "structsStats"):

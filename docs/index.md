@@ -244,6 +244,41 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 | [docs/decoupling-status.md](decoupling-status.md) | **解耦的剩余决策与已定案差异**（2026-10-03 收敛；**2026-10-07 更新：GLB 自产管线已接线**——`data/cache/models/` 换为客户端解包导出，`cache/models` ≡ `local_models` 735/735）：已完成时间线；待决策口径（数据模型塌缩 / 25 辆无显示名 / `hull_traverse` 非同量）；封面图与 BK 复核为**同源同画**（旧 NCC 0.21/非同一幅画结论已撤销）；已定案的 BlitzKit 侧差异清单；对外沟通材料。进度/接线/分发现状见 [data-inventory.md](data-inventory.md) |
 | [docs/local-model-export.md](local-model-export.md) | ✅ 已实施（2026-10-01，2026-10-02 补 §4 贴图实测）：报告 B 的几何替代做成 `tools/export_tank_glb.py`，验收口径从"按可达节点求和"收紧到**逐字节 + 节点顺序**——`collision.glb` **735/735**、`model.glb` **733/735** 等价（余 2 辆为 BlitzKit 侧行为、另 23 辆 2026-10-10 起**有意修正**（静态变换烘焙 / 状态过滤，等价数 710/735），见该文 §5/§5.1）；贴图槽位与 BlitzKit 完全对齐（731/735 图片数相同、无缺槽位）。§4 逐通道实测推翻了报告 B §3.3 的图源判断，并定下 `baseRMMap` 的**通道搬迁**（ch0→G 粗糙度、ch1→B 金属度）。**2026-10-07 起已替换运行期数据源**：`data/cache/models/` 换为本地导出（`cache/models` ≡ `local_models` 735/735，包与 COS 随发；见 [data-inventory.md](data-inventory.md) §一 #8） |
 
+### 地形高度图列口径订正：corner 口径镜像 + terrainLayout 布局标记（2026-10-14，未发版）
+
+**背景**：WotbTools PR #615（前端修 plant 厂房坡道"挡土墙前多出土坡、游戏里没有"）定位出
+根因在本仓打包器：引擎高度图顶点是 corner 口径（`Heightmap::GetPoint` 把 texel k 放在
+`min + k/size·span`；`tilemask-vp.sl` 同口径），而 `map_assets.rs::parse_heightmap` 为
+"场景 x = −游戏 x"把列按 `out[c] = src[size−1−c]` 离散翻转——corner 口径下翻转后第 c 列的
+真实位置是 `((c+1)/n − 0.5)·span`，消费端按 `(c/n − 0.5)·span` 摆放 ⇒ **整张地形沿场景 −x
+偏一格**（span/512，600 m 图 1.17 m），全部地图、行方向无偏。证据（贴地实例 6 图统计：
+"列偏 −1 格"时亚毫米贴合数成峰，plant 9→177、italy 0→301 等 + plant 剖面实测）见对方仓
+`docs/features/battle-playback.md` 同日条目。
+
+**改动（本仓）**：
+- `parse_heightmap` 改 corner 口径镜像 `out[c] = grid[min(size−c, size−1)]`：c=0 需要源列
+  n（在源网格右界外一格，不存在），夹取到 n−1——与前端对旧包的 fallback 平移逐字节一致；
+  源列 0（场景 +x 包围盒边缘、可玩区之外）两种布局都表示不下，整列丢弃。
+- `terrain.json` / `X-Terrain-Meta` 写 **`terrainLayout: 2`**：前端 `decodeTerrainField`
+  对 2 原样使用、缺省（旧包）在读取边界平移一列补正、未知值 fail-closed 回退 2D——
+  **标记必须与字节一致，错标比缺省更糟**。四组合全安全（旧包+旧前端 = 原有偏移；
+  旧包+新前端 = 读时补正；新包+旧前端 = 数据对上旧前端既有假设；新包+新前端 = 靠标记
+  防二次补正），与 WotbTools 部署无时序约束。
+- 提取缓存改名自描述布局：`data/cache/terrain/{key}.hm.u16.bin` → **`{key}.hm.c2.u16.bin`**
+  （防旧缓存被当新布局打包/伺服；服务端对旧名视作未命中走实时提取重写，`fetch-terrain`
+  成功写入后清除旧名）。打包器优先 c2 与覆盖文件（契约 = corner 口径数据），仅剩旧名缓存
+  时兜底打包且不写标记（打警告提示重跑 `fetch-terrain --force`）。
+- `export_asset_pack.py` terrain.json 生成同步。
+
+**验证**：`cargo test map_assets` 8/8（契约测试改 corner 镜像口径 + c=0 夹取 / 源列 0 丢弃
+边界断言）；`cargo test --lib` 81 通过。
+
+**资产面**：36 图 `terrain.u16.bin` + `terrain.json` 重导（每图 ~512 KB，模型/地面纹理/场景
+GLB 不受影响；ground.webp 随重导重走合成链）、`--refresh-manifest` 重算、COS `--only map/`
+差分上传 **72 件 / 18.9 MB**（486 件按 sha256 跳过、manifest 就地补丁、回拉 4/4 一致）——
+数据见 [data-inventory.md](data-inventory.md) §2.1 第三十二次。WotbTools PR #615
+（前端 `decodeTerrainField` + 岸线半纹素）与本修复**谁先合并都可以**。
+
 ### 回放对照调查：P1/P2 加固落地（2026-10-13，随 v0.4.5 发版）
 
 **背景**：对 wotblitz.exe 11.20.0.887 的独立逆向（协议 + 消费链，报告在

@@ -28,7 +28,7 @@
 | 7 | 弹种反解表（全局 shell id → 弹种数据） | 本机自产（`ShellKindTable::from_tanks_pb` + CLI `dump-shell-kinds`，输入为现役 BlitzKit pb） | 客户端 `shells.xml <kind>`（4 值闭集，已实测；提取器与编码器均已支持，未接线） | 🟢 数据 100% / 接线 0% | `atgm_heat`→HOLLOW_CHARGE 验证一致；接线随 #1 |
 | 8 | `data/cache/models/{id}/*.glb` | **客户端解包（现役，2026-10-07 换源）**；BlitzKit CDN 退为缺失兜底（`web/assets.rs::ensure_glb_bytes` / `wargaming/model_fetch.rs`，当前休眠） | 它本身就是 | ✅ 100/100 | 735/735；与 BlitzKit 逐字节一致在 **23 辆上刻意打破**（静态变换烘焙 / 状态过滤，2026-10-10，见 [local-model-export.md](local-model-export.md) §5.1）；包内 `glb/` 已替换；**COS 已同步**（2026-10-10 只传坦克 glb：294 件 = 本批 23 ∪ MR 因子批 271，回拉 1470/1470 一致；§2.1 上传链） |
 | 9 | `data/cache/tank_images/{id}.webp` | **BlitzKit CDN**（离线 `download_all_icons` + 运行期懒下载 `web/assets.rs:235`） | `tools/export_tank_icons.py` → `local_tank_icons/` **735/735**（2026-10-10 改为**逐车 `bigIconPath` 声明**精确匹配——764 份参数文件中 755 份逐车文件全含、按整文件名含国家标签解析；备选链=注册表/短名/全名/模型名/别名 + 唯一性护栏） | ⚪ 数据 100%（接线待做；同源美术、接近视觉无损） | 与 BK **同源同画**（1:1 像素、左上角对齐、BK 画布为裁剪后小画布；轮廓 IoU 中位 0.986；旧 NCC 0.21 结论已撤销，见 [decoupling-status.md](decoupling-status.md) §3.4） |
-| 10 | `data/cache/maps/`、`data/cache/terrain/` | **客户端解包（现役）** `.sc2`/`.scg`、heightmap、colormap；地面再经 `tools/composite_overhead.py` 叠俯视合成（渲染缓存 `release/overhead-bake/` 已于 **2026-10-11 全量重烘**为现役材质版——此前停在 10-09 Lambert 时代观感的遗留已销账，刷新口径见 [game-data-sources.md](game-data-sources.md) §5.5） | 它本身就是 | ✅ 100/100 | 2026-10-11 全量重导 + 画质第二档底图重烘随包并 **COS 已同步**（§2.1 第二十九次） |
+| 10 | `data/cache/maps/`、`data/cache/terrain/` | **客户端解包（现役）** `.sc2`/`.scg`、heightmap、colormap；地面再经 `tools/composite_overhead.py` 叠俯视合成（渲染缓存 `release/overhead-bake/` 已于 **2026-10-11 全量重烘**为现役材质版——此前停在 10-09 Lambert 时代观感的遗留已销账，刷新口径见 [game-data-sources.md](game-data-sources.md) §5.5）；高度图缓存改名 `.hm.c2.u16.bin`（terrainLayout 2 布局自描述，见 [game-data-sources.md](game-data-sources.md) "地形高度图布局与提取链"） | 它本身就是 | ✅ 100/100 | 2026-10-11 全量重导 + 画质第二档底图重烘随包并 **COS 已同步**（§2.1 第二十九次）；2026-10-14 地形高度图列口径订正（corner 镜像）随包重导并 **COS 已同步**（§2.1 第三十二次） |
 | 10a | `data/cache/maps/{key}/destructibles.json`（可破坏物清单） | **客户端解包（现役）** `.sc2` + `XML/destructibles.xml.dvpl` | 它本身就是 | ✅ 100/100 | 消费方与回放切面 `destructible_events` 联表（逆向总集 §5.4） |
 | 11 | `data/data_version.json` | 本机自产（`game_version` 取客户端 `Data/version.txt.dvpl`） | 它本身就是 | ✅ 100/100 | `blitzkit_updated_at` 仅溯源戳 |
 
@@ -117,7 +117,21 @@ tanks.pb 未动）。
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测 **2026-10-11 按包内容重算**：**5288 个文件 / 4286.1 MB**——第三十一次为
+包内布局（本地实测 **2026-10-14 按包内容重算**：**5713 个文件 / 4286.4 MB**——第三十二次为
+**"地形高度图列口径订正（corner 口径镜像）+ terrainLayout 2 布局标记"**（WotbTools PR #615
+根因修复——旧 `parse_heightmap` 的离散列翻转在引擎 corner 顶点口径下让整张地形沿场景 −x
+偏一格（span/512，600 m 图 1.17 m、全图皆然、行方向无偏）：改 `out[c] = grid[min(size−c,
+size−1)]`；`terrain.json` / `X-Terrain-Meta` 写 `terrainLayout: 2`（前端 `decodeTerrainField`
+按标记区分布局：2 原样用、缺省平移一列补正、未知值 fail-closed），提取缓存改名
+`{key}.hm.c2.u16.bin` 防旧缓存被当新布局（`fetch-terrain --force` 55/55 重生成、旧名清除）。
+36 图 `terrain.u16.bin` + `terrain.json` 随包重导（内容变化、尺寸不变；ground.webp 随重导
+重走合成链：composite 36/36 写回、orient 恒 YX）、`--refresh-manifest` 重算
+**5288 → 5713 文件 / 4286.1 → 4286.4 MB**（+425 件 = 他批 tread/ 扩至全量 749 件在途，
+非本次改动）；**COS 已同步**：`--only map/` 比对 558 件，跳过 486（全部按桶内 manifest
+sha256 命中），上传 **72 件 / 18.9 MB**（= 36 `terrain.u16.bin` + 36 `terrain.json`；其中
+36 个 bin **同尺寸不同内容**，按 sha256 判定上传——旧 Content-Length 逻辑会静默漏传）、
+失败 0，`manifest.json` 远端清单就地补丁登记 72 条（远端保持 5713 条）；回拉 4/4 逐对象
+sha256 一致。见 [index.md](index.md) 同名条目）；第三十一次为
 **"顶层弹表单一权威化（穿深衰减修复）"**（735 辆 `tank/{id}.json` 顶层 `shells` 改为直接引用末档配置弹表的同一份 JSON——删除手工重抄投影，恢复漏抄的 `penetration_far`（跨车检视的 500m 穿深衰减此前静默失效）；**文件数不变、仅内容哈希变化**（5288 件 / 4286.1 MB 不变）；`DumpTankData` 全量重导 735/735 顶层带 far、零空弹表；**COS 未同步**。见 [index.md](index.md) 同名条目）；第三十次为
 **"履带印数据面（tread/）增量补入"**（`tools/export_tank_tread.py` 产物：`tread/` 311 个
 逐车 json（79 KB）+ `tread/textures/` 13 张 webp（983 KB，客户端 DDS 无损转码）
@@ -245,7 +259,9 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
 
 打包器：[scripts/export_asset_pack.py](../scripts/export_asset_pack.py)。注意它不是纯拷贝，
 中间有改名与派生：`tank_data/` → `tank/`；`tank_cache.json` 额外派生 `tank_names.json`；
-地图地形多一个 `terrain.json` sidecar（把 `X-Terrain-Meta` 头物化）；`index.json` /
+地图地形多一个 `terrain.json` sidecar（把 `X-Terrain-Meta` 头物化，含 `terrainLayout: 2`
+布局标记——高度图列口径与提取链见 [game-data-sources.md](game-data-sources.md)
+"地形高度图布局与提取链"）；`index.json` /
 `manifest.json` 均为生成物。另有 `--refresh-manifest` 模式：不重打包、按包目录现有内容重算
 `manifest.json` 的逐文件 sha256（合成器改写 ground.webp 之后、上传之前跑，见下）。
 

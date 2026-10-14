@@ -504,7 +504,8 @@ fn terrain_scale(entry: &MapEntry) -> Option<TerrainScale> {
     })
 }
 
-/// 解析标准契约高度图，返回行 0=南、列 0=西 的 u16 网格；size/tile 非预期值（老图）一律拒绝。
+/// 解析标准契约高度图，返回行 0=南、列 0=西 的 u16 网格（corner 口径镜像 = terrainLayout 2：
+/// 列 c 携带场景 x=(c/n−0.5)·span 处的引擎顶点高度）；size/tile 非预期值（老图）一律拒绝。
 fn parse_heightmap(raw: &[u8]) -> Option<TerrainGrid> {
     if raw.len() < 8 {
         return None;
@@ -534,11 +535,17 @@ fn parse_heightmap(raw: &[u8]) -> Option<TerrainGrid> {
             }
         }
     }
-    // 列翻转：存储列 0=东 → 输出列 0=西（行序不变）
+    // 列镜像（corner 口径，terrainLayout 2）：引擎顶点 k 落在游戏 x = min + k/size·span
+    // （Heightmap::GetPoint / tilemask-vp.sl 同口径），场景 x = −游戏 x ⇒ 输出列 c 的位置
+    // (c/n−0.5)·span 对应源列 n−c；c=0 需要源列 n（在源网格右界外一格，不存在），夹取到 n−1。
+    // 旧实现 out[c] = grid[size−1−c] 离散翻转在 corner 口径下让整张地形沿场景 −x 偏一格
+    // （span/n，600 m 图 1.17 m）：消费端以 terrainLayout 区分两种布局（WotbTools PR #615
+    // decodeTerrainField——缺省按旧布局在读取边界平移一列补正，2 原样使用，未知值 fail-closed）。
+    // 两种布局都表示不下场景 +x 边界那一列顶点（源列 0；包围盒边缘、可玩区之外）。
     let mut out = vec![0u16; size * size];
     for r in 0..size {
         for c in 0..size {
-            out[r * size + c] = grid[r * size + (size - 1 - c)];
+            out[r * size + c] = grid[r * size + (size - c).min(size - 1)];
         }
     }
     Some(TerrainGrid { heights: out })
@@ -560,7 +567,7 @@ fn extract_heightmap(space: &str) -> Option<TerrainGrid> {
     parse_heightmap(&dv.data)
 }
 
-/// 序列化高度场：u16 LE 行主序（行 0=南），前端按 X-Terrain-Meta 解释。
+/// 序列化高度场：u16 LE 行主序（行 0=南），前端按 X-Terrain-Meta（terrainLayout 2）解释。
 fn terrain_bytes(t: &TerrainGrid) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(t.heights.len() * 2);
     for v in &t.heights {
@@ -570,14 +577,16 @@ fn terrain_bytes(t: &TerrainGrid) -> Vec<u8> {
 }
 
 /// 预提取全部注册表地图的高度场到 `_cache/`（`fetch-terrain` 命令）：
-/// 已有缓存且未 `--force` 时跳过。返回 (总数, 新提取, 已缓存, 失败键名列表)。
+/// 缓存文件名带布局标记（`.hm.c2.u16.bin` = terrainLayout 2，corner 口径镜像），防止修正前
+/// 的旧布局缓存（`.hm.u16.bin`）被打包器/服务端当作新数据；已有 c2 缓存且未 `--force` 时跳过，
+/// 成功写入后顺手清掉同键旧名缓存。返回 (总数, 新提取, 已缓存, 失败键名列表)。
 pub fn cache_all_terrain(force: bool) -> (usize, usize, usize, Vec<String>) {
     let registry = load_registry();
     let mut extracted = 0usize;
     let mut cached = 0usize;
     let mut failed = Vec::new();
     for entry in &registry {
-        let cache = crate::data::cache_path(&format!("terrain/{}.hm.u16.bin", entry.key));
+        let cache = crate::data::cache_path(&format!("terrain/{}.hm.c2.u16.bin", entry.key));
         if cache.exists() && !force {
             cached += 1;
             continue;
@@ -590,6 +599,11 @@ pub fn cache_all_terrain(force: bool) -> (usize, usize, usize, Vec<String>) {
                 }
                 if std::fs::write(&cache, &bytes).is_ok() {
                     extracted += 1;
+                    // 修正前的旧布局缓存（无布局标记）已完成使命，清掉防混淆
+                    let legacy = crate::data::cache_path(&format!("terrain/{}.hm.u16.bin", entry.key));
+                    if legacy != cache {
+                        let _ = std::fs::remove_file(&legacy);
+                    }
                 } else {
                     failed.push(entry.key.clone());
                 }
@@ -631,7 +645,7 @@ pub fn cache_all_minimaps(force: bool) -> (usize, usize, usize, Vec<String>) {
 }
 
 /// GET /api/playback/terrain?name=<...>|?id=<n>：覆盖 → 缓存 → 游戏提取。
-/// 响应体 = u16 LE 高度场，X-Terrain-Meta = {"size":..,"zmax":..,"zmin":..,"span":..}。
+/// 响应体 = u16 LE 高度场，X-Terrain-Meta = {"size":..,"terrainLayout":2,"zmax":..,"zmin":..,"span":..}。
 /// 尺度（zmax/zmin/span）必须来自 sidecar 或手动 meta；两者皆缺时拒绝伺服
 /// （u16 满量程换算无据，错标尺度比 404 更糟）。
 pub fn terrain_response(map_param: &str) -> Response {
@@ -669,7 +683,9 @@ fn terrain_serve(
     span: f32,
     playable: Option<PlayableBounds>,
 ) -> Response {
-    // 1) 手动覆盖：data/maps/<key>.heightmap.u16.bin（512×512 LE，行 0=南）
+    // 1) 手动覆盖：data/maps/<key>.heightmap.u16.bin（512×512 LE，行 0=南）。
+    //    覆盖文件契约 = corner 口径镜像数据（即 parse_heightmap 输出 / terrainLayout 2）——
+    //    本函数的所有数据源都按该布局伺服
     let override_path = data_path(&format!("maps/{}.heightmap.u16.bin", entry.key));
     if let Ok(bytes) = std::fs::read(&override_path) {
         if bytes.len() == 512 * 512 * 2 {
@@ -682,8 +698,9 @@ fn terrain_serve(
         );
     }
 
-    // 2) 提取缓存
-    let cache = crate::data::cache_path(&format!("terrain/{}.hm.u16.bin", entry.key));
+    // 2) 提取缓存（.hm.c2 文件名自描述布局；修正前的旧名缓存 .hm.u16.bin 不再伺服——
+    //    视作未命中走实时提取重写，避免旧字节配上 terrainLayout 2 标记）
+    let cache = crate::data::cache_path(&format!("terrain/{}.hm.c2.u16.bin", entry.key));
     if let Ok(bytes) = std::fs::read(&cache) {
         if bytes.len() == 512 * 512 * 2 {
             return terrain_response_bytes(bytes, zmax, zmin, span, playable);
@@ -707,7 +724,7 @@ fn terrain_serve(
     terrain_response_bytes(bytes, zmax, zmin, span, playable)
 }
 
-/// 响应附带 X-Terrain-Meta（高度场解释参数）。
+/// 响应附带 X-Terrain-Meta（高度场解释参数；terrainLayout 2 = corner 口径镜像，前端原样使用）。
 fn terrain_response_bytes(
     bytes: Vec<u8>,
     zmax: f32,
@@ -723,7 +740,8 @@ fn terrain_response_bytes(
         ),
         None => String::new(),
     };
-    let meta = format!(r#"{{"size":512,"zmax":{zmax:.1},"zmin":{zmin:.1},"span":{span:.1}{pb}}}"#);
+    let meta =
+        format!(r#"{{"size":512,"terrainLayout":2,"zmax":{zmax:.1},"zmin":{zmin:.1},"span":{span:.1}{pb}}}"#);
     (
         [
             (
@@ -909,9 +927,9 @@ mod tests {
         assert!(resolve_map("no_such_map").is_none());
     }
 
-    /// 标准高度图解析：tile 重排 + 列翻转 + u16→米换算。
+    /// 标准高度图解析：tile 重排 + corner 口径列镜像（terrainLayout 2）+ u16→米换算。
     #[test]
-    fn heightmap_parse_untile_and_flip() {
+    fn heightmap_parse_untile_corner_mirror() {
         let size = 512usize;
         let tile = 16usize;
         // 构造：块(bx,by)内所有值 = 编码 (bx, by, 块内行, 块内列) 的可辨识 u16
@@ -933,12 +951,19 @@ mod tests {
             raw[8 + i * 2..8 + i * 2 + 2].copy_from_slice(&v.to_le_bytes());
         }
         let t = parse_heightmap(&raw).expect("standard contract must parse");
-        // 列翻转后：输出 [r,c] = 未翻转网格 [r, size-1-c]，即线性下标 r*size+(size-1-c)
+        // corner 口径镜像后：输出 [r,c] = 未翻转网格 [r, min(size−c, size−1)]
         for (r, c) in [(0usize, 0usize), (100, 200), (511, 511), (256, 128)] {
-            let expect = (r * size + (size - 1 - c)) as u16 % 65535;
+            let expect = (r * size + (size - c).min(size - 1)) as u16 % 65535;
             let got = t.heights[r * size + c];
             assert_eq!(got, expect, "({r},{c}): {got} vs {expect}");
         }
+        // 边界：c=0 需要源列 size（不存在），夹取后与 c=1 同取源列 size−1（与 WotbTools
+        // decodeTerrainField 对旧包的 fallback 平移逐字节一致）；c=size−1 取源列 1，
+        // 源列 0（场景 +x 包围盒边缘、可玩区外）整列丢弃
+        let enc = |idx: usize| (idx as u16) % 65535;
+        assert_eq!(t.heights[7 * size], enc(7 * size + size - 1));
+        assert_eq!(t.heights[7 * size + 1], enc(7 * size + size - 1));
+        assert_eq!(t.heights[7 * size + size - 1], enc(7 * size + 1));
         // 非标准契约（老图变体）拒绝
         raw[4..8].copy_from_slice(&8u32.to_le_bytes());
         assert!(parse_heightmap(&raw).is_none());
