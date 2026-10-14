@@ -245,6 +245,36 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 | [docs/decoupling-status.md](decoupling-status.md) | **解耦的剩余决策与已定案差异**（2026-10-03 收敛；**2026-10-07 更新：GLB 自产管线已接线**——`data/cache/models/` 换为客户端解包导出，`cache/models` ≡ `local_models` 735/735）：已完成时间线；待决策口径（数据模型塌缩 / 25 辆无显示名 / `hull_traverse` 非同量）；封面图与 BK 复核为**同源同画**（旧 NCC 0.21/非同一幅画结论已撤销）；已定案的 BlitzKit 侧差异清单；对外沟通材料。进度/接线/分发现状见 [data-inventory.md](data-inventory.md) |
 | [docs/local-model-export.md](local-model-export.md) | ✅ 已实施（2026-10-01，2026-10-02 补 §4 贴图实测）：报告 B 的几何替代做成 `tools/export_tank_glb.py`，验收口径从"按可达节点求和"收紧到**逐字节 + 节点顺序**——`collision.glb` **735/735**、`model.glb` **733/735** 等价（余 2 辆为 BlitzKit 侧行为、另 23 辆 2026-10-10 起**有意修正**（静态变换烘焙 / 状态过滤，等价数 710/735），见该文 §5/§5.1）；贴图槽位与 BlitzKit 完全对齐（731/735 图片数相同、无缺槽位）。§4 逐通道实测推翻了报告 B §3.3 的图源判断，并定下 `baseRMMap` 的**通道搬迁**（ch0→G 粗糙度、ch1→B 金属度）。**2026-10-07 起已替换运行期数据源**：`data/cache/models/` 换为本地导出（`cache/models` ≡ `local_models` 735/735，包与 COS 随发；见 [data-inventory.md](data-inventory.md) §一 #8） |
 
+### 全量重导 + 均衡档底图重烘 + COS 全量差分发布（2026-10-14 · 第二批次）
+
+**动因**：用户指示"全面重导 cos，重新渲染 3d 回放第二档所用的底图，然后上传"——decal 修复
+（上一条）视觉验证通过后，按其发布链把全量 GLB 重导、均衡档（画质第二档）底图重烘并差分发布。
+
+**数据面**：
+- **36 图全量重导**（`export_map_glb.py`，jobs=4、**182s、36/36 ok**）——全量口径补抓到
+  **`amigosville_old`（28 个 decal 批次）** 与 **`erlenberg_old`（1）**（此前跨图扫描只扫数字
+  前缀目录，漏了 `_old` 系列）；未受 decal 影响图逐字节不变（确定性）。
+- 包重建（`export_asset_pack.py`，provenance=`bc3a5d5`）：**5713 文件 / 4374.0MB**（合成前；
+  地面随之回到合成前基底）。
+- **均衡档（第二档）底图重烘**：`bake-ground-overhead.mjs --all` **36/36** 渲染（GPU 俯视，
+  coverPct 逐图落地，渲染件 2.4GB）→ 归档 `release/overhead-bake/`（缓存即现役材质版）→
+  `composite_overhead.py --all --write --render-dir release/overhead-bake --base-dir
+  data/cache/maps` **36/36 写回**（朝向恒 YX）→ `--verify` 读回 **36 ok / 0 fail**
+  （corr 0.994–0.997）。包内 `overhead/` 中间件**清理**（§5.2 第 4 条防误传）。
+- 合成后 `--refresh-manifest`：**5713 文件 / 4287.1MB**。
+- **COS 全量差分发布**（桶内 manifest 逐文件 sha256 为准）：本地 5714 文件 / 4287.9MB → 跳过
+  **5681**（全部 sha256 命中）、上传 **32 件 / 358.8MB**、失败 0；`manifest.json` 强传。
+  上传明细 = **12 图**（faust/forgecity/lumber/mountain/plant/rock/fort/holland/iceworld/
+  moon + amigosville_old/erlenberg_old）的 `scenery.glb` + `terrain.json`（侧车计数随新 GLB
+  重生成），其中 **7 图**（faust/forgecity/fort/plant/rock + 两张 _old）俯视渲染实际变化、
+  `ground.webp` 一并更新；`index.json` 1 件。工具按 sha256 捕获 **1 个"同尺寸不同内容"件**
+  （旧 Content-Length 判据会静默漏传）。**回拉核验 33/33**（32 delta + manifest）**逐对象
+  sha256 一致**，另抽查 3 件未动对象一致。
+
+**消费方（WotbTools）**：线上前端未含 `extras.decalTexture` 解析（随其 PR 落地）——本批发布
+后 **colormap 类（铁轨/挡土墙等 200 实例）即刻修复**；投影贴花类（6 图 88 实例）在旧前端回落
+逐图 colormap，待 WotbTools 侧接线。
+
 ### Decal 贴花类 UV1 烘焙双重乘色修复：环形轨道/挡土墙黑斑（2026-10-14）
 
 **现象**：faust 环形轨道/挡土墙（`env_fa_rails_circle` 等 `Decal.material` 物体）黑色斑块
@@ -270,7 +300,11 @@ mountain 48 / plant 34 / faust 27 / rock 16 / fort 13 / holland 8 / moon 2 / ice
 10 图 `scenery.glb` 重导（`--scenery-only`）：数值验证轨道三子网格三角形中心黑点
 **62/252、22/190 → 0/0**；mountain（0.439→0.439 恒等）与 iceworld 两例复核为**原始美术
 自带暗区**（非压黑）。`--refresh-manifest`：5713 文件 / 4286.4 → **4286.6 MB**，仅 10 条
-scenery.glb 哈希变更。**COS 未同步**（待视觉验证后 `--only map/`）。
+scenery.glb 哈希变更。**（当时）COS 未同步**——已随其上「全量重导 + 均衡档底图重烘 + COS
+发布（第二批次）」全量同步；全量口径另补抓 `_old` 两图（见下）。
+〔2026-10-14 全量重导勘误〕跨图扫描**漏了 `_old` 系列**（扫的是数字前缀目录）——全量重导
+随之抓到 `amigosville_old`（28 实例）与 `erlenberg_old`（1）同受此病，终版发布覆盖 **12 图**
+（见上一条「全量重导 + 均衡档底图重烘 + COS 发布」）。
 
 **消费方（WotbTools）**：小改而已获既有工厂支持——把 `extras.decalTexture`（glTF texture
 下标）解析后用 `makeDecalMaterial` 采其 UV1（本机已接线验证）：属 scene-runtime 变更，

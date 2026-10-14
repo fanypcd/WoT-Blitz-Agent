@@ -117,14 +117,24 @@ tanks.pb 未动）。
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测 **2026-10-14 按包内容重算**：**5713 个文件 / 4286.6 MB**——第三十三次为
+包内布局（本地实测 **2026-10-14 按包内容重算**：**5713 个文件 / 4287.1 MB**——第三十四次为
+**"全量重导 + 均衡档底图重烘 + COS 全量差分发布"**（decal 修复视觉验证通过后按其发布链执行：
+36 图全量重导（补抓 `amigosville_old` 28 decal 批次 + `erlenberg_old` 1）→ 包重建
+5713 件 / 4374.0MB（合成前）→ `bake-ground-overhead.mjs --all` **36/36** 重烘、渲染件归档
+`release/overhead-bake/`、包内 `overhead/` 清理 → `composite_overhead.py --all --write`
+**36/36 写回**、`--verify` **36 ok / 0 fail**（恒 YX）→ 合成后 `--refresh-manifest`
+5713 件 / **4286.6 → 4287.1 MB**；**COS 已同步**：差分上传 **32 件 / 358.8MB**（跳过 5681
+全按 sha256；含 1 个"同尺寸不同内容"件）、失败 0、`manifest.json` 强传；**回拉 33/33 逐对象
+sha256 一致** + 抽查 3/3。上传明细 = 12 图 `scenery.glb`+`terrain.json`（其中 7 图
+`ground.webp` 随俯视渲染更新）+ `index.json`。见 [index.md](index.md) 同名条目）；第三十三次为
 **"Decal 贴花类 UV1 烘焙双重乘色修复（环形轨道/挡土墙黑斑）"**（`decal_capable` 材质
 一律不再烘焙 `decal槽(UV1)×2` 进 albedo——UV0 重叠网格逐覆盖连乘把底色精确压到 0 是
 黑斑根因，且与消费端 2026-10-10 起的逐片元 decal 双重叠加；decal 槽非地表 colormap 的
 材质随导 `extras.decalTexture`。**文件数不变、仅内容哈希变化**：10 图 `scenery.glb`
 重导（faust/forgecity/lumber/mountain/plant/rock/fort/holland/moon/iceworld），
 `--refresh-manifest` 仅 10 条 scenery.glb 哈希变更；5713 件 / 4286.4 → **4286.6 MB**；
-**COS 未同步**，待视觉验证后 `--only map/`。见 [index.md](index.md) 同名条目）；第三十二次为
+**COS 已随第三十四次全量批次同步**（原"待验证后 `--only map/`"作废；全量口径另补抓
+`_old` 两图）。见 [index.md](index.md) 同名条目）；第三十二次为
 **"地形高度图列口径订正（corner 口径镜像）+ terrainLayout 2 布局标记"**（WotbTools PR #615
 根因修复——旧 `parse_heightmap` 的离散列翻转在引擎 corner 顶点口径下让整张地形沿场景 −x
 偏一格（span/512，600 m 图 1.17 m、全图皆然、行方向无偏）：改 `out[c] = grid[min(size−c,
