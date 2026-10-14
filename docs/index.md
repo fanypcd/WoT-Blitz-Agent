@@ -245,6 +245,77 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 | [docs/decoupling-status.md](decoupling-status.md) | **解耦的剩余决策与已定案差异**（2026-10-03 收敛；**2026-10-07 更新：GLB 自产管线已接线**——`data/cache/models/` 换为客户端解包导出，`cache/models` ≡ `local_models` 735/735）：已完成时间线；待决策口径（数据模型塌缩 / 25 辆无显示名 / `hull_traverse` 非同量）；封面图与 BK 复核为**同源同画**（旧 NCC 0.21/非同一幅画结论已撤销）；已定案的 BlitzKit 侧差异清单；对外沟通材料。进度/接线/分发现状见 [data-inventory.md](data-inventory.md) |
 | [docs/local-model-export.md](local-model-export.md) | ✅ 已实施（2026-10-01，2026-10-02 补 §4 贴图实测）：报告 B 的几何替代做成 `tools/export_tank_glb.py`，验收口径从"按可达节点求和"收紧到**逐字节 + 节点顺序**——`collision.glb` **735/735**、`model.glb` **733/735** 等价（余 2 辆为 BlitzKit 侧行为、另 23 辆 2026-10-10 起**有意修正**（静态变换烘焙 / 状态过滤，等价数 710/735），见该文 §5/§5.1）；贴图槽位与 BlitzKit 完全对齐（731/735 图片数相同、无缺槽位）。§4 逐通道实测推翻了报告 B §3.3 的图源判断，并定下 `baseRMMap` 的**通道搬迁**（ch0→G 粗糙度、ch1→B 金属度）。**2026-10-07 起已替换运行期数据源**：`data/cache/models/` 换为本地导出（`cache/models` ≡ `local_models` 735/735，包与 COS 随发；见 [data-inventory.md](data-inventory.md) §一 #8） |
 
+### 地形 LOD 走廊强制细分（B 方案）+ NewBay「抬视角铁轨被白色盖住」溯源（2026-10-14）
+
+**现象**：用户报 forgecity（显示名 New Bay）抬高相机后部分铁轨被"白色"盖住、拉近恢复正常，客户端同机位无此现象。
+
+**机理（用户裁定的 LOD 方向，实测复现）**：贴地薄构件（铁轨基板 0.29–0.34 m 厚、钢条净空 **0.15–0.19 m**）
+在自适应网格的**粗格插值**下被抬过顶面；细分判据只约束**相对**误差（≤ 0.014·d·tanFovY），250–500 m 机位
+下残余插值误差（+0.1–0.8 m）足以覆盖钢条。按"高出地面 ≥15 cm 的钢条顶点"判覆盖（真场 + 真构建器，相机
+在铁轨以南 200/300/500 m）：**r2 1.8/7.0/72.7%、r3 16.7/23.3/30.0%、r5 0/0/70.6%**；被盖处露出的正是地形，
+而该片 colormap 在客户端本身很亮（cm 0.694 × alpha 0.788 × 2.0 = 1.09），故读作"白"。
+
+**订正（本文件早前条目内一句已改）**：曾记"rails_003 有 13–23% 的钢条在 1 texel 真值网格下就已被压"——
+那是探针用**最近 texel** 取样的假象；按双线性真值复核，五条轨的钢条**无一被埋**（0.0%，最小净空 0.151 m）
+⇒ 全部覆盖都是 LOD 引起，没有"数据层面压顶"这一类。
+
+**实现（用户 2026-10-14 裁定 B）**：`terrainMesh.buildRefineMask` + `buildAdaptiveTerrain({ refineMask })`
+——掩码命中的补片**强制细分到最细层（1 texel）**，不改任何高度值；掩码由前端从已加载的场景 GLB 现场生成
+（类判据**统一适用**：世界 AABB 高 ≤ 2.5 m 且底面贴地形真值、排除 `extras.water` 水面/水下片；判据沿用
+文档「贴地薄构件（铁轨基板/压顶/铺装）」的类定义，不做逐件统计判定 ⇒ 与网格/材质实现同源，且不新增数据件）。
+无裂缝口径（顶点取"最粗相邻层边界直线"）保证廊外与边界不产生 T 型接缝、也不需要 2:1 平衡；掩码命中补片的
+**同胞补片**按客户端三条判据在更细层级重新判定（即"客户端判据应用于已分辨走廊的网格"）。
+
+**验收（真场 + 真构建器；掩码 = 铁轨 footprint + 2 texel 外扩）**：forgecity 掩码占全图 **1.57%** texel，
+**200/300/500 m 下五条轨的钢条覆盖全部 → 0.0%**（四边形 33.5k→47.1k / 27.5k→42.9k / 19.3k→35.8k）；
+跨图扫描（同类件 + 同口径）：**medvedkovo** 命中 6 件（该图铁轨是 lightmap 类而非 decal 类 ⇒ 类判据必须
+按几何「薄+贴地」而非材质标记）、掩码 1.47–3.73%，残余 0.4%（净空 ≤2 cm 的临界点，真值复核 0 个被埋）；
+**erlenberg** 无此类件（无需处理）。客户端侧核对：`Decal.material`（铁轨）与 `TileMaskAllQualities.material`
+（本图地面，`.sc2` 的 `fxName`）均 `OpaqueRenderLayer` + `CMP_LESS` + **无任何 `DepthBias`**（55 材质全扫）、
+`SubdividePatch` 的 `minSubdivLevel`/`forceMaxSubdiv` 在实例化+morph 路径恒 0/false ⇒ 客户端对贴地薄板的
+粗格越顶**没有**补偿机制（依据副本 `tmp_analysis/dava/`）——B 属用户**有意偏离**客户端的一次裁定。
+
+**同期两处前端偏离（同一轮修复，落点 WotbTools）**：① **海面水材质被节点名抢走**——客户端
+`SkySeaSurface.sc2`（NewBay 海面）材质就是水材质（`extras.water`；`WaterPerPixelCubemapAlphablend.material`），
+前端 `/sky/i` 名字正则把它当天穹（深度钉远平面）⇒ 海面永远画不出来、海床直接露出；改为**语义判据（材质
+标记）先于名字**。② **地形 LOD 阈值 fov 口径**——引擎 `PrepareSubdivision` 用相机配置的**水平** fov 插值
+（宽高比只进投影项 `tanFovY`），前端此前把「55° 竖直 × 画布 aspect」折算后喂入 ⇒ 窄画布滑向狙击镜档
+（阈值最松 +78%）；现恒传客户端正常相机口径（水平 70°）。贴图与公式逐像素核对一致：`cm.webp` vs 客户端
+`forgecity_colormap.dds` RGB corr 0.998、`lm.webp.R` vs 其 alpha corr 1.000、`mask0/1`、`tile0/1` 四通道 corr 1.000。
+
+### 俯视烘焙装配语义对齐（第三批次补正）：水塔/海面/浮冰双向错剔修正 + 共享规则模块（2026-10-14）
+
+**发现（用户复盘"渲染代码似乎没同步修复"）**：俯视烘焙（`bake-ground-overhead.mjs`）的场景装配
+口径未随运行时的"**水面语义优先**"修复（材质 `extras.water` 权威、名字仅旧包回退）同步——
+烘焙自持一份 `/water|sea|river|lake/i` 名字剔除，36 图 census 实测**双向错剔**：
+- **过剔除 83 件**：水塔/水罐建筑 ~35 个（12 图：`bld_er_water_tower.sc2`/`env_pt_watertank.sc2`/
+  `WaterTank.sc2` 等——与运行时会话 2026-10-09 报障修过的同类误伤）、`env_searchlight.sc2` ×10
+  （"sea"rchlight 子串）、`env_id_river_water`/瀑布 ×24、各图 `sea_bottom` 类；
+- **漏剔除 30 件**：`skit_ocean.sc2`/`port_ocean.sc2`（"ocean" 不被任何 token 命中）、malinovka
+  25 块浮冰 `env_ma_ice02_*`、grossberg 3 件——被当固体烘进底图。
+
+**修复（落点 WotbTools，工作树；随其 PR）**：新增共享规则模块 **`src/scene/sceneryAssemblyRules.js`**
+（SSOT：`strictSurfacesOf`/`materialIsWater`/`isWaterNode`/天空壳词表/非完好态名式/**`bakeDropNode`**
+剔除判定）——运行时（`playbackScene` 以本地 `isWaterNode` 签名委托，调用点与另一会话的水面/天空守卫
+原样保留）与烘焙**同一份判定**，名字只用于天空壳/环境壳/非完好态/隐形/图幅壳；守卫升级（两侧委托
+断言 + 旧名字口径回归锁 `not.toMatch(/\|water\|sea\|river\|lake/)`）。真名案例单测 7/7（水塔/探照灯
+保留、ocean/浮冰剔除、`State 0` 完好态不剔、旧包名字回退不变）；scene 目录 676/677（**1 红为分支
+固有**：wreck-smoke 无重绘断言在 HEAD 提交版上同样失败，A/B 三步归因与本轮两方改动无关，留对方）。
+
+**重渲差分（像素级实测量化）**：20 图有差异（预期逐图命中）——grossberg 4.55% 像素 /
+coverPct **38.00→33.66**（水件剔除）、idle **27.87→29.46** / milbase **18.46→19.94** /
+plant **18.03→18.42** / medvedkovo **8.97→9.11**（水塔类补回）、malinovka 0.84%（浮冰）、
+karelia/italy/canyon/himmelsdorf 等 0.002–0.18%（补回/极小件）；`skit` 无变化（其海面本就被
+90% 包壳剔除）；其余 15 图逐字节不变。**decal 件仍走受光 Lambert**（本页不做 extras 贴图解，
+属已注明的烘焙近似；是否补 decal 路径 = 档 2 待定）。
+
+**发布**：渲染件归档 `release/overhead-bake/`、包内 `overhead/` 即清 → `composite_overhead.py
+--all --write` 写回 + `--verify` **36 ok / 0 fail**（恒 YX）→ `--refresh-manifest`
+**5713 件 / 4290.4 MB** → COS `--only map/` 差分 **20 件 / 143.6MB**（20 图 `ground.webp`；
+跳过 538 全按 sha256、失败 0、manifest 远端就地补丁）→ **回拉核验：map/ 域 558 件逐条
+sha256 一致 + 抽查 8/8 逐字节**。像素差分仅为数值证据；**底图观感终验归用户**（重点：
+grossberg/idle/milbase/malinovka 四图 + 12 图水塔/探照灯复现）。
+
 ### Decal/define 全量审计（第三批次）+ 11.21.0 世代对齐：连乘残留/FLATALBEDO/逐实例 LSC/判据并集/detail 漏判（2026-10-14）
 
 **动因**：第一批（环形轨道黑斑）修复后，对"导出端近似 vs 客户端 define"做全量审计
