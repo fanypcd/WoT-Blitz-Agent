@@ -199,6 +199,11 @@ def test_detail_capability_criterion():
         assert detail_capable({"presets": {}}, f_detail) is True
         assert detail_capable({"presets": {}}, f_plain) is False
         assert detail_capable({}, None) is False
+        # 实例 flags 来源（2026-10-14 审计第二例：desert_train 边缘 10 例
+        # `edge_dunes_*`/`edge_cliffs_*`——文件链顶层无 define、presets 为空、
+        # define 直接写在 flags；detail 槽已绑，旧口径漏判 ⇒ 细节层静默丢弃）
+        assert detail_capable({"flags": {"MATERIAL_DETAIL": 1}}, f_plain) is True
+        assert detail_capable({"flags": {"PBR_DETAIL": 1}}, None) is True
 
 
 def test_decal_capability_criterion():

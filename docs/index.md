@@ -245,6 +245,80 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 | [docs/decoupling-status.md](decoupling-status.md) | **解耦的剩余决策与已定案差异**（2026-10-03 收敛；**2026-10-07 更新：GLB 自产管线已接线**——`data/cache/models/` 换为客户端解包导出，`cache/models` ≡ `local_models` 735/735）：已完成时间线；待决策口径（数据模型塌缩 / 25 辆无显示名 / `hull_traverse` 非同量）；封面图与 BK 复核为**同源同画**（旧 NCC 0.21/非同一幅画结论已撤销）；已定案的 BlitzKit 侧差异清单；对外沟通材料。进度/接线/分发现状见 [data-inventory.md](data-inventory.md) |
 | [docs/local-model-export.md](local-model-export.md) | ✅ 已实施（2026-10-01，2026-10-02 补 §4 贴图实测）：报告 B 的几何替代做成 `tools/export_tank_glb.py`，验收口径从"按可达节点求和"收紧到**逐字节 + 节点顺序**——`collision.glb` **735/735**、`model.glb` **733/735** 等价（余 2 辆为 BlitzKit 侧行为、另 23 辆 2026-10-10 起**有意修正**（静态变换烘焙 / 状态过滤，等价数 710/735），见该文 §5/§5.1）；贴图槽位与 BlitzKit 完全对齐（731/735 图片数相同、无缺槽位）。§4 逐通道实测推翻了报告 B §3.3 的图源判断，并定下 `baseRMMap` 的**通道搬迁**（ch0→G 粗糙度、ch1→B 金属度）。**2026-10-07 起已替换运行期数据源**：`data/cache/models/` 换为本地导出（`cache/models` ≡ `local_models` 735/735，包与 COS 随发；见 [data-inventory.md](data-inventory.md) §一 #8） |
 
+### Decal/define 全量审计（第三批次）+ 11.21.0 世代对齐：连乘残留/FLATALBEDO/逐实例 LSC/判据并集/detail 漏判（2026-10-14）
+
+**动因**：第一批（环形轨道黑斑）修复后，对"导出端近似 vs 客户端 define"做全量审计
+（36 图 + 邻图逐批次分类普查 + flags 侧 define 全集清单），并逐项核对三方（客户端 shader
+源码 ∪ 本仓导出物 ∪ WotbTools 现役渲染）。共 5 类同类缺陷，全部按统一语义口径修复——
+**有效 define 集 = 材质文件链（顶层/档位组/预设块）∪ 实例启用预设 ∪ 实例 flags**（flags 为
+编辑器逐实例附加 define，与 `TEXTURE0_ANIMATION_SHIFT` 同机制；双向实证：faust 轨道
+文件级 define **不**重复出现在 flags、pliego/desert_train 的 define **只**在 flags）。
+
+**① decal 烘焙连乘残留（真连乘，已出货 ⇒ 本轮修复重点）**：烘焙触发只看"槽位存在"，
+4 批次仍被烘——plant 路面 1（`road_part_5` 实例，UV0 世界单位平铺 u∈[−25,30]，decal 槽
+为弃用残留、客户端**根本不采样**：多乘 ×colormap×2 覆盖 97.85% 像素）+ pliego 边境 3。
+pliego `border_02` 逐像素**均值 5.08 重、最大 13 重**连乘（贴图均值差 142/255）、
+`border_01` 局部 9.4 重。修复：**decal 烘焙臂整体删除**（`bake_uv1_overlays` 仅剩静止
+alphamask 臂，全库 0 实例）——define 生效者逐片元（extras.decal + 随导 UV1）、未生效者
+槽位忽略；数值验收：pliego 边境 albedo 与源图**逐字节相等**（连乘消失）。
+
+**② `decal_capable` 判据漏实例 flags 来源**：pliego 边境 3 例 `MATERIAL_DECAL+PBR_DECAL`
+只在 flags（模板链 `StandardLightmapAllQualities` → `PBR.material`/`Textured.material`
+顶层均无 define；pbr-fp.sl 无 MATERIAL_DECAL 分支、ULTRA 档走 `PBR_DECAL`）⇒ 判据并集化，
+3 例转 decal 路径（`extras.decal` + UV1 随导，2 材质 / 3 primitive 实测带 TEXCOORD_1）。
+**同口径顺带收编 `detail_capable` 的 desert_train 边缘 10 例**（`edge_dunes_*`/`edge_cliffs_*`，
+flags 携 `MATERIAL_DETAIL+PBR_DETAIL`、detail 槽已绑 `dt_edge_detail_albedo.tex`、
+tileScale 15——旧口径细节层静默丢弃，本轮补导）。
+
+**③ FLATALBEDO 无处理（丢染色）**：客户端 `materials-fp.sl` `#if FLATCOLOR || FLATALBEDO`
+两 define 同义（采样后 `textureColor0 *= flatColor`），旧口径只认 FLATCOLOR ⇒ forgecity
+边境 36 例 + plant 边境 1 例（flatColor≠1）静默丢染色。判据统一为 `flatcolor_defined`；
+数值验收：plant/forgecity 边境 brickwall 贴图 = 源×flatColor **逐字节**。
+
+**④ LSC 逐实例 vs 逐图代理**：`LANDSCAPE_SEPARATE_LIGHTMAP_CHANNEL`
+（`materials-fp.sl:285/294`：`shadowColor *= decalTextureFetch.a`，注释原文
+"objects colored with landscape"）是**逐实例 define**（121/121 由 flags 承载），旧口径按
+地面 `separate_lm` 猜该乘 ⇒ faust 10 个无 LSC 实例被错乘 cm.a（实测 uvs1 覆盖区均值
+0.757、p10 0.533、80% 像素 <0.90 ⇒ 比客户端偏暗约 24%）。修复：`extras.decalSeparateLm`
+显式布尔逐材质下发（真/假都写）；WotbTools 侧优先取 extras、旧包回退逐图近似。
+（faust 轨道据此将**变亮约 1/0.757 ≈ +32%**——属修正性变化，请用户视觉确认。）
+
+**⑤ 槽图分类改身份判**：'*colormap*' 文件名启发式把 pliego 的 `pliego_colorTexture`
+（它**正是**该图地面 `colorTexture`，槽路径与地面槽逐字相等——实测 5 图全等）误判为自有
+贴图 ⇒ 改为**身份比较**（槽路径 == 地面 `colorTexture` 槽）判"地表色图类"（消费端持逐图
+cm/lm，不随导）；其余随导 `extras.decalTexture`（自有类逐实例全为 LSC=0 ⇒ ×A 不参与，
+RGB JPEG 嵌入口径不变）。
+
+**查证后无需改动（记录在案）**：decal 的 `materialLightmapAdjustment` 全库 267 个 decal
+材质实测全默认（`decalLmAdjust` 实际不曾出货，管线留口）；水面 decal 采样只在 `water-fp.sl`
+的 LOW 档（`!PIXEL_LIT`）公式内，与本仓 MEDIUM 档镜像无冲突；`MATERIAL_LIGHTMAP`/
+`ALPHATEST`/`MATERIAL_DETAIL`（文件侧）/`FLOWMAP`/`TILED_DECAL_MASK` 的 flags 侧普查无
+同类缺口（lightmap 判据三来源口径 2026-10-09 已闭环）。
+
+**世代对齐（同日 19:18 游戏更新）**：Steam 于 **19:18** 更新至
+**11.21.0.1235_7376187（release/11.21.0）**（全 Data 树重写；mountain 光图图集/贴图与
+albedo、port/milbase 场景实测变化——与代码无关；新-旧导出器对同图输出仅差 48 字节 =
+本轮 extras 增量）。为避免包内新旧世代混杂，**36 图 scenery+ground 全量重导**对齐新版本
+（`export_map_glb.py --jobs 6`，**122s、36/36 ok**；desert_train 因 detail 修复另补导
+一次），随后包重建 **5713 件 / 4377.5MB**（合成前）→ `bake-ground-overhead.mjs --all`
+**36/36** 重渲（渲染件归档 `release/overhead-bake/`、包内 `overhead/` 即清）→
+`composite_overhead.py --all --write` 写回 + `--verify` **36 ok / 0 fail**（恒 YX）→
+合成后 `--refresh-manifest` **5713 件 / 4290.5MB**。
+
+**发布（COS `--only map/ --only index.json`）**：最终差分 **32 件 / 459.0MB**——16 图
+`scenery.glb`（14 审计图 + 补丁改动的 milbase/port）、5 图 `ground.webp` + mountain 四图层
+webp（`cm/lm/mask0/mask1`+`layers.json`）、5 图 `terrain.json`（内嵌导出统计：forgecity
+`flat_tinted 409→445` 即 FLATALBEDO 修复 +36 的侧证）、`index.json`；跳过 5681 件全按
+sha256（含 3 个"同尺寸不同内容"件照 sha256 正确上传）；**回拉核验：远端 `manifest.json`
+map/ 域 558 件逐条 sha256 一致（0 缺失/0 不一致/0 多余）+ 抽查 8/8 逐字节一致**。
+**26 图合成输出与远端逐字节一致**（补丁未动其内容——全量对齐的反向验证）。
+
+**回归**：`tools/test_decal_export.py` 7 项（新增 union 判据 / 身份分类两向 / LSC 显式布尔 /
+FLATALBEDO）；`test_export_lightmap_data.py` detail 判据补 flags 用例；`test_bake_uv1_mask`
+/`test_export_image_keys` 不变全过。WotbTools 侧 `sceneryMaterials.test.js` 接线守卫更新
+（`ud.decalSeparateLm !== undefined` 优先 + 旧包回退），106/106 过；**消费端接线（decalTexture
++ decalSeparateLm）仍待对方仓 PR 落地**（含 android `wotbVersion` 同步口径）。
+
 ### 全量重导 + 均衡档底图重烘 + COS 全量差分发布（2026-10-14 · 第二批次）
 
 **动因**：用户指示"全面重导 cos，重新渲染 3d 回放第二档所用的底图，然后上传"——decal 修复

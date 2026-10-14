@@ -117,7 +117,22 @@ tanks.pb 未动）。
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测 **2026-10-14 按包内容重算**：**5713 个文件 / 4287.1 MB**——第三十四次为
+包内布局（本地实测 **2026-10-14 按包内容重算**：**5713 个文件 / 4290.5 MB**——第三十五次为
+**"Decal/define 全量审计（第三批次）+ 11.21.0 世代对齐"**（同日 19:18 游戏更新至
+**11.21.0.1235_7376187 release/11.21.0**：36 图 scenery+ground 全量重导对齐世代
+（122s、36/36 ok；desert_train 因 detail 修复另补导一次），mountain 光图图集、port/milbase
+场景为补丁实体变化。审计修复 5 类同类缺陷：decal 烘焙连乘残留删除（plant 1 + pliego 3 实
+连乘——pliego `border_02` 均值 5.08 重/最大 13 重）、判据并集化（文件链∪启用预设∪**实例
+flags**：pliego 边境 3 + desert_train 边缘 detail 10）、FLATALBEDO 染色
+（forgecity/plant 边境 37）、`extras.decalSeparateLm` 逐实例下发（faust 10 例无 LSC 错乘
+cm.a ×0.757 修正）、槽图分类改身份判（槽路径==地面 colorTexture，pliego_colorTexture）。
+包重建 5713 件 / 4377.5MB（合成前）→ 俯视重渲 **36/36** → 合成写回 + `--verify`
+**36 ok / 0 fail**（恒 YX）→ `--refresh-manifest` **5713 件 / 4290.5MB**；**COS 已同步**：
+`--only map/ --only index.json` 差分 **32 件 / 459.0MB**（16 scenery + 5 ground + mountain
+四图层 webp + 5 terrain.json + index.json；含 3 个"同尺寸不同内容"件照 sha256 正确上传）、
+失败 0、`manifest.json` 远端就地补丁；**回拉核验：远端 map/ 域 558 件逐条 sha256 一致
+（0 缺失/0 不一致/0 多余）+ 抽查 8/8 逐字节一致**。见 [index.md](index.md) 同名条目）；
+第三十四次为
 **"全量重导 + 均衡档底图重烘 + COS 全量差分发布"**（decal 修复视觉验证通过后按其发布链执行：
 36 图全量重导（补抓 `amigosville_old` 28 decal 批次 + `erlenberg_old` 1）→ 包重建
 5713 件 / 4374.0MB（合成前）→ `bake-ground-overhead.mjs --all` **36/36** 重烘、渲染件归档
