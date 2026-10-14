@@ -56,6 +56,10 @@ pub struct DeathRecord {
 /// 原始采样不滤波——滤波/0.1s 网格/角度解卷绕是回放切面投影层职责（playback.rs）。
 #[derive(Debug, Default)]
 pub struct Timeline {
+    /// DetachedTurret class-8 ownership and AoI materialization (raw rigid body).
+    pub detached_turrets: Vec<super::detached_turrets::DetachedTurretRecord>,
+    /// Known class-8 eids must never enter vehicle fallback, including rejected tracks.
+    pub detached_turret_eids: std::collections::HashSet<u32>,
     /// 原始位姿流（type=10，未滤波）
     pub poses: HashMap<u32, Vec<St10Sample>>,
     /// 炮塔打包角流（type=7 prop2：(clock, 相对角 rad, frac 原始 6bit)）
@@ -147,8 +151,10 @@ impl ReplayModel {
         let packets = input.packets;
 
         let mut packet_histogram: BTreeMap<u32, u64> = Default::default();
-        for (t, _, _) in packets {
-            *packet_histogram.entry(*t).or_insert(0) += 1;
+        let mut detached_scan = super::detached_turrets::DetachedTurretScan::default();
+        for (kind, clock, payload) in packets {
+            *packet_histogram.entry(*kind).or_insert(0) += 1;
+            detached_scan.observe(*kind, *clock, payload);
         }
 
         let author_nickname = input
@@ -176,7 +182,9 @@ impl ReplayModel {
             .find(|c| c.account_id != 0 && c.account_id == input.author_account_id as u64)
             .map(|c| c.eid)
             .filter(|e| *e != 0)
-            .unwrap_or_else(|| combat::resolve_author_player_eid_by_nick(packets, &author_nickname));
+            .unwrap_or_else(|| {
+                combat::resolve_author_player_eid_by_nick(packets, &author_nickname)
+            });
 
         // —— 共享扫描（契约"包流只扫一遍"）：位姿/炮塔/血量/名字/配件/发射等
         // 全部索引只建一份，弹道两路提取（collect_all_shots）与实体档案并表均从此取数。
@@ -333,9 +341,12 @@ impl ReplayModel {
             });
         }
 
+        let (detached_turrets, detached_turret_eids) = detached_scan.finish();
         Ok(Self {
             entities,
             timeline: Timeline {
+                detached_turrets,
+                detached_turret_eids,
                 poses: shared.st10,
                 turret: shared.prop2,
                 hp_events: shared.hp_events,

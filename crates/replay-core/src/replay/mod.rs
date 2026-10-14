@@ -5,6 +5,7 @@
 // 区域可破坏物事件流（destructibles，AreaDestructibles 短广播，逆向文档 §5.4）。
 pub mod combat;
 pub mod destructibles;
+pub mod detached_turrets;
 pub mod filter;
 pub mod model;
 pub mod packets;
