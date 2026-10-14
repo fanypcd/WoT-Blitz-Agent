@@ -2259,6 +2259,10 @@ mod detached_turret_tests {
             .get("detached_turrets")
             .is_none());
         packets.push((10, f32::NAN, sample(20, 0.0)));
+        let mut turret7 = vec![0; 14]; // [eid][prop=2][…][packed u16]，NaN 时钟 type=7
+        turret7[..4].copy_from_slice(&1u32.to_le_bytes());
+        turret7[4..8].copy_from_slice(&2u32.to_le_bytes());
+        packets.push((7, f32::NAN, turret7));
         let invalid = build(&packets);
         assert_eq!(invalid.vehicles.len(), 1);
         assert!(
