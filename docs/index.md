@@ -283,6 +283,43 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 （阈值最松 +78%）；现恒传客户端正常相机口径（水平 70°）。贴图与公式逐像素核对一致：`cm.webp` vs 客户端
 `forgecity_colormap.dds` RGB corr 0.998、`lm.webp.R` vs 其 alpha corr 1.000、`mask0/1`、`tile0/1` 四通道 corr 1.000。
 
+### 俯视烘焙与运行时同源化（P1）：逐图光照 + extras 贴图解（2026-10-14 · 第三批次补正之二）
+
+**动因（用户两例复验）**：plant 底图右下"水面处一块红"（溯源 = `water_rust_1.sc2`，49×51 m
+不透明锈板、材质带 lightmap+env——名字含水被旧名字规则剔除、语义规则放行后暴露）+ faust
+"地面太亮、与 3D 俯视差异很大"。两者同根：**俯视烘焙停在运行时旧管线**——光照用固定日光
+（白 3.0 + 半球 2.4 + **ACES 1.15**，运行时逐图光照落地前的基线）且"不做 extras 贴图解析"
+（光照图/环境反射/细节都不进底图）。
+
+**修复（落点 WotbTools 工作树，随其 PR）**：
+- **① 逐图光照共享模块 `src/scene/mapLighting.js`**（SSOT）：运行时 `applyMapLighting`/
+  `resetMapLighting` 改为薄委托（本地签名与 envMultiplier 闭包语义保留）；烘焙页换图时
+  fetch `/pack/map/<key>/lighting.json` 应用同一应用体——方向（position=−传播方向）、
+  色/强度、`sun.ambient`→半球色、**"保色相、归亮度"曝光归一（三通道同除）**；出屏口径
+  同步为 **LinearToneMapping + 曝光 1.0**（客户端 A2 口径，原 ACES 1.15 属旧基线）。
+- **② extras 贴图解 + 同序路由**（烘焙页）：与运行时同趟预解析 mask/lightmap/detail/env
+  纹理（`parser.getDependency`），按 `playbackScene.assignMat` 同序分派——lm(+env+detail)
+  → 混合层掩码（`makeBlendLayerMaterial`）→ 水下件（`underWater` 几何判据 → MeshBasic
+  无光口径）→ `convMat`（并补上与运行时同款 detail 补丁）；**lm 材质以"单实例 InstancedMesh
+  + 节点几何克隆填 `aLm`"走与运行时完全相同的 `USE_INSTANCING` 着色路径**（材质指纹共享、
+  逐节点 UV 变换走实例属性——不新造第二套材质代码）。
+
+**数值验收**：faust 覆盖区亮度 **（170,171,168）→（96,102,112）**（暗约 44% 且转冷蓝，
+即 lighting.json 的夜间蓝调）；plant 锈板像素 **（131,29,8）→（113,71,43）**（去霓虹化，
+经光照图调制）；36 图**全数**有变化（4.4–35.9% 像素 = 各自覆盖区，逐图亮度按本图
+lighting.json：夜图 faust 191→141 / moon 193→153 降幅最大；plant/pliego/rift 等微升）。
+覆盖掩膜与几何集合一致（coverPct 基本不变，仅 rock/rudniki 等 ±0.1 级由水下件口径修正）。
+
+**发布**：合成 `--write` 36/36 + `--verify` **36 ok / 0 fail**（恒 YX）→ `--refresh-manifest`
+**5713 件 / 4289.2 MB** → COS `--only map/` 差分 **36 件 / 250.7MB**（全图 `ground.webp`；
+跳过 522 全按 sha256、失败 0）→ **回拉核验 PASS：map/ 域 558 件逐条 sha256 一致 + 抽查 8/8**。
+**回归**：`mapLighting.test.js` 6/6（方向/归一/clamp 边界/无数据回落/复位）+ 三件套
+**87/87**（守卫改指共享模块：曝光归一/太阳 uniform/IBL 倍率断言迁至 `mlSrc`）。
+
+**已知残留（档 2 待办）**：decal 材质路由仍未进烘焙（烘焙页现有 extras 预解析管线，接线
+可后续一件做）；烘焙页照旧不消费场景级 IBL（`scene.environment`）与雾——两者均为运行时
+动态项。**底图观感终验归用户**（重点：faust/moon 夜景、plant 锈板、全图整体光影）。
+
 ### 俯视烘焙装配语义对齐（第三批次补正）：水塔/海面/浮冰双向错剔修正 + 共享规则模块（2026-10-14）
 
 **发现（用户复盘"渲染代码似乎没同步修复"）**：俯视烘焙（`bake-ground-overhead.mjs`）的场景装配

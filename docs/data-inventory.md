@@ -117,7 +117,18 @@ tanks.pb 未动）。
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测 **2026-10-14 按包内容重算**：**5713 个文件 / 4290.4 MB**——第三十六次为
+包内布局（本地实测 **2026-10-14 按包内容重算**：**5713 个文件 / 4289.2 MB**——第三十七次为
+**"俯视烘焙与运行时同源化（P1）：逐图光照 + extras 贴图解"**（用户两例复验溯源同根——烘焙停在
+运行时旧管线：固定日光 + ACES 1.15、不做 extras 解析（plant `water_rust_1` 锈板霓虹红 /
+faust 夜图过亮）。修：共享 `mapLighting.js`（运行时委托 + 烘焙 fetch lighting.json，"保色相、
+归亮度"三通道曝光归一 + LinearToneMapping 客户端口径）+ 烘焙 extras 预解析（mask/lm/detail/env）
+与 assignMat 同序路由（lm(+env+detail)/混合层掩码/水下 MeshBasic/convMat+detail 补丁；lm 走
+单实例 InstancedMesh + `aLm` = 运行时同着色路径）。数值验收：faust 覆盖区 (170,171,168)→
+(96,102,112)、plant 锈板 (131,29,8)→(113,71,43)、36 图全数有像素差（4.4–35.9%）；合成写回 +
+`--verify` **36 ok / 0 fail**（恒 YX）→ 合成后 `--refresh-manifest` **5713 件 / 4290.4 →
+4289.2 MB**；**COS 已同步**：`--only map/` 差分 **36 件 / 250.7MB**（全图 `ground.webp`、跳过
+522 全按 sha256、失败 0）→ **回拉核验 PASS：map/ 域 558 件逐条 sha256 一致 + 抽查 8/8**。
+见 [index.md](index.md) 同名条目）；第三十六次为
 **"俯视烘焙装配语义对齐（水塔/海面/浮冰双向错剔修正）"**（烘焙剔除未随运行时"材质标记权威"
 修复同步的漂移；新增共享规则模块 `sceneryAssemblyRules.js`——运行时与烘焙同一份判定（WotbTools
 工作树待 PR）；36 图 census：过剔 83 件（水塔类 ~35 跨 12 图 + 探照灯 10）/漏剔 30 件（ocean/
