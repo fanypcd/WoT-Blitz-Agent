@@ -240,6 +240,54 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 
 ## 实现记录（已落地）
 
+### 俯视烘焙全量同源化（P2）：地面 pass/贴花/水面/走廊掩码收编 + 剔除规则过剔修正（2026-10-14 · 第三批次补正之三）
+
+**动因（用户三连报障 → 收敛为同一结论"直接完全照搬 3D 回放的代码"）**：faust webp 与 3D 俯视
+差异大（地面亮度/贴花/水面）、"顶棚类构件没渲染"、"轨道被下方地形遮挡"。逐项溯源后，剩余差异
+**全部**来自烘焙尚未收编的宿主层与两条过宽名字规则：
+
+- **① 地面 pass 收编（`WotbTools/frontend/src/scene/groundPass.js`，新共享模块）**：地形数据读取
+  （`loadTerrain`：span 自愈 + json/bin sha 配对）、地形几何装配（`buildGroundGeometry`）、分层
+  地表材质（`groundShaderMaterial`/`makeGroundMaterial`）、水面海岸线资源（`makeWaterCoast`）、
+  贴地薄构件走廊掩码（`buildCorridorRefineMask`）——运行时与烘焙同一份（运行时改薄委托）。**烘焙
+  现渲染地面**：此前底图 = 客户端自带地图图 + 叠加（夜图/带 lm 图上"地面太亮"——faust 的根因），
+  现为 `cm×lm×tile/mask` 实时合成，与 3D 档同源。
+- **② 剔除规则过剔修正**（用户报"顶棚类没渲染"）：天空壳词表收窄为 `/sky/`（与运行时天空判据
+  同式）、删除 `surroundings|^plane` 启发式——faust **13 件穹顶建筑** `env_fa_dome01–04`、moon
+  3 件（`loonar_module` 舱室 / `spacedome`）、rock/rudniki/skit 小件块此前被当天空壳/环境壳剔除
+  （运行时无此规则、全部渲染）；**"≥90% 图幅壳"几何剔除随后一并删除**（见 ⑥）。
+- **③ 贴花/水面**：烘焙传**真实** groundLayers（faust 15 批 decal 从受光 Lambert 回到客户端
+  `albedo×cm(UV1)×2` 不受光口径）+ `keepWater` 保留水语义件渲染（NewBay 海面等与运行时同判）。
+- **④ 走廊掩码接入烘焙**（用户报"轨道被地形遮挡"）：正交俯视下遮挡同样取决于 LOD 插值高度
+  （此前误判"细分级不影响成像"，漏了遮挡）——同一判据（薄 ≤2.5 m + 贴地 ±1 m，统一适用）与同一
+  实现在两侧生效，走廊 texel 强制最细层。
+- **⑤ 合成权重语义**（`tools/composite_overhead.py`）：meta `ground=true` ⇒ **覆盖即替换**
+  （`out = rgb×a + ground×(1−a)`）；无地面渲染的图沿用旧 `0.92` 软边口径（反解重建同步）。
+- **⑥ "≥90% 图幅环境壳"几何剔除删除**（用户报"米德尔堡右上角黑块"）：该规则把**运行时正常
+  渲染**的大件整块剔掉（erlenberg `mountain_1..3`/`land_main1`、各图外圈山体/边缘地貌带/
+  `lumber clouds` 等），露出可玩区外那条**客户端 colormap 的暗色边带**（该带在客户端自己的
+  地图图里也是暗的 → 旧 webp 同样带黑块，只是此后被新地面渲染暴露得明显）。探针实证：保留后
+  该处 (23,24,18)→(155,131,56) 恢复山体。真天空穹仍由 `/sky/`（与运行时同式）处理；烘焙渲染
+  集合自此与 3D 运行时**逐件一致**。
+
+**验证（数值）**：地面着色独立 numpy 复算（16×16 块均值误差 faust **0.37**、plant **1.10**
+（HEIGHT_BLEND 分支））；壳规则删除的影响面 = 8/36 图**可玩区内**越顶覆盖 ≤0.16%（多数 0%）+
+可玩区外山体/大地（全库四角无暗块；erlenberg 原黑块暗占 **63%→1.44%**）；隔离实验（新代码去掉地面、贴花回旧口径 vs 已发布归档 = **21 px / 最大
+Δ 31**——即既有实例化抖动）⇒ 除贴花外渲染零扰动；贴花影响 = 13.3% 可见像素，全落 decal 面；
+faust 穹顶染色探针 **0 → 429,401 px** 且 **99.994%** 落四穹顶 footprint；走廊版在变化区与
+"全细化"参考 **99.1% 逐像素一致**（无走廊版偏差 mean 122），未变区与旧版逐位相同；plant 对照
+重烘**逐字节一致**。测试：新增 `groundPass.test.js`（10 条）+ 规则回归；全量 **241 文件 / 3534 用例**。
+
+**发布（最终态）**：36/36 重烘（coverPct 100）→ 合成写回 36/36 + `--verify` **36 ok / 0 fail**
+（恒 YX，朝向审计 margin 0.24→0.38+）→ `--refresh-manifest` **5713 件 / 4160.7 MB**（较上版
+4289.2 MB 减 128.5：渲染件压缩优于原图）→ COS 差分 **32 件 / 108.3MB**（sha256 比对跳过 5681、
+失败 0；4 图与线上件完全相同）→ **回拉核验 PASS**（远端 manifest 36/36 `ground.webp` sha256
+一致 + 抽样 3/3 字节一致）。
+
+**在途**：WotbTools 侧共享模块与接线（`groundPass.js`/`sceneryAssembly.js`/`sceneryAssemblyRules.js`/
+`mapLighting.js`/`sceneryMaterials.test.js`/`bake-ground-overhead.mjs`/`playbackScene.js`）为工作树
+改动，PR 待办。**底图观感终验归用户**（重点：faust 夜图地面/穹顶与轨道、plant 水面、全图边缘）。
+
 | 文档 | 状态 |
 |---|---|
 | [docs/decoupling-status.md](decoupling-status.md) | **解耦的剩余决策与已定案差异**（2026-10-03 收敛；**2026-10-07 更新：GLB 自产管线已接线**——`data/cache/models/` 换为客户端解包导出，`cache/models` ≡ `local_models` 735/735）：已完成时间线；待决策口径（数据模型塌缩 / 25 辆无显示名 / `hull_traverse` 非同量）；封面图与 BK 复核为**同源同画**（旧 NCC 0.21/非同一幅画结论已撤销）；已定案的 BlitzKit 侧差异清单；对外沟通材料。进度/接线/分发现状见 [data-inventory.md](data-inventory.md) |

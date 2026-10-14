@@ -518,13 +518,23 @@ WOTB_DVPL_PROBE=<Data 目录> cargo test dvpl_client_probe -- --ignored --nocapt
 
 两者相差 180° ⇒ 合成时对渲染图恒取 `YX`（`tools/composite_overhead.py` 的 `ORIENT`）。
 
+**地面语义与合成权重（2026-10-14 起）**：烘焙**自己渲染地面**（共享模块
+`WotbTools/frontend/src/scene/groundPass.js`：地形几何 + 分层地表 `cm×lm×tile/mask` 实时合成 +
+水件保留渲染 + 贴地薄构件走廊掩码强制细分）——`ground.webp` 从"客户端自带地图图 + 俯视叠加"
+变为**"与 3D 档同源的正交俯视渲染"**（夜图/带 lm 图"地面太亮"的根因）；合成权重随
+`<key>.meta.json` 的 `ground` 标志：渲染含地面 ⇒ **覆盖即替换**（`out = rgb×a + ground×(1−a)`），
+无该标志的旧件沿用 `out = base×(1−0.92a) + render×0.92a`。剔除规则与运行时同式（天空=`/sky/`；
+`dome/loonar/surroundings/^plane` 名字启发式与"≥90% 图幅壳"几何剔除**均已删除**——穹顶建筑/
+外圈山体/大地壳/小件与运行时**逐件同判**保留（2026-10-14 用户报"米尔德堡右上角黑块"后收敛；
+影响面基本在可玩区外 band））。
+
 **故障与根因（2026-10-09）**：旧版对 8 朝向做梯度相关取 argmax。在低信号图上该判决退化成
 噪声 argmax——`himmelsdorf` 的 8 个候选全落在 |score| ≤ 0.12 的噪声带（winner `xY` margin
 0.0124），把俯视层烘成了**上下镜像**；均衡档（mid，读这张图）因此显示镜像的建筑层，3D 档
 （ultra，读 GLB + 分层地表，不读本图）不受影响。同一病灶当时距翻车仅 0.0054
 （`erlenberg_old`，碰巧选中正确候选）。判据与证据：
 
-- **反解重建**（按合成式 `out = base×(1−0.92a) + render×0.92a` 逐候选重建、与包内成品在覆盖区
+- **反解重建**（按合成式（旧件 `out = base×(1−0.92a) + render×0.92a`；新件权重 1.0，见上）逐候选重建、与包内成品在覆盖区
   比对）：36 图中 35 张实际烘入 = `YX`（corr 0.993–0.997），仅 `himmelsdorf` = `xY`
   （corr 0.9966 / margin 0.64）；按 `xY` 重建的"旧件"与问题文件**逐字节相同**
   （sha256 `bac8d3bb…`）⇒ 诊断闭合。

@@ -2,8 +2,9 @@
 """
 把 GPU 渲染的俯视裸像素（frontend/scripts/bake-ground-overhead.mjs 产物）合成进
 高清底图：**朝向由坐标契约唯一确定**（常量 ORIENT，见其注释的推导），与底图自身
-的 8 朝向相关只作诊断输出，不参与判决。alpha 通道即覆盖掩膜，
-out = ground×(1−0.92a) + rgb×0.92a。
+的 8 朝向相关只作诊断输出，不参与判决。alpha 通道即覆盖掩膜。合成权重按 meta 的 `ground` 标志：
+  · 渲染含地面（2026-10-14 地面 pass 起，ground=true）⇒ 覆盖即替换，out = rgb×a + ground×(1−a)；
+  · 不含地面（旧口径，ground 缺省 false）⇒ out = ground×(1−0.92a) + rgb×0.92a（0.92 为软边补偿）。
 
 用法：
   python tools/composite_overhead.py --pack release/asset_pack --map medvedkovo
@@ -102,17 +103,19 @@ def _corr(a: np.ndarray, b: np.ndarray, m: np.ndarray) -> float:
     return float((x * y).sum() / d) if d > 0 else 0.0
 
 
-def read_back_orientation(rgba: np.ndarray, base: np.ndarray, ground: np.ndarray) -> dict | None:
+def read_back_orientation(rgba: np.ndarray, base: np.ndarray, ground: np.ndarray,
+                          w_scale: float = 0.92) -> dict | None:
     """按合成式反解**实际烘入**的朝向：对每个候选朝向建重建图
     recon_o = base×(1−w_o) + remap(render,o)×w_o 与包内成品在覆盖区比对——
-    被采用的朝向重建相关 ≈1（仅 webp 重编码噪声），其余候选显著低。"""
+    被采用的朝向重建相关 ≈1（仅 webp 重编码噪声），其余候选显著低。
+    w_scale 与合成所用权重一致（meta.ground ⇒ 1.0，否则 0.92）。"""
     b = base[::8, ::8].astype(np.float32)
     g = ground[::8, ::8].astype(np.float32)
     scores = {}
     for o in ("xy", "yx", "xY", "Yx", "Xy", "yX", "XY", "YX"):
         r = remap(rgba, o)
         rs = r[::8, ::8, :3].astype(np.float32)
-        w = (r[::8, ::8, 3:4] / 255.0) * 0.92
+        w = (r[::8, ::8, 3:4] / 255.0) * w_scale
         m = w[..., 0] > 0.3
         if int(m.sum()) < VERIFY_MIN_PX:
             return None
@@ -142,7 +145,9 @@ def composite_map(pack: Path, key: str, write: bool, quality: int,
 
     audit = audit_orientations(np.ascontiguousarray(rgba[..., :3][::8, ::8]), ground[::8, ::8])
     over = remap(rgba, ORIENT).astype(np.float32)
-    a = (over[..., 3:4] / 255.0) * 0.92
+    # 地面 pass 后（meta.ground=true）渲染即成品：覆盖即替换（权重 1.0）；旧口径 0.92 软边补偿
+    w_scale = 1.0 if meta.get('ground') else 0.92
+    a = (over[..., 3:4] / 255.0) * w_scale
     out = ground.astype(np.float32) * (1 - a) + over[..., :3] * a
     out_img = Image.fromarray(out.clip(0, 255).astype(np.uint8))
 
@@ -171,11 +176,12 @@ def verify_map(pack: Path, key: str, render_dir: Path | None = None,
     for p in (raw_path, meta_path, ground_path, base_path):
         if not p.is_file():
             return {"key": key, "skipped": f"缺 {p.name}"}
-    size = json.loads(meta_path.read_text(encoding="utf-8"))["size"]
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    size = meta["size"]
     rgba = np.frombuffer(raw_path.read_bytes(), np.uint8).reshape(size, size, 4)
     base = np.asarray(Image.open(base_path).convert("RGB"))
     ground = np.asarray(Image.open(ground_path).convert("RGB"))
-    back = read_back_orientation(rgba, base, ground)
+    back = read_back_orientation(rgba, base, ground, 1.0 if meta.get('ground') else 0.92)
     if back is None:
         return {"key": key, "skipped": "覆盖太小，无法判读"}
     return {"key": key, **back, "ok": back["applied"] == ORIENT}
