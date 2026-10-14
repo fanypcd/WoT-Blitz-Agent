@@ -1,5 +1,17 @@
 # AGENTS.md
 
+## No statistical-judgment fixes (2026-10-14 user directive)
+
+Solutions must never decide per-case semantics through measured-distribution heuristics
+(thresholds on brightness/percentage/void-signature scans, "detect then patch" detectors, or
+any statistics-flavored classification of individual data items). Semantics come from the
+format's authoritative definition (engine/tool source, file-format invariants) and apply
+**uniformly to every item of the same class**: if a class of data needs a transform, the same
+transform applies to all of it; if only a subset seems affected, find the semantic marker that
+defines that subset (a file-level flag, format version, distinct structure) — do not infer the
+subset from content statistics. When no semantic discriminator exists, fail closed and report
+instead of guessing.
+
 ## Release policy
 
 `Cargo.toml` → `[workspace.metadata.release].version` is the single source of truth for WoT-Blitz-Agent / WASM release versions.
@@ -143,17 +155,23 @@ Standard local test posture:
    persists to localStorage, so clear it with an empty `?assets=` when returning to the default).
 3. `npm run dev` in the WotbTools `frontend/` — Vite takes the first free port from 5173
    (stale instances often hold 5173/5174; use the port it actually prints). Without a local
-   backend on 8087, auth/capability probes fail — either start it or use
-   `npm run dev:production-remote` (proxies `/api` to the production site for login).
-4. Open the local dev page with `admin=1` and drop a `.wotbreplay` into it, e.g.
-   `http://localhost:<port>/?view=agent-replay&admin=1`. `admin=1` is a dev-only
-   visibility bypass (WotbTools `useAuth.js`): dev builds treat the `wotbtools-admin`/`HoF-admin`
-   realm roles as held, which local accounts normally lack; production builds ignore it and the
-   backend still enforces real auth.
+   backend on 8087, `/api` probes fail — replay/3D testing is unaffected (those paths are local),
+   and `npm run dev:production-remote` proxies `/api` to the production site when backend data
+   is needed.
+4. **Give the user a login-free test page** (2026-10-14 user directive). Personal-replay 3D/shots
+   otherwise demand a production Keycloak login; apply the **local, never-committed** dev-gated
+   login stub per the WotbTools manual (`docs/frontend/local-testing.md` §4.1) and open
+   `http://localhost:<port>/?view=agent-replay&localuser=1&admin=1` (add the committed `admin=1`
+   role-visibility bypass as usual), then hand the page over. The stub grants
+   `authenticated=true` with role `wotbtools-user` only, provides **no credentials** (backend
+   calls still 401 — local capabilities only) and must never enter a commit.
 5. The WotbTools side of this workflow — pinned Agent WASM artifacts (`scripts/fetch-agent-wasm.sh`,
    must be re-run whenever `deploy/agent/source.json` changes), the local admin-view bypass,
-   self-check probes and troubleshooting — is documented in its `docs/frontend/local-testing.md`
-   (plus `docs/frontend/local-production-dev.md` and `frontend/AGENTS.md`).
+   the login-free local test page (§4.1), self-check probes and troubleshooting — is documented
+   in its `docs/frontend/local-testing.md` (plus `docs/frontend/local-production-dev.md` and
+   `frontend/AGENTS.md`). **Follow that manual for every subsequent local test**: this list is
+   the summary, the manual is the authority (login-free test page, commit discipline for local
+   scaffolding, self-check probes, troubleshooting).
 
 ### Testing against the latest local WASM and asset pack
 

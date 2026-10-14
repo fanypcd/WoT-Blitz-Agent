@@ -117,7 +117,14 @@ tanks.pb 未动）。
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测 **2026-10-14 按包内容重算**：**5713 个文件 / 4286.4 MB**——第三十二次为
+包内布局（本地实测 **2026-10-14 按包内容重算**：**5713 个文件 / 4286.6 MB**——第三十三次为
+**"Decal 贴花类 UV1 烘焙双重乘色修复（环形轨道/挡土墙黑斑）"**（`decal_capable` 材质
+一律不再烘焙 `decal槽(UV1)×2` 进 albedo——UV0 重叠网格逐覆盖连乘把底色精确压到 0 是
+黑斑根因，且与消费端 2026-10-10 起的逐片元 decal 双重叠加；decal 槽非地表 colormap 的
+材质随导 `extras.decalTexture`。**文件数不变、仅内容哈希变化**：10 图 `scenery.glb`
+重导（faust/forgecity/lumber/mountain/plant/rock/fort/holland/moon/iceworld），
+`--refresh-manifest` 仅 10 条 scenery.glb 哈希变更；5713 件 / 4286.4 → **4286.6 MB**；
+**COS 未同步**，待视觉验证后 `--only map/`。见 [index.md](index.md) 同名条目）；第三十二次为
 **"地形高度图列口径订正（corner 口径镜像）+ terrainLayout 2 布局标记"**（WotbTools PR #615
 根因修复——旧 `parse_heightmap` 的离散列翻转在引擎 corner 顶点口径下让整张地形沿场景 −x
 偏一格（span/512，600 m 图 1.17 m、全图皆然、行方向无偏）：改 `out[c] = grid[min(size−c,

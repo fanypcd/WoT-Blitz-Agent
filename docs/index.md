@@ -245,6 +245,38 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 | [docs/decoupling-status.md](decoupling-status.md) | **解耦的剩余决策与已定案差异**（2026-10-03 收敛；**2026-10-07 更新：GLB 自产管线已接线**——`data/cache/models/` 换为客户端解包导出，`cache/models` ≡ `local_models` 735/735）：已完成时间线；待决策口径（数据模型塌缩 / 25 辆无显示名 / `hull_traverse` 非同量）；封面图与 BK 复核为**同源同画**（旧 NCC 0.21/非同一幅画结论已撤销）；已定案的 BlitzKit 侧差异清单；对外沟通材料。进度/接线/分发现状见 [data-inventory.md](data-inventory.md) |
 | [docs/local-model-export.md](local-model-export.md) | ✅ 已实施（2026-10-01，2026-10-02 补 §4 贴图实测）：报告 B 的几何替代做成 `tools/export_tank_glb.py`，验收口径从"按可达节点求和"收紧到**逐字节 + 节点顺序**——`collision.glb` **735/735**、`model.glb` **733/735** 等价（余 2 辆为 BlitzKit 侧行为、另 23 辆 2026-10-10 起**有意修正**（静态变换烘焙 / 状态过滤，等价数 710/735），见该文 §5/§5.1）；贴图槽位与 BlitzKit 完全对齐（731/735 图片数相同、无缺槽位）。§4 逐通道实测推翻了报告 B §3.3 的图源判断，并定下 `baseRMMap` 的**通道搬迁**（ch0→G 粗糙度、ch1→B 金属度）。**2026-10-07 起已替换运行期数据源**：`data/cache/models/` 换为本地导出（`cache/models` ≡ `local_models` 735/735，包与 COS 随发；见 [data-inventory.md](data-inventory.md) §一 #8） |
 
+### Decal 贴花类 UV1 烘焙双重乘色修复：环形轨道/挡土墙黑斑（2026-10-14）
+
+**现象**：faust 环形轨道/挡土墙（`env_fa_rails_circle` 等 `Decal.material` 物体）黑色斑块
+——**直边、等宽、沿网格展开的条带**（与雪贴花的有机波浪边形态不同；此前"雪贴花光图
+空洞"对该照片的归因随即证伪，两者为独立缺陷）。
+
+**根因（两条同源）**：①`bake_uv1_overlays` 把 `decal槽(UV1)×2` 乘进 albedo 时**逐三角形
+覆盖就地连乘**——UV0 重叠网格每次覆盖再乘一次：faust 环形轨道第 3 子网格（190 三角形）
+逐像素最多 **35 重覆盖**（512/2048 画布实测同值），底彩被**精确压到 0**；出货贴图 18.3%
+像素纯黑 vs 原始 albedo 0% 黑；用真实网格 + 出货 `fa_colormap` + 纯白底跑现有烘焙函数
+复现 170/190 三角形中心为黑。②消费端 2026-10-10 起已按客户端公式逐片元乘 decal
+（`extras.decal`）→ 与烘焙**双重叠加**（非黑区也整体偏暗）。
+
+**改动（本仓）**：`decal_capable` 命中的材质**一律不做 UV1 烘焙**（`decal_family` 门控，
+与 `is_decal` 同判据、镜像排除绑定 lightmap 槽的实例，保证"烘焙与逐片元"二选一不漏乘）；
+decal 槽图非地图地表色图时（投影贴花/阴影图/瓷砖/噪声，6 图 88 实例）随导
+**`extras.decalTexture`**（槽图翻回文件行序嵌入式、JPEG；该类 9/9 张 alpha 实测全 255）；
+槽=地表色图（5 图 200 实例）不随导（消费端持逐图 colormap，零适配）。单测
+`tools/test_decal_export.py`（3 项：colormap 槽不随导 / 材质槽随导 / 跨材质按槽去重）。
+
+**影响面**：decal 批次存在于 **10/35 图**（instance 数：forgecity 84 / lumber 54 /
+mountain 48 / plant 34 / faust 27 / rock 16 / fort 13 / holland 8 / moon 2 / iceworld 2）。
+10 图 `scenery.glb` 重导（`--scenery-only`）：数值验证轨道三子网格三角形中心黑点
+**62/252、22/190 → 0/0**；mountain（0.439→0.439 恒等）与 iceworld 两例复核为**原始美术
+自带暗区**（非压黑）。`--refresh-manifest`：5713 文件 / 4286.4 → **4286.6 MB**，仅 10 条
+scenery.glb 哈希变更。**COS 未同步**（待视觉验证后 `--only map/`）。
+
+**消费方（WotbTools）**：小改而已获既有工厂支持——把 `extras.decalTexture`（glTF texture
+下标）解析后用 `makeDecalMaterial` 采其 UV1（本机已接线验证）：属 scene-runtime 变更，
+随对方仓 PR 落地（含其 android `wotbVersion` 同步口径）；对旧前端向后兼容（colormap 类
+零适配；decalTexture 类旧前端回落逐图 colormap）。
+
 ### 地形高度图列口径订正：corner 口径镜像 + terrainLayout 布局标记（2026-10-14，随 v0.4.7 发版）
 
 **背景**：WotbTools PR #615（前端修 plant 厂房坡道"挡土墙前多出土坡、游戏里没有"）定位出

@@ -538,11 +538,14 @@ def decal_capable(mat_desc: dict, family: dict | None) -> bool:
       `LANDSCAPE_SEPARATE_LIGHTMAP_CHANNEL` 时再 `shadowColor *= decalTextureFetch.a`
       （注释原文 "objects colored with landscape"）；DRAW PHASE
       `color = albedo(UV0) × shadowColor × 2.0` —— **全程无光照项 ⇒ 不受光**。
-    ⇒ 消费端必须按贴花渲染（`albedo × colormap(UV1) × [colormap.a] × 2`）。若落到受光材质，
+    ⇒ 消费端必须按贴花渲染（`albedo × decal槽图(UV1) × [槽图.a] × 2`）。若落到受光材质，
       会比客户端亮一档（2026-10-10 用户"铁轨贴图看起来太亮"报障：forgecity `env_fs_rails_00X`
       fxName = `Decal.material`、未启用 LightMap 预设、UV1 落在 colormap 空间）。
     判据与光照图同口径：材质链**顶层**声明 MATERIAL_DECAL（预设来源留口子）；绑槽不受限
-    （colormap 槽名各图不同，本判据不依赖槽）。
+    （槽图各异，本判据不依赖槽名）。
+    ⚠️ 命中本判据的材质**一律不做 UV1 覆盖烘焙**（见 export_map 内 `decal_family`）：烘焙
+    对 UV0 重叠网格逐覆盖连乘会把底色压到 0（2026-10-14 环形轨道黑斑），且与消费端逐片元
+    乘色双重叠加。槽图不是地图 colormap 时随导 `extras.decalTexture`（材质自有贴图）。
     """
     enabled = set((mat_desc.get("presets") or {}).keys())
     return bool((family or {}).get("decal")) or bool(
@@ -1673,6 +1676,15 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         mask_path = mat_desc["textures"].get("alphamask")
         is_water = is_water_material(mat_desc)
         decal_path = None if is_water else mat_desc["textures"].get("decal")
+        # 贴花类（客户端 `Decal.material` → 不受光逐片元公式，见 decal_capable）**不烘焙**：
+        # 消费端已按 `albedo(UV0) × decal 槽(UV1) × 2` 逐片元渲染（extras.decal + UV1 随导），
+        # 再烘焙即双重乘色；且 UV0 重叠网格（faust 环形轨道，逐像素最多 35 重覆盖）每次覆盖
+        # 就地连乘，把底色精确压到 0 —— 2026-10-14 环形轨道/挡土墙黑斑事件根因。
+        # 掩码层（alphamask）烘焙不受影响；绑了 lightmap 槽的实例走光照图路径（is_decal
+        # 会在下方同一判据上让位），此处镜像排除，保证"烘焙与逐片元"二选一、不漏乘。
+        decal_family = (decal_path is not None and decal_capable(mat_desc, fam)
+                        and not mat_desc["textures"].get("lightmap"))
+        bake_decal_path = None if decal_family else decal_path
         flat_rgb = (1.0, 1.0, 1.0)
         if "flatColor" in (mat_desc.get("properties") or {}):
             flat_rgb = tuple(round(v, 4) for v in
@@ -1683,17 +1695,17 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         # （客户端 albedo 位移、掩码不动，见 _build_material 的同名注释）。烘焙只服务
         # "静态"掩码层与 decal 层。
         anim_mask_layer = bool(anim_layer and mask_path)
-        needs_bake = (decal_path or mask_path) and not anim_mask_layer \
+        needs_bake = (bake_decal_path or mask_path) and not anim_mask_layer \
             and uvs1 is not None and img is not None
         flat_baked = False   # UV1 烘焙已含 flatColor 时不重复染色
-        if needs_bake and (flat_rgb != (1.0, 1.0, 1.0) or anim_layer or decal_path):
-            bake_key = (albedo_path, decal_path, mask_path, flat_rgb)
+        if needs_bake and (flat_rgb != (1.0, 1.0, 1.0) or anim_layer or bake_decal_path):
+            bake_key = (albedo_path, bake_decal_path, mask_path, flat_rgb)
             if bake_key not in alpha_bake_cache:
                 base_img, _ = textures.get(albedo_path)
-                decal_img = textures.get(decal_path)[0] if decal_path else None
+                decal_img = textures.get(bake_decal_path)[0] if bake_decal_path else None
                 mask_img = textures.get(mask_path)[0] if mask_path else None
                 if base_img is not None:
-                    mult = 2.0 if decal_path else 1.0   # ×2 仅 MATERIAL_DECAL 分支
+                    mult = 2.0 if bake_decal_path else 1.0   # ×2 仅 MATERIAL_DECAL 分支
                     alpha_bake_cache[bake_key] = bake_uv1_overlays(
                         base_img, decal_img, mask_img, flat_rgb, mult,
                         uvs, uvs1, indices)
@@ -1804,7 +1816,7 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         # 与 LightMap 预设并存时（客户端两个 define 并存 ⇒ 还要再乘光照图）本机无实例：
         # 保守走光照图路径并计数，宁可不做贴花也不漏乘（偏亮）。
         is_decal = ((not is_st) and card is None and not is_water
-                    and decal_capable(mat_desc, fam))
+                    and decal_family)
         if is_decal:
             if lm_img is not None or lm_tex_path:
                 is_decal = False   # 与光照图并存：走光照图路径（见上）
@@ -2320,13 +2332,29 @@ def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | 
     extras = {}
     if decal:
         # 贴花（客户端 `MATERIAL_DECAL`，判据见 decal_capable）：消费端按
-        # `albedo(UV0) × colormap(UV1).rgb（separate_lm 图再 × colormap.a）× 2.0` 渲染，**不受光**。
-        # GLOBAL_TINT 有效时客户端还会对 colormap 取色做 brightness/contrast/gamma 调整
+        # `albedo(UV0) × decal槽(UV1).rgb（separate_lm 图再 × 槽图.a）× 2.0` 渲染，**不受光**。
+        # GLOBAL_TINT 有效时客户端还会对槽图取色做 brightness/contrast/gamma 调整
         # （`materialLightmapAdjustment`，默认 (0,1,1) = 无操作；逐材质属性）。
         extras["decal"] = True
         adj = _prop_floats(mat_desc, "materialLightmapAdjustment", (0.0, 1.0, 1.0))[:3]
         if any(abs(float(a) - b) > 1e-6 for a, b in zip(adj, (0.0, 1.0, 1.0))):
             extras["decalLmAdjust"] = [round(float(v), 6) for v in adj]
+        # decal 槽图来源分两类：① 地图地表色图 `landscape/<map>_colormap.tex`（地形染色件，
+        # 如铁轨/挡土墙）——消费端已持有逐图 colormap，**不随导**（体积）；② 其余（投影
+        # 贴花/阴影图/瓷砖等材质自有贴图）——随导 `extras.decalTexture`，消费端优先采它。
+        # 分类按槽路径文件名（`*colormap*`），与地面管线定位色图的命名口径一致。
+        slot = (mat_desc.get("textures") or {}).get("decal")
+        if slot and "colormap" not in pathlib.PurePath(slot).name.lower():
+            dtex, _ = textures.get(slot)
+            if dtex is not None:
+                # 与全部 extras 贴图同口径：翻回"文件原始行序"再嵌入（decode 翻过一次；
+                # glTF v=0 = 首行 = 客户端 authored top）。alpha 实测全 255（9/9 张），
+                # 按 RGB JPEG 嵌入省体积；separate_lm 的 ×A 对这类图退化为 ×1。
+                dbuf = io.BytesIO()
+                dtex.convert("RGB").transpose(Image.FLIP_TOP_BOTTOM).save(
+                    dbuf, "JPEG", quality=90)
+                extras["decalTexture"] = glb.add_texture(
+                    ("decaltex", slot), dbuf.getvalue(), "image/jpeg")
     if env is not None:
         # 遮罩：单通道值统一落 alpha（与混合层掩码同口径；采样 UV0）
         mvals = np.clip(mask_channel_values(env["mask"]), 0.0, 1.0) * 255.0
