@@ -313,6 +313,12 @@ def main() -> None:
                       f"terrain.json 不写 terrainLayout——请重跑 fetch-terrain --force")
             else:
                 side["terrainLayout"] = 2
+            # bin 的 sha256（配对锚点）：terrain.json（no-cache）与 terrain.u16.bin
+            # （max-age=3600）是两个独立请求，发布切换期可能错配（旧 JSON+新 bin = 双重
+            # 补正、新 JSON+缓存旧 bin = 漏补正）；前端拿该 hash 做缓存破坏 URL 即可保证
+            # 配对。与 manifest.json 的逐文件 sha256 同源
+            side["terrainBinSha256"] = hashlib.sha256(
+                (mdir / "terrain.u16.bin").read_bytes()).hexdigest()
             # 让位掩码（cover）与贴地结构脚印（structs）均已撤销（2026-10-11 用户裁示：
             # 只对齐客户端）——清掉历史字段，terrain.json 只承载客户端已有的元数据
             for legacy in ("cover", "coverStats", "structs", "structsStats"):

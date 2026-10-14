@@ -634,7 +634,11 @@ x = min + k/size·span（`Heightmap::GetPoint` / `tilemask-vp.sl` 同口径）�
 ⇒ 输出列 c 的位置 (c/n−0.5)·span 对应源列 n−c，c=0 夹取到源列 n−1；源列 0（场景 +x 包围盒
 边缘、可玩区之外）整列丢弃（n 列表示不下 n+1 个顶点）。产物 = u16 LE 行主序（行 0=南），
 以 `map/<key>/terrain.u16.bin` 进包，配 `terrain.json`（`X-Terrain-Meta` 头的 sidecar 化，
-写 **`terrainLayout: 2`**）；服务端 `/api/playback/terrain` 同链伺服（响应头同标记）。
+写 **`terrainLayout: 2`** 与 **`terrainBinSha256`**——bin 的逐文件 sha256，与 manifest 同源：
+`terrain.json`（no-cache）与 bin（max-age=3600）是两个独立请求，发布切换期可能错配
+（旧 JSON+新 bin = 双重补正、新 JSON+缓存旧 bin = 漏补正），前端按该 hash 对 bin 的
+URL 做缓存破坏即可保证配对；服务端 `/api/playback/terrain` 同链伺服（bin 与
+X-Terrain-Meta 同响应返回，天然配对，无需该字段）。
 
 - **缓存自描述**：`data/cache/terrain/{key}.hm.c2.u16.bin`（文件名带布局）。修正前的旧名
   `{key}.hm.u16.bin` 是离散翻转布局（`out[c] = src[size−1−c]`，corner 口径下消费端读出
@@ -642,8 +646,10 @@ x = min + k/size·span（`Heightmap::GetPoint` / `tilemask-vp.sl` 同口径）�
   布局标记**（前端读取边界按旧布局平移一列补正，打警告提示重跑 `fetch-terrain --force`）；
   服务端不再伺服旧名（视作未命中走实时提取重写）；`fetch-terrain` 成功写入 c2 后清除旧名。
 - **标记必须与字节一致**：消费端（WotbTools `decodeTerrainField`）对 `terrainLayout: 2`
-  原样使用、缺省按旧布局补正、未知值 fail-closed 回退 2D——错标比缺省更糟。四组合
-  （新/旧包 × 新/旧前端）除"旧包+旧前端=原有偏移"外全部正确，与消费方部署无时序约束。
+  原样使用、缺省按旧布局补正、未知值 fail-closed 回退 2D——错标比缺省更糟。字节口径上
+  四组合（新/旧包 × 新/旧前端）除"旧包+旧前端=原有偏移"外全部正确；但 json/bin 两个
+  请求的 HTTP 缓存错配窗口（见上）在部署次序上需"前端切换晚于 COS 发布 ≥ 1 h bin
+  缓存窗口"，或由前端按 `terrainBinSha256` 配对根除。
 - 手动覆盖 `data/maps/<key>.heightmap.u16.bin` 的契约 = corner 口径镜像数据（即
   `parse_heightmap` 的输出格式）。
 - 重导链：`fetch-terrain --force` → `export_asset_pack.py` → `composite_overhead`（重导会

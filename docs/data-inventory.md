@@ -131,7 +131,10 @@ size−1)]`；`terrain.json` / `X-Terrain-Meta` 写 `terrainLayout: 2`（前端 
 sha256 命中），上传 **72 件 / 18.9 MB**（= 36 `terrain.u16.bin` + 36 `terrain.json`；其中
 36 个 bin **同尺寸不同内容**，按 sha256 判定上传——旧 Content-Length 逻辑会静默漏传）、
 失败 0，`manifest.json` 远端清单就地补丁登记 72 条（远端保持 5713 条）；回拉 4/4 逐对象
-sha256 一致。见 [index.md](index.md) 同名条目）；第三十一次为
+sha256 一致。**同日补充（review P2 配对锚点）**：`terrain.json` 增 `terrainBinSha256`
+（bin 的 sha256，防 json/bin HTTP 缓存错配——前端按 hash 缓存破坏 URL；脚本同步支持，
+包内 36 json 就地补写后 `--refresh-manifest` 重算），**COS 已同步**：`--only map/` 上传
+36 件 json（522 跳过）、manifest 就地补丁 36 条。见 [index.md](index.md) 同名条目）；第三十一次为
 **"顶层弹表单一权威化（穿深衰减修复）"**（735 辆 `tank/{id}.json` 顶层 `shells` 改为直接引用末档配置弹表的同一份 JSON——删除手工重抄投影，恢复漏抄的 `penetration_far`（跨车检视的 500m 穿深衰减此前静默失效）；**文件数不变、仅内容哈希变化**（5288 件 / 4286.1 MB 不变）；`DumpTankData` 全量重导 735/735 顶层带 far、零空弹表；**COS 未同步**。见 [index.md](index.md) 同名条目）；第三十次为
 **"履带印数据面（tread/）增量补入"**（`tools/export_tank_tread.py` 产物：`tread/` 311 个
 逐车 json（79 KB）+ `tread/textures/` 13 张 webp（983 KB，客户端 DDS 无损转码）
