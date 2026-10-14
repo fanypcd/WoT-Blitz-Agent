@@ -28,7 +28,9 @@ instead of guessing.
 
 ## Getting CI results (no sleep polling)
 
-Wait for CI with blocking watches instead of `sleep N` + polling:
+**等待姿态（2026-10-15 用户指令）：一律**放后台进程**盯结果（工具层 `run_in_background`），
+当前回合继续别的工作或直接收尾；后台任务结束时以完成通知回来。**不要阻塞等待**
+（`--watch` 不加 `run_in_background` 会把整个回合挂住）。"继续 / 等它跑完"这类措辞也按此执行。**
 
 - Live PR status: `gh pr checks <pr-number> --watch` (prints one line per check as its state changes; works in non-TTY/background).
 - One run's verdict: `gh run watch <run-id> --exit-status --compact` (blocks to the end; when piped/backgrounded it prints the summary only at completion — don't expect incremental progress).
@@ -36,14 +38,16 @@ Wait for CI with blocking watches instead of `sleep N` + polling:
 
 Exit status: with `--exit-status` the verdict *is* the process exit code — never pipe a watch through `tail` (the pipeline then reports the last command's status and swallows failures); drop the pipe or use `set -o pipefail`.
 
-Run the watch in the background and read its output when it finishes; keep working in the meantime. A push cancels in-flight runs for the same ref (workflow concurrency) — if you need the CI evidence for a specific head, let its watch finish before pushing the next commit.
+Every watch runs as a **background** process; read its output when the completion notification
+arrives, and keep working (or end the turn) in the meantime. A push cancels in-flight runs for the
+same ref (workflow concurrency) — if you need the CI evidence for a specific head, start the watch
+for that head's run before pushing the next commit.
 
 **The rule covers every wait, not only CI (2026-10-13 user directive).** Local background
 commands, browser gates, builds — any long-running task — must obtain their result in real time:
-use the task's own completion notification or a single blocking wait. Never use `sleep N` +
-polling; a one-off instantaneous look at a running task's log answers "where is it now" but is
-not a waiting mechanism. While waiting, advance other work first; if there is none, block until
-the result arrives.
+the task's own completion notification is the mechanism. Never `sleep N` + polling; a one-off
+instantaneous look at a running task's log answers "where is it now" but is not a waiting
+mechanism, and a blocking wait is not one either (2026-10-15).
 
 Inspecting a run while it is in flight (a snapshot, not a way to wait):
 
