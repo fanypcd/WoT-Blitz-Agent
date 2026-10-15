@@ -112,7 +112,11 @@ enum Commands {
     },
     /// Export the global shell-id → shell-type table as JSON（射击复现弹种反解表；
     /// tanks.pb 全量展开，与回放 shell_id 同域——静态资产面前端常量生成入口）
-    DumpShellKinds,
+    DumpShellKinds {
+        /// Write JSON to file instead of stdout（资产打包器的取数入口）
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Export consumer facets for one replay (playback / ai-review JSON；HoF 是消费方投影，不导出)
     Facets {
         /// Path to the .wotbreplay file
@@ -866,9 +870,19 @@ fn main() -> Result<()> {
             let total = wotb_agent::wargaming::tank_configs::export_tank_data(&out)?;
             println!("导出 {total} 份 per-tank JSON → {}", out.display());
         }
-        Commands::DumpShellKinds => {
+        Commands::DumpShellKinds { out } => {
             let table = wotb_agent::replay::loadout::ShellKindTable::from_tanks_pb();
-            print!("{}", table.to_json());
+            let json = table.to_json();
+            match out {
+                Some(path) => {
+                    if let Some(dir) = path.parent() {
+                        std::fs::create_dir_all(dir)?;
+                    }
+                    std::fs::write(&path, json)?;
+                    eprintln!("shell kinds table -> {}", path.display());
+                }
+                None => print!("{}", json),
+            }
         }
         Commands::Scan {
             dir,

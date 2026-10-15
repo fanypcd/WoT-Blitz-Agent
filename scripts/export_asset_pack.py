@@ -9,7 +9,7 @@
     ├── glb/{tank_id}/model.glb, collision.glb
     ├── tank_images/{id}.webp
     ├── suspension/{tank_id}.json       # 逐车悬挂（tools/export_tank_suspension.py，additive）
-    ├── data/{tanks.pb, models.pb, tank_cache.json, data_version.json}
+    ├── data/{tanks.pb, models.pb, tank_cache.json, data_version.json, shellKinds.json}
     └── map/{key}/
         ├── ground.webp                 # /api/playback/map 的高清底图答案
         │                               # ⚠️ 本脚本会用 client colormap 重写 ground.webp、
@@ -26,6 +26,7 @@
 
 用法：
     wotb-agent dump-map-index > map_index.json      # 需游戏客户端在场（注册表源）
+    wotb-agent dump-shell-kinds --out data/shell_kinds.json   # 弹种反解表（须与 data/tanks.pb 同版）
     python scripts/export_asset_pack.py --map-index map_index.json
     # --out 缺省为仓库根 release/asset_pack；如显式指定请用绝对路径——
     # 相对路径按 cwd 解析，曾在 frontend/dist 下误落 1.3GB 副本。
@@ -238,6 +239,17 @@ def main() -> None:
             json.dumps(names, ensure_ascii=False, sort_keys=True), encoding="utf-8")
         files.append(out / "data" / "tank_names.json")
         core_n += 1
+
+    # 弹种反解表（wotb-agent dump-shell-kinds 产物，tanks.pb 全量展开）。2026-10-15 起随包
+    # 分发：此前内嵌消费方前端构建，是唯一绕过 COS 的数据项（data-inventory §2.3，已退役）。
+    # 缺源即拒绝打包——静默缺表会让消费方弹种判定退回无注入语义且无人察觉（fail-closed）。
+    sk = data / "shell_kinds.json"
+    if not sk.is_file():
+        ap.error(f"缺少 {sk} —— 先运行 `wotb-agent dump-shell-kinds --out data/shell_kinds.json`"
+                 "（须与打包所用的 tanks.pb 同一次刷新产出）")
+    shutil.copyfile(sk, out / "data" / "shellKinds.json")
+    files.append(out / "data" / "shellKinds.json")
+    core_n += 1
 
     # ---- 地图（按注册表逐张物化；对齐四个端点的文件选择语义） ----
     map_n = 0

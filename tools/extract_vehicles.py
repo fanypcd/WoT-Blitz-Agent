@@ -12,7 +12,7 @@
   * `3d/Tanks/Parameters/<nation>/<stem>.yaml.dvpl`    碰撞盒 / maskSlice（models 侧）
 
 tank_id 桥：`--emit-bridge` 从 `data/tanks.pb` 一次性导出
-`{tank_id: {nation, stem, slug}}` → `data/tank_id_bridge.json`（735 条，入库后提取链
+`{tank_id: {nation, stem, slug}}` → `data/tank_id_bridge.json`（738 条，入库后提取链
 不再依赖 BlitzKit）。客户端磁盘上还有 ~146 个桥外的车辆 XML（开发/超测/未实装），
 默认跳过、计数上报；`--all-local` 才提取它们（tank_id 记 -文件数序号，仅供对照）。
 

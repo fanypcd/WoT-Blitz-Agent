@@ -215,6 +215,10 @@ disk, so it is always "local latest" as long as it has been rebuilt. Full refres
 map/tooling changes land (each step overwrites the previous one's output):
 
 ```bash
+wotb-agent dump-shell-kinds --out data/shell_kinds.json           # shell-kind table (must come
+                                                                  # from the same tanks.pb the
+                                                                  # pack will ship; packer
+                                                                  # fails closed without it)
 python scripts/export_asset_pack.py --map-index map_index.json   # rebuild pack (overwrites
                                                                  # overhead-baked grounds!)
 python tools/composite_overhead.py --pack release/asset_pack --all --write \

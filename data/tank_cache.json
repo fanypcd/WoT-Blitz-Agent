@@ -6420,7 +6420,7 @@
         "damage": 560,
         "module_damage": 203,
         "explosion_radius": 0.0,
-        "caliber": 150.0,
+        "caliber": 149.0,
         "normalization": 5.0,
         "ricochet": 70.0
       },
@@ -6442,7 +6442,7 @@
         "damage": 640,
         "module_damage": 203,
         "explosion_radius": 3.569999933242798,
-        "caliber": 150.0,
+        "caliber": 149.0,
         "normalization": 0.0,
         "ricochet": 0.0
       }
@@ -6725,7 +6725,7 @@
         "damage": 560,
         "module_damage": 200,
         "explosion_radius": 0.0,
-        "caliber": 150.0,
+        "caliber": 149.0,
         "normalization": 5.0,
         "ricochet": 70.0
       },
@@ -6747,7 +6747,7 @@
         "damage": 640,
         "module_damage": 200,
         "explosion_radius": 3.569999933242798,
-        "caliber": 150.0,
+        "caliber": 149.0,
         "normalization": 0.0,
         "ricochet": 0.0
       }
@@ -33899,7 +33899,7 @@
     "hp": 2200,
     "speed_forward": 35,
     "speed_reverse": 13,
-    "hull_traverse": 28.0,
+    "hull_traverse": 25.0,
     "view_range": 250.0,
     "turret_traverse_speed": 23.0,
     "gun_depression": 7.0,
@@ -34370,6 +34370,67 @@
     "turret_traverse_speed": 27.0,
     "gun_depression": 7.0,
     "gun_elevation": 18.0,
+    "turret_traverse_left": null,
+    "turret_traverse_right": null
+  },
+  "23617": {
+    "name": "Lorraine 120 Alby",
+    "tier": 9,
+    "type": "AT-SPG",
+    "nation": "france",
+    "is_premium": false,
+    "is_collector": true,
+    "armor": {
+      "turret_front": 170,
+      "turret_sides": 170,
+      "turret_rear": 170,
+      "hull_front": 200,
+      "hull_sides": 200,
+      "hull_rear": 200
+    },
+    "shells": [
+      {
+        "shell_type": "ap",
+        "shell_type_id": null,
+        "penetration": 263,
+        "damage": 310,
+        "module_damage": 135,
+        "explosion_radius": 0.0,
+        "caliber": 105.0,
+        "normalization": 5.0,
+        "ricochet": 70.0
+      },
+      {
+        "shell_type": "ap_cr_premium",
+        "shell_type_id": 1,
+        "penetration": 335,
+        "damage": 265,
+        "module_damage": 135,
+        "explosion_radius": 0.0,
+        "caliber": 105.0,
+        "normalization": 2.0,
+        "ricochet": 70.0
+      },
+      {
+        "shell_type": "he",
+        "shell_type_id": 3,
+        "penetration": 67,
+        "damage": 370,
+        "module_damage": 135,
+        "explosion_radius": 2.0,
+        "caliber": 105.0,
+        "normalization": 0.0,
+        "ricochet": 0.0
+      }
+    ],
+    "hp": 1500,
+    "speed_forward": 50,
+    "speed_reverse": 15,
+    "hull_traverse": 31.0,
+    "view_range": 250.0,
+    "turret_traverse_speed": 25.0,
+    "gun_depression": 7.0,
+    "gun_elevation": 20.0,
     "turret_traverse_left": null,
     "turret_traverse_right": null
   },
@@ -35163,6 +35224,67 @@
     "turret_traverse_speed": 34.0,
     "gun_depression": 8.0,
     "gun_elevation": 25.0,
+    "turret_traverse_left": null,
+    "turret_traverse_right": null
+  },
+  "24433": {
+    "name": "Morbid",
+    "tier": 7,
+    "type": "mediumTank",
+    "nation": "other",
+    "is_premium": false,
+    "is_collector": true,
+    "armor": {
+      "turret_front": 150,
+      "turret_sides": 150,
+      "turret_rear": 150,
+      "hull_front": 230,
+      "hull_sides": 230,
+      "hull_rear": 230
+    },
+    "shells": [
+      {
+        "shell_type": "ap",
+        "shell_type_id": null,
+        "penetration": 155,
+        "damage": 280,
+        "module_damage": 135,
+        "explosion_radius": 0.0,
+        "caliber": 100.0,
+        "normalization": 5.0,
+        "ricochet": 70.0
+      },
+      {
+        "shell_type": "hc_premium",
+        "shell_type_id": 2,
+        "penetration": 220,
+        "damage": 240,
+        "module_damage": 135,
+        "explosion_radius": 0.0,
+        "caliber": 100.0,
+        "normalization": 0.0,
+        "ricochet": 85.0
+      },
+      {
+        "shell_type": "he",
+        "shell_type_id": 3,
+        "penetration": 50,
+        "damage": 350,
+        "module_damage": 135,
+        "explosion_radius": 1.7599999904632568,
+        "caliber": 100.0,
+        "normalization": 0.0,
+        "ricochet": 0.0
+      }
+    ],
+    "hp": 1300,
+    "speed_forward": 47,
+    "speed_reverse": 17,
+    "hull_traverse": 37.0,
+    "view_range": 245.0,
+    "turret_traverse_speed": 37.0,
+    "gun_depression": 7.0,
+    "gun_elevation": 20.0,
     "turret_traverse_left": null,
     "turret_traverse_right": null
   },
@@ -38912,6 +39034,67 @@
     "turret_traverse_speed": 20.0,
     "gun_depression": 7.0,
     "gun_elevation": 15.0,
+    "turret_traverse_left": null,
+    "turret_traverse_right": null
+  },
+  "30753": {
+    "name": "XM57",
+    "tier": 9,
+    "type": "AT-SPG",
+    "nation": "usa",
+    "is_premium": false,
+    "is_collector": true,
+    "armor": {
+      "turret_front": 250,
+      "turret_sides": 250,
+      "turret_rear": 250,
+      "hull_front": 230,
+      "hull_sides": 230,
+      "hull_rear": 230
+    },
+    "shells": [
+      {
+        "shell_type": "ap",
+        "shell_type_id": null,
+        "penetration": 265,
+        "damage": 640,
+        "module_damage": 210,
+        "explosion_radius": 0.0,
+        "caliber": 155.0,
+        "normalization": 5.0,
+        "ricochet": 70.0
+      },
+      {
+        "shell_type": "hc_premium",
+        "shell_type_id": 2,
+        "penetration": 335,
+        "damage": 545,
+        "module_damage": 210,
+        "explosion_radius": 0.0,
+        "caliber": 155.0,
+        "normalization": 0.0,
+        "ricochet": 85.0
+      },
+      {
+        "shell_type": "he",
+        "shell_type_id": 3,
+        "penetration": 80,
+        "damage": 960,
+        "module_damage": 210,
+        "explosion_radius": 3.7799999713897705,
+        "caliber": 155.0,
+        "normalization": 0.0,
+        "ricochet": 0.0
+      }
+    ],
+    "hp": 1700,
+    "speed_forward": 24,
+    "speed_reverse": 10,
+    "hull_traverse": 14.0,
+    "view_range": 240.0,
+    "turret_traverse_speed": 12.0,
+    "gun_depression": 6.0,
+    "gun_elevation": 17.0,
     "turret_traverse_left": null,
     "turret_traverse_right": null
   },

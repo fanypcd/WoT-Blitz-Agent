@@ -1684,6 +1684,11 @@
   "slug": "m-vii-yoh",
   "stem": "M-7-Y"
  },
+ "23617": {
+  "nation": "france",
+  "slug": "lorraine-120-alby",
+  "stem": "F134_Lorraine_120_Alby"
+ },
  "23633": {
   "nation": "uk",
   "slug": "a25-harry-hopkins-i",
@@ -1768,6 +1773,11 @@
   "nation": "uk",
   "slug": "vickers-mbt",
   "stem": "GB114_Vickers_MBT_Mk3"
+ },
+ "24433": {
+  "nation": "other",
+  "slug": "morbid",
+  "stem": "Oth96_Morbid"
  },
  "24577": {
   "nation": "ussr",
@@ -2163,6 +2173,11 @@
   "nation": "ussr",
   "slug": "t-46",
   "stem": "T-46"
+ },
+ "30753": {
+  "nation": "usa",
+  "slug": "xm57",
+  "stem": "A168_XM_57"
  },
  "3089": {
   "nation": "germany",

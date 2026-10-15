@@ -25,7 +25,7 @@
 | 3 | `data/tank_cache.json` | 本机自产（派生自**现役 BlitzKit pb**；俯仰 ← models.pb；六面装甲摘要 ← game_data 客户端优先） | 同一派生链改接客户端 pb（未接线） | 🟢 随 ①② | `shells[].shell_type_id` 已透出（§1a）；`shells[].caliber/normalization/ricochet` 已透出（**2026-10-10**，§1a——等效厚度判定输入，装甲查看器两条弹表路径曾因此判定翻转） |
 | 4/5 | `data/game_data/{id}.json`（装甲模型 + 碰撞盒） | **客户端解包（现役）**：`XML/item_defs/vehicles/{nation}/{model}.xml.dvpl` + `3d/Tanks/Parameters/{nation}/{model}.yaml.dvpl` | 它本身就是 | ✅ 100/100 | 链内 2 处 pb 依赖待拆：文件定位用 pb 的 `model_name`（field32）；炮塔/炮管碰撞盒**选段**用 models.pb 的 module→node 映射（缺失回退"末位"） |
 | 6 | `data/tank_data/{id}.json`（→ 包 `tank/{id}.json`） | **混合三源**：models.pb（板/spaced/履带/原点/限位/bbox）+ tanks.pb（数值/弹种）+ game_data（primary、chassis/gun bbox） | 客户端三源齐备 | 🟡 数据 ~95% / 接线 0% | 缺口同 ①②；`configs[]` 的节点数/索引已走客户端 GLB（`model.glb` 节点名）✅；⚠️ 43 辆无炮塔 TD 的 `collision_boxes.turret` 为 null——**两侧都只有空心占位**（客户端 YAML 无 turret 段，models.pb 是 4 字节空 bbox），非缺数据，见 [game-data-sources.md](game-data-sources.md) §2.3 |
-| 7 | 弹种反解表（全局 shell id → 弹种数据） | 本机自产（`ShellKindTable::from_tanks_pb` + CLI `dump-shell-kinds`，输入为现役 BlitzKit pb） | 客户端 `shells.xml <kind>`（4 值闭集，已实测；提取器与编码器均已支持，未接线） | 🟢 数据 100% / 接线 0% | `atgm_heat`→HOLLOW_CHARGE 验证一致；接线随 #1 |
+| 7 | 弹种反解表（全局 shell id → 弹种数据；包 `data/shellKinds.json`） | 本机自产（`ShellKindTable::from_tanks_pb` + CLI `dump-shell-kinds --out data/shell_kinds.json`，输入为现役 BlitzKit pb；**2026-10-15 起随包分发**，打包器 fail-closed） | 客户端 `shells.xml <kind>`（4 值闭集，已实测；提取器与编码器均已支持，未接线） | 🟢 数据 100% / 接线 100%（消费方由内嵌改 COS 直读，2026-10-15） | `atgm_heat`→HOLLOW_CHARGE 验证一致；11.21.0 表 +9 弹种 / 58 条穿深变更（dump 新旧 pb 对照） |
 | 8 | `data/cache/models/{id}/*.glb` | **客户端解包（现役，2026-10-07 换源）**；BlitzKit CDN 退为缺失兜底（`web/assets.rs::ensure_glb_bytes` / `wargaming/model_fetch.rs`，当前休眠） | 它本身就是 | ✅ 100/100 | 735/735；与 BlitzKit 逐字节一致在 **23 辆上刻意打破**（静态变换烘焙 / 状态过滤，2026-10-10，见 [local-model-export.md](local-model-export.md) §5.1）；包内 `glb/` 已替换；**COS 已同步**（2026-10-10 只传坦克 glb：294 件 = 本批 23 ∪ MR 因子批 271，回拉 1470/1470 一致；§2.1 上传链） |
 | 9 | `data/cache/tank_images/{id}.webp` | **BlitzKit CDN**（离线 `download_all_icons` + 运行期懒下载 `web/assets.rs:235`） | `tools/export_tank_icons.py` → `local_tank_icons/` **735/735**（2026-10-10 改为**逐车 `bigIconPath` 声明**精确匹配——764 份参数文件中 755 份逐车文件全含、按整文件名含国家标签解析；备选链=注册表/短名/全名/模型名/别名 + 唯一性护栏） | ⚪ 数据 100%（接线待做；同源美术、接近视觉无损） | 与 BK **同源同画**（1:1 像素、左上角对齐、BK 画布为裁剪后小画布；轮廓 IoU 中位 0.986；旧 NCC 0.21 结论已撤销，见 [decoupling-status.md](decoupling-status.md) §3.4） |
 | 10 | `data/cache/maps/`、`data/cache/terrain/` | **客户端解包（现役）** `.sc2`/`.scg`、heightmap、colormap；地面再经 `tools/composite_overhead.py` 叠俯视合成（渲染缓存 `release/overhead-bake/` 已于 **2026-10-11 全量重烘**为现役材质版——此前停在 10-09 Lambert 时代观感的遗留已销账，刷新口径见 [game-data-sources.md](game-data-sources.md) §5.5）；高度图缓存改名 `.hm.c2.u16.bin`（terrainLayout 2 布局自描述，见 [game-data-sources.md](game-data-sources.md) "地形高度图布局与提取链"） | 它本身就是 | ✅ 100/100 | 2026-10-11 全量重导 + 画质第二档底图重烘随包并 **COS 已同步**（§2.1 第二十九次）；2026-10-14 地形高度图列口径订正（corner 镜像）随包重导并 **COS 已同步**（§2.1 第三十二次） |
@@ -83,8 +83,8 @@ tanks.pb 未动）。
 | `data/local_pb_supplement.json`（**备而未用**，编码器配套） | 客户端无对应概念/数据、试接时沿用既有 BlitzKit 值的字段（集中登记，不假装它们是客户端数据） | 逐项消除：`dev_name` 客户端无此概念（无消费者，可删）；名字仅剩 **2 条**（1 枪 + 1 履带，两种字符串源都没有） | 未接线（当前产物：dev_name 735 / 名字 2；`initial_turret_rotation` 已客户端化、不再需要） | 由 `tools/emit_vehicle_pb.py --emit-supplement` 生成，随游戏版本人工维护 |
 | 包 `data/tank_names.json` ＋ WASM 注入表 `tankNamesJson` | 打包器从 tank_cache 抽（**BK 名**） | 客户端名：**两源合并后与 BK 仅差 2 条**（2026-10-10：修 4 处查询缺陷 145→77，接入运行时本地化覆盖层 77→3，残差 1 枪 1 履带） | 🟢 数据就绪未接线 | 覆盖层为 per-user 运行时缓存（需客户端同步过）；2 条残差由补充表兜底（见 [decoupling-status.md](decoupling-status.md) §2 C2、[game-data-sources.md](game-data-sources.md) §2.2） |
 | WASM 注入表 `limitsJson`（炮管俯仰锚定） | 包 `tank/{id}.json` 的 `pitch_limits` ← 现役 models.pb | `local_pb` 的 `pitch_limits`（零差异） | 🟢 数据 100%（未接线） | 接线随 #2 |
-| WASM 注入表 `shellsJson`（弹种徽标/判定） | `dump-shell-kinds` ← 现役 tanks.pb | 客户端 `shells.xml <kind>` | 🟢 数据 100%（未接线） | 接线随 #7 |
-| `data/tank_id_bridge.json`（735 条 tank_id ↔ 模型名） | 现表由 `tanks.pb` 导出（`--emit-bridge`） | **纯客户端可重建（2026-10-10 实测 735/735 一致）**：`tank_id = (list.xml <id> << 8) \| 国家基数`（与 guns/shells 同编码；`--emit-bridge --from-client`）；客户端另有 **20 辆** BK 没有的车（教程 bot/超测）可顺带覆盖 | ✅ 能力已验证（slug 列无消费者可删） | 接线时改用客户端源即可自动覆盖新车 |
+| WASM 注入表 `shellsJson`（弹种徽标/判定） | 包 `data/shellKinds.json`（`dump-shell-kinds --out` 产物随包；2026-10-15 起消费方运行期直读，原内嵌件已退役） | 客户端 `shells.xml <kind>` | 🟢 数据 100%（已接线） | 接线随 #7 |
+| `data/tank_id_bridge.json`（738 条 tank_id ↔ 模型名；2026-10-15 随 11.21.0 +3） | 现表由 `tanks.pb` 导出（`--emit-bridge`） | **纯客户端可重建（2026-10-10 实测 735/735 一致）**：`tank_id = (list.xml <id> << 8) \| 国家基数`（与 guns/shells 同编码；`--emit-bridge --from-client`）；客户端另有 **20 辆** BK 没有的车（教程 bot/超测）可顺带覆盖 | ✅ 能力已验证（slug 列无消费者可删） | 接线时改用客户端源即可自动覆盖新车 |
 | `data/armor_states.json`（**6 辆**动态装甲车的状态声明，12 态） | 客户端 item_defs `vehicles/*/<stem>.xml` 的 `<extras><armorsStatesController>`（`tools/extract_armor_states.py` 直出） | 不适用（客户端独有概念，BlitzKit 无对应） | ✅ 已接线（解析器按它门控 `AiReviewFacet.armor_states` 的状态语义；消费方查"弹着时刻激活板集"同源） | 每态 `armors` = 激活的 `<part>.<armor_N>` 集合；初态 = `<default/>` 标记的 state；状态流载体 = **propID 16 `armorsStates`**（`[u8 n][n×4B]`，bit16=激活态，见 [index.md](index.md) 2026-10-13 条） |
 | 包内 `data/tanks.pb` / `data/models.pb` | **BlitzKit 原始文件直发** | 换源接线后可从包内移除 | ➖ 随 ①② | 移除会改变包结构——消费方若直读 pb 需同步 |
 | 运行期 web 端点（`/api/tanks` 花名册、`/api/tank_filter`、`tank_detail.is_collector`、`/api/shells`、`models_status`） | 运行期**直读 pb**（花名册 / 名 / tier / nation / type / collector / 弹种 / models.pb id 表） | 改读 tank_cache / 本地数据 | 🟢 代码改动小 | 仅本机 web GUI 用（前端已冻结，不进分发） |
@@ -117,7 +117,14 @@ tanks.pb 未动）。
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测 **2026-10-14 按包内容重算**：**5713 个文件 / 4160.7 MB**——第三十八次为
+包内布局（本地实测 **2026-10-15 按包内容重算**：**5735 个文件 / 4177.5 MB**——第三十九次为
+**"11.21.0 数据随版 + shellKinds 随包分发（内嵌退役）"**（游戏 11.21.0：+3 收藏车
+23617/24433/30753、3 处平衡数值、2 辆碰撞模型改动——`data/` 域六件（pb×2/tank_cache/
+data_version/tank_names/shellKinds）全量刷新 + 3 辆新车 glb/tank/tank_images/game_data/
+suspension/tread 增量 + 3937/4193/23169/24945 四辆 tank/ 重导 + 24945/8225 碰撞 GLB 重导
++ 补齐包内 game_data 曾缺的 5 件；新增 `data/shellKinds.json` = `dump-shell-kinds --out`
+产物，消费方前端内嵌件同日退役、改运行期 COS 直读（§2.3）。**COS 待上传**（凭据环境变量，
+`--only data/ --only glb/ --only tank/ …` 差分）；manifest 已按包内容重算）；第三十八次为
 **"俯视烘焙全量同源化（P2）：地面 pass/贴花/水面/走廊掩码收编 + 剔除规则过剔修正"**（烘焙接管
 地面渲染（groundPass 同源：地形几何 + `cm×lm×tile/mask` 实时合成）+ 贴花真实分层 + 水件保留 +
 走廊掩码（贴地薄构件强制最细层，修"轨道被地形遮挡"）；天空壳词表收窄 `/sky/`、删
@@ -390,11 +397,13 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
 `wotb-replay-wasm-v0.4.1.zip`）。消费方按 **commit + sha256** 锁定，落到自己的
 `/wasm/<40 位 commit>/` 目录；**不浮动跟随 upstream main**。
 
-### 2.3 消费方前端构建（唯一绕过 COS 的数据项）
+### 2.3 消费方前端构建（~~唯一绕过 COS 的数据项~~ 已退役 2026-10-15）
 
-弹种反解表（#7）以 `shellKinds.json` 的形式随消费方前端构建走，运行期由前端
-`import()` 后注入 WASM（`parseShotReplays` 的可选入参）。**它不经过 COS 桶**，
-是第一节 11 项里唯一不在资产包内的。
+弹种反解表（#7）曾以 `shellKinds.json` 随消费方前端构建内嵌（WotbTools 侧还有第二份
+`common/shot-tank-data.json` 搭载输入快照）。**2026-10-15 起该通道退役**：两份内嵌件删除，
+消费方运行期经 assetProvider 直读资产包 `data/shellKinds.json`（`dump-shell-kinds --out`
+随 tanks.pb 同批生成、打包器 fail-closed 物化）与 `tank/{id}.json`；数据更新只依赖
+COS 差分上传，不再依赖前端发版。§二 至此收敛为两条通道（COS 资产包 + GitHub Release 引擎）。
 
 ## 三、跨领域接线点与护栏
 
@@ -434,11 +443,11 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
   接线前抽查 `local_tank_icons/_vs_blitzkit.png` 即可。
 - **坦克悬挂数据面已导出（2026-10-10）**：`tools/export_tank_suspension.py`
   （`data/tank_suspension/<tank_id>.json` → 包内 `suspension/<tank_id>.json`，additive；
-  全表 735 辆中 **725 辆导出**、9 辆无 suspension 块、1 辆空悬挂（`Oth10_WarDuck`）
+  全表 738 辆中 **728 辆导出**（2026-10-15 随 11.21.0 +3：9 辆无 suspension 块、1 辆空悬挂（`Oth10_WarDuck`）
   按 fail-closed 不产文件）。字段 = 逐轮 `{flag(负重轮), a(上行行程), b(下行行程)}` +
   履带静止折线（两代键式都读）+ `trackBendingInfo`/`trackLayingInfo` +
   `chassis.textureScale`；逐轮半径/挂点/`chunkLength` 由前端从模型 GLB 现算（不必导）。
-  规模 2262 KB / 725 文件（前端按需取，单场 ≈14 文件 × 3 KB）。接线状态：前端求解器并行
+  规模 2271 KB / 728 文件（前端按需取，单场 ≈14 文件 × 3 KB）。接线状态：前端求解器并行
   落地（逐轮贴地 + 履带形变 + 自转/花纹滚动）；机制、分级路径与剩余未定项见
   [tank-suspension-client-re.md](tank-suspension-client-re.md) §六/§七。
   回归：`python tools/test_export_tank_suspension.py`（7 项，含真实客户端抽样）。
@@ -448,12 +457,12 @@ manifest 为准，每次重打包或改溯源戳后刷新本句**。2026-10-07 �
 - **地面履带印参数已导出（2026-10-11）**：`tools/export_tank_tread.py`
   （`data/tank_tread/<tank_id>.json` → 包内 `tread/<tank_id>.json` + `data/tank_tread_textures/`
   → 包内 `tread/textures/`，additive）。客户端 TreadSystem（车开过后的暗色碾压痕）的
-  作者数据**全在数据面**：逐车 yaml `treadParameters` 块（88/764 yaml = **311/735** 辆，
-  5 字段形状一致）+ 13 张 `*tread*.dx11.dds.dvpl` 贴图（256²，DDS **无损**转 webp /
-  983 KB）。**全部 735 辆都产文件**：无块的 424 辆按国别主贴图回落（width=null 由前端从
+  作者数据**全在数据面**：逐车 yaml `treadParameters` 块（91/767 yaml = **314/738** 辆，
+  2026-10-15 随 11.21.0 +3 全 authored；5 字段形状一致）+ 13 张 `*tread*.dx11.dds.dvpl` 贴图（256²，DDS **无损**转 webp /
+  983 KB）。**全部 738 辆都产文件**：无块的 424 辆按国别主贴图回落（width=null 由前端从
   模型履带盒实测）+ `tread/textures.json` alpha 归一化表（2026-10-11；见
   [feasibility-track-marks.md](feasibility-track-marks.md) §二/§四）。
-  规模 79 KB / 311 json + 983 KB / 13 贴图（前端按需取：单场 ≤14 json + ≤9 贴图）。
+  规模 156 KB / 738 json（314 authored + 424 回落）+ 983 KB / 13 贴图（前端按需取：单场 ≤14 json + ≤9 贴图）。
   回归：`python tools/test_export_tank_tread.py`（6 项，含真实客户端抽样）。
   **分发**：本地包已增量补入（`tread/` 324 文件 / 1.04 MB）+ `--refresh-manifest`；
   **COS 未同步**（增量 `--only tread/`）。

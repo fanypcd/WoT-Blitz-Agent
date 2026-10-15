@@ -357,6 +357,10 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
 - `data_version.json` 只记一个 `game_data_updated_at`，从外部看像全量刷新过，实为混合版本
 - 判定数据是否陈旧的**可靠指纹**：文件最后被哪个提交写过（`git log --name-only -- data/game_data/`），
   或批量统计 `gun.spaced` 非空率。注意 `hull_position` 为零值属合法，**不能当陈旧标志**
+- `data/shell_kinds.json`（弹种反解表，`dump-shell-kinds --out` 产物）是 **tanks.pb 的直接
+  派生**：每次 pb 刷新后必须同批重导，否则打包器物化的 `data/shellKinds.json` 与包内 pb 脱版。
+  打包器对它 fail-closed（缺源即拒绝打包），但**同版性只能靠刷新链顺序保证**——先 `update-data`
+  再 `dump-shell-kinds`，同一回合完成
 
 ### 5.2 资产面（COS）增量发布流程
 

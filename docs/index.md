@@ -2412,3 +2412,46 @@ clock 均不再先行 panic；附带订正 packet_histogram 直方图键口径�
 Playback JSON 全部字段逐值相同（含 meta/车辆网格/滤波/弹道）。无资产再导出、
 无后端结算或 AI 切面字段变更。完整契约见
 [回放 v2 契约 §7](replay-contract-v2-supremacy-type39.md#7-独立炮塔刚体2026-10-14additivev047)。
+
+## 游戏版本数据刷新：11.21.0（2026-10-15）
+
+游戏客户端更新至 `release/11.21.0`（本机 Steam 客户端 `Data/version.txt` 实测；
+`update-data --check` 感知版本变化后全量刷新）。**`data_version.json` game_version =
+release/11.21.0，tank_count 735 → 738。**
+
+- **新增 3 辆（全部收藏车 collector，BlitzKit pb 已随版）**：
+  `23617` Lorraine 120 Alby（france，T9 AT-SPG）、`24433` Morbid（other，T7 MT）、
+  `30753` XM57（usa，T9 AT-SPG）。**无车辆下架**。
+- **数值平衡改动 3 处**：Husarz（23169）车体转速 28→25 °/s；Ho-Ri（3937）与
+  Ho-Ri T.II（4193）AP/HE 弹径 150→149 mm（与既有金弹同径，数值/穿深/伤害不变）。
+- **碰撞模型改动 2 辆**：Titan AMX（24945）炮塔碰撞盒底面 z −0.200→−0.003；
+  T28（8225）车体均厚 164.8→127.7 mm（包围盒不变 = 碰撞网格面加权重算）。
+  两辆的 `model.glb`/`collision.glb` 已按新客户端重导（`data/cache/models/` 与
+  `local_models/` 逐字节一致）。
+- **随版派生数据全量同步**：`tanks.pb`/`models.pb`（738）、`tank_cache.json`（738）、
+  `game_data/`（738 文件全量重提，0 失败）、`tank_id_bridge.json`（`--emit-bridge`
+  重建，738）、`armor_states.json`（重提，仍 6 车 12 态——11.21.0 无新车声明动态装甲）、
+  图标（fetch-icons 增量 3 张，0 失败）、GLB（3 辆新车双目录导出 + 2 辆碰撞变更重导，
+  两目录逐辆 sha256 一致）、悬挂（728 文件 / 2271 KB）、履带印（738 文件 = 314 authored
+  + 424 回落 / 156 KB；新车 3 辆全 authored）。11.20.0 旧数据备份在
+  `data/cache/backup-11.20.0/`（pb×2、tank_cache、data_version）。
+- **地图无变化**：客户端 `maps.yaml` 55 图 id 与 `map_index.json` 逐一对齐，无新增/删除。
+- **内嵌数据项 shellKinds.json 已随版重生成并改为随包分发（2026-10-15 第二批）**（§2.3
+  通道退役）：`dump-shell-kinds --out` 新旧 pb 对照 = **+9 弹种**（3 辆新车各 3 弹：
+  63xxx Lorraine 120 Alby / 133xxx–134xxx Morbid / 548xxx XM57）+ **58 条既有弹种穿深
+  变更**（11.21.0 全局弹平衡；多为二线炮弹种，不影响 tank_cache 顶配弹表故上表未现）。
+  新表落 `data/shell_kinds.json`（入库）→ 打包器物化为包 `data/shellKinds.json`
+  （缺源 fail-closed）；WotbTools 同日删除内嵌 `shellKinds.json` 与
+  `common/shot-tank-data.json`（第二份内嵌快照，735 辆已过期），改运行期 assetProvider
+  直读 `/data/shellKinds.json` 与 `tank/{id}.json` 紧凑投影——数据更新从此只依赖 COS
+  差分上传，不再依赖前端发版（WotbTools 侧 targeted 测试 50/50 绿、Android
+  `wotbVersion` 2.3.6→2.3.7、golden 不受影响）。
+- **blast radius**：`data/` 面（git 内 pb/cache/bridge/game_data + 文档计数）已同步；
+  **资产包（`release/asset_pack/`）已物化 11.21.0 增量**——`data/` 域六件全量刷新 + 3 辆
+  新车逐车文件（glb/tank/tank_images/game_data/suspension/tread）+ 3937/4193/23169/24945
+  四辆 tank/ 重导 + 24945/8225 碰撞 GLB 重导 + 顺手补齐包内 game_data 曾缺的 5 件，
+  manifest 已按包内容重算（5735 件 / 4177.5 MB）；map/ 域已于第三十五次按 11.21.0 世代
+  对齐并同步 COS。**COS 差分上传待执行**（凭据仅环境变量，本机未配置；上传前跑
+  `export_asset_pack.py --refresh-manifest` 已完成）。解析器/切面契约
+  零变化（WASM 引擎不含任何数据、三张注入表均为运行期入参、解析器对游戏版本无门槛——
+  **无需 pin bump 或 golden 重生成**）。
