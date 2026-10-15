@@ -64,6 +64,21 @@ method8 在同钟重复广播两份相同事件，`hash6=0aa36c50a15c`；两条 
   强烈符合跳弹/续飞段，但单样本不足以把“后续 method29”公开定名为 trajectory continuation。
   当前只保留第一条作为 primary launch，不新增公开多段弹道 DTO。
 
+### S1. 争霸空闲行判据（2026-10-15）—— **本仓自有判据；对方只规定结果、未闭合 wire** ✅已改码
+
+对方权威研究契约 `supremacy-base-state.md` 把「已归属基地被对方占领后中断」列为必须覆盖的
+回归场景（regression 列表 "owned by team2 → team1 capturing → capture cancelled /
+cleared"），并把 owner/capture lifecycle 与 "explicit clearing/invalidation semantics"
+整体划归后端（"A backend reconstruction layer is responsible … deciding when canonical
+`capturingTeam` / `captureProgress` are retained, changed, or cleared"），但未给出「哪条
+wire 行代表中断」；其 superseded 的 wrapper12 note 所列 lifecycle 规则（explicit zero →
+null、占领中 owner 变更 → 清空、缺省字段维持前值）也没有空闲整播条目。本仓据此采用自有
+判据 = **空闲整播**：f3/f4/f5/f6 全缺省的行 = 该基地整条状态广播（零值被 proto3 省略），
+owner 按本行保留、占领状态归零，中立与已归属统一处理——原先只在 owner 也缺省时才这样读，
+已归属基地因此残留占领状态。规则只读字段在场/缺省，不含统计阈值；公开语料 150 行新旧
+对拍 0 差异（触发场景无公开样本，见本仓契约 §1.2 证据）。**消费方同步以对方实现为准**；
+本仓 `arena.rs` 重建器注释与契约 §1.2 已标注该口径偏离参考实现。
+
 ## 二、直接采纳（WotbTools PROVEN，按用户指示免验证）
 
 | 项 | 结论 | 落地 |
