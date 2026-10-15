@@ -652,12 +652,13 @@ fn main() -> Result<()> {
             return Ok(());
         }
         Commands::FetchMinimaps { force } => {
-            let (total, extracted, cached, failed) =
+            let (entries, spaces, extracted, cached, failed) =
                 wotb_agent::wargaming::map_assets::cache_all_minimaps(force);
             println!("=== Minimap cache (data/cache/maps/<space>.minimap.webp) ===");
-            println!("  Maps in registry: {}", total);
-            println!("  Extracted:        {}", extracted);
-            println!("  Already cached:   {} (use --force to re-extract)", cached);
+            println!("  Registry entries: {entries}");
+            println!("  Spaces:           {spaces} (first entry per space)");
+            println!("  Extracted:        {extracted}");
+            println!("  Already cached:   {cached} (use --force to re-extract)");
             if !failed.is_empty() {
                 eprintln!("  Failed ({}): {:?}", failed.len(), failed);
             }

@@ -614,14 +614,36 @@ pub fn cache_all_terrain(force: bool) -> (usize, usize, usize, Vec<String>) {
     (registry.len(), extracted, cached, failed)
 }
 
+/// 逐 space 选出小地图缓存的「代表条目」：**注册表顺序中该 space 的首个条目**——
+/// 与打包器 `seen_spaces`（"同 space 变体：资产只物化一份"）同一条规则，缓存文件与包内
+/// `map/<首个 key>/mini.webp` 因而指向同一变体。
+///
+/// 为什么必须固化选取：小地图缓存是**每 space 一份**（`maps/<space>.minimap.webp`），而
+/// 注册表里一个 space 可有多条目（基础图 + 出生点变体，变体在 maps.yaml 里排在基础图之后）。
+/// 逐条目覆盖写会让"最后一条"决定产物——历史行为正是如此：基础图被变体图顶替，9 张图
+/// 无声换图（变体小地图 = 同一地形 + 不同出生点底色），字节变化与客户端更新无关。
+/// 变体、基础图共享同一 space 的场景与地形，代表条目只决定用哪张图，不改变地图语义。
+pub fn minimap_cache_entries(reg: &[MapEntry]) -> Vec<&MapEntry> {
+    let mut chosen: Vec<&MapEntry> = Vec::new();
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for e in reg {
+        if seen.insert(e.space.as_str()) {
+            chosen.push(e);
+        }
+    }
+    chosen
+}
+
 /// 预提取全部注册表地图的小地图到 `data/cache/maps/<space>.minimap.webp`
-/// （`fetch-minimaps` 命令，低画质档地面）；返回 (注册表总数, 本次提取, 已缓存, 失败名单)。
-pub fn cache_all_minimaps(force: bool) -> (usize, usize, usize, Vec<String>) {
+/// （`fetch-minimaps` 命令，低画质档地面）；
+/// 返回 (注册表条目数, space 数, 本次提取, 已缓存, 失败名单)。
+pub fn cache_all_minimaps(force: bool) -> (usize, usize, usize, usize, Vec<String>) {
     let registry = registry();
+    let entries = minimap_cache_entries(registry);
     let mut extracted = 0usize;
     let mut cached = 0usize;
     let mut failed = Vec::new();
-    for entry in registry {
+    for entry in entries.iter().copied() {
         let cache = cache_path(&format!("maps/{}.minimap.webp", entry.space));
         if cache.exists() && !force {
             cached += 1;
@@ -641,7 +663,7 @@ pub fn cache_all_minimaps(force: bool) -> (usize, usize, usize, Vec<String>) {
             None => failed.push(entry.key.clone()),
         }
     }
-    (registry.len(), extracted, cached, failed)
+    (registry.len(), entries.len(), extracted, cached, failed)
 }
 
 /// GET /api/playback/terrain?name=<...>|?id=<n>：覆盖 → 缓存 → 游戏提取。
@@ -1013,6 +1035,48 @@ mod tests {
                 "Mines - Hill".to_string()
             )
         );
+    }
+
+    /// 小地图代表条目选取：每 space 恰一条、取注册表首个条目（与打包器同规则）。
+    #[test]
+    fn minimap_choice_takes_first_entry_per_space() {
+        let mk = |map_id: u32, key: &str, space: &str, dir: &str| MapEntry {
+            map_id,
+            key: key.to_string(),
+            sc2: format!("{space}/{space}.sc2"),
+            space: space.to_string(),
+            display: "d".to_string(),
+            minimap_dir: dir.to_string(),
+        };
+        let reg = vec![
+            mk(6, "rudniki", "06_rudniki_rd", "rudniki"),
+            mk(17, "rudniki_01", "06_rudniki_rd", "rudniki_01"),
+            mk(18, "rudniki_02", "06_rudniki_rd", "rudniki_02"),
+            // en.yaml 缺条目（minimap_dir 空，如 id 26 lagoon）：抽取退回键名候选
+            mk(26, "lagoon", "15_lagoon_ln", ""),
+        ];
+        let picked = minimap_cache_entries(&reg);
+        assert_eq!(picked.len(), 2, "每 space 恰一条");
+        assert_eq!(picked[0].key, "rudniki", "首条目（基础图）不得被变体顶替");
+        assert_eq!(picked[1].key, "lagoon");
+    }
+
+    /// 真实注册表（需游戏目录）：每个 space 恰一条代表条目，且等于该 space 的首个条目。
+    #[test]
+    fn minimap_choice_on_live_registry() {
+        let reg = registry();
+        if reg.is_empty() {
+            eprintln!("[skip] 游戏目录不可用，跳过注册表小地图选取测试");
+            return;
+        }
+        let picked = minimap_cache_entries(reg);
+        let spaces: std::collections::HashSet<&str> =
+            picked.iter().map(|e| e.space.as_str()).collect();
+        assert_eq!(spaces.len(), picked.len(), "同一 space 不得重复入选");
+        for e in &picked {
+            let first = reg.iter().find(|c| c.space == e.space).unwrap();
+            assert_eq!(e.map_id, first.map_id, "space {} 代表条目不是首条目", e.space);
+        }
     }
 
     /// 端到端（需游戏目录 + 导出产物）：数字 id 走通底图/地形/场景/草地四端点。

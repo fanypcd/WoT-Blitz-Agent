@@ -28,8 +28,8 @@
 | 7 | 弹种反解表（全局 shell id → 弹种数据；包 `data/shellKinds.json`） | 本机自产（`ShellKindTable::from_tanks_pb` + CLI `dump-shell-kinds --out data/shell_kinds.json`，输入为现役 pb（本机客户端解包源）；**2026-10-15 起随包分发**，打包器 fail-closed） | 客户端 `shells.xml <kind>`（4 值闭集，已实测；提取器与编码器均已支持，未接线） | 🟢 数据 100% / 接线 100%（消费方由内嵌改 COS 直读，2026-10-15） | `atgm_heat`→HOLLOW_CHARGE 验证一致；11.21.0 表 +9 弹种 / 58 条穿深变更（dump 新旧 pb 对照） |
 | 8 | `data/cache/models/{id}/*.glb` | **客户端解包（现役，2026-10-07 换源）**；BlitzKit CDN 退为缺失兜底（`web/assets.rs::ensure_glb_bytes` / `wargaming/model_fetch.rs`，当前休眠） | 它本身就是 | ✅ 100/100 | 735/735；与 BlitzKit 逐字节一致在 **23 辆上刻意打破**（静态变换烘焙 / 状态过滤，2026-10-10，见 [local-model-export.md](local-model-export.md) §5.1）；包内 `glb/` 已替换；**COS 已同步**（2026-10-10 只传坦克 glb：294 件 = 本批 23 ∪ MR 因子批 271，回拉 1470/1470 一致；§2.1 上传链） |
 | 9 | `data/cache/tank_images/{id}.webp` | **本机客户端解包（2026-10-15 接线）**：`tools/export_tank_icons.py`（DVPL 剥壳裸 webp、不重编码；逐车 `iconPath` 声明 738/738 命中）→ `local_tank_icons/` → 同步进 `cache/tank_images/`（两目录逐字节一致）；BlitzKit CDN 退为缺失兜底（离线 `fetch-icons` + 运行期懒下载 `web/assets.rs:233`，休眠） | 它本身就是 | ✅ 数据/接线 100% | **2026-10-15 换源复核**：与 BK 同源同画——alpha 轮廓 **100% 一致**（BK 为二次重编码 + 更紧 1px 裁剪：RGB 平均差 1.79 / 最大 17，客户端为游戏原始字节）；3 辆 11.21.0 新车随批导出；旧 NCC 0.21 结论已撤销，见 [decoupling-status.md](decoupling-status.md) §3.4。**展示裁剪（同日）**：画布为原始 256×128（坦克锚定左上、右下留白近半），紧裁观感改由**数据面**承接——`export_tank_icons.py --emit-crops` 输出逐车内容框（alpha>0）→ 包 `tank_images/crops.json`（738，打包器 fail-closed），消费方展示层按框缩放定位（不改字节） |
-| 10 | `data/cache/maps/`、`data/cache/terrain/` | **客户端解包（现役）** `.sc2`/`.scg`、heightmap、colormap；地面再经 `tools/composite_overhead.py` 叠俯视合成（渲染缓存 `release/overhead-bake/` 已于 **2026-10-11 全量重烘**为现役材质版——此前停在 10-09 Lambert 时代观感的遗留已销账，刷新口径见 [game-data-sources.md](game-data-sources.md) §5.5）；高度图缓存改名 `.hm.c2.u16.bin`（terrainLayout 2 布局自描述，见 [game-data-sources.md](game-data-sources.md) "地形高度图布局与提取链"） | 它本身就是 | ✅ 100/100 | 2026-10-11 全量重导 + 画质第二档底图重烘随包并 **COS 已同步**（§2.1 第二十九次）；2026-10-14 地形高度图列口径订正（corner 镜像）随包重导并 **COS 已同步**（§2.1 第三十二次） |
-| 10a | `data/cache/maps/{key}/destructibles.json`（可破坏物清单） | **客户端解包（现役）** `.sc2` + `XML/destructibles.xml.dvpl` | 它本身就是 | ✅ 100/100 | 消费方与回放切面 `destructible_events` 联表（逆向总集 §5.4） |
+| 10 | `data/cache/maps/`、`data/cache/terrain/` | **客户端解包（现役）** `.sc2`/`.scg`、heightmap、colormap；地面再经 `tools/composite_overhead.py` 叠俯视合成（渲染缓存 `release/overhead-bake/` 已于 **2026-10-11 全量重烘**为现役材质版——此前停在 10-09 Lambert 时代观感的遗留已销账，刷新口径见 [game-data-sources.md](game-data-sources.md) §5.5；⚠️ 该缓存为**地面 pass 之前**的世代，与线上底图不同代，重合成前须先重烘，见 §5.5 末注）；高度图缓存改名 `.hm.c2.u16.bin`（terrainLayout 2 布局自描述，见 [game-data-sources.md](game-data-sources.md) "地形高度图布局与提取链"） | 它本身就是 | ✅ 100/100 | 2026-10-11 全量重导 + 画质第二档底图重烘随包并 **COS 已同步**（§2.1 第二十九次）；2026-10-14 地形高度图列口径订正（corner 镜像）随包重导并 **COS 已同步**（§2.1 第三十二次）；2026-10-15 夜间审计：mountain 高度图/小地图按客户端重提 + 小地图选取改「每 space 首条目」（§2.1 第四十次） |
+| 10a | `data/cache/maps/{key}/destructibles.json`（可破坏物清单） | **客户端解包（现役）** `.sc2` + `XML/destructibles.xml.dvpl` | 它本身就是 | ✅ 100/100 | 消费方与回放切面 `destructible_events` 联表（逆向总集 §5.4）；**55 键**（36 基础 + 19 出生点变体——同场景同数据，仅头字段不同；打包器按 space 只物化首个 key）。内嵌共享类型库计数随客户端走（11.21.0：`typeTableSize` 938→941；2026-10-15 夜间全量重导，见 [index.md](index.md)） |
 | 11 | `data/data_version.json` | 本机自产（`game_version` 取客户端 `Data/version.txt.dvpl`） | 它本身就是 | ✅ 100/100 | BK 时代的 `blitzkit_updated_at` 字段已移除（2026-10-15 清理；时间戳仅 `tank_cache_updated_at`/`game_data_updated_at`） |
 
 来源分布（**2026-10-15 全量客户端化后**）：**11 项全部客户端解包/本机自产**；BlitzKit 仅保留"交叉校验对象"角色（`fetch-blitzkit`）与两处缺失兜底（GLB `web/assets.rs:113`、图标 `web/assets.rs:233`，均休眠）。
@@ -117,7 +117,16 @@ tanks.pb 未动）。
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-包内布局（本地实测 **2026-10-15 按包内容重算**：**5735 个文件 / 4177.5 MB**——第三十九次为
+包内布局（本地实测 **2026-10-15 夜间按包内容重算**：**5736 个文件 / 4177.6 MB**——第四十次为
+**"客户端 11.21.0 更新全量审计：地图面滞后清零 + 小地图选取修复"**（11.21.0 客户端的 Oct-14
+更新面逐项复核：36 图 scenery 复导（34 图逐字节复现；**erlenberg/pliego 补导** = 10-14 19:51
+世代漏网件，按 HEAD 导出器补上 `extras.detail` 材质）、`terrain.u16.bin` 与 `mini.webp`
+仅 mountain 变（客户端高度图/小地图更新）、`destructibles.json` 55 键全量重导（共享类型库
+938→941）、`lighting.json` 惰性 `shadow` 块按既定约定消失（参数值零变化）、2 辆坦克
+`model.glb` 重导（13889 / 22913）→ 与审计前 manifest 对照 **83 件变化 / 0 增删**
+（36+36+4+1+1+2+2+`index.json`）。**底图未随本批变动**：本机渲染缓存为地面 pass 前世代，
+按流程重合成会回退线上底图 ⇒ 以 COS 公开源回拉还原（36/36 sha256 命中），详见
+[index.md](index.md) 同名条目）；第三十九次为
 **"11.21.0 数据随版 + shellKinds 随包分发（内嵌退役）"**（游戏 11.21.0：+3 收藏车
 23617/24433/30753、3 处平衡数值、2 辆碰撞模型改动——`data/` 域六件（pb×2/tank_cache/
 data_version/tank_names/shellKinds）全量刷新 + 3 辆新车 glb/tank/tank_images/game_data/
@@ -531,7 +540,7 @@ COS 差分上传，不再依赖前端发版。§二 至此收敛为两条通道�
 |---|---|---|
 | `dvpl.rs` | DVPL 解码（**fail-closed**：编码长度 / 存储载荷 CRC32 / 解压长度三项核对，不符即 `Err`，见 [game-data-sources.md](game-data-sources.md) §5.3）+ 装甲 XML / 碰撞 YAML 解析（`ArmorModel::parse_from_xml`、`CollisionData::parse_from_yaml`） | `parse-game`、`extract-game` |
 | `game_extract.rs` | 批量提取 → `data/game_data/{id}.json`（含 `armor_model` / `collision`） | `extract-game --force`、`update-data` |
-| `map_assets.rs` | 与客户端同链解析地图注册表，提取底图 / 地形 / 小地图 | `fetch-terrain`、`fetch-minimaps`（运行期 `/api/playback/map`） |
+| `map_assets.rs` | 与客户端同链解析地图注册表，提取底图 / 地形 / 小地图。**小地图缓存按 space 一份**：`minimap_cache_entries` 取该 space 的**注册表首条目**（与打包器 `seen_spaces` 同规则）——曾因"逐条目覆盖写、最后一条胜出"让 9 图基础小地图被出生点变体图顶替（2026-10-15 修复，见 [index.md](index.md)） | `fetch-terrain`、`fetch-minimaps`（运行期 `/api/playback/map`） |
 | `data_version.rs` | `data/data_version.json` 版本指纹（`game_version` 读 `Data/version.txt.dvpl`） | `update-data` |
 | `model_fetch.rs` | GLB 全量预热（BlitzKit 兜底路径，已非主来源） | `fetch-models` |
 | `tank_configs.rs` | 配置 / 装甲领域层（`synth_armor_model`：逐板装甲仍读 models.pb，`primary` 从 game_data 拷贝） | `dump-tank-data` |

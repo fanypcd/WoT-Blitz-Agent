@@ -584,6 +584,18 @@ python tools/composite_overhead.py --pack release/asset_pack --render-dir releas
 ORIENT 契约常量未变。发布记录（包重建 / manifest / COS 差分与回拉）见
 [data-inventory.md](data-inventory.md) §2.1 第二十九次与 [index.md](index.md) 同名条目。
 
+⚠️ **渲染缓存必须与线上底图同世代（2026-10-15 夜间审计发现）**：地面 pass 世代（P2，
+2026-10-14）的底图**只能**由「地面 pass 世代的渲染件（meta 带 `ground=true`）」合成——
+本机 `release/overhead-bake/` 现存渲染件是**地面 pass 之前**的世代（meta 无 `ground`、
+alpha 覆盖率 ~20% = 只有俯视件），用它按本节命令重合成会把 36 张底图回退一代（实测：产物与
+线上逐张不同；faust 线上 1.48MB vs 本机任意权重/质量组合最小 4.4MB）。判据是语义标记而非统计：
+`meta.ground` 缺失 = 该渲染不含分层地面 pass；线上底图与 pre-composite 底图的差异在
+**覆盖区内外全域同量级**（整幅被渲染地面替换）。处置：**先在上游仓重跑
+`bake-ground-overhead.mjs --all`**（现版本 bake 写 `meta.ground=true`）再合成；仅需线上字节时
+可用 COS 公开源只读回拉
+（`https://wotbtools-assets-1478073677.cos.ap-shanghai.myqcloud.com/map/<key>/ground.webp`，
+逐张 sha256 对照 manifest；2026-10-15 以该方式还原 36/36）。
+
 ---
 
 ## 六、本次故障复盘（2026-09-30 ~ 10-01）

@@ -2555,3 +2555,70 @@ F114 #11 0→**577**（复活模式 HP 链不可见，结算值直给）。其�
 - **2 条模块名保留**：`625 → "90 mm Kw.K. E/L56"`（炮）、`1905 → "WZ-135G FT"`（履带）——
   客户端两处字符串源穷尽核查确无，删除会把界面上这两个模块名变空白（产品回归），
   维持沿用旧值兜底（界面上无法区分来源）。
+
+## 客户端 11.21.0 更新全量审计：地图面滞后清零 + 小地图选取修复（2026-10-15 夜间）
+
+**背景**：用户报"游戏客户端有改动，全面检查，特别是地图"。审计口径 = **逐产物「源 vs 派生」
+mtime + 内容哈希对照，再对每个可疑项全量复导做逐字节比对**（导出器确定性为前提；不作内容
+统计判定）。
+
+**版本与改动范围**：客户端 `Data/version.txt.dvpl` = `11.21.0.1235_7376187 release/11.21.0`
+（Steam build 25930627，**10-14 19:18 更新**，全 Data 树 1466 个文件被重写）；`data_version.json`
+已记同版本、`update-data --check` 无版本变化。**实测 10-14 19:18 之后客户端再无任何改动**
+（全 Data 树 find：无文件 mtime > 10-14 20:00；DLC 覆盖层 `%LOCALAPPDATA%/wotblitz/packs` 无新件；
+DAVAProject 侧仅登录/缓存时间戳）——即"客户端改动"= 10-14/10-15 两批随版刷新已覆盖的那次更新，
+本轮把**遗留的滞后面**清零。
+
+**地图面（36 图 scenery/ground 全量复导 183s、36/36 ok；逐项哈希对照）**：
+
+| 产物 | 结论 | 证据 |
+|---|---|---|
+| 注册表 | 无变化 | `dump-map-index` 55 条目与入库 `map_index.json` 逐字段一致；id 26 Lagoon 的 `display`/`minimap_dir` 为空系**客户端自身状态**（en.yaml 无该图 `#maps:` 条目，键名回退取图正常） |
+| `scenery.glb` | 34 图逐字节复现；**erlenberg/pliego 补导** | 两图缓存与"5d0bb54 之前"的导出器逐字节一致（旧版导出器复跑实证）= 10-14 19:51 世代漏网件；按 HEAD 导出器补导 = 各补 1 个 `extras.detail` 材质 + 1 张贴图（38.21→38.38 MB / 27.55→27.66 MB），与其余 11 图细节层口径一致 |
+| `ground.*` 分层 / `ground.webp` | 导出面无变化；包内底图**按 COS 回拉还原为线上世代** | 36 图 339 件复导逐字节一致（合成前基线）；合成链世代问题与还原见下"合成世代核查" |
+| 地形高度图 | **mountain 重提** | 客户端 `t_mat_mountain_hm.heightmap.dvpl` 随更新改写；55 键 `fetch-terrain --force` 复提与旧缓存**仅此 1 件变化** |
+| 小地图 | **mountain 重提 + 选取逻辑修复** | 客户端 `minimap/mountain/MiniMapSmall[@2x].packed.webp` 更新 → `21_mountain_mnt.minimap.webp` 换新；另查出**顺序依赖缺陷**（见下） |
+| `lighting.json` | 参数值**零变化**；惰性 `shadow` 块消失 | 36 图逐字段对照：除 `shadow`（[data-inventory.md](data-inventory.md) 第十六次已记"保留为惰性数据、**下次重导自然消失**"）外无任何差异 |
+| `destructibles.json` | **55 键全部重导** | 共享类型库 `XML/destructibles.xml.dvpl` 随更新改写：`typeTableSize` 938→941（+3 类型）；12 图随 `.sc2` 实例数变化（mountain 1214→1567、forgecity 1537→1447、holland 1681→1729、port 1952→1868、canyon 1995→1952、faust 739→719 等）；导出器确定性实证（同图两跑逐字节一致） |
+
+**小地图选取缺陷（代码修复，非客户端影响）**：`cache_all_minimaps` 原按注册表**逐条目**覆盖写
+同一份 `maps/<space>.minimap.webp`（"最后一条胜出"），而出生点变体在 maps.yaml 里排在基础图之后
+⇒ 9 张图（desert_train / erlenberg / medvedkovo / amigosville / rudniki / canal / milbase /
+lumber / neptune）的基础小地图被**变体图无声顶替**（`--force` 复现；差异全部来自此项，与客户端
+无关；入库包内仍是基础图，线上未受影响——但下次 `--force` 就会换掉产物）。修：
+`minimap_cache_entries` 取每 space 的**注册表首条目**（与打包器 `seen_spaces` 同规则，缓存与包内
+`map/<首个 key>/mini.webp` 同源），新增 2 条测试（合成条目 + 真机注册表）；`--force` 复跑后与
+客户端真变更**逐张吻合：36 图仅 mountain 1 张变化**。
+
+**车辆面（738 辆全量复导 305s、0 失败）**：**仅 2 辆**与缓存不同 —— `13889`（AMX 50 Foch 155：
+客户端 `.sc2/.scg` 更新，+1 网格 / +3 节点 / bin +70KB）、`22913`（It38 Donnola：同尺寸不同字节，
+顶点/贴图内容变化）；两辆 `model.glb` 重导并与 `local_models/` 逐字节同步（1476 件全量复核
+0 差异）。其余 736 辆逐字节复现——含"源 mtime 变了但产物不变"的 7697/11297 与贴图类
+22305/16753（复现即证伪滞后）。10-15 已随版刷新的 tanks.pb/models.pb/tank_cache/game_data/
+tank_data/armor_states/shell_kinds/suspension/tread/图标不重复处置；解析链端到端复检：最新
+客户端回放（10-15 20:21，BlackGoldville）`single` 正常。
+
+**影响面与发布**：包重建 5736 件 / 4394.5MB（合成前）→ 俯视合成链重走（详见下"合成世代"）
+→ `--refresh-manifest` **5736 件 / 4177.6 MB**（审计前 5736 / 4177.5）；与审计前 manifest
+**逐条对照 = 预期集，83 件变化 / 0 增删**：36 `lighting.json` + 36 `destructibles.json` +
+4 `terrain.json`（mountain 因 `terrainBinSha256` 变；desert_train/erlenberg/pliego 随
+sidecar 统计字段）+ `map/mountain/{mini.webp,terrain.u16.bin}` + 2 图 `scenery.glb` +
+2 辆 `glb/<id>/model.glb` + `index.json`（打包器溯源戳重生成）。**COS 差分上传待执行**
+（本机无 `COS_SECRET_ID/KEY`；对象 = 上述 `map/` 与 `glb/` 条目，
+`--only map/ --only glb/`）。解析器/切面契约零变化（无 pin bump / golden 重生成）；
+WotbTools 侧无需适配。
+
+**合成世代核查（本轮附带发现，待上游处置）**：包重建会按 AGENTS.md 流程覆盖 `ground.webp`，
+随后需重走合成链。但本机 `release/overhead-bake/` 的渲染件是**地面 pass 之前**的世代
+（meta 无 `ground` 标志、alpha 覆盖率 ~20% = 只有俯视件），而**线上底图是地面 pass 世代
+（P2，第三十八次）**的产物——判定证据：线上 `ground.webp` 与 pre-composite 底图的差异
+**在覆盖区内外全域同量级**（mean|Δ| 23–40，逐图；即整幅被渲染地面替换），且线上件体积
+远小于本机任何合成参数（权重 0.92/1.0 × 质量 45–90 全扫）能产出的结果
+（faust：线上 1.48MB vs 本机最小 4.4MB）。结论：**本机合成链当前无法复现线上底图，
+按文档流程重合成会把 36 张底图无声回退到地面 pass 前的世代**——故本轮以 **COS 公开源
+回拉还原**（`https://wotbtools-assets-1478073677.cos.ap-shanghai.myqcloud.com/map/<key>/ground.webp`，
+只读 GET，逐张 sha256 == 审计前 manifest，36/36 命中、0 失败），未把该回退随包发布。
+待办（上游 WotbTools 侧）：重跑 `bake-ground-overhead.mjs --all`（现版本 bake 会写
+`meta.ground=true`）→ 归档渲染件 → 本机 `composite_overhead.py --all --write
+--render-dir release/overhead-bake --base-dir data/cache/maps` 即与线上世代对齐
+（届时 `--verify` 应 36/36 ok）。
