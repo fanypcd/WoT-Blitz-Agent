@@ -520,7 +520,7 @@ impl ReplayModel {
                 let mut best: Option<(f32, usize)> = None;
                 for (i, k) in cands.iter().enumerate() {
                     let dt = (d.t - k.clock).abs();
-                    if dt <= 5.0 && best.map_or(true, |(bd, _)| dt < bd) {
+                    if dt <= 5.0 && best.is_none_or(|(bd, _)| dt < bd) {
                         best = Some((dt, i));
                     }
                 }
@@ -792,11 +792,11 @@ mod tests {
         ]);
         assert_eq!(model.timeline.death_records[&c].len(), 1);
         assert!(
-            model.timeline.resurrections.get(&c).is_none(),
+            !model.timeline.resurrections.contains_key(&c),
             "无本车生命回归证据 → 复活轨道为空（fail-closed）"
         );
-        assert!(model.timeline.death_records.get(&d).is_none());
-        assert!(model.timeline.resurrections.get(&d).is_none());
+        assert!(!model.timeline.death_records.contains_key(&d));
+        assert!(!model.timeline.resurrections.contains_key(&d));
     }
 
     /// 多证据配对：广播多于归零事件时，落单广播按自身证据立死（无凶手归属），
@@ -814,6 +814,6 @@ mod tests {
         assert_eq!(rs.len(), 2);
         assert_eq!((rs[0].t, rs[0].killer_eid, rs[0].cause), (40.5, 3, 2));
         assert_eq!((rs[1].t, rs[1].killer_eid, rs[1].cause), (46.0, 0, 255));
-        assert!(model.timeline.resurrections.get(&e).is_none());
+        assert!(!model.timeline.resurrections.contains_key(&e));
     }
 }

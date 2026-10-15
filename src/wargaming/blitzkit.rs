@@ -1216,10 +1216,10 @@ fn parse_model_tank_entry(tb: &[u8]) -> Result<Option<TankModelInfo>> {
                         _ => kr.skip_field(w2)?,
                     }
                 }
-                if k.is_some() {
+                if let Some(module_id) = k {
                     // C1 塌缩修复：逐底盘保留（含 thickness/origin 皆缺的占位条目），
                     // 不再"map 迭代序先到先得"压成单值。
-                    let e = tracks.entry(k.unwrap()).or_default();
+                    let e = tracks.entry(module_id).or_default();
                     e.thickness = thickness;
                     e.origin = origin;
                 }
