@@ -8,6 +8,8 @@
     ├── index.json                      # 数字 id → key/space/display（前端一次性装载）
     ├── glb/{tank_id}/model.glb, collision.glb
     ├── tank_images/{id}.webp
+    ├── tank_images/crops.json          # 逐车封面图内容框（展示层缩放定位；与 tank_images/ 1:1，
+    │                                   #   源 data/cache/tank_icon_crops.json ← export_tank_icons --emit-crops）
     ├── suspension/{tank_id}.json       # 逐车悬挂（tools/export_tank_suspension.py，additive）
     ├── data/{tanks.pb, models.pb, tank_cache.json, data_version.json, shellKinds.json}
     └── map/{key}/
@@ -178,6 +180,19 @@ def main() -> None:
         for f in sorted(img_dir.rglob("*.webp")):
             if cp(f, f"tank_images/{f.name}"):
                 img_n += 1
+
+    # 封面图内容框（展示层缩放定位，视觉对齐旧紧裁口径；与 tank_images/ 1:1，
+    # 图标重导后须重跑 `export_tank_icons.py --emit-crops`，缺源/数量失配即拒绝打包）
+    crops = data / "cache" / "tank_icon_crops.json"
+    if not crops.is_file():
+        ap.error(f"缺少 {crops} —— 先运行 `python tools/export_tank_icons.py --emit-crops`")
+    crops_doc = json.loads(crops.read_text(encoding="utf-8"))
+    crops_n = len(crops_doc.get("icons", {}))
+    if crops_n != img_n:
+        ap.error(f"tank_icon_crops 与包内图标数不一致：{crops_n} vs {img_n}"
+                 " —— 图标重导后须重跑 `--emit-crops`")
+    shutil.copyfile(crops, out / "tank_images" / "crops.json")
+    files.append(out / "tank_images" / "crops.json")
 
     # ---- 射击复现数据前提：碰撞盒 JSON（game_data/）+ per-tank 数据（tank/，dump-tank-data 产物） ----
     gd = data / "game_data"

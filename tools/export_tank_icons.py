@@ -551,11 +551,65 @@ def _write_status(path: pathlib.Path, state: dict) -> None:
     tmp.replace(path)
 
 
+def emit_crops(out_dir: pathlib.Path, crops_out: pathlib.Path) -> int:
+    """按内容边界（alpha>0 紧裁矩形）计算逐车**展示框**并落盘（版本化 JSON）。
+
+    用途：客户端图标是 256×128（或 128×128）原始画布、坦克斜向绘制且锚定在左上、
+    右下留白约一半——直接 contain 展示会比以前（BlitzKit 逐车紧裁版）显得小。
+    本数据供消费方在**展示层**按框缩放定位（不改图标字节），视觉对齐旧紧裁口径。
+    与 `out_dir` 内图标 **1:1 对应**（打包器按数量校验，fail-closed）；图标重导后
+    必须重跑本模式，否则展示框与字节脱版。
+    """
+    from PIL import Image
+
+    icons: dict[str, dict] = {}
+    blank: list[str] = []
+    for p in sorted(out_dir.glob("*.webp")):
+        if not p.stem.isdigit():
+            continue
+        with Image.open(p) as im:
+            canvas_w, canvas_h = im.size
+            bbox = im.getchannel("A").getbbox()
+        if bbox is None:
+            blank.append(p.stem)
+            continue
+        l, t, r, b = bbox
+        icons[p.stem] = {
+            "canvas_w": canvas_w,
+            "canvas_h": canvas_h,
+            "x": l,
+            "y": t,
+            "w": r - l,
+            "h": b - t,
+        }
+    if blank:
+        print(f"!! 全透明图标无法定展示框: {blank[:10]}（共 {len(blank)}）", file=sys.stderr)
+        return 2
+    doc = {
+        "version": 1,
+        "note": "逐车封面图内容框（alpha>0 紧裁，canvas 像素坐标）：展示层据此缩放定位；"
+                "与同目录图标 1:1，图标重导后须重跑 --emit-crops",
+        "icons": icons,
+    }
+    crops_out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = crops_out.with_suffix(".json.tmp")
+    tmp.write_text(
+        json.dumps(doc, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8")
+    tmp.replace(crops_out)
+    print(f"内容框 {len(icons)} 辆 → {crops_out}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--game-data", type=pathlib.Path, default=None)
     ap.add_argument("--pb", type=pathlib.Path, default=REPO_ROOT / "data" / "tanks.pb")
     ap.add_argument("--out", type=pathlib.Path, default=pathlib.Path("data/cache/local_tank_icons"))
+    ap.add_argument("--crops-out", type=pathlib.Path,
+                    default=REPO_ROOT / "data" / "cache" / "tank_icon_crops.json")
+    ap.add_argument("--emit-crops", action="store_true",
+                    help="只按 --out 现有图标重算内容框（展示框），不导出图标")
     ap.add_argument("--tank", action="append", default=[])
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--use-2x", action="store_true", help="优先用 @2x（512×256）")
@@ -564,6 +618,9 @@ def main() -> int:
     ap.add_argument("--lang", default="en", help="取本地化名的 Strings 语言（图标名依赖英文名）")
     ap.add_argument("--list", action="store_true", help="只打印解析结果，不写盘")
     args = ap.parse_args()
+
+    if args.emit_crops:
+        return emit_crops(args.out, args.crops_out)
 
     game_data = args.game_data or default_game_data()
     ui = game_data / "Gfx/UI"

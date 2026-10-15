@@ -225,6 +225,10 @@ python tools/export_tank_icons.py --all --out data/cache/local_tank_icons   # cl
 cp data/cache/local_tank_icons/*.webp data/cache/tank_images/     # sync (the two dirs must stay
                                                                   # byte-identical; packer reads
                                                                   # cache/tank_images)
+python tools/export_tank_icons.py --emit-crops   # per-tank icon content boxes -> pack
+                                                 # tank_images/crops.json (display-layer crop;
+                                                 # icons re-exported ⇒ must re-run; packer
+                                                 # fails closed if missing or count-mismatched)
 python scripts/export_asset_pack.py --map-index map_index.json   # rebuild pack (overwrites
                                                                  # overhead-baked grounds!)
 python tools/composite_overhead.py --pack release/asset_pack --all --write \

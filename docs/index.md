@@ -2519,3 +2519,20 @@ F114 #11 0→**577**（复活模式 HP 链不可见，结算值直给）。其�
 等价，互证）。单测 +7 例（同钟双命中逐事件 / 精确时钟配对 / 同钟竞争 / method8 尾部解析×3
 等）；lib 118+81 绿、clippy 零告警。切面语义：`shots[].damage` = **服务器结算伤害**；
 `quality.dmg_unattributed` 仅在无结算值且无兜底证据时置位（fail-closed）。
+
+## 封面图展示裁剪（2026-10-15，坦克百科放置格式）
+
+**背景**：封面图换源为客户端剥壳字节后（画布 256×128，坦克斜向绘制、锚定左上、右侧与
+底部留白近半；旧 BK 版是逐车紧裁小画布），坦克百科以 `contain` 展示时坦克显得小。
+按用户裁示**不改图标字节**，改为**数据驱动的展示裁剪**：
+
+- **数据面**：`tools/export_tank_icons.py --emit-crops` 按 alpha>0 内容框输出逐车展示框
+  （`data/cache/tank_icon_crops.json`，版本化，738/738）——确定性、无统计判定。
+- **打包器**：物化为包 `tank_images/crops.json`；缺源或数量与包内图标失配即**拒绝打包**
+  （fail-closed，防展示框与字节脱版）；manifest 已登记（5736 件）。
+- **消费方（WotbTools）**：坦克百科按内容框做 `translate(%) scale()` 换算
+  （`frontend/src/utils/tankIconCrop.js`，附变换数学单测；数据缺失回退原始 contain），
+  视觉与旧紧裁口径一致（内容框居中、至多铺满 8:5 展示框）。同批修改：agentData 加载器、
+  AgentTankopedia 卡片 + 详情 hero 绑定、组件测试。
+- **COS 已同步**：`tank_images/crops.json` 一件 + manifest 就地补丁。
+- 维护约束：图标重导后须重跑 `--emit-crops`（打包器数量校验兜底）。
