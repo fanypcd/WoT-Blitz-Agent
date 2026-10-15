@@ -2489,8 +2489,10 @@ release/11.21.0，tank_count 735 → 738。**
   新车逐车文件（glb/tank/tank_images/game_data/suspension/tread）+ 3937/4193/23169/24945
   四辆 tank/ 重导 + 24945/8225 碰撞 GLB 重导 + C1 批 7 辆 tank/ 重导 + 顺手补齐包内 game_data 曾缺的 5 件，
   manifest 已按包内容重算（5735 件 / 4177.5 MB）；map/ 域已于第三十五次按 11.21.0 世代
-  对齐并同步 COS。**COS 差分上传待执行**（凭据仅环境变量，本机未配置；上传前跑
-  `export_asset_pack.py --refresh-manifest` 已完成）。解析器/切面契约
+  对齐并同步 COS。**COS 差分（`data/`+`glb/`+`tank/` 等）已随后续批次的 `--only` 上传同步**
+  ——2026-10-15 夜间全量差分核对实证：远端与本地除本轮审计的 83 件外**逐条 sha256 命中**
+  （跳过 5653），本轮已把这 83 件补齐（见下"客户端 11.21.0 更新全量审计"条目）。
+  解析器/切面契约
   零变化（WASM 引擎不含任何数据、三张注入表均为运行期入参、解析器对游戏版本无门槛——
   **无需 pin bump 或 golden 重生成**）。
 
@@ -2603,9 +2605,14 @@ tank_data/armor_states/shell_kinds/suspension/tread/图标不重复处置；解�
 **逐条对照 = 预期集，83 件变化 / 0 增删**：36 `lighting.json` + 36 `destructibles.json` +
 4 `terrain.json`（mountain 因 `terrainBinSha256` 变；desert_train/erlenberg/pliego 随
 sidecar 统计字段）+ `map/mountain/{mini.webp,terrain.u16.bin}` + 2 图 `scenery.glb` +
-2 辆 `glb/<id>/model.glb` + `index.json`（打包器溯源戳重生成）。**COS 差分上传待执行**
-（本机无 `COS_SECRET_ID/KEY`；对象 = 上述 `map/` 与 `glb/` 条目，
-`--only map/ --only glb/`）。解析器/切面契约零变化（无 pin bump / golden 重生成）；
+2 辆 `glb/<id>/model.glb` + `index.json`（打包器溯源戳重生成）。**COS 已同步**：全量差分
+上传 **83 件 / 93.7MB**（远端 5653 件全按 sha256 命中跳过；其中 **28 件"同尺寸不同内容"**
+按 sha256 判定上传——旧 Content-Length 逻辑会静默漏传），失败 0，`manifest.json` 强传
+（完整性锚点）；**回拉核验**：远端 manifest 5736 条与本地**逐条零差异**（0 仅远端 / 0 仅本地 /
+0 sha256 不一致，provenance `ea5a05b`），抽样 9/9 逐字节一致（mountain 的
+mini/terrain bin/terrain.json/destructibles/lighting + `glb/13889` + erlenberg scenery +
+faust lighting + index.json）；先前滞后的 3 件（mountain mini、destructibles、terrain bin）
+`Last-Modified` 已刷新为本次上传。解析器/切面契约零变化（无 pin bump / golden 重生成）；
 WotbTools 侧无需适配。
 
 **合成世代核查（本轮附带发现，待上游处置）**：包重建会按 AGENTS.md 流程覆盖 `ground.webp`，
