@@ -1360,15 +1360,17 @@ pub(crate) fn extract_shot_replays_from_shared(
             })
         };
 
-        // 伤害归属（**确定性时钟配对**）：method1 血量事件与 method8 命中通知共享同 tick
-        // 包时钟（逐位相等，实测同刻），降幅逐事件采样（同 tick 多发各成一段）。命中时刻
-        // = 本发认领的 method8 通知时钟（未消费最早一条 ≥ end_time）；降幅事件时钟与它
-        // 相等的那段即本发。无时间窗、无"区间包含"；计数器兜底同样按该时钟绑定。
+        // 伤害归属（**服务器结算值优先 + 确定性时钟兜底**）：method8 直击通知的尾部
+        // `[u8][u16 伤害][u8 状态]` 中状态字节 ≠0 = 服务器已结算，u16 即该发实际伤害
+        // （overkill 已封顶、复活模式 HP 重置吞并的伤害也如实给出——2026-10-15 全语料实证；
+        // 状态字节 =0 的 u16 是标称占位值，不可用）。认领 = (shooter=作者, victim=目标) 中
+        // 未消费、t ≥ end_time 的**最早已结算**通知（无则最早任意，供兜底配时钟）。
+        // 无已结算值 → 回退 method1 血量链同钟配对（逐事件采样）→ dc 计数器同钟 → 0+标记。
         // 穿透族谓词 0x1110 = 材料击穿 0x0010 / 内部模块穿 0x0100 / HE 爆炸 0x1000。
         let mut dmg_unattributed = false;
         if hit && hit_flags & hit_flags_mod::PENETRATION_FAMILY != 0 {
             let victim = target_eid.unwrap_or(0);
-            let hit_t = direct_hits8
+            let cands: Vec<usize> = direct_hits8
                 .iter()
                 .enumerate()
                 .filter(|(di, d)| {
@@ -1377,11 +1379,25 @@ pub(crate) fn extract_shot_replays_from_shared(
                         && d.victim == victim
                         && d.t >= end_time - 1e-6
                 })
-                .min_by(|(_, a), (_, b)| a.t.total_cmp(&b.t))
-                .map(|(di, d)| {
-                    d8_used.insert(di);
-                    d.t
+                .map(|(di, _)| di)
+                .collect();
+            let claimed = cands
+                .iter()
+                .map(|&di| direct_hits8[di].t)
+                .min_by(f32::total_cmp)
+                .and_then(|mt| {
+                    cands
+                        .iter()
+                        .copied()
+                        .filter(|&di| direct_hits8[di].t == mt)
+                        .max_by_key(|&di| direct_hits8[di].settled as u8)
                 });
+            let hit_t = claimed.map(|di| {
+                d8_used.insert(di);
+                direct_hits8[di].t
+            });
+            let settled_damage =
+                claimed.filter(|&di| direct_hits8[di].settled).map(|di| direct_hits8[di].damage);
             let matched = hit_t.and_then(|t| {
                 dmg_losses.iter().enumerate().find(|(li, l)| {
                     !dmg_losses_used.contains(li)
@@ -1389,6 +1405,9 @@ pub(crate) fn extract_shot_replays_from_shared(
                         && (l.t_cur - t).abs() <= 1e-6
                 })
             });
+            if let Some((li, _)) = matched {
+                dmg_losses_used.insert(li);
+            }
             let lookup_t = hit_t.unwrap_or(end_time);
             let dc_idx = dc_increments
                 .iter()
@@ -1399,16 +1418,14 @@ pub(crate) fn extract_shot_replays_from_shared(
                 dc_used.insert(di);
                 dc_increments[di].1
             });
-            match matched {
-                Some((li, l)) => {
-                    dmg_losses_used.insert(li);
-                    damage = l.dmg;
-                }
-                None => {
-                    // ② 计数器亦无增量 = 服务器未记账 HP 伤害（模块-only 击穿等）→ 0
-                    damage = dc_delta.unwrap_or(0);
-                    dmg_unattributed = true;
-                }
+            if let Some(dmg) = settled_damage {
+                damage = u32::from(dmg);
+            } else if let Some((_, l)) = matched {
+                damage = l.dmg;
+            } else {
+                // ③ 无结算值、无血量降幅、无计数器增量 = 无伤害证据 → 0 + 未归属标记
+                damage = dc_delta.unwrap_or(0);
+                dmg_unattributed = true;
             }
             // hp_cur 已按哨兵族归一化（{0,-1,-2,-3}→0），==0 即终态；溺水（cause=5，HP 可为正）
             // 不产生降幅、不进入本链——非炮弹击杀，正确地不计入 is_kill
@@ -2102,28 +2119,42 @@ pub(crate) fn extract_other_shot_replays_from_shared(
 
     // ⑤ 血量链降幅（逐事件采样，全 source 保留——作者路径 ⑥' 的无过滤版本，cause=0 炮弹直击；含 type=5 满血锚点）
     let dmg_losses = derive_dmg_losses(&shared.hp_events, None, &shared.initial_hp);
-    // ⑤' **确定性时钟配对**预归属：降幅事件时钟 == 命中通知时钟（method8 t，与 method1
-    // 同 tick 逐位相等）的那一发得该段降幅；±0.05s 窗口仅用于**身份判定**（哪条 method8
-    // 属于这一发），不参与伤害配对。无时间窗、无就近匹配，配不上则走 dc 兜底。
-    let shot_dmg_inputs: Vec<Option<(f32, u32, u32)>> = launches
-        .iter()
-        .map(|l| {
-            let (end_time, _) = endpoints.get(&l.shot_id).copied()?;
-            // 命中归属窗口基准 = 首个续段时刻（装甲接触），无续段则终点时刻
-            let end_time =
-                shot_impact_time(segments.get(&(l.shooter, l.shot_id)), end_time);
-            let d = direct_hits8
-                .iter()
-                .filter(|d| d.shooter == l.shooter && (d.t - end_time).abs() <= 0.05)
-                .min_by(|x, y| {
-                    (x.t - end_time)
-                        .abs()
-                        .partial_cmp(&(y.t - end_time).abs())
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })?;
-            Some((d.t, l.shooter, d.victim))
-        })
-        .collect();
+        // ⑤' **身份判定窗口 + 服务器结算值优先**：±0.05s 窗口只用于"哪条 method8 通知属于
+        // 这一发"（同窗优先已结算态，见下）；伤害值优先取该通知的结算字段（trailer≠0 的
+        // u16，overkill 已封顶、复活模式亦如实）；无结算值 → 回退 ⑤'' 的 HP 链同钟配对。
+        let shot_dmg_inputs: Vec<Option<(f32, u32, u32)>> = launches
+            .iter()
+            .map(|l| {
+                let (end_time, _) = endpoints.get(&l.shot_id).copied()?;
+                // 命中归属窗口基准 = 首个续段时刻（装甲接触），无续段则终点时刻
+                let end_time =
+                    shot_impact_time(segments.get(&(l.shooter, l.shot_id)), end_time);
+                let cands: Vec<&DirectHit8> = direct_hits8
+                    .iter()
+                    .filter(|d| d.shooter == l.shooter && (d.t - end_time).abs() <= 0.05)
+                    .collect();
+                // 同刻双包（未结算 + 已结算）优先已结算；否则取最接近 end_time 者（身份判定语义不变）
+                let d = cands
+                    .iter()
+                    .copied()
+                    .filter(|d| d.settled)
+                    .min_by(|x, y| {
+                        (x.t - end_time)
+                            .abs()
+                            .partial_cmp(&(y.t - end_time).abs())
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .or_else(|| {
+                        cands.iter().copied().min_by(|x, y| {
+                            (x.t - end_time)
+                                .abs()
+                                .partial_cmp(&(y.t - end_time).abs())
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                    })?;
+                Some((d.t, l.shooter, d.victim))
+            })
+            .collect();
     let dmg_assign = assign_dmg_losses(&shot_dmg_inputs, &dmg_losses);
 
     // ⑥ type=10 状态索引 + type=7 prop2 炮塔偏航索引（共享一次预建，均按 clock 排序）
@@ -2253,7 +2284,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
         }
         let terrain_impact = terrain_hit.map(|(_, d)| d.clone());
 
-        // 伤害归属：确定性时钟配对预归属结果（assign_dmg_losses：命中时刻 == 降幅事件时钟；同钟竞争取未消费第一段）
+        // 伤害归属：method8 结算值优先（权威），无则 HP 链同钟配对预归属结果（同钟竞争取未消费第一段）
         let mut damage = 0u32;
         let mut is_kill = false;
         let mut dmg_unattributed = false;
@@ -2261,14 +2292,20 @@ pub(crate) fn extract_other_shot_replays_from_shared(
             .and_then(|e| names.get(&e).cloned())
             .unwrap_or_default();
         if let Some(d) = dhit {
-            if let Some(&(dm, hp_cur)) = dmg_assign.get(&li) {
-                damage = dm;
+            let hp_assign = dmg_assign.get(&li).copied();
+            if let Some((_, hp_cur)) = hp_assign {
                 is_kill = hp_cur == 0; // 归属链已按哨兵族 {0,-1,-2,-3}→0 归一化
+            }
+            if d.settled {
+                // 服务器结算的该发伤害（overkill 已封顶、复活模式如实）
+                damage = d.damage as u32;
+            } else if let Some((dm, _)) = hp_assign {
+                damage = dm;
             } else if d.result == 3
                 || d.result == 4
                 || (d.result == 2 && d.component_index == Some(0))
             {
-                // 应伤结果（3=击穿 / 4=履带·模块交互可带伤）却无降幅 = 服务器未记账 HP
+                // 应伤结果（3=击穿 / 4=履带·模块交互可带伤）却无结算值与降幅 = 服务器未记账 HP
                 dmg_unattributed = true;
             }
             // result=1/2（未穿/间隙止）无降幅 = 正常零伤，不打标
@@ -2574,6 +2611,8 @@ mod author_warning32_pairing_tests {
             result,
             component_index: Some(1),
             hash6,
+            damage: 0,
+            settled: false,
             victim_state: None,
             victim_prop2: None,
         }
@@ -2654,6 +2693,8 @@ mod target_binding_tests {
                 0x80,
                 0x00,
             ],
+            damage: 0,
+            settled: false,
             victim_state: None,
             victim_prop2: None,
         }

@@ -175,6 +175,7 @@ pub fn dump_replay_streams(packets: &[(u32, f32, &[u8])]) -> serde_json::Value {
             json!({"shot_id": sid, "t": t, "p": p})).collect::<Vec<_>>(),
         "direct_hits8": collect_direct_hits8(packets).iter().map(|d| json!({
             "t": d.t, "shooter": d.shooter, "victim": d.victim, "result": d.result,
+            "damage": d.damage, "settled": d.settled,
         })).collect::<Vec<_>>(),
         "type33_pairing": collect_entity_cache_pairing(packets),
     })
@@ -470,6 +471,13 @@ pub(crate) struct DirectHit8 {
     /// 部件对应（命中离地高度分层实证）：**0=底盘/履带、1=车体、2=炮塔、3=炮管（直射弹未观测）**。
     pub(crate) component_index: Option<u8>,
     pub(crate) hash6: [u8; 6],
+    /// **服务器结算的该发伤害**（args 尾部 `[…][u16 伤害][u8 状态]` 的 u16，2026-10-15 全语料实证）：
+    /// 状态字节 ≠0（观测 0x01/0x03）= 已结算，u16 = 实际掉血值（**overkill 已封顶**——剩 124 HP
+    /// 被击穿记 124；复活模式 HP 重置吞并的伤害也如实给出）；状态字节 =0 = 未结算（u16 可能是
+    /// 弹种标称占位值，**不可当伤害用**）。
+    pub(crate) damage: u16,
+    /// 尾部状态字节 ≠0（见 [`DirectHit8::damage`]）
+    pub(crate) settled: bool,
     pub(crate) victim_state: Option<([f32; 3], [f32; 3], f32)>, // (pos, ang[yaw,pitch,roll], 状态采样时钟)
     /// method8 包处理时刻（**流序**）受击者的最后已知 prop2 原始 u16——WI 解析器同构快照
     /// （battle.json turret_yaw/gun_pitch 的取样基准：炮塔 coarse10 与流序快照逐位相等——
@@ -694,7 +702,8 @@ pub(crate) fn collect_direct_hits8(packets: &[(u32, f32, &[u8])]) -> Vec<DirectH
             continue;
         }
         let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if args_len < 10 || 12 + args_len > p.len() {
+        // 直击元素形态需要 hash6 六字节（a[11..17]）——args_len < 17 不是该形态，丢弃。
+        if args_len < 17 || 12 + args_len > p.len() {
             continue;
         }
         let a = &p[12..12 + args_len];
@@ -705,6 +714,16 @@ pub(crate) fn collect_direct_hits8(packets: &[(u32, f32, &[u8])]) -> Vec<DirectH
         // args = [shooter u32][victim u32][count u8][element 8B = result|cmpIndex|hash6 u48][tail 4B]
         // a[10] = 服务器下发的受击部件索引 cmpIndex（showDamageFromShot/DecodeShotSegment）
         let component_index = if args_len >= 11 { Some(a[10]) } else { None };
+        // 尾部结算伤害（args_len=21 观测形态：a[18..20] = u16 LE 伤害，a[20] = 结算状态字节）。
+        // 更短/更长的其它收敛形态不带该字段 → damage=0/settled=false（fail-closed）。
+        let (damage, settled) = if args_len >= 21 {
+            (
+                u16::from_le_bytes([a[args_len - 3], a[args_len - 2]]),
+                a[args_len - 1] != 0x00,
+            )
+        } else {
+            (0, false)
+        };
         direct_hits8.push(DirectHit8 {
             t: *clock,
             shooter: u32::from_le_bytes([a[0], a[1], a[2], a[3]]),
@@ -712,6 +731,8 @@ pub(crate) fn collect_direct_hits8(packets: &[(u32, f32, &[u8])]) -> Vec<DirectH
             result: a[9],
             component_index,
             hash6: [a[11], a[12], a[13], a[14], a[15], a[16]],
+            damage,
+            settled,
             victim_state: pose.get(&victim).map(|(pos, ang, c)| (*pos, *ang, *c)),
             victim_prop2: ang2.get(&victim).copied(),
         });
@@ -1880,5 +1901,72 @@ mod dmg_attribution_tests {
         assert_eq!(got.get(&0), Some(&(100, 900)));
         assert_eq!(got.get(&1), Some(&(120, 780)));
         assert_eq!(got.get(&2), None);
+    }
+}
+
+#[cfg(test)]
+mod direct_hit8_damage_tests {
+    use super::*;
+
+    /// 合成直击形态 method8 载荷：信封 [eid][0x08][args_len] + args 21B
+    /// （[shooter][victim][count=1][result][cmpIndex][hash6 6B][?][u16 伤害][u8 状态]）。
+    fn payload(shooter: u32, victim: u32, result: u8, damage: u16, trailer: u8) -> Vec<u8> {
+        let mut args = vec![0u8; 21];
+        args[0..4].copy_from_slice(&shooter.to_le_bytes());
+        args[4..8].copy_from_slice(&victim.to_le_bytes());
+        args[8] = 0x01;
+        args[9] = result;
+        args[10] = 1;
+        args[11..17].copy_from_slice(&[0xAA; 6]);
+        args[18..20].copy_from_slice(&damage.to_le_bytes());
+        args[20] = trailer;
+        let mut p = Vec::new();
+        p.extend_from_slice(&victim.to_le_bytes());
+        p.extend_from_slice(&0x08u32.to_le_bytes());
+        p.extend_from_slice(&(args.len() as u32).to_le_bytes());
+        p.extend_from_slice(&args);
+        p
+    }
+
+    /// 状态字节 ≠0 = 服务器已结算：u16 即该发实际伤害（overkill 已封顶）。
+    #[test]
+    fn settled_tail_damage_is_decoded() {
+        let p = payload(7, 9, 3, 577, 0x01);
+        let packets: Vec<(u32, f32, &[u8])> = vec![(8, 12.5, p.as_slice())];
+        let dh = collect_direct_hits8(&packets);
+        assert_eq!(dh.len(), 1);
+        assert!(dh[0].settled);
+        assert_eq!(dh[0].damage, 577);
+    }
+
+    /// 状态字节 =0 = 未结算：u16 是标称占位值（如 340），消费方不得当伤害用（settled=false）。
+    #[test]
+    fn unsettled_tail_is_flagged() {
+        let p = payload(7, 9, 2, 340, 0x00);
+        let packets: Vec<(u32, f32, &[u8])> = vec![(8, 12.5, p.as_slice())];
+        let dh = collect_direct_hits8(&packets);
+        assert_eq!(dh.len(), 1);
+        assert!(!dh[0].settled);
+        assert_eq!(dh[0].damage, 340, "字段照读，但 settled=false 不得入伤害");
+    }
+
+    /// 更短收敛形态（args_len < 21）不带结算字段 → damage=0 / settled=false（fail-closed）。
+    #[test]
+    fn shorter_shape_has_no_settled_damage() {
+        let mut args = vec![0u8; 20];
+        args[0..4].copy_from_slice(&7u32.to_le_bytes());
+        args[4..8].copy_from_slice(&9u32.to_le_bytes());
+        args[8] = 0x01;
+        args[9] = 3;
+        let mut p = Vec::new();
+        p.extend_from_slice(&9u32.to_le_bytes());
+        p.extend_from_slice(&0x08u32.to_le_bytes());
+        p.extend_from_slice(&(args.len() as u32).to_le_bytes());
+        p.extend_from_slice(&args);
+        let packets: Vec<(u32, f32, &[u8])> = vec![(8, 1.0, p.as_slice())];
+        let dh = collect_direct_hits8(&packets);
+        assert_eq!(dh.len(), 1);
+        assert!(!dh[0].settled);
+        assert_eq!(dh[0].damage, 0);
     }
 }
