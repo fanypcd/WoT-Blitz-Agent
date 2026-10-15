@@ -17957,7 +17957,7 @@
         "penetration": 259,
         "damage": 450,
         "module_damage": 180,
-        "explosion_radius": 0.0,
+        "explosion_radius": 0.10000000149011612,
         "caliber": 127.0,
         "normalization": 5.0,
         "ricochet": 70.0
@@ -34382,11 +34382,11 @@
     "is_collector": true,
     "armor": {
       "turret_front": 170,
-      "turret_sides": 170,
-      "turret_rear": 170,
-      "hull_front": 200,
-      "hull_sides": 200,
-      "hull_rear": 200
+      "turret_sides": 150,
+      "turret_rear": 150,
+      "hull_front": 120,
+      "hull_sides": 42,
+      "hull_rear": 30
     },
     "shells": [
       {
@@ -35236,11 +35236,11 @@
     "is_collector": true,
     "armor": {
       "turret_front": 150,
-      "turret_sides": 150,
-      "turret_rear": 150,
-      "hull_front": 230,
-      "hull_sides": 230,
-      "hull_rear": 230
+      "turret_sides": 60,
+      "turret_rear": 55,
+      "hull_front": 115,
+      "hull_sides": 55,
+      "hull_rear": 45
     },
     "shells": [
       {
@@ -39046,11 +39046,11 @@
     "is_collector": true,
     "armor": {
       "turret_front": 250,
-      "turret_sides": 250,
-      "turret_rear": 250,
-      "hull_front": 230,
-      "hull_sides": 230,
-      "hull_rear": 230
+      "turret_sides": 230,
+      "turret_rear": 40,
+      "hull_front": 210,
+      "hull_sides": 80,
+      "hull_rear": 25
     },
     "shells": [
       {

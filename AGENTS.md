@@ -106,7 +106,9 @@ testing** happen in the WotbTools repository (https://github.com/A158Coke/WotbTo
   Tank models are the same deal — the shipped bytes are our own export, so a tank fix is
   `python tools/export_tank_glb.py --tank <id> --out data/cache/models`（全量：先导
   `data/cache/local_models` 再同步两目录，二者应逐辆一致），随后把同批文件替换进
-  `release/asset_pack/glb/<id>/`。
+  `release/asset_pack/glb/<id>/`。Cover icons likewise are our own client export since
+  2026-10-15: `python tools/export_tank_icons.py --all --out data/cache/local_tank_icons`
+  then sync into `data/cache/tank_images/`（两目录逐字节一致，打包器读它）。
   Note `scripts/export_asset_pack.py` **overwrites overhead-baked grounds**, so after an export
   re-run the composite reading the pre-composite bases and the render cache:
   `python tools/composite_overhead.py --pack release/asset_pack --all --write --render-dir release/overhead-bake --base-dir data/cache/maps`
@@ -219,6 +221,10 @@ wotb-agent dump-shell-kinds --out data/shell_kinds.json           # shell-kind t
                                                                   # from the same tanks.pb the
                                                                   # pack will ship; packer
                                                                   # fails closed without it)
+python tools/export_tank_icons.py --all --out data/cache/local_tank_icons   # client cover icons
+cp data/cache/local_tank_icons/*.webp data/cache/tank_images/     # sync (the two dirs must stay
+                                                                  # byte-identical; packer reads
+                                                                  # cache/tank_images)
 python scripts/export_asset_pack.py --map-index map_index.json   # rebuild pack (overwrites
                                                                  # overhead-baked grounds!)
 python tools/composite_overhead.py --pack release/asset_pack --all --write \

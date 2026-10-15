@@ -17,8 +17,9 @@
 | `game_data` 冻结故障修复（field2→field32） | ✅ 已在 main（`e3b22c3`；原分支载体已删） | [game-data-sources.md](game-data-sources.md) §6 |
 | 两处 pb 字段号 bug（引擎起火率 / 履带阻力） | ✅ 已提交 `5032251` | 报告 A §8；`data/tank_data/*.json` 重生成 |
 | **GLB 自产管线** | ✅ **已接线（2026-10-07）** | `data/cache/models/` 已整体换为自产导出：735 辆的 `model.glb` + `collision.glb` 全量 generator = `wotb-agent local sc2 exporter`，与 `data/cache/local_models/` 逐辆逐字节一致（735/735），包与 COS 已随发（[data-inventory.md](data-inventory.md) §一 #8）；工具 `tools/export_tank_glb.py` + `tools/compare_tank_glb.py`；等价性口径：`collision` **735/735**、`model` **733/735** 逐字节等价（含 UV0/1/2 与节点顺序），规则见 [local-model-export.md](local-model-export.md) §3；**2026-10-10 起其中 23 辆为有意分歧**（静态变换烘焙 / 状态过滤，等价数 710/735，见该文 §5.1） |
-| **封面图自产管线** | ✅ 可用，未接线（包内仍 BlitzKit 源，抽样 80/80 命中） | `tools/export_tank_icons.py`；**735/735 且全为大图档**（2026-10-10 接入**逐车 `bigIconPath` 声明**后（全部由声明源命中）；详见 §3） |
+| **封面图自产管线** | ✅ **已接线（2026-10-15）**（客户端剥壳字节为现役来源；BlitzKit 退为缺失兜底/对照） | `tools/export_tank_icons.py`；**738/738 且全为大图档**（逐车 `iconPath` 声明全命中；接线复核见 §3 文首） |
 | **`tanks.pb`/`models.pb` 本机解析器** | ✅ 可用，未接线 | `tools/extract_vehicles.py`（客户端 XML/components/yaml/en.yaml → 同构 JSON）+ `tools/compare_vehicle_data.py`（pb→同形 dict 逐字段对照）+ `tools/emit_vehicle_pb.py`（同格式 pb 编码器）。`data/tank_id_bridge.json` 738 条已固化（2026-10-15 随 11.21.0 +3），**并已证明可纯客户端重建**。全量对照（2026-10-04 首轮）：**全部数值字段 0 不一致**；**2026-10-10 复测**：与 BK 剩余差异共 **122 处**且全部定性——119 枪序（研发序口径）、2 条名字（客户端两源皆无，补表兜底）、1 处 `10625` explosion_radius（BK 错值）、1 辆类别词（`81`，已改为精确 token 判定修掉）；弹种集合"差异"经查为 BK 按 gun module 塌缩（见 §2 C5） |
+| **`tanks.pb`/`models.pb` 换源转正** | ✅ **已接线（2026-10-15）** | `data/tanks.pb` / `data/models.pb` 换为本机客户端解包编码（同格式 pb + 补充表沿用 BK 自建名 2 条 / dev_name 738），BlitzKit 降级为**对照校验源**。转正回归三门：tank_cache 逐字段对照仅 10625 一处差异（= BK 错值修复）；`armor_model.gun` × game_data 矛盾 **15→0**（turret 2 / hull 6 残留两源同数 = f32 量化）；GLB 节点号耦合抽样 5/5。产物干净 A/B 复测：字节级差异 118 辆 = 18 辆实体（17 辆顶级炮板集/族修正 + 10625 错值）+ 100 辆仅 ±0.0 符号零（IEEE 等值）；实体侧即修复 BK 源下"末位=顶级"的误选（105 辆/119 炮塔枪序不同、92 辆末位主炮 id 不同，其中 15 辆板集与 game_data 实质矛盾 → 0）。附带修复 `ShellKindTable` 坍缩非确定性（HashMap 随机序 → tank_id 升序）。剩余可选：封面图接线 |
 | `baseRMMap` 通道搬迁（MR 槽） | ✅ 已提交 `923144d` | ch0→G（粗糙度）、ch1→B（金属度）；修后与 BlitzKit 的 G 通道一致 **1010/1011**；[local-model-export.md](local-model-export.md) §4.1 |
 | UV1/UV2 / `doubleSided` 对齐 | ✅ | TEXCOORD_1/2（139/18 辆）；`customCullMode==0`（1598/1598 零反例）——均见 [local-model-export.md](local-model-export.md) §3 |
 
@@ -93,7 +94,14 @@
 结论：**已解析、已透出、无人消费**；换源时别拿它当车体转速权威值（客户端该取 chassis
 `<rotationSpeed>`），保留为对照或在 schema 标废弃。
 
-## 3. 封面图：能力已就绪，但"换素材 ≠ 等价替换"
+## 3. 封面图：**已接线（2026-10-15）**——"换素材 ≠ 等价替换"的复核记录
+
+> **2026-10-15 接线**：`export_tank_icons.py --all`（738/738，逐车 `iconPath` 声明全命中）
+> → 同步进 `cache/tank_images/`（两目录逐字节一致）→ 随包物化 + manifest 重算。
+> 接线前复核（本次实测）：alpha 轮廓与 BK **100% 一致**；BK 为二次重编码 + 更紧 1px 裁剪
+> （art 区 RGB 平均差 1.79 / p99≈8 / max≤17），客户端为游戏原始剥壳字节——保真度只升不降。
+> 对照渲染件：`data/cache/local_compare/`（左 BK / 右客户端，抽样 3 辆）。BlitzKit
+> `fetch-icons` 与运行期懒下载（`web/assets.rs:233`）退为缺失兜底（休眠）。
 
 ### 3.1 来源与形态（实测）
 

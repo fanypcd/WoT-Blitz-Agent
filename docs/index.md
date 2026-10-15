@@ -2457,6 +2457,33 @@ release/11.21.0，tank_count 735 → 738。**
   全量重生成，**11.21.0 版全量对照复跑 = 仍恰为既有 122 处定性差异、tracks 零新增**；
   lib 全测 81/81 绿（含新锚点：4369 双底盘 10.0/15.0 逐条保留）。详见
   [decoupling-status.md](decoupling-status.md) §2 C1（已定案）。
+- **换源转正（同日第三批）：`data/tanks.pb` / `data/models.pb` 换为本机客户端解包编码**——
+  同格式 pb（`extract_vehicles` → `emit_vehicle_pb` + 补充表：dev_name 738、BK 自建名 2 条），
+  BlitzKit 降级为对照校验源（`fetch-blitzkit` 保留）。**转正回归三门全过**：① tank_cache
+  逐字段对照（同条件 A/B）仅 10625 explosion_radius 一处差异 = BK 错值随换源修复（附带查明
+  并修复 `ShellKindTable` 坍缩**非确定性**——原按 HashMap 随机序"先到先得"，同 pb 三次运行
+  58/68 条漂移，改按 tank_id 升序取首个，三次运行逐字节一致）；② `armor_model.gun` ×
+  game_data 矛盾 **15 → 0**（turret 2 / hull 6 残留两源同数 = f32 量化 95.25/19.05 类）；
+  ③ GLB 节点号耦合抽样 5/5 全中。**tank/{id}.json 干净 A/B 复测：字节级差异 118 辆
+  = 18 辆实体 + 100 辆仅 ±0.0 符号零**——实体 = 17 辆顶级炮板集/族修正（换源即修复
+  BK 源下"末位=顶级"的误选：105 辆/119 炮塔枪序不同、92 辆末位主炮 id 不同，其中
+  **15 辆板集与 game_data 实质矛盾 → 0**；旧记"82 辆"为口径错误，[data-inventory.md](data-inventory.md)
+  §一注已勘误）+ 10625 错值；±0.0 为客户端 XML 字面保真（IEEE 等值、无行为影响）。
+  资产包 tank/ 119 件 + data/ 六件已随本机
+  源重物化、manifest 重算；WASM 引擎不含 pb、消费方无需适配（数据修正随包上传生效）。
+  完整定案见 [decoupling-status.md](decoupling-status.md) §1 与
+  [data-inventory.md](data-inventory.md) §一 #1/#2、§四。
+- **封面图换源（同日第四批）：`data/cache/tank_images/` 换为客户端剥壳字节**——
+  `export_tank_icons.py --all` **738/738**（逐车 `iconPath` 声明全命中，含 3 辆新车）
+  → 同步进 `cache/tank_images/`（与 `local_tank_icons/` 两目录逐字节一致）→ 包内
+  `tank_images/` **738 件全部重物化** + manifest 重算。**接线复核**：与 BK 同源同画——
+  alpha 轮廓 **100% 一致**、BK 为二次重编码 + 更紧 1px 裁剪（art 区 RGB 平均差 1.79 /
+  p99≈8 / max≤17）、客户端为游戏原始字节（保真度只升不降）；对照渲染件抽样 3 辆在
+  `data/cache/local_compare/`（左 BK / 右客户端，目视归属用户）。BlitzKit 两入口
+  （`fetch-icons` / 运行期懒下载 `web/assets.rs:233`）退为缺失兜底（休眠）。**至此运行期
+  11+1 项数据全部客户端化**——BlitzKit 仅剩对照校验角色，外部服务仅剩 WG 战绩 API。
+  详见 [data-inventory.md](data-inventory.md) §一 #9、§五 与
+  [decoupling-status.md](decoupling-status.md) §3。
 - **blast radius**：`data/` 面（git 内 pb/cache/bridge/game_data + 文档计数）已同步；
   **资产包（`release/asset_pack/`）已物化 11.21.0 增量**——`data/` 域六件全量刷新 + 3 辆
   新车逐车文件（glb/tank/tank_images/game_data/suspension/tread）+ 3937/4193/23169/24945

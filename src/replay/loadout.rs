@@ -56,7 +56,15 @@ pub struct ShellTableEntry {
 impl ShellKindTable {
     pub fn from_tanks_pb() -> Self {
         let mut by_global: HashMap<u32, ShellTableEntry> = HashMap::new();
-        for tank in load_tanks().values() {
+        // 确定性坍缩：同一全局 gid 在不同炮下可携带不同穿深（穿透力是炮属性），
+        // 表只能留一个代表值——按 tank_id 升序迭代取首个，跨进程稳定。
+        // （此前按 HashMap values() 随机序"先到先得"，同 pb 每次运行产出不同表，
+        // 2026-10-15 换源演练实测三次运行 58/68 条漂移后才暴露。）
+        let tanks = load_tanks();
+        let mut tank_ids: Vec<u32> = tanks.keys().copied().collect();
+        tank_ids.sort_unstable();
+        for tid in tank_ids {
+            let tank = &tanks[&tid];
             let Some(base) = nation_base(&tank.nation) else {
                 continue;
             };

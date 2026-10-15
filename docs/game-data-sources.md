@@ -25,10 +25,10 @@
 
 | 产物 | 当前来源 | 本地可否替代 | 证据 |
 |---|---|---|---|
-| `data/tanks.pb` 坦克数据库 | BlitzKit `definitions/tanks.pb` | ✅ 完全 | §2.2 |
-| `data/models.pb` 模型定义 | BlitzKit `definitions/models.pb` | ✅ 完全 | §2.3 |
+| `data/tanks.pb` 坦克数据库 | 本机客户端解包编码（`tools/extract_vehicles.py` → `tools/emit_vehicle_pb.py`，2026-10-15 换源转正；BlitzKit 降为对照校验源） | ✅ 完全 | §2.2 |
+| `data/models.pb` 模型定义 | 同上（同批换源） | ✅ 完全 | §2.3 |
 | `data/cache/models/{id}/*.glb` | **本机客户端**（`tools/export_tank_glb.py` 自产；2026-10-07 已换源并接线，BlitzKit CDN 仅缺失兜底） | ✅ 已实现并接线 | §2.4 |
-| `data/cache/tank_images/{id}.webp` | BlitzKit `tanks/{id}/icons/big.webp` | ✅ 完全 | §2.5 |
+| `data/cache/tank_images/{id}.webp` | **本机客户端**（`tools/export_tank_icons.py` 剥壳字节，2026-10-15 换源接线；BlitzKit 仅缺失兜底） | ✅ 已实现并接线 | §2.5 |
 | `data/game_data/{id}.json` 装甲/碰撞盒 | 本机客户端 DVPL（已本地） | — | §2.6 |
 | `data/tank_cache.json` | `tanks.pb` 派生（纯本地，**不经 WG API**） | ✅ 随 pb | — |
 | 地图资产（底图/地形/小地图/场景） | 本机客户端（已本地） | — | `tools/export_map_glb.py` |
@@ -147,7 +147,11 @@ BlitzKit models.pb 也只有 **4 字节空消息**（`0a 00 12 00`，min/max 两
 `export_map_glb.py` 的 `GlbBuilder` 已具备全部原语——地图资产就是这么导出的，坦克是
 同一套格式，属移植现成管线而非从零。
 
-### 2.5 封面图 ← 客户端本地（本轮新发现）
+### 2.5 封面图 ← 客户端本地（**2026-10-15 已换源接线**）
+
+> 现役来源 = 本目录（`tools/export_tank_icons.py` 剥壳裸 webp，738/738）→ 同步进
+> `data/cache/tank_images/`；BlitzKit `fetch-icons` 与运行期懒下载退为缺失兜底。
+> 接线复核：alpha 轮廓与 BK 100% 一致、RGB 差为 BK 二次重编码噪声（mean 1.79 / max 17）。
 
 - `Data/Gfx/UI/BigTankIcons/<国家标签>-<名字>.packed.webp.dvpl`（2312 个，含 `@2x` 与 `_skinN` 变体）
 - `Data/Gfx/UI/BattleScreenHUD/SmallTankIcons/`（1474 个，128×32，作兜底）
