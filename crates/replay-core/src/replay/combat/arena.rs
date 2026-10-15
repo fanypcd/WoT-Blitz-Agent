@@ -576,7 +576,9 @@ mod arena_tests {
 // ---------- Supremacy（争霸）目标状态：subtype48 wrapper12/root11（WotbTools PROVEN 移植） ----------
 //
 // 来源与 provenance：WotbTools `EntityMethodDecoder.parseRawSupremacyBaseUpdates` +
-// `SupremacyBaseStateReconstructor`（docs/research/replay/supremacy-base-state.md）。
+// `SupremacyBaseStateReconstructor`（docs/research/replay/supremacy-base-state.md）——
+// 重建器的空闲行判据自 2026-10-15 起偏离该参考口径（owner 不再要求缺省/变化），
+// 见契约 §1.2 与 `reconstruct_supremacy_base_states` 的注释。
 // 数据链：Type 8 EntityMethod → subtype 48（updateArena2）→ wrapper field 12 → root field 11
 // → repeated base 块；嵌套字段 field1=base index(0..3=A..D)、field2=owner team、field3=capturing
 // team、field4=capture progress、field5/6=UNKNOWN 原样透传（禁命名）。
@@ -633,18 +635,11 @@ pub struct RawSupremacyBaseUpdate {
 }
 
 impl RawSupremacyBaseUpdate {
-    /// 全缺省行（除 base_index 外**没有任何**字段）= 显式清空该基地。
-    ///
-    /// 服务端按 proto3 语义**省略零值字段**：整个基地状态回到全零（无主/无占领方/进度 0）
-    /// 时，wire 上就是一条只带 base_index 的块。该形态只出现在两类时刻——开局的状态
-    /// 广播，与**占领中断**（占领车辆出圈/被击毁，进度作废）；进度进行中从不出现。
-    /// 详见 `reconstruct_supremacy_base_states` 的注释与契约文档。
-    ///
-    /// 未知字段（f5/f6）带值时**不**判为清空：其语义未证实，缺省语义 = "维持前值"
-    /// （fail-closed，不拿未证实证据改状态）。
-    fn is_blank(&self) -> bool {
-        self.owner_team.is_none()
-            && self.capturing_team.is_none()
+    /// 空闲状态：只带 base_index，或再带当前 owner；f3/f4 的零值由 proto3 省略。
+    /// 中立基地清空全部状态；已有归属的基地保留 owner，只清空占领方与进度。
+    /// 带未知字段 f5/f6 的块语义未闭合，仍按 sparse 更新处理，不推断重置。
+    fn is_idle(&self) -> bool {
+        self.capturing_team.is_none()
             && self.capture_progress.is_none()
             && self.raw_field5.is_none()
             && self.raw_field6.is_none()
@@ -755,17 +750,17 @@ pub fn collect_supremacy_base_updates(
     out
 }
 
-/// sparse 更新 → canonical 状态时间线（Java `SupremacyBaseStateReconstructor` 逐行移植）：
+/// sparse 更新 → canonical 状态时间线（移植自 WotbTools `SupremacyBaseStateReconstructor`；
+/// **空闲行判据自 2026-10-15 偏离该参考口径**——owner 不再要求缺省/变化，见契约 §1.2）：
 /// absent = 维持前值；显式 0 = 清空（owner/capturing）；显式 capturing 清空连带清 progress；
 /// 占领中 owner 变更 = 完成/作废该次占领（capturing 与 progress 一并清空）。
-/// **全缺省行 = 清空整个基地状态**（契约见下）。
+/// **空闲行 = 保留当前广播的归属，清空占领状态**（契约见下）。
 /// 排序 = clock 升序稳定排序（同 clock 保包序 = Java 的 sequence 序，同源包流）。
 ///
-/// **全缺省行为何是"清空"**：服务端按 proto3 省略零值字段，故"占领中断（车辆出圈/被击毁，
-/// 进度作废）"落在 wire 上是一条只带 base_index、其余字段全缺省的块——若把"字段缺省"
-/// 一律当"维持前值"，该块即空操作，旧进度与旧占领方**永久**挂在基地上。
-/// 带未知字段（f5/f6）的块不按清空处理，见
-/// [`RawSupremacyBaseUpdate::is_blank`]。
+/// 服务端按 proto3 省略零值字段：中立基地中断时只剩 base_index；已归属基地中断时
+/// 还保留非零 owner（即使归属未改变）。两种形态都必须清空旧占领方与进度。
+/// 带未知字段（f5/f6）的块不按清空处理，见 [`RawSupremacyBaseUpdate::is_idle`]。
+/// 规则只读字段在场/缺省（不读车辆位置、不含统计阈值）；公开语料对拍见契约 §1.2 证据。
 pub fn reconstruct_supremacy_base_states(
     mut raw: Vec<RawSupremacyBaseUpdate>,
 ) -> Vec<SupremacyBaseStateTransition> {
@@ -789,9 +784,9 @@ pub fn reconstruct_supremacy_base_states(
             continue;
         }
         let st = &mut states[idx];
-        if u.is_blank() {
-            // 全零状态的整体广播：三个字段一起回到零值语义，不保留任何前值
-            st.owner = None;
+        if u.is_idle() {
+            // 空闲状态的整体广播：owner 原样保留（缺省/0 为无主），占领状态归零。
+            st.owner = u.owner_team.filter(|&owner| owner != 0);
             st.capturing = None;
             st.progress = None;
         } else {
@@ -1348,6 +1343,117 @@ mod supremacy_tests {
             (t[1].owner_team, t[1].capturing_team, t[1].capture_progress),
             (None, None, None),
             "全缺省行必须清空占领方与进度（出圈重置）"
+        );
+    }
+
+    #[test]
+    fn owner_only_row_clears_capture_without_changing_owner() {
+        // 已归属基地争夺中断：proto3 省略归零的 f3/f4，仍保留非零 owner。
+        // 使用真实 wire 形状的合成数据，不提交私人回放。
+        for base in 0..=3 {
+            for owner in [1, 2] {
+                let capturing = 3 - owner;
+                let cap = mk48(
+                    12,
+                    &root_blocks(
+                        11,
+                        &[varint_block(&[
+                            (1, base),
+                            (2, owner),
+                            (3, capturing),
+                            (4, 26),
+                            (6, 1),
+                        ])],
+                    ),
+                );
+                let idle = mk48(
+                    12,
+                    &root_blocks(11, &[varint_block(&[(1, base), (2, owner)])]),
+                );
+                let restart = mk48(
+                    12,
+                    &root_blocks(
+                        11,
+                        &[varint_block(&[
+                            (1, base),
+                            (2, owner),
+                            (3, capturing),
+                            (4, 4),
+                            (6, 1),
+                        ])],
+                    ),
+                );
+                let packets: Vec<(u32, f32, &[u8])> =
+                    vec![(8, 10.0, &cap), (8, 11.0, &idle), (8, 20.0, &restart)];
+                let states =
+                    reconstruct_supremacy_base_states(collect_supremacy_base_updates(&packets));
+                assert_eq!(states.len(), 3);
+                assert_eq!(
+                    (
+                        states[1].base_id,
+                        states[1].owner_team,
+                        states[1].capturing_team,
+                        states[1].capture_progress
+                    ),
+                    (base as u8, Some(owner as u8), None, None),
+                    "只保留原归属的状态必须清掉旧占领方与进度"
+                );
+                assert_eq!(
+                    (
+                        states[2].owner_team,
+                        states[2].capturing_team,
+                        states[2].capture_progress
+                    ),
+                    (Some(owner as u8), Some(capturing as u8), Some(4)),
+                    "重置后可重新占领，进度不可沿用上一次"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn owner_only_row_with_unknown_fields_keeps_capture() {
+        for field in [5, 6] {
+            let cap = mk48(
+                12,
+                &root_blocks(11, &[varint_block(&[(1, 2), (2, 1), (3, 2), (4, 26)])]),
+            );
+            let unknown = mk48(
+                12,
+                &root_blocks(11, &[varint_block(&[(1, 2), (2, 1), (field, 1)])]),
+            );
+            let packets: Vec<(u32, f32, &[u8])> = vec![(8, 10.0, &cap), (8, 11.0, &unknown)];
+            let states =
+                reconstruct_supremacy_base_states(collect_supremacy_base_updates(&packets));
+            assert_eq!(
+                (
+                    states[1].owner_team,
+                    states[1].capturing_team,
+                    states[1].capture_progress
+                ),
+                (Some(1), Some(2), Some(26)),
+                "未知字段在场时不能据缺省字段推断重置"
+            );
+        }
+    }
+
+    #[test]
+    fn progress_only_row_keeps_owner_and_capturer() {
+        let cap = mk48(
+            12,
+            &root_blocks(11, &[varint_block(&[(1, 2), (2, 1), (3, 2), (4, 26)])]),
+        );
+        let progress = mk48(12, &root_blocks(11, &[varint_block(&[(1, 2), (4, 15)])]));
+        let packets: Vec<(u32, f32, &[u8])> = vec![(8, 10.0, &cap), (8, 11.0, &progress)];
+        let states = reconstruct_supremacy_base_states(collect_supremacy_base_updates(&packets));
+        assert_eq!(
+            (
+                states[1].owner_team,
+                states[1].capturing_team,
+                states[1].capture_progress
+            ),
+            (Some(1), Some(2), Some(15)),
+            "正常 sparse 进度更新仍保留其它维度"
         );
     }
 
