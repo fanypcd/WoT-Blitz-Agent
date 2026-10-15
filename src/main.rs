@@ -1969,14 +1969,13 @@ fn cmd_update_data(
         anyhow::bail!("Game directory not found (needed for version detection and extraction). Pass --game-dir explicitly.");
     }
 
-    // 1. BlitzKit pb（tanks.pb + models.pb 一起下载）
-    let mut blitzkit_at = manifest.blitzkit_updated_at.clone();
+    // 1. BlitzKit pb（tanks.pb + models.pb 一起下载；换源转正（2026-10-15）后本机编码的
+    //    pb 是现役来源，此步仅作对照/兜底——日常刷新用 --offline 保留本机 pb）
     let mut tank_count = manifest.tank_count;
     if !offline {
         eprintln!("Downloading BlitzKit definitions ...");
         let n = tokio::runtime::Runtime::new()?
             .block_on(wotb_agent::wargaming::blitzkit::fetch_and_save(output))?;
-        blitzkit_at = Some(now_rfc3339());
         tank_count = Some(n);
         println!("  BlitzKit: downloaded tanks.pb + models.pb ({} tanks)", n);
     } else {
@@ -2048,7 +2047,6 @@ fn cmd_update_data(
     // 6. 刷新版本清单
     DataVersionManifest {
         game_version: current_version.unwrap_or_default(),
-        blitzkit_updated_at: blitzkit_at,
         tank_cache_updated_at: Some(now_rfc3339()),
         game_data_updated_at: Some(now_rfc3339()),
         tank_count,

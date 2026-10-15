@@ -10,16 +10,13 @@ pub struct DataVersionManifest {
     /// 上次更新时本机游戏的版本号（version.txt.dvpl 中的 release/X.Y.Z 段）。
     #[serde(default)]
     pub game_version: String,
-    /// 上次下载 BlitzKit pb 的时间（RFC3339）。
-    #[serde(default)]
-    pub blitzkit_updated_at: Option<String>,
     /// 上次重建 tank_cache.json 的时间。
     #[serde(default)]
     pub tank_cache_updated_at: Option<String>,
     /// 上次提取 game_data 的时间。
     #[serde(default)]
     pub game_data_updated_at: Option<String>,
-    /// 上次 BlitzKit 坦克总数。
+    /// 上次解析出的坦克总数。
     #[serde(default)]
     pub tank_count: Option<usize>,
     /// 上次 game_data 覆盖的文件数（新提取 + 已缓存）。
