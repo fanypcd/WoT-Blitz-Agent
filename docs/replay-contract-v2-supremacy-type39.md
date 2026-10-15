@@ -18,7 +18,7 @@
 
 wire 块是 **SPARSE UPDATE**，重建语义（`SupremacyBaseStateReconstructor` 逐行移植）：
 
-- absent 字段 = 维持前值（不推断）——**但全缺省行例外，见 1.1**
+- absent 字段 = 维持前值（不推断）——**但空闲状态行例外（只有基地编号，可附带当前归属），见 1.1**
 - 显式 0（owner/capturing）= 清空该字段
 - 显式 capturing 清空 → progress 连带清空
 - 占领中（capturing 在案）发生 owner 变更 → capturing 与 progress 一并清空
@@ -37,7 +37,7 @@ wire 上的 base 块按 **proto3 语义省略零值字段**：一个块的值全
 
 | 载体 | 旧行为 | 新行为 |
 |---|---|---|
-| 争霸 wrapper12/root11 | 只有 base_index 的全缺省行 = 空操作 → 进度/占领方卡住 | 全缺省行 = **显式清空**该基地（owner/capturing/progress 全归零） |
+| 争霸 wrapper12/root11 | 只带 base_index，或附带未改变的 owner 时沿用旧占领状态 | 空闲行清空 capturing/progress；owner 按本行广播保留，缺省/0 为中立 |
 | 单基地 wrapper8/root8 | 缺 field3 的块整块丢弃 → 进度停在最后一个正值 | `field3`/`field4` **双缺省块 = 进度归零**（`progress = 0`，显示层映射为 idle） |
 
 证据（四份真实回放，两个载体一致）：
@@ -48,7 +48,27 @@ wire 上的 base 块按 **proto3 语义省略零值字段**：一个块的值全
 - 单基地 `J39` / `J20` / `XM551`：每条进度序列（1,2,3…）之后**必然**跟一对双缺省块
   （J39 一处 / J20 四处 / XM551 三处），进度进行中零出现。
 
-fail-closed 边界：
+### 1.2 已归属基地的占领中断（2026-10-15 补正）
+
+空闲状态不一定是全零：基地已经属于一方时，争夺中断只清掉 capturing/progress，
+原 owner 仍非零。其 wire 结构是 **只有 field1（base index）与 field2（owner）**，
+不能要求 owner 也缺省才清空，更不能要求 owner 相比上一行发生变化。
+中立与已归属基地统一处理：f3/f4/f5/f6 均缺省时，保留本行 owner（缺省/0 为无主），
+清空 capturing/progress。带 f5/f6 的块继续按 sparse 更新处理。
+
+合成协议示例（不包含私人回放信息）：
+
+| 状态 | wrapper12/root11 子块 hex | 语义 |
+|---|---|---|
+| 占领中 | `08011002180120283001` | base=1，owner=2，capturing=1，progress=40，raw f6=1 |
+| 中断后 | `08011002` | base=1，owner=2；占领结束，原归属保留 |
+
+旧实现只识别全空状态或归属变更，于是第二行错误继承上一行的 capturing/progress。
+回归使用合成包覆盖 A–D、双方归属、重新占领，以及 f5/f6 未知字段保护。
+该规则直接匹配 wire 的空闲结构，不使用车辆位置或统计阈值推断重置。
+字段形状和 PlaybackData v2 均不变；消费方升级修复后的 WASM 即可。
+
+### 1.3 fail-closed 边界
 
 - 争霸侧：带未知字段（f5/f6）的块**不**按清空处理——其语义未证实，维持"缺省 = 维持前值"。
   本仓实测样本里 f5/f6 全程零出现（134 行 0 条），故该例外不影响已证事实。

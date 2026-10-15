@@ -27,6 +27,15 @@
 > [docs/vue-migration-plan.md](vue-migration-plan.md) 里提到的 `scripts/package.ps1` /
 > `build-all.ps1` 同样只作历史记录——桌面便携包打包链已删除，前端仅本机调试用。
 
+## 2026-10-15 解析勘误：已归属基地争夺中断
+
+修正 Supremacy wrapper12/root11 中只含 base index/owner 的空闲状态：保留广播的
+基地归属，清空旧占领方与进度。此前 owner 未变时错误沿用旧进度。
+回归使用合成包覆盖 A–D、双方归属、重新占领及未知字段保护。
+详见 [契约 §1.2](replay-contract-v2-supremacy-type39.md#12-已归属基地的占领中断2026-10-15-补正)。
+影响所有消费 `supremacy_bases` 的回放视图；字段形状、静态资产及发行版本号不变，
+消费方需在上游正式发版后更新 WASM pin 才获得修复。
+
 ## 对接消费方（WotbTools）的当前进度（2026-10-06）
 
 本项目的回放能力由 WotbTools 以 WASM/静态资产面消费（上游契约与版本锁定见对方仓
