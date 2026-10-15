@@ -16,9 +16,10 @@
 | 4 | capture progress | 0..99 |
 | 5/6 | UNKNOWN | 原样透传，禁命名 |
 
-wire 块是 **SPARSE UPDATE**，重建语义（`SupremacyBaseStateReconstructor` 逐行移植）：
+wire 块是 **SPARSE UPDATE**，重建语义（本仓 `reconstruct_supremacy_base_states`；移植自
+WotbTools `SupremacyBaseStateReconstructor`，**空闲行判据已偏离该参考口径**，见 §1.2）：
 
-- absent 字段 = 维持前值（不推断）——**但空闲状态行例外（只有基地编号，可附带当前归属），见 1.1**
+- absent 字段 = 维持前值（不推断）——**但空闲状态行例外（只有基地编号，可附带当前归属），见 §1.2**
 - 显式 0（owner/capturing）= 清空该字段
 - 显式 capturing 清空 → progress 连带清空
 - 占领中（capturing 在案）发生 owner 变更 → capturing 与 progress 一并清空
@@ -37,7 +38,7 @@ wire 上的 base 块按 **proto3 语义省略零值字段**：一个块的值全
 
 | 载体 | 旧行为 | 新行为 |
 |---|---|---|
-| 争霸 wrapper12/root11 | 只带 base_index，或附带未改变的 owner 时沿用旧占领状态 | 空闲行清空 capturing/progress；owner 按本行广播保留，缺省/0 为中立 |
+| 争霸 wrapper12/root11 | 只有 base_index 的全缺省行 = 空操作 → 进度/占领方卡住 | 全缺省行 = **显式清空**该基地（owner/capturing/progress 全归零）——**争霸侧这条判据已被 §1.2 取代**：owner 不再要求缺省或变化 |
 | 单基地 wrapper8/root8 | 缺 field3 的块整块丢弃 → 进度停在最后一个正值 | `field3`/`field4` **双缺省块 = 进度归零**（`progress = 0`，显示层映射为 idle） |
 
 证据（四份真实回放，两个载体一致）：
@@ -56,16 +57,41 @@ wire 上的 base 块按 **proto3 语义省略零值字段**：一个块的值全
 中立与已归属基地统一处理：f3/f4/f5/f6 均缺省时，保留本行 owner（缺省/0 为无主），
 清空 capturing/progress。带 f5/f6 的块继续按 sparse 更新处理。
 
+**判据的来源与边界**：这不是新造的启发式，而是 §1.1 那条 proto3 规则的统一化——
+「字段全缺省的行 = 该基地的整条状态广播（零值被省略）」对中立与已归属基地同样成立，
+旧实现只在 owner 也缺省时才承认这一点，于是已归属基地的中断行落到 sparse 分支里成了
+空操作。规则只读字段在场/缺省，不使用车辆位置、也不使用任何统计阈值推断重置。
+
 合成协议示例（不包含私人回放信息）：
 
 | 状态 | wrapper12/root11 子块 hex | 语义 |
 |---|---|---|
-| 占领中 | `08011002180120283001` | base=1，owner=2，capturing=1，progress=40，raw f6=1 |
-| 中断后 | `08011002` | base=1，owner=2；占领结束，原归属保留 |
+| 占领中（已归属基地被对方占领） | `0801 1002 1801 2028` | base=1，owner=2，capturing=1，progress=40 |
+| 中断后 | `0801 1002` | base=1，owner=2；占领结束，原归属保留（capturing/progress 归零被省略） |
+| 中立基地中断（§1.1 情形） | `0801` | base=1；整条状态为空 |
 
-旧实现只识别全空状态或归属变更，于是第二行错误继承上一行的 capturing/progress。
-回归使用合成包覆盖 A–D、双方归属、重新占领，以及 f5/f6 未知字段保护。
-该规则直接匹配 wire 的空闲结构，不使用车辆位置或统计阈值推断重置。
+旧实现只识别全空状态或归属变更，于是第二行错误继承上一行的 capturing/progress，
+消费方按 `capturing != null` 渲染出一个并不存在的「正在被占领」。
+
+**证据（本仓公开语料 `data/replay_samples/`，14 份中 6 份带 wrapper12/root11，共 150 行；
+下面形态串的数字 = 该 field 在场，1=base index、2=owner、3=capturing、4=progress）**：
+
+- 占领进行中的 119 行**全部同时带 f3+f4**（形态 `1234`/`134`/`34`）——语料里不存在
+  「占领中却缺占领字段」的行。
+- 只有 8 条 owner-only 行（形态 `12`/`2`，全在 `20260930_2127`：t=68.51/69.02、
+  75.01/75.51、124.50/125.01、126.52/127.01），**每条都紧跟在一次 97–98% 收尾的占领
+  序列之后**（= 占领结束宣告），且约 0.5s 后重发一次；没有一条夹在占领中途。
+- 中立基地的中断仍是全缺省行（同场基地 C，t=107.01，形态 `1`，即 §1.1 引用的同一时刻）。
+- 反例假设被否：基地 B 在 t=69.02→110.50（41.5s）由 1 方持有，期间该基地**一行都没有**
+  ——服务器不周期性重播归属，故不存在「占领途中被保活行误清」的场景。
+- 新旧实现对拍：本语料 150 行全等（0 差异），即该修复在公开语料上是无行为变更的加固；
+  **触发场景（已归属基地的中断）在公开语料中没有样本**，其证据来自未纳入本仓的私人回放，
+  回归因此由合成包覆盖 A–D、双方归属、重新占领与 f5/f6 未知字段保护。
+
+**与参考实现的关系**：WotbTools 研究契约 `supremacy-base-state.md` 把中断清除列为
+必须覆盖的场景（regression 列表 "owned by team2 → team1 capturing → capture cancelled /
+cleared"），但把 wire 判据留给后端重建层、未闭合；本仓据此采用上面的空闲整播判据
+（自有判据，与参考实现口径不同）。消费方同步以 WotbTools 侧实现为准。
 字段形状和 PlaybackData v2 均不变；消费方升级修复后的 WASM 即可。
 
 ### 1.3 fail-closed 边界
@@ -79,7 +105,9 @@ wire 上的 base 块按 **proto3 语义省略零值字段**：一个块的值全
 对消费方的影响：`PlaybackData.version` **不变**（字段形状未变，只是取值语义补正）。
 `supremacy_bases` 现在会出现"清空"迁移行，`assault_bases` 会出现 `progress = 0` 行；
 显示层应把 progress 0 / capturing 缺省映射为"无占领"（本仓 `frontend/src/scene/baseStatus.js`
-即此口径，无需改动）。
+即此口径，无需改动）。迁移行总数不变（每条 raw 行照旧产出一条），变的只是行内取值。
+WotbTools 侧需在上游正式发版后更新 WASM pin 才拿到修复，并在同一次 PR 内按对方
+AGENTS.md 的 Android 同步口径递增 `wotbVersion`（WASM pin 变更属该口径的覆盖范围）。
 
 ## 2. Supremacy 实时点数（PROVEN，wrapper13/root12）
 

@@ -576,7 +576,9 @@ mod arena_tests {
 // ---------- Supremacy（争霸）目标状态：subtype48 wrapper12/root11（WotbTools PROVEN 移植） ----------
 //
 // 来源与 provenance：WotbTools `EntityMethodDecoder.parseRawSupremacyBaseUpdates` +
-// `SupremacyBaseStateReconstructor`（docs/research/replay/supremacy-base-state.md）。
+// `SupremacyBaseStateReconstructor`（docs/research/replay/supremacy-base-state.md）——
+// 重建器的空闲行判据自 2026-10-15 起偏离该参考口径（owner 不再要求缺省/变化），
+// 见契约 §1.2 与 `reconstruct_supremacy_base_states` 的注释。
 // 数据链：Type 8 EntityMethod → subtype 48（updateArena2）→ wrapper field 12 → root field 11
 // → repeated base 块；嵌套字段 field1=base index(0..3=A..D)、field2=owner team、field3=capturing
 // team、field4=capture progress、field5/6=UNKNOWN 原样透传（禁命名）。
@@ -748,7 +750,8 @@ pub fn collect_supremacy_base_updates(
     out
 }
 
-/// sparse 更新 → canonical 状态时间线（Java `SupremacyBaseStateReconstructor` 逐行移植）：
+/// sparse 更新 → canonical 状态时间线（移植自 WotbTools `SupremacyBaseStateReconstructor`；
+/// **空闲行判据自 2026-10-15 偏离该参考口径**——owner 不再要求缺省/变化，见契约 §1.2）：
 /// absent = 维持前值；显式 0 = 清空（owner/capturing）；显式 capturing 清空连带清 progress；
 /// 占领中 owner 变更 = 完成/作废该次占领（capturing 与 progress 一并清空）。
 /// **空闲行 = 保留当前广播的归属，清空占领状态**（契约见下）。
@@ -757,6 +760,7 @@ pub fn collect_supremacy_base_updates(
 /// 服务端按 proto3 省略零值字段：中立基地中断时只剩 base_index；已归属基地中断时
 /// 还保留非零 owner（即使归属未改变）。两种形态都必须清空旧占领方与进度。
 /// 带未知字段（f5/f6）的块不按清空处理，见 [`RawSupremacyBaseUpdate::is_idle`]。
+/// 规则只读字段在场/缺省（不读车辆位置、不含统计阈值）；公开语料对拍见契约 §1.2 证据。
 pub fn reconstruct_supremacy_base_states(
     mut raw: Vec<RawSupremacyBaseUpdate>,
 ) -> Vec<SupremacyBaseStateTransition> {
