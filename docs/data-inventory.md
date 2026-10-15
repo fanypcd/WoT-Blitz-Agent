@@ -287,6 +287,8 @@
 - **逆向探针**：`examples/*.rs`（`destructible_probe*` / `filter_*_probe` /
   `m29_*_probe` / `p1_comp_probe` / `dump_dvpl` 等），`.gitignore` 覆盖、仅本机存在；
   `cargo test` 仍编译本地副本，但**不入库**。
+- **逆向调查报告与转储**：`investigation/`（协议 / 对照报告、facet 转储等本机证据材料；
+  docs 正文以相对路径引用）——`.gitignore` 覆盖、**不入库**。
 - **本机构建产物**：`frontend/public/wasm/`（`scripts/build-wasm.ps1` 产物，
   **随包不随库**）——`.gitignore` 覆盖。
 

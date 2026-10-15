@@ -61,6 +61,9 @@ tmp_wi_js/
 # 逆向探针工具集（仅本地开发用，不入仓库；cargo test 仍会编译本地副本）
 examples/
 
+# 逆向调查报告与 facet 转储（本机证据材料，不入仓库；docs 正文引用其报告）
+investigation/
+
 # Python 字节码缓存
 __pycache__/
 
