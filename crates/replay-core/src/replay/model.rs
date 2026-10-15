@@ -11,10 +11,10 @@
 use std::collections::{BTreeMap, HashMap};
 
 use super::combat::{
-    self, AoiPresence, ArenaPeriod, AssaultBaseStateTransition, CombatEventType, CombatTimeline,
-    ConsumableTransition, FeedbackCounterEvent, GunPitchLimits, HpEvent, KillFeedEvent,
-    ModuleCrewStateEvent, RawReloadDuration, RawReloadPhase, ShotReplayData, St10Sample,
-    SupremacyBaseStateTransition, SupremacyPointsSample,
+    self, hp_terminal_normalized, AoiPresence, ArenaPeriod, AssaultBaseStateTransition,
+    CombatEventType, CombatTimeline, ConsumableTransition, FeedbackCounterEvent, GunPitchLimits,
+    HpEvent, KillFeedEvent, ModuleCrewStateEvent, RawReloadDuration, RawReloadPhase,
+    ShotReplayData, St10Sample, SupremacyBaseStateTransition, SupremacyPointsSample,
 };
 use super::playback::{self, KillEvent, PlaybackPlayer};
 
@@ -42,8 +42,8 @@ pub struct EntityRecord {
     pub is_author: bool,
 }
 
-/// 死亡终态：prop1 死亡广播时刻 + 血量链 hp==0 事件的击杀者/死因
-/// （同值去重语义下有效 hp==0 事件唯一；killer_eid = 0 表示无血量链归属/环境）
+/// 一次死亡：prop1 死亡广播时刻 + 血量链 hp==0 事件的击杀者/死因
+/// （两路证据配对归一；killer_eid = 0 表示无血量链归属/环境——如溺死血量不归零）
 #[derive(Debug, Clone)]
 pub struct DeathRecord {
     pub t: f32,
@@ -70,8 +70,17 @@ pub struct Timeline {
     pub initial_hp: HashMap<u32, (f32, u16)>,
     /// 血量链去重序列（含满血锚点；与原逐车组装同式，回放切面直接取用）
     pub hp_series: BTreeMap<u32, Vec<(f32, u16)>>,
-    /// 死亡终态（有 prop1 死亡广播或血量链归零的实体）
+    /// 死亡终态（有 prop1 死亡广播或血量链归零的实体）＝[`Timeline::death_records`]
+    /// 首条（单死回放二者一致；保留供既有消费方）
     pub deaths: BTreeMap<u32, DeathRecord>,
+    /// 全部死亡记录（t 升序）。普通回放每车 ≤1 条；复活模式同一 eid 可多条——
+    /// 第 n 条与第 n-1 条之间必有复活证据（[`Timeline::resurrections`]）。
+    /// 构成 = prop1 死亡广播 × method1 hp==0 归零事件配对（build 内注释）。
+    pub death_records: BTreeMap<u32, Vec<DeathRecord>>,
+    /// 复活时刻（升序）：死亡未闭合期内「绝对血量证据终态(归一化 0) → 正值」的首次回归。
+    /// 载体 = method1 ∪ prop3（录像者自身血量常只走 prop3，见 [`combat::Prop3Health`]）。
+    /// 无复活证据则为空——fail-closed：消费方按死亡终态语义处理，行为与既往一致。
+    pub resurrections: BTreeMap<u32, Vec<f32>>,
     /// 击杀播报原始流（wrapper6；未门控，消费用 [`ReplayModel::kill_events`]）
     pub kill_feed: Vec<KillFeedEvent>,
     /// AoI 可见窗口（Type33/Type5 物化开段、Type4 关段；敌方重入 = 多段）
@@ -226,18 +235,17 @@ impl ReplayModel {
         let equipment = &shared.vehicle_equipment;
         let loadouts = combat::collect_vehicle_loadout(packets);
 
-        // —— 血量链去重序列 + 死亡终态（一次遍历，语义与原逐车组装逐位一致） ——
+        // —— 血量链去重序列 + 死亡列表 + 复活轨道（一次遍历，单死语义与原逐车组装逐位一致） ——
         let mut hp_series: BTreeMap<u32, Vec<(f32, u16)>> = BTreeMap::new();
         for (eid, (t0, h0)) in initial_hp.iter() {
             hp_series.entry(*eid).or_default().push((*t0, *h0));
         }
-        let mut deaths: BTreeMap<u32, DeathRecord> = BTreeMap::new();
+        // 死亡的两路证据：prop1 死亡广播（时刻权威；溺死等血量不归零的死亡只有这一路）
+        // 与 method1 hp==0 归零事件（凶手/死因权威；血量链去重语义下每次死亡一条）。
+        let mut zero_hits: BTreeMap<u32, Vec<(f32, u32, u8)>> = BTreeMap::new();
+        let mut broadcasts: BTreeMap<u32, Vec<f32>> = BTreeMap::new();
         for (t, eid, _) in ct.death_events() {
-            deaths.entry(eid).or_insert(DeathRecord {
-                t,
-                killer_eid: 0,
-                cause: 255,
-            });
+            broadcasts.entry(eid).or_default().push(t);
         }
         for e in hp_events {
             // overkill 时服务器 HP 略负（int16 语义），按 u16 读出回绕 → 一律钳 0
@@ -248,13 +256,122 @@ impl ReplayModel {
             }
             series.push((e.clock, hp_v));
             if hp_v == 0 {
-                let d = deaths.entry(e.victim).or_insert(DeathRecord {
-                    t: e.clock,
-                    killer_eid: 0,
-                    cause: 255,
+                zero_hits
+                    .entry(e.victim)
+                    .or_default()
+                    .push((e.clock, e.source, e.cause));
+            }
+        }
+        // 死亡记录 = 广播 × 归零 就近配对（同一次死亡的两路证据；门控 5s 与击杀播报
+        // 归属门控同源）。单广播×单归零无条件配对（t 取广播、凶手/死因取归零）——
+        // 与既往单死行为逐位一致；仅多证据（复活模式）走 5s 就近配对，落单者按自身
+        // 证据立死。复活模式每一正例仍待真实样本验证（fail-closed：配对产物只多不少）。
+        let mut death_records: BTreeMap<u32, Vec<DeathRecord>> = BTreeMap::new();
+        for (eid, mut hits) in zero_hits {
+            let mut bs = broadcasts.remove(&eid).unwrap_or_default();
+            hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            bs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let mut records: Vec<DeathRecord> = Vec::new();
+            if bs.len() == 1 && hits.len() == 1 {
+                records.push(DeathRecord {
+                    t: bs[0],
+                    killer_eid: hits[0].1,
+                    cause: hits[0].2,
                 });
-                d.killer_eid = e.source;
-                d.cause = e.cause;
+            } else {
+                let mut hit_used = vec![false; hits.len()];
+                for bt in &bs {
+                    let best = hits
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| !hit_used[*i])
+                        .filter(|(_, (t, _, _))| (t - bt).abs() <= 5.0)
+                        .min_by(|a, b| {
+                            (a.1 .0 - bt)
+                                .abs()
+                                .partial_cmp(&(b.1 .0 - bt).abs())
+                                .unwrap()
+                        });
+                    match best {
+                        Some((i, (_, source, cause))) => {
+                            hit_used[i] = true;
+                            records.push(DeathRecord {
+                                t: *bt,
+                                killer_eid: *source,
+                                cause: *cause,
+                            });
+                        }
+                        None => records.push(DeathRecord {
+                            t: *bt,
+                            killer_eid: 0,
+                            cause: 255,
+                        }),
+                    }
+                }
+                for (i, (t, source, cause)) in hits.iter().enumerate() {
+                    if !hit_used[i] {
+                        records.push(DeathRecord {
+                            t: *t,
+                            killer_eid: *source,
+                            cause: *cause,
+                        });
+                    }
+                }
+            }
+            records.sort_by(|a, b| a.t.partial_cmp(&b.t).unwrap());
+            death_records.insert(eid, records);
+        }
+        for (eid, ts) in broadcasts {
+            let records = death_records.entry(eid).or_default();
+            records.extend(ts.into_iter().map(|t| DeathRecord {
+                t,
+                killer_eid: 0,
+                cause: 255,
+            }));
+            records.sort_by(|a, b| a.t.partial_cmp(&b.t).unwrap());
+        }
+        // 既有消费方口径：首次死亡（单死回放 = 唯一死亡，逐位等价）
+        let deaths: BTreeMap<u32, DeathRecord> = death_records
+            .iter()
+            .map(|(eid, v)| (*eid, v[0].clone()))
+            .collect();
+        // 复活轨道：死亡未闭合期内「绝对血量证据 终态(归一化 0) → 正值」的首次回归。
+        // 载体 = method1 ∪ prop3（同刻双载体取先到者闭合，天然去重）；prop3 只参与
+        // 复活方向、不参与死亡判定（死亡语义不变）。语料库普通回放全零回归见
+        // `playback::tests`（无复活证据 → 轨道空 → 消费方行为与既往一致）。
+        let mut resurrections: BTreeMap<u32, Vec<f32>> = BTreeMap::new();
+        {
+            let mut merged: BTreeMap<u32, Vec<(f32, u16)>> = BTreeMap::new();
+            for e in hp_events.iter() {
+                let hp_v = if e.hp > 32767 { 0 } else { e.hp };
+                merged.entry(e.victim).or_default().push((e.clock, hp_v));
+            }
+            for p in prop3_health.iter() {
+                merged
+                    .entry(p.eid)
+                    .or_default()
+                    .push((p.clock, hp_terminal_normalized(p.hp_raw)));
+            }
+            for (eid, evs) in &mut merged {
+                evs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                let Some(ds) = death_records.get(eid) else {
+                    continue;
+                };
+                let mut out: Vec<f32> = Vec::new();
+                let (mut di, mut dead) = (0usize, false);
+                for &(t, v) in evs.iter() {
+                    while di < ds.len() && ds[di].t <= t {
+                        dead = true;
+                        di += 1;
+                    }
+                    if dead && v > 0 {
+                        out.push(t);
+                        dead = false;
+                    }
+                }
+                if !out.is_empty() {
+                    resurrections.insert(*eid, out);
+                }
             }
         }
 
@@ -353,6 +470,8 @@ impl ReplayModel {
                 initial_hp: shared.initial_hp,
                 hp_series,
                 deaths,
+                death_records,
+                resurrections,
                 kill_feed,
                 presence,
                 hit_notices,
@@ -379,43 +498,66 @@ impl ReplayModel {
         })
     }
 
-    /// 击杀事件流：死亡终态 × 击杀播报归属增强（|Δt| ≤ 5s 门控隔离开局初始化记录）。
+    /// 击杀事件流：每次死亡 × 击杀播报归属增强（|Δt| ≤ 5s 门控隔离开局初始化记录）。
     /// 全场回放切面按候选车集过滤后取用；评审切面取全量。
+    /// 普通回放每车至多一次死亡、一条播报——与既往「victim→单条」行为逐位一致；
+    /// 复活模式同一受害者可多条播报，按就近未消费配对（一条播报只归属一次死亡）。
     pub fn kill_events(&self) -> Vec<KillEvent> {
-        let feed: HashMap<u32, &KillFeedEvent> = self
-            .timeline
-            .kill_feed
-            .iter()
-            .filter(|k| {
-                self.timeline
-                    .deaths
-                    .get(&k.victim_eid)
-                    .map(|d| (d.t - k.clock).abs() <= 5.0)
-                    .unwrap_or(false)
-            })
-            .map(|k| (k.victim_eid, k))
-            .collect();
+        let mut feed_by_victim: BTreeMap<u32, Vec<&KillFeedEvent>> = BTreeMap::new();
+        for k in &self.timeline.kill_feed {
+            feed_by_victim.entry(k.victim_eid).or_default().push(k);
+        }
         let mut out = Vec::new();
-        for (eid, d) in &self.timeline.deaths {
-            let wf = feed.get(eid);
-            out.push(KillEvent {
-                t: r2(d.t),
-                killer_eid: if d.killer_eid != 0 {
-                    d.killer_eid
-                } else {
-                    wf.map(|k| k.killer_eid).unwrap_or(0)
-                },
-                victim_eid: *eid,
-                // cause：method1 权威值仅在血量链 killer_eid 非零时可信；击杀播报只给
-                // 凶手身份、给不出 method1 cause——未获取一律 255（KillEvent.cause 契约
-                // 哨兵），不再合成 0/3（fail-closed，禁猜）
-                cause: if d.killer_eid != 0 { d.cause } else { 255 },
-                assister_eid: wf.and_then(|k| k.assister_eid),
-                death_reason: wf.and_then(|k| k.death_reason),
-            });
+        for (eid, records) in &self.timeline.death_records {
+            let Some(cands) = feed_by_victim.get(eid) else {
+                for d in records {
+                    out.push(self.kill_event_of(d.t, d, eid, &None));
+                }
+                continue;
+            };
+            let mut used = vec![false; cands.len()];
+            for d in records {
+                let mut best: Option<(f32, usize)> = None;
+                for (i, k) in cands.iter().enumerate() {
+                    let dt = (d.t - k.clock).abs();
+                    if dt <= 5.0 && best.map_or(true, |(bd, _)| dt < bd) {
+                        best = Some((dt, i));
+                    }
+                }
+                let wf = best.map(|(_, i)| {
+                    used[i] = true;
+                    cands[i]
+                });
+                out.push(self.kill_event_of(d.t, d, eid, &wf));
+            }
         }
         out.sort_by(|a, b| a.t.partial_cmp(&b.t).unwrap());
         out
+    }
+
+    /// 单条死亡记录 → 击杀事件（凶手/死因归属与既往单死语义逐位一致）。
+    fn kill_event_of(
+        &self,
+        t: f32,
+        d: &DeathRecord,
+        eid: &u32,
+        wf: &Option<&KillFeedEvent>,
+    ) -> KillEvent {
+        KillEvent {
+            t: r2(t),
+            killer_eid: if d.killer_eid != 0 {
+                d.killer_eid
+            } else {
+                wf.map(|k| k.killer_eid).unwrap_or(0)
+            },
+            victim_eid: *eid,
+            // cause：method1 权威值仅在血量链 killer_eid 非零时可信；击杀播报只给
+            // 凶手身份、给不出 method1 cause——未获取一律 255（KillEvent.cause 契约
+            // 哨兵），不再合成 0/3（fail-closed，禁猜）
+            cause: if d.killer_eid != 0 { d.cause } else { 255 },
+            assister_eid: wf.and_then(|k| k.assister_eid),
+            death_reason: wf.and_then(|k| k.death_reason),
+        }
     }
 }
 
@@ -524,5 +666,154 @@ mod tests {
         assert_eq!(kills[0].killer_eid, 7);
         assert_eq!(kills[0].cause, 0);
         assert_eq!(kills[0].victim_eid, victim);
+    }
+
+    // —— 复活模式语义（issue #622）：多次死亡 + 复活轨道（合成帧锁定，正例待真实样本
+    //    验证字节布局；此处锁定的是模型对既有证据语义的归一规则，全部统一适用） ——
+
+    /// type=8 method1 血量帧：[eid][mid=1][alen=7][hp u16][source u32][cause]
+    fn mk_hp(eid: u32, hp: u16, source: u32, cause: u8) -> Vec<u8> {
+        let mut p = vec![0u8; 12];
+        p[0..4].copy_from_slice(&eid.to_le_bytes());
+        p[4..8].copy_from_slice(&1u32.to_le_bytes());
+        p[8..12].copy_from_slice(&7u32.to_le_bytes());
+        p.extend_from_slice(&hp.to_le_bytes());
+        p.extend_from_slice(&source.to_le_bytes());
+        p.push(cause);
+        p
+    }
+    /// type=7 sub=1 prop1 死亡广播：[eid][sub=1]
+    fn mk_death_broadcast(eid: u32) -> Vec<u8> {
+        let mut p = vec![0u8; 8];
+        p[0..4].copy_from_slice(&eid.to_le_bytes());
+        p[4..8].copy_from_slice(&1u32.to_le_bytes());
+        p
+    }
+    /// type=7 sub=3 prop3 血量广播：[eid][sub=3][pad4][hp u16@12]
+    fn mk_prop3(eid: u32, hp: u16) -> Vec<u8> {
+        let mut p = vec![0u8; 14];
+        p[0..4].copy_from_slice(&eid.to_le_bytes());
+        p[4..8].copy_from_slice(&3u32.to_le_bytes());
+        p[12..14].copy_from_slice(&hp.to_le_bytes());
+        p
+    }
+    /// type=5 满血锚点：[eid][…][hp u16@51]
+    fn mk_anchor(eid: u32, hp: u16) -> Vec<u8> {
+        let mut p = vec![0u8; 53];
+        p[0..4].copy_from_slice(&eid.to_le_bytes());
+        p[51..53].copy_from_slice(&hp.to_le_bytes());
+        p
+    }
+    fn scan_min(packets: Vec<(u32, f32, Vec<u8>)>) -> ReplayModel {
+        let refs: Vec<(u32, f32, &[u8])> = packets
+            .iter()
+            .map(|(t, c, p)| (*t, *c, p.as_slice()))
+            .collect();
+        let roster: Vec<PlaybackPlayer> = Vec::new();
+        ReplayModel::scan(&ScanInput {
+            packets: &refs,
+            roster: &roster,
+            author_account_id: 0,
+            pitch_limits: &GunPitchLimits::new(),
+        })
+        .unwrap()
+    }
+
+    /// 死→复活→再死：死亡列表两条（各带自己的凶手/死因，不再逐死覆盖）、
+    /// 复活锚点一条、`deaths` 仍为首次死亡（既有消费方口径）。
+    #[test]
+    fn respawn_multi_death_track() {
+        let a = 0x11u32;
+        let model = scan_min(vec![
+            (5, 0.5, mk_anchor(a, 1000)),
+            (8, 10.0, mk_hp(a, 0, 7, 0)), // 第一次死亡：击杀者 7
+            (7, 11.0, mk_death_broadcast(a)),
+            (8, 15.0, mk_hp(a, 1500, 0, 0)), // 复活：血量回归正值
+            (8, 20.0, mk_hp(a, 0, 9, 1)),    // 第二次死亡：击杀者 9
+            (7, 21.0, mk_death_broadcast(a)),
+        ]);
+        let rs = &model.timeline.death_records[&a];
+        assert_eq!(rs.len(), 2, "两次死亡各成一条记录");
+        assert_eq!(rs[0].t, 11.0);
+        assert_eq!(
+            rs[0].killer_eid, 7,
+            "各死各配，第一次死亡凶手不被第二次覆盖"
+        );
+        assert_eq!(rs[0].cause, 0);
+        assert_eq!(rs[1].t, 21.0);
+        assert_eq!(rs[1].killer_eid, 9);
+        assert_eq!(rs[1].cause, 1);
+        assert_eq!(model.timeline.deaths[&a].t, 11.0, "deaths = 首次死亡");
+        assert_eq!(
+            model.timeline.resurrections.get(&a).map(|v| v.as_slice()),
+            Some(&[15.0][..]),
+            "死亡未闭合期的血量回归正值 = 复活锚点"
+        );
+        let kills = model.kill_events();
+        assert_eq!(kills.len(), 2, "每次死亡各产一条击杀事件");
+        assert_eq!((kills[0].t, kills[0].killer_eid), (11.0, 7));
+        assert_eq!((kills[1].t, kills[1].killer_eid), (21.0, 9));
+    }
+
+    /// 作者车形态：method1 全缺、死亡只有 prop1 广播、复活证据只走 prop3——
+    /// prop3 归零不立死（死亡语义不变），死亡未闭合期的 prop3 回归正值立复活。
+    #[test]
+    fn resurrection_via_prop3_only() {
+        let b = 0x22u32;
+        let model = scan_min(vec![
+            (5, 0.5, mk_anchor(b, 1750)),
+            (7, 10.0, mk_death_broadcast(b)), // 死亡（广播单证）
+            (7, 12.0, mk_prop3(b, 0)),        // prop3 终态：不立死、不立复活
+            (7, 14.0, mk_prop3(b, 1750)),     // prop3 回归正值：复活
+        ]);
+        let rs = &model.timeline.death_records[&b];
+        assert_eq!(rs.len(), 1, "prop3 归零不立死，死亡仅来自广播");
+        assert_eq!(rs[0].t, 10.0);
+        assert_eq!(rs[0].killer_eid, 0, "无 method1 归零事件 → 无凶手归属");
+        assert_eq!(
+            model.timeline.resurrections.get(&b).map(|v| v.as_slice()),
+            Some(&[14.0][..]),
+            "复活证据经 prop3 载体可达"
+        );
+    }
+
+    /// 普通战斗 fail-closed：单死、无任何本车回归证据 → 复活轨道为空（消费方按
+    /// 死亡终态语义处理，行为与既往一致）；他人存活期的 prop3 广播不得越车生效。
+    #[test]
+    fn normal_battle_has_empty_resurrection_track() {
+        let c = 0x33u32;
+        let d = 0x34u32;
+        let model = scan_min(vec![
+            (5, 0.5, mk_anchor(c, 1000)),
+            (8, 30.0, mk_hp(c, 0, 5, 0)),
+            (7, 31.0, mk_death_broadcast(c)),
+            // 他人（存活）的 prop3 正值广播：不得为已死者 c 立复活
+            (7, 32.0, mk_prop3(d, 900)),
+        ]);
+        assert_eq!(model.timeline.death_records[&c].len(), 1);
+        assert!(
+            model.timeline.resurrections.get(&c).is_none(),
+            "无本车生命回归证据 → 复活轨道为空（fail-closed）"
+        );
+        assert!(model.timeline.death_records.get(&d).is_none());
+        assert!(model.timeline.resurrections.get(&d).is_none());
+    }
+
+    /// 多证据配对：广播多于归零事件时，落单广播按自身证据立死（无凶手归属），
+    /// 已配对者取广播时刻 + 归零事件凶手。
+    #[test]
+    fn unpaired_broadcast_stands_alone() {
+        let e = 0x35u32;
+        let model = scan_min(vec![
+            (5, 0.5, mk_anchor(e, 1000)),
+            (8, 40.0, mk_hp(e, 0, 3, 2)),
+            (7, 40.5, mk_death_broadcast(e)), // 配对 40.0 的归零事件
+            (7, 46.0, mk_death_broadcast(e)), // 落单广播（5s 门控内无可配归零）
+        ]);
+        let rs = &model.timeline.death_records[&e];
+        assert_eq!(rs.len(), 2);
+        assert_eq!((rs[0].t, rs[0].killer_eid, rs[0].cause), (40.5, 3, 2));
+        assert_eq!((rs[1].t, rs[1].killer_eid, rs[1].cause), (46.0, 0, 255));
+        assert!(model.timeline.resurrections.get(&e).is_none());
     }
 }

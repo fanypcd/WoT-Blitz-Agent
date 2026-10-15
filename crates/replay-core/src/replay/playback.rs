@@ -30,6 +30,11 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 fn is_false(b: &bool) -> bool {
     !*b
 }
+/// serde skip_serializing_if 助手：死亡时刻表 ≤1 条时按缺省处理（单死已由 `death_t`
+/// 完整表达；≥2 次 = 复活模式才输出，普通回放零扰动）
+fn vehicle_death_times_trivial(v: &[f32]) -> bool {
+    v.len() <= 1
+}
 
 use anyhow::bail;
 use serde::Serialize;
@@ -143,6 +148,16 @@ pub struct VehicleTrack {
     pub death_t: Option<f32>,
     /// 击杀者实体（method1 hp==0 事件 source；0 = 未知/环境）
     pub killer_eid: u32,
+    /// 全部死亡时刻（升序；`death_times[0] == death_t`）。**仅当该车死亡 ≥2 次**
+    /// （复活模式，如爆燃）才输出；单死/无死回放整字段省略，既有消费方零扰动。
+    /// 第 n 次死亡与第 n-1 次之间必有复活证据（`resurrection_times`）。
+    #[serde(default, skip_serializing_if = "vehicle_death_times_trivial")]
+    pub death_times: Vec<f32>,
+    /// 复活时刻（升序）：死亡后生命证据（method1/prop3 绝对血量）从终态回归正值的时刻。
+    /// **仅非空时输出**。生命状态重建：death_t 起死亡，至首个 ≥ 该时刻的复活点回 ALIVE，
+    /// 与后续死亡交替——复活证据缺失时该字段缺省，消费方按死亡终态语义处理（fail-closed）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resurrection_times: Vec<f32>,
     /// 该车发射过的弹种全局 id（去重，最多 16 个）——回放事实透传（消费端可自行
     /// 比对弹表；曾用作配置推断证据，2026-10 起配置解析只认 comp blob 精确对号）
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1127,6 +1142,7 @@ pub fn from_model(
             .map(|s| s.iter().map(|(t, h)| (r2(*t), *h)).collect())
             .unwrap_or_default();
         let death = model.timeline.deaths.get(eid);
+        let death_records = model.timeline.death_records.get(eid).map(|v| v.as_slice());
         let killer_eid = death.map(|d| d.killer_eid).unwrap_or(0);
 
         // 发射弹种全局 id（配置推断证据；去重上限 16）
@@ -1161,6 +1177,17 @@ pub fn from_model(
             hp,
             death_t: death.map(|d| r2(d.t)),
             killer_eid,
+            death_times: death_records
+                .and_then(|rs| {
+                    (rs.len() >= 2).then(|| rs.iter().map(|d| r2(d.t)).collect::<Vec<_>>())
+                })
+                .unwrap_or_default(),
+            resurrection_times: model
+                .timeline
+                .resurrections
+                .get(eid)
+                .map(|ts| ts.iter().map(|t| r2(*t)).collect())
+                .unwrap_or_default(),
             shell_ids,
             loadout_items: rec.map(|r| r.loadout_items.clone()).unwrap_or_default(),
             equipment: rec.and_then(|r| r.equipment),
@@ -1639,6 +1666,61 @@ mod tests {
         assert_eq!(r3(2.125), 2.125);
     }
 
+    /// 复活轨道字段的 JSON 契约：单死/无复活车不出现 `death_times` /
+    /// `resurrection_times`（普通回放零扰动）；≥2 次死亡才出现死亡列表，
+    /// 复活列表非空才出现。缺省省略 = additive 契约（同 armor_states 先例）。
+    #[test]
+    fn respawn_track_fields_are_omitted_when_trivial() {
+        let base = |death_t: Option<f32>, deaths: Vec<f32>, res: Vec<f32>| VehicleTrack {
+            eid: 1,
+            account_id: 0,
+            nickname: String::new(),
+            tank_id: 0,
+            tank_name: String::new(),
+            team: 1,
+            is_author: false,
+            max_hp: 1000,
+            pos: Vec::new(),
+            hull_yaw: Vec::new(),
+            hull_pitch: Vec::new(),
+            hull_roll: Vec::new(),
+            turret_yaw: Vec::new(),
+            gun_pitch: Vec::new(),
+            hp: Vec::new(),
+            death_t,
+            killer_eid: 0,
+            death_times: deaths,
+            resurrection_times: res,
+            shell_ids: Vec::new(),
+            loadout_items: Vec::new(),
+            equipment: None,
+            turret_index: None,
+            gun_index: None,
+            config_idx: None,
+            burst_size: None,
+            turret_local: None,
+            gun_local: None,
+            coverage: Vec::new(),
+            pose_kf: None,
+        };
+        let json = |v: &VehicleTrack| serde_json::to_value(v).unwrap();
+
+        let single = json(&base(Some(20.0), vec![20.0], vec![]));
+        assert!(single.get("death_times").is_none(), "单死 = death_t 已表达，字段省略");
+        assert!(single.get("resurrection_times").is_none(), "无复活 → 字段省略");
+
+        let none = json(&base(None, vec![], vec![]));
+        assert!(none.get("death_times").is_none() && none.get("resurrection_times").is_none());
+
+        let respawned = json(&base(Some(20.0), vec![20.0, 58.5], vec![35.0]));
+        assert_eq!(
+            respawned.get("death_times").unwrap().as_array().unwrap().len(),
+            2,
+            "≥2 次死亡才输出完整死亡列表"
+        );
+        assert_eq!(respawned.get("resurrection_times").unwrap().as_array().unwrap().len(), 1);
+    }
+
     /// 飞行时长：300m / 150mps = 2.0s；速度缺失 0.5s 兜底
     #[test]
     fn flight_time() {
@@ -2043,22 +2125,37 @@ mod tests {
                     assert!(v.max_hp > 0, "P4 具名车 max_hp=0 {}", v.nickname);
                 }
                 let mut hp_prev = v.max_hp;
-                for (_, h) in &v.hp {
-                    assert!(
-                        *h <= hp_prev,
-                        "P4 HP 回升 {} {}: {hp_prev}→{h}",
-                        v.eid,
-                        v.nickname
-                    );
+                for (t, h) in &v.hp {
+                    if *h > hp_prev {
+                        // 复活模式（爆燃等）：死亡后血量链回归正值 = 复活证据，必须
+                        // 恰落在解析器声明的复活锚点上；无锚点的回升仍是契约违例。
+                        assert!(
+                            v.resurrection_times.iter().any(|rt| (rt - t).abs() < 1e-6),
+                            "P4 HP 回升无复活锚点 {} {}: {hp_prev}→{h} @t={t}",
+                            v.eid,
+                            v.nickname
+                        );
+                        assert!(*h <= v.max_hp, "P4 复活血量超上限 {} {}", v.eid, v.nickname);
+                    }
                     hp_prev = *h;
                 }
                 if v.death_t.is_some() && !v.hp.is_empty() {
-                    assert_eq!(
-                        v.hp.last().unwrap().1,
-                        0,
-                        "P4 死亡车末 HP 应为 0 {}",
-                        v.nickname
-                    );
+                    // 死亡次数 > 复活次数 ⟺ 最后一段生命以死亡收尾且方法1链在证
+                    // → 末 HP 归 0。死亡次数 == 复活次数时末 HP 不设断言：复活证据
+                    // 可经 prop3（作者车血量常只走 prop3，method1 链不体现）。
+                    let deaths_count = if v.death_times.is_empty() {
+                        usize::from(v.death_t.is_some())
+                    } else {
+                        v.death_times.len()
+                    };
+                    if deaths_count > v.resurrection_times.len() {
+                        assert_eq!(
+                            v.hp.last().unwrap().1,
+                            0,
+                            "P4 死亡收尾车末 HP 应为 0 {}",
+                            v.nickname
+                        );
+                    }
                 }
             }
         }

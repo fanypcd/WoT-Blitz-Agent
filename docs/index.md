@@ -240,6 +240,48 @@ v* tag 的 WASM 发行产物。**3D 回放 / 模型场景查看等视觉验证�
 
 ## 实现记录（已落地）
 
+### 复活模式生命轨道（解析器，additive）：多死列表 + 复活锚点，修"复活后显示为死亡状态"的解析侧（2026-10-15，issue WotbTools#622）
+
+**动因（WotbTools#622）**：爆燃等复活模式下战车死亡一次后，回放里一直以尸体形态移动。
+排查结论：协议面本就有复活语义（updateArena 子类型名表 `19 VEHICLE_WAIT_RESPAWN` /
+`20 VEHICLE_RESURRECT` / `21 TEAM_RESPAWNS_LEFT`；AoI 收集器已实证"同 eid 重入"），但解析链
+三层都把死亡建模为**终态**——模型 `deaths` 每车单条（`or_insert` 首死）、切面 `death_t` 单值、
+前端两条消费路径（scene fallback `t ≥ death_t → DESTROYED`、canonical `lifeTransitions` 的
+`destroyedAt` 一旦置位永不回退）都不可逆。复活后车辆沿用同一 eid 继续发位置流（AoI 重入），
+于是渲染为"尸体在动"。
+
+**本次改动（解析器侧，前端消费由 WotbTools 承接）**：
+
+- **模型**（`replay/model.rs`）：`Timeline` 新增 `death_records: BTreeMap<eid, Vec<DeathRecord>>`
+  （全部死亡，t 升序）与 `resurrections: BTreeMap<eid, Vec<f32>>`（复活锚点）。死亡记录 =
+  **prop1 死亡广播 × method1 hp==0 归零事件配对**（同一次死亡的两路证据）：单广播×单归零
+  无条件配对——与既往单死行为逐位一致（t 取广播、凶手/死因取归零）；多证据（复活模式）
+  就近配对（5s 门控，与击杀播报归属门控同源），落单者按自身证据立死。顺带修正：多死场景
+  下凶手/死因不再被后死覆盖（原实现每条归零事件都覆写同一条记录）。`deaths` 保留为
+  首条记录（既有消费方零改动）。
+- **复活判定（统一语义，非统计启发）**：死亡未闭合期内「绝对血量证据 终态(归一化 0) → 正值」
+  的首次回归 = 复活锚点。载体 = **method1 ∪ prop3**（prop3 = 录像者自身血量常走的唯一来路，
+  作者车复活只可能从这里可见；prop3 只参与复活方向、不参与死亡判定）。血量链的绝对快照
+  语义是模型判定死亡本身所用的同一权威面，复活方向是其对称应用。
+- **切面**（`playback.rs` `VehicleTrack`，additive + 缺省省略，同 armor_states 先例）：
+  `death_times`（全部死亡时刻，升序；`[0] == death_t`；**仅死亡 ≥2 次才输出**）与
+  `resurrection_times`（**仅非空才输出**）。普通回放（含全部既有 golden）产物零扰动
+  （实测 facet 导出无新增键）；PlaybackData v2 不变。
+- **`kill_events`**：逐死产出（每次死亡一条击杀事件），播报按**就近未消费**配对
+  （一条播报只归属一次死亡）；单死回放与既往行为逐位一致。
+- **P4 探针不变式**（`playback_probe`，ignored 探针）："HP 不得回升"放宽为"回升必须恰落在
+  `resurrection_times` 锚点上且不超 max_hp"；"死亡车末 HP=0"限定为死亡次数 > 复活次数时
+  （复活存活收尾的末 HP 不设断言——复活证据可经 prop3，method1 链不体现）。
+
+**fail-closed 边界（未验证正例的如实声明）**：语料库 14 个样本**无一含复活类子类型、无一
+血量归零回升**——复活模式下"血量重置经 method1/prop3 绝对快照广播"这一前提**尚无真实样本
+验证**（探针工具 `src/bin/probe_respawn.rs` 入库待样本验证；子类型 19/20/21 载荷布局仍未解码，
+不猜）。若该前提不成立，新字段保持缺省、行为与既往一致（不产生错误复活）。合成帧单测锁定
+归一规则（多死配对/prop3 载体/落单广播/普通战斗空轨道 + 切面 JSON 缺省省略契约）。
+
+**WotbTools 侧待接**：scene fallback 与 canonical `lifeTransitions` 消费 `death_times` +
+`resurrection_times` 允许 DESTROYED→ALIVE 回转（字段缺省 = 现状行为，无需强制同版升级）。
+
 ### 俯视烘焙全量同源化（P2）：地面 pass/贴花/水面/走廊掩码收编 + 剔除规则过剔修正（2026-10-14 · 第三批次补正之三）
 
 **动因（用户三连报障 → 收敛为同一结论"直接完全照搬 3D 回放的代码"）**：faust webp 与 3D 俯视
