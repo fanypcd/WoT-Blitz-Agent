@@ -2446,10 +2446,21 @@ release/11.21.0，tank_count 735 → 738。**
   直读 `/data/shellKinds.json` 与 `tank/{id}.json` 紧凑投影——数据更新从此只依赖 COS
   差分上传，不再依赖前端发版（WotbTools 侧 targeted 测试 50/50 绿、Android
   `wotbVersion` 2.3.6→2.3.7、golden 不受影响）。
+- **C1 数据模型塌缩修复（同日第二批）**：`TankModelInfo` 的履带厚度/原点从"map 迭代序
+  先到先得"单值标量改为**逐底盘 map**（`tracks: BTreeMap<module_id, {thickness, origin}>`，
+  key 与 tanks.pb `tracks[].module_id` 同域、738/738 全中）；消费端（`synth_armor_model`
+  的 `chassis` 与 `model_origins.track`）按**顶级底盘**语义选取（tanks.pb `tracks` 末位，
+  与 hull_traverse 同口径），pb 省略 origin 时归一化 (0,0,0) 不改发射语义。多底盘车
+  243/738，产物实际变更 **7 辆**（4369/5729/6721/12081/18305/21569/21825 的
+  `armor_model.chassis` / `model_origins.track`），其余逐字节不变；同构三角
+  （extract_vehicles / emit_vehicle_pb / compare_vehicle_data 镜像）同步，`local_pb`
+  全量重生成，**11.21.0 版全量对照复跑 = 仍恰为既有 122 处定性差异、tracks 零新增**；
+  lib 全测 81/81 绿（含新锚点：4369 双底盘 10.0/15.0 逐条保留）。详见
+  [decoupling-status.md](decoupling-status.md) §2 C1（已定案）。
 - **blast radius**：`data/` 面（git 内 pb/cache/bridge/game_data + 文档计数）已同步；
   **资产包（`release/asset_pack/`）已物化 11.21.0 增量**——`data/` 域六件全量刷新 + 3 辆
   新车逐车文件（glb/tank/tank_images/game_data/suspension/tread）+ 3937/4193/23169/24945
-  四辆 tank/ 重导 + 24945/8225 碰撞 GLB 重导 + 顺手补齐包内 game_data 曾缺的 5 件，
+  四辆 tank/ 重导 + 24945/8225 碰撞 GLB 重导 + C1 批 7 辆 tank/ 重导 + 顺手补齐包内 game_data 曾缺的 5 件，
   manifest 已按包内容重算（5735 件 / 4177.5 MB）；map/ 域已于第三十五次按 11.21.0 世代
   对齐并同步 COS。**COS 差分上传待执行**（凭据仅环境变量，本机未配置；上传前跑
   `export_asset_pack.py --refresh-manifest` 已完成）。解析器/切面契约

@@ -24,16 +24,28 @@
 
 ## 2. 待决策口径
 
-### C1 数据模型塌缩（项目侧缺陷，不是客户端不可信）
+### C1 数据模型塌缩（项目侧缺陷，不是客户端不可信）——✅ 已修复（2026-10-15）
 
-- **`TrackData` 是单条**（`blitzkit.rs:159`）：一辆车只有一组 `module_id / weight / traverse_speed /
-  resistance_hard / medium`，而客户端 `tracks[]` 可以有**多个底盘**，各自有重量/转速/阻力。
-- **`track_thickness: Option<f32>` 是单值**（`blitzkit.rs:310`），赋值处
-  `if track_thickness.is_none() { track_thickness = thickness }`（933-934）——**取第一个遇到的板厚**，
-  不是按模块或顶级底盘确定；消费点 `tank_configs.rs:51` 直接拿它拼 `ChassisArmor`。`gun_thickness` 同型。
-- **症状**：多底盘车的履带厚度/阻力只能显示一条，且丢掉了"这条属于哪个底盘"的对应关系。
-- **选项**：改 schema 与客户端同构（+2–3 人日）；或接受"取顶级配置"近似并**显式记录**
-  （`data-inventory.md` §3.5 的"顶级炮塔 × 顶级主炮"口径即此近似的现状版）。
+~~改 schema 与客户端同构（+2–3 人日）；或接受"取顶级配置"近似并显式记录~~ → **方案一已实施**：
+
+- **models 侧（本次修复的塌缩点）**：`TankModelInfo.track_thickness/track_origin` 两个
+  "map 迭代序先到先得"单值标量删除，改为 `tracks: BTreeMap<module_id, TrackModelData{thickness, origin}>`
+  逐底盘保留（field5 map key = 底盘 module_id，与 tanks.pb `tracks[].module_id` 同域，
+  738/738 实测全中）。消费端（`tank_configs.rs`）按**顶级底盘**（tanks.pb `tracks` 末位，
+  与 hull_traverse/"顶级炮塔 × 顶级主炮"同口径）语义选取；pb 省略 origin（全 0 消息）时
+  消费端归一化 (0,0,0)——与旧解析发射语义一致，`model_origins` 不因 schema 改动隐去。
+- **行驶侧无塌缩**：`TankFullData.tracks: Vec<TrackData>`（重量/转速/阻力逐底盘）本就完整；
+  文中"gun_thickness 同型"对现役代码不成立（`GunModelInfo.thickness` 已是逐炮）。
+- **影响面（实测）**：多底盘车 243/738，其中厚度/原点逐底盘不同的 **6 辆**（4369/5729/
+  12081/18305/21569/21825）+ 原点不同的 6721——共 7 辆 `tank/{id}.json` 变更
+  （`armor_model.chassis` 与 `model_origins.track` 改取顶级底盘值），其余 731 辆产物逐字节不变。
+- **同构三角同步**：`extract_vehicles.py`（客户端逐 chassis：leftTrack 厚度 + hullPosition
+  原点，全 0 origin 省略对齐 pb 零值序列化）、`emit_vehicle_pb.py`（field5 逐底盘编码）、
+  `compare_vehicle_data.py` 镜像（tracks map）。**全量对照复跑（11.21.0 pb × 客户端）**：
+  738/738 交集、仍恰为既有 122 处定性差异（119 枪序 + 2 名字 + 1 BK 错值），
+  tracks map 零新增差异；`data/cache/local_pb` 已按新 schema 重生成。
+- **测试**：`parse_models_pb_armor_boxes` 锚定 IS-7（单底盘 + 空 origin→raw None）与
+  4369（双底盘 10.0/15.0 逐条保留）；lib 全测 81/81 绿。
 
 ### C2 车辆/模块本地化名的客户端缺口（2026-10-04 全量对照后的精确口径）
 

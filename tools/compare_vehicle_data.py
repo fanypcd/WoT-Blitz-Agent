@@ -406,7 +406,7 @@ def parse_models(buf: bytes) -> list[dict]:
         if content is None:
             continue
         m: dict = {"tank_id": tid, "hull_spaced": [], "hull_plates": {}, "hull_bbox": None,
-                   "track_thickness": None, "turret_origin": None, "track_origin": None,
+                   "tracks": {}, "turret_origin": None,
                    "initial_turret_rotation": None, "turrets": []}
         for f, w, v2 in fields(content):
             if (f, w) == (1, 2):
@@ -422,6 +422,7 @@ def parse_models(buf: bytes) -> list[dict]:
             elif (f, w) == (4, 2):
                 m["turrets"].append(_pb_model_turret(v2))
             elif (f, w) == (5, 2):
+                # C1 塌缩修复镜像：逐底盘保留（key = 底盘 module_id），不再先到先得
                 k, th, org = None, None, None
                 for f2, w2, v3 in fields(v2):
                     if (f2, w2) == (1, 0):
@@ -435,10 +436,12 @@ def parse_models(buf: bytes) -> list[dict]:
                             elif (f3, w3) == (2, 2):
                                 org = vec3(v4)
                 if k is not None:
-                    if m["track_origin"] is None:
-                        m["track_origin"] = org or [0.0, 0.0, 0.0]
-                    if m["track_thickness"] is None:
-                        m["track_thickness"] = th
+                    td: dict = {}
+                    if th is not None:
+                        td["thickness"] = th
+                    if org is not None:
+                        td["origin"] = org
+                    m["tracks"][str(k)] = td
             elif (f, w) == (6, 2):
                 m["hull_bbox"] = bbox(v2)
         out.append(m)

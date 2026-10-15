@@ -285,7 +285,7 @@ def model_turret_msg(t: dict) -> bytes:
     return f_varint(1, int(t["module_id"])) + f_bytes(2, inner)
 
 
-def model_payload(m: dict, track_module: int, sup: dict) -> bytes:
+def model_payload(m: dict, sup: dict) -> bytes:
     out = f_bytes(1, armor_msg(m.get("hull_plates") or {}, m.get("hull_spaced") or []))
     if not is_zero_vec(m.get("turret_origin")):
         out += f_bytes(2, vec3(m["turret_origin"]))
@@ -295,23 +295,24 @@ def model_payload(m: dict, track_module: int, sup: dict) -> bytes:
                        + f_f32(3, rot.get("roll", 0.0)))
     for t in m.get("turrets") or []:
         out += f_bytes(4, model_turret_msg(t))
-    if m.get("track_thickness") is not None:
-        tr = f_varint(1, int(track_module))
-        tr += f_bytes(2, f_f32(1, m["track_thickness"])
-                      + (f_bytes(2, vec3(m["track_origin"])) if m.get("track_origin") else b""))
-        out += f_bytes(5, tr)
+    # C1 塌缩修复：field5 逐底盘写（key = 底盘 module_id），不再单条顶级底盘
+    for tm_id, td in (m.get("tracks") or {}).items():
+        body = b""
+        if td.get("thickness") is not None:
+            body += f_f32(1, td["thickness"])
+        if td.get("origin") and not is_zero_vec(td["origin"]):
+            body += f_bytes(2, vec3(td["origin"]))
+        if body:
+            out += f_bytes(5, f_varint(1, int(tm_id)) + f_bytes(2, body))
     if m.get("hull_bbox"):
         out += f_bytes(6, bbox_msg(m["hull_bbox"]))
     return out
 
 
 def encode_models(models: list[dict], tanks: list[dict], sup: dict) -> bytes:
-    top_track = {t["tank_id"]: ((t.get("tracks") or [{}])[-1].get("module_id") or 1)
-                 for t in tanks}
     out = b""
     for m in sorted(models, key=lambda x: x["tank_id"]):
-        entry = f_varint(1, int(m["tank_id"])) + f_bytes(2, model_payload(
-            m, top_track.get(m["tank_id"], 1), sup))
+        entry = f_varint(1, int(m["tank_id"])) + f_bytes(2, model_payload(m, sup))
         out += f_bytes(1, entry)
     return out
 

@@ -17,10 +17,18 @@ use crate::wargaming::dvpl::ArmorModel;
 pub(crate) const GLB_CACHE_DIR: &str = "cache/models";
 use crate::wargaming::tank_resolver::TankResolver;
 
+/// 顶级底盘 module_id（tanks.pb `tracks` 末位 = 研发序顶级，与 hull_traverse /
+/// "顶级炮塔 × 顶级主炮"同一口径）。C1 塌缩修复的语义选取标记：履带厚度/原点
+/// 按**该口径底盘**从 models.pb field5 map 取，不再依赖 map 迭代序。
+fn top_track_module(tank_id: u32) -> Option<u32> {
+    crate::wargaming::blitzkit::tank_full(tank_id)
+        .and_then(|t| t.tracks.last().map(|tr| tr.module_id))
+}
+
 /// 从 models.pb 合成精确装甲模型（逐板厚度/spaced/履带厚度，BlitzKit 唯一来源）。
 /// primaryArmor 是 BlitzKit 缺项，从 game_data 同节段拷贝（缺失时留空串——仅影响展示，
 /// 装甲摘要链走 game_data 原路径不受影响）；炮塔/主炮取顶级配置（最后炮塔×最后炮），
-/// 与 game_data 的 XML 顶级配置语义对齐。
+/// 履带取顶级底盘，与 game_data 的 XML 顶级配置语义对齐。
 pub(crate) fn synth_armor_model(tank_id: u32) -> Option<ArmorModel> {
     let mi = crate::wargaming::blitzkit::model_info(tank_id)?;
     let game_am = crate::wargaming::game_extract::load_game_data(
@@ -76,8 +84,9 @@ pub(crate) fn synth_armor_model(tank_id: u32) -> Option<ArmorModel> {
                     .map(|s| &s.primary),
             )
         }),
-        chassis: mi
-            .track_thickness
+        chassis: top_track_module(tank_id)
+            .and_then(|mid| mi.tracks.get(&mid))
+            .and_then(|td| td.thickness)
             .map(|t| crate::wargaming::dvpl::ChassisArmor {
                 left_track: t,
                 right_track: t,
@@ -247,14 +256,23 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
         .unwrap_or_default();
     // 模型原点（models.pb，DAVA→GLB correctZY: (x,z,y)）——装甲节点定位基准，
     // 对齐 BlitzKit SpacedArmorScene 的 hullOrigin/turretOrigin 分组装配。
+    // 履带原点按顶级底盘取（C1 塌缩修复）；pb 省略 origin（全 0 消息）时归一化
+    // (0,0,0)——与旧解析的发射语义一致，不因 schema 改动隐去 model_origins。
+    let track_origin = m_info
+        .as_ref()
+        .and_then(|m| top_track_module(tank_id).and_then(|mid| m.tracks.get(&mid)))
+        .map(|td| td.origin.unwrap_or([0.0, 0.0, 0.0]))
+        .map(|tk| [tk[0], tk[2], tk[1]]);
     let model_origins = m_info
         .as_ref()
-        .and_then(|m| match (m.track_origin, m.turret_origin) {
-            (Some(tk), Some(tu)) => Some(json!({
-                "track": [tk[0], tk[2], tk[1]],
-                "turret": [tu[0], tu[2], tu[1]],
-            })),
-            _ => None,
+        .and_then(|m| m.turret_origin)
+        .and_then(|tu| {
+            track_origin.map(|tk| {
+                json!({
+                    "track": tk,
+                    "turret": [tu[0], tu[2], tu[1]],
+                })
+            })
         });
     let initial_turret_rotation = m_info
         .as_ref()

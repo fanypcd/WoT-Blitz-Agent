@@ -333,6 +333,18 @@ pub struct GunModelInfo {
 }
 
 /// 一辆坦克的模型节点信息（来自 models.pb）。
+/// 逐底盘履带模型数据（ModelDefinition field5 map 条目）。
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct TrackModelData {
+    /// 履带板厚（TrackModelDefinition.thickness，左右同值；None = pb 省略）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thickness: Option<f32>,
+    /// 履带原点（TrackModelDefinition.origin，DAVA 坐标；None = 客户端全 0 省略，
+    /// 消费方按 (0,0,0) 处理）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<[f32; 3]>,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TankModelInfo {
     pub tank_id: u32,
@@ -346,15 +358,15 @@ pub struct TankModelInfo {
     /// 车体碰撞盒（ModelDefinition field6，模型原点系）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hull_bbox: Option<BoundingBox>,
-    /// 履带厚度（TrackModelDefinition.thickness，左右同值；None = 无数据）。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub track_thickness: Option<f32>,
+    /// 逐底盘履带模型数据（ModelDefinition field5 map；key = 底盘 module_id，
+    /// 与 tanks.pb tracks[].module_id 同域——2026-10-15 实测 738/738 全中）。
+    /// C1 塌缩修复：多底盘车（243/738，其中 6 辆厚度/原点不同）逐条保留，
+    /// 不再压成"map 迭代序先到先得"的单值。
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub tracks: BTreeMap<u32, TrackModelData>,
     /// 炮塔原点（ModelDefinition.turret_origin，DAVA 坐标）——炮塔装甲板的定位基准。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turret_origin: Option<[f32; 3]>,
-    /// 履带原点（第一个 TrackModelDefinition.origin，DAVA 坐标）——车体装甲板的定位基准。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub track_origin: Option<[f32; 3]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub initial_turret_rotation: Option<InitialRotationInfo>,
     pub turrets: Vec<TurretModelInfo>,
@@ -1105,9 +1117,8 @@ fn parse_model_tank_entry(tb: &[u8]) -> Result<Option<TankModelInfo>> {
     let mut hull_spaced = Vec::new();
     let mut hull_plates: BTreeMap<u32, f32> = BTreeMap::new();
     let mut hull_bbox: Option<BoundingBox> = None;
-    let mut track_thickness: Option<f32> = None;
+    let mut tracks: BTreeMap<u32, TrackModelData> = BTreeMap::new();
     let mut turret_origin: Option<[f32; 3]> = None;
-    let mut track_origin: Option<[f32; 3]> = None;
     let mut initial_turret_rotation: Option<InitialRotationInfo> = None;
     let mut turrets = Vec::new();
     let mut cr = Reader {
@@ -1206,13 +1217,11 @@ fn parse_model_tank_entry(tb: &[u8]) -> Result<Option<TankModelInfo>> {
                     }
                 }
                 if k.is_some() {
-                    // 空的 origin 消息（全 0 省略）按 (0,0,0) 处理
-                    if track_origin.is_none() {
-                        track_origin = Some(origin.unwrap_or([0.0, 0.0, 0.0]));
-                    }
-                    if track_thickness.is_none() {
-                        track_thickness = thickness;
-                    }
+                    // C1 塌缩修复：逐底盘保留（含 thickness/origin 皆缺的占位条目），
+                    // 不再"map 迭代序先到先得"压成单值。
+                    let e = tracks.entry(k.unwrap()).or_default();
+                    e.thickness = thickness;
+                    e.origin = origin;
                 }
             }
             // ModelDefinition field6 = 车体碰撞盒（BoundingBox，模型原点系）
@@ -1228,9 +1237,8 @@ fn parse_model_tank_entry(tb: &[u8]) -> Result<Option<TankModelInfo>> {
         hull_spaced,
         hull_plates,
         hull_bbox,
-        track_thickness,
+        tracks,
         turret_origin,
-        track_origin,
         initial_turret_rotation,
         turrets,
     }))
@@ -1584,8 +1592,20 @@ mod parse_tests {
         // 车体碰撞盒（模型原点系）
         let hb = m.hull_bbox.as_ref().expect("hull bbox");
         assert!((hb.min[0] - -1.7195).abs() < 1e-3 && (hb.max[2] - 1.7058).abs() < 1e-3);
-        // 履带厚度（左右同值）
-        assert_eq!(m.track_thickness, Some(20.0));
+        // 履带厚度（逐底盘 map；IS-7 单底盘 module 14849，左右同值）
+        assert_eq!(m.tracks.len(), 1);
+        assert_eq!(m.tracks.get(&14849).and_then(|t| t.thickness), Some(20.0));
+        // origin 为空消息（proto3 全 0 省略）→ raw None，消费端归一化 (0,0,0)
+        assert_eq!(m.tracks.get(&14849).and_then(|t| t.origin), None);
+        // 多底盘车（C1 塌缩修复锚点）：4369 两条底盘厚度不同，逐条保留
+        let m4369 = ms.iter().find(|m| m.tank_id == 4369).expect("tank 4369");
+        assert_eq!(m4369.tracks.len(), 2);
+        assert_eq!(m4369.tracks.get(&8721).and_then(|t| t.thickness), Some(10.0));
+        assert_eq!(m4369.tracks.get(&8977).and_then(|t| t.thickness), Some(15.0));
+        assert_eq!(
+            m4369.tracks.get(&8977).and_then(|t| t.origin),
+            Some([-0.002367, 1.00642, 0.0])
+        );
         // 顶级炮塔碰撞盒与逐板厚度
         let t = m
             .turrets

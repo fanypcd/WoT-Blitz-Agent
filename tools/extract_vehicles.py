@@ -800,19 +800,23 @@ class Extractor:
                     "guns": guns,
                 })
 
-        # 履带：第一条 chassis 的 leftTrack 厚度 + hullPosition 原点
-        track_thickness = None
-        track_origin = None
+        # 履带：逐底盘 leftTrack 厚度 + hullPosition 原点（C1 塌缩修复：
+        # key = 底盘 module_id，多底盘车逐条保留，不再取第一条；origin 缺失
+        # 保 None——pb 侧全 0 序列化为空消息，两边同形）
+        tracks_model: dict = {}
         c_el = last_child(root, "chassis")
         if c_el is not None:
-            first = next(iter(c_el), None)
-            if first is not None:
-                cr = DefResolver(first, comp.shared_def("chassis", first.tag))
+            for entry in c_el:
+                cr = DefResolver(entry, comp.shared_def("chassis", entry.tag))
                 armor = cr.elem("armor")
                 lt = last_text(armor, "leftTrack") if armor is not None else None
+                td: dict = {}
                 if lt:
-                    track_thickness = float(lt)
-                track_origin = parse_vec_text(cr.text("hullPosition")) or [0.0, 0.0, 0.0]
+                    td["thickness"] = float(lt)
+                hp_o = parse_vec_text(cr.text("hullPosition"))
+                if hp_o and any(abs(v) > 1e-6 for v in hp_o):
+                    td["origin"] = hp_o  # 全 0 省略（pb 侧零值序列化为空消息，两边同形）
+                tracks_model[str(mid(nation, comp.local_id("chassis", entry.tag) or 0))] = td
 
         # 炮塔初始姿态：车辆 XML `<turretInitialRotation><yaw>/<pitch>/<roll>`（度）。
         # 2026-10-10 实测：与 BlitzKit models.pb field3 逐值一致（4 辆意系 SPG 非零、其余
@@ -830,9 +834,8 @@ class Extractor:
             "hull_spaced": hull_spaced,
             "hull_plates": hull_plates,
             "hull_bbox": bbox_of("hull"),
-            "track_thickness": track_thickness,
+            "tracks": tracks_model,
             "turret_origin": turret_origin,
-            "track_origin": track_origin,
             "initial_turret_rotation": initial_rot,
             "turrets": turrets,
         }

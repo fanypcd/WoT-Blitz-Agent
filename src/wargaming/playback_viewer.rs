@@ -511,6 +511,8 @@ mod config_idx_tests {
             gun_pitch: Vec::new(),
             hp: Vec::new(),
             death_t: None,
+            death_times: Vec::new(),
+            resurrection_times: Vec::new(),
             killer_eid: 0,
             shell_ids: Vec::new(),
             loadout_items: Vec::new(),

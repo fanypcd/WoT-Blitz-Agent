@@ -21,7 +21,7 @@
 | # | 数据 | 目前来源 | 可替代来源 | 替代完成度 | 剩余工作 / 备注 |
 |---|---|---|---|---|---|
 | 1 | `data/tanks.pb`（整车数值：弹种/火炮/HP/机动/模块） | **BlitzKit CDN（现役）** `/definitions/tanks.pb`（`blitzkit.rs::fetch_and_save`；包内直发 pb） | 客户端解包 `tools/extract_vehicles.py` → `tools/emit_vehicle_pb.py` 可编码为**同格式 pb**（工具已备，**未接线**） | 🟢 数据 ~99.5% / 接线 0% | ⚠️ **2026-10-09 试接当日已回退**（本地版本验证未完成，不得直接替换 `data/*.pb`）。与 BK 的剩余差异共 **122 处**、已全部定性（§一注）：119 枪序（研发序口径）+ 10625 explosion_radius（**BK 单点错值**，客户端 0.1）+ 名字 2 条；试接批实测：重建 `tank_cache.json` 仅 1 行差异 |
-| 2 | `data/models.pb`（逐板装甲/spaced/履带厚/模型原点/包围盒/限位） | **BlitzKit CDN（现役）** `/definitions/models.pb`（同上） | 客户端解包 `local_pb/models.json` + `game_data`（编码器同 #1，未接线） | 🟢 数据 ~99% / 接线 0% | ⚠️ 试接已回退（同 #1）。接线时按**游戏研发序**选档（BK 为模块 id 升序：105 辆枪序不同、91 辆末位主炮不同、**15 辆**板集实际不同；试接批实测包内 `armor_model.gun` 与 `game_data` 收敛，仅 2 辆 f32 量化差）；`initial_turret_rotation` 已找到客户端直源（车辆 XML `<turretInitialRotation>`，4 辆非零值与 BK 逐值一致、731 辆无元素=BK 的 None，对照 0 差异）；43 辆无炮塔 TD 的炮塔 bbox 为**空心占位**（两侧皆空，见 [game-data-sources.md](game-data-sources.md) §2.3） |
+| 2 | `data/models.pb`（逐板装甲/spaced/履带厚/模型原点/包围盒/限位） | **BlitzKit CDN（现役）** `/definitions/models.pb`（同上） | 客户端解包 `local_pb/models.json` + `game_data`（编码器同 #1，未接线） | 🟢 数据 ~99% / 接线 0% | ⚠️ 试接已回退（同 #1）。接线时按**游戏研发序**选档（BK 为模块 id 升序：105 辆枪序不同、91 辆末位主炮不同、**15 辆**板集实际不同；试接批实测包内 `armor_model.gun` 与 `game_data` 收敛，仅 2 辆 f32 量化差）；`initial_turret_rotation` 已找到客户端直源（车辆 XML `<turretInitialRotation>`，4 辆非零值与 BK 逐值一致、731 辆无元素=BK 的 None，对照 0 差异）；43 辆无炮塔 TD 的炮塔 bbox 为**空心占位**（两侧皆空，见 [game-data-sources.md](game-data-sources.md) §2.3）；C1 塌缩（履带厚度/原点单值）**已修复（2026-10-15）**——schema 改逐底盘 map、消费端按顶级底盘语义选取，7 辆产物变更、对照零新增差异，见 [decoupling-status.md](decoupling-status.md) §2 C1 |
 | 3 | `data/tank_cache.json` | 本机自产（派生自**现役 BlitzKit pb**；俯仰 ← models.pb；六面装甲摘要 ← game_data 客户端优先） | 同一派生链改接客户端 pb（未接线） | 🟢 随 ①② | `shells[].shell_type_id` 已透出（§1a）；`shells[].caliber/normalization/ricochet` 已透出（**2026-10-10**，§1a——等效厚度判定输入，装甲查看器两条弹表路径曾因此判定翻转） |
 | 4/5 | `data/game_data/{id}.json`（装甲模型 + 碰撞盒） | **客户端解包（现役）**：`XML/item_defs/vehicles/{nation}/{model}.xml.dvpl` + `3d/Tanks/Parameters/{nation}/{model}.yaml.dvpl` | 它本身就是 | ✅ 100/100 | 链内 2 处 pb 依赖待拆：文件定位用 pb 的 `model_name`（field32）；炮塔/炮管碰撞盒**选段**用 models.pb 的 module→node 映射（缺失回退"末位"） |
 | 6 | `data/tank_data/{id}.json`（→ 包 `tank/{id}.json`） | **混合三源**：models.pb（板/spaced/履带/原点/限位/bbox）+ tanks.pb（数值/弹种）+ game_data（primary、chassis/gun bbox） | 客户端三源齐备 | 🟡 数据 ~95% / 接线 0% | 缺口同 ①②；`configs[]` 的节点数/索引已走客户端 GLB（`model.glb` 节点名）✅；⚠️ 43 辆无炮塔 TD 的 `collision_boxes.turret` 为 null——**两侧都只有空心占位**（客户端 YAML 无 turret 段，models.pb 是 4 字节空 bbox），非缺数据，见 [game-data-sources.md](game-data-sources.md) §2.3 |
@@ -430,7 +430,10 @@ COS 差分上传，不再依赖前端发版。§二 至此收敛为两条通道�
 - **换源验证与接线**（2026-10-09 试接后回退）：格式决策已定（写 pb 编码器
   `tools/emit_vehicle_pb.py`，运行期零改动），工具链在库；但本地解包版本的**验证未完成**，
   `data/tanks.pb` / `data/models.pb` 已回退为 BlitzKit 现役版本。接线前须补：① 122 处差异的
-  最终确认（119 枪序为口径选择，1 explosion_radius 为 BK 错值，2 条名字由补表兜底）；
+  最终确认（119 枪序为口径选择，1 explosion_radius 为 BK 错值，2 条名字由补表兜底；
+  **2026-10-15 已在 11.21.0 版上随 C1 修复复跑全量对照——仍恰为该 122 处，零新增；
+  当前分层：105 辆/119 炮塔枪序，其中 92 辆顶级炮 id 不同、28 辆顶级炮板集实际不同
+ （11.21.0 平衡使板集不同车辆 15→28）**）；
   ② 回归（本轮试接批的对照方法与数字已存档于 §一 注与
   [game-data-sources.md](game-data-sources.md) §5.2b，可直接复用）。
 - ~~`tank_id` 桥~~ **已解决（2026-10-10）**：`tank_id = (list.xml <id> << 8) | 国家基数`，
