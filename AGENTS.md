@@ -113,12 +113,16 @@ testing** happen in the WotbTools repository (https://github.com/A158Coke/WotbTo
   re-run the composite reading the pre-composite bases and the render cache:
   `python tools/composite_overhead.py --pack release/asset_pack --all --write --render-dir release/overhead-bake --base-dir data/cache/maps`
   (orientation is the fixed contract constant `YX`; `--verify` reads back what a pack actually
-  baked — see [docs/game-data-sources.md](docs/game-data-sources.md) §5.5). **Precondition**: the
+  baked — see [docs/game-data-sources.md](docs/game-data-sources.md) §5.5). **Archive the renders
+  first**: the bake writes them into the *pack* (`<pack>/overhead/`), so run
+  `python tools/archive_overhead_bake.py --clear-pack`（成对校验 + 世代体检，`--verify-only` 只体检）
+  before anything clears that dir. **Precondition**: the
   render cache must be the same generation as the shipped grounds — its `meta` must carry
   `ground=true` (i.e. it contains the layered-ground pass); a cache without that flag predates
-  the P2 bake and the composite would silently roll all 36 grounds back a generation (re-bake
-  upstream with `bake-ground-overhead.mjs --all` first; shipped bytes are recoverable read-only
-  from the COS origin — see §5.5 closing note). then **re-stamp the
+  the P2 bake — the composite now **refuses to write** such renders by default (fail-closed,
+  `--allow-legacy-render` is diagnostics-only) and would otherwise silently roll all 36 grounds
+  back a generation (re-bake upstream with `bake-ground-overhead.mjs --all` first; shipped bytes
+  are recoverable read-only from the COS origin — see §5.5 closing note). then **re-stamp the
   manifest against the pack's actual bytes** — `python scripts/export_asset_pack.py --refresh-manifest`
   （合成器在打包之后改写 `map/*/ground.webp`，不重算则 manifest 一直记合成前哈希）— and upload the delta:
   `COS_SECRET_ID=… COS_SECRET_KEY=… python tools/upload_asset_pack_cos.py --local release/asset_pack`

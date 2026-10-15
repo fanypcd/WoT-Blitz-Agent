@@ -537,7 +537,7 @@ COS 差分上传，不再依赖前端发版。§二 至此收敛为两条通道�
 | 坦克封面图 / 图标 | `tools/export_tank_icons.py`（DVPL 剥壳裸 webp；`fetch-icons` 降为 BK 对照/兜底） | `data/cache/local_tank_icons/`（738/738）→ **同步进 `cache/tank_images/`**（现役来源，两目录逐字节一致） | ✅ 已接线（2026-10-15） |
 | 车辆数值（`tanks.pb` / `models.pb` 等价物） | `tools/extract_vehicles.py`（+ `data/tank_id_bridge.json`） | `data/cache/local_pb/`（738 辆全量） | ✅ 已接线（2026-10-15，`emit_vehicle_pb` 编码为现役 pb） |
 | 动态装甲状态声明 | `tools/extract_armor_states.py` | `data/armor_states.json`（6 车 12 态；行级解析 `<extras><armorsStatesController>`，无块车不在产物中） | ✅ |
-| 俯视地面合成 | `tools/composite_overhead.py`（现役；**朝向 = 契约常量 `YX`**，8 朝向相关只作 `audit` 诊断，见 [game-data-sources.md](game-data-sources.md) §5.5）/ `tools/bake_ground_roofs.py`（旧软光栅，已退役） | 写回 `<pack>/map/<key>/ground.webp`（**打包器之后跑**，随后按新链 `python scripts/export_asset_pack.py --refresh-manifest` 重算 manifest——2026-10-10 起，见 §2.1）；重烘须 `--base-dir data/cache/maps`（缺省读包内件会在已合成图上二次合成）；`--verify` 反解读回实际烘入朝向 | ✅ |
+| 俯视地面合成 | `tools/composite_overhead.py`（现役；**朝向 = 契约常量 `YX`**，8 朝向相关只作 `audit` 诊断，见 [game-data-sources.md](game-data-sources.md) §5.5；**世代护栏**：meta 缺 `ground` 键的旧世代渲染件 `--write` 默认拒写，`--allow-legacy-render` 仅诊断用，回归 `tools/test_overhead_guard.py`）+ `tools/archive_overhead_bake.py`（烘焙件归档助手：成对校验 + 世代体检 + `--clear-pack`）/ `tools/bake_ground_roofs.py`（旧软光栅，已退役） | 写回 `<pack>/map/<key>/ground.webp`（**打包器之后跑**，随后按新链 `python scripts/export_asset_pack.py --refresh-manifest` 重算 manifest——2026-10-10 起，见 §2.1）；重烘须 `--base-dir data/cache/maps`（缺省读包内件会在已合成图上二次合成）；`--verify` 反解读回实际烘入朝向 | ✅ |
 
 ### 6.2 Rust 侧解包（`src/wargaming/`，由 CLI 子命令驱动）
 

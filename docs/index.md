@@ -2629,3 +2629,28 @@ WotbTools 侧无需适配。
 `meta.ground=true`）→ 归档渲染件 → 本机 `composite_overhead.py --all --write
 --render-dir release/overhead-bake --base-dir data/cache/maps` 即与线上世代对齐
 （届时 `--verify` 应 36/36 ok）。
+
+**合成链加固（同日，用户裁示）**——把"代"这件事从"靠人记"变成"工具拦"：
+
+- **合成器世代护栏**（`tools/composite_overhead.py`）：判据是 meta 的 `ground` 键**存在性与取值**
+  （纯语义标记，零统计判定）——新增 `render_generation`（`ground-pass` / `no-terrain` /
+  **`pre-ground-pass`＝缺键**）与 `write_refused`；`--write` 对 `pre-ground-pass` 默认**拒写**
+  （fail-closed，闸门在读取 64MB 像素之前，fail fast），显式 `--allow-legacy-render` 才放行
+  （仅诊断/复现历史）；每张图报告带 `generation` 字段；`--verify` 对旧世代附
+  `generation_warning`（按 0.92 反解地面 pass 成品会失真，该 `ok` 不可用于判定）。实机验证：
+  `--all --write` 对归档里 35 张旧世代**全部拒写**、仅 `mountain`（新世代）写出；
+  `--allow-legacy-render` 放行路径与旧产物字节一致（faust 4,392,896 B）。
+- **归档助手**（`tools/archive_overhead_bake.py`）：烘焙件先进包内 `overhead/`、归档是唯一留存路径
+  ——助手按 `<key>.rgba` + `<key>.meta.json` **成对校验**（缺一半即整体拒绝，不部分归档）、
+  拷贝后逐件字节数核对、逐图打印世代（缺 `ground` 键即警告），`--verify-only` 只体检、
+  `--clear-pack` 归档核对通过后清包内件与 `upload.rgba` 残留。
+- **回归**：`tools/test_overhead_guard.py` 三组用例（世代判据 / 拒写闸门只在"要写+旧世代+未放行"
+  时触发 / 成对校验含 `upload.rgba` 忽略项）全过。
+- **顺带实证上游现状**：包内出现当日 21:12 的 `mountain` 单图重烘（非本会话所跑），meta 为
+  `{"ground":true,"coverPct":100}`——现版本 bake 确实产出地面 pass 世代；已用新助手归档，
+  归档目录现为 35 旧 + 1 新（合成器按需分别拒写/放行）。该新渲染件合成结果与线上 mountain 底图
+  **同代但非逐字节**（逐像素差均值 2.37/255、>8 像素 3.48%），候选原因：此次烘焙读的是**更新后的
+  地形**（线上那张为 10-14 用旧地形烘），或渲染后端逐像素抖动——未证实，需要时做对照实验。
+- 文档同步：AGENTS.md 合成步骤前补"先归档 + 世代前置"，[game-data-sources.md](game-data-sources.md)
+  §5.5 末注补两条硬约束，data-inventory §6.1 工具表补护栏与助手。
+

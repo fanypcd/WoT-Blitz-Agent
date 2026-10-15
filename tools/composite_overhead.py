@@ -6,6 +6,11 @@
   · 渲染含地面（2026-10-14 地面 pass 起，ground=true）⇒ 覆盖即替换，out = rgb×a + ground×(1−a)；
   · 不含地面（旧口径，ground 缺省 false）⇒ out = ground×(1−0.92a) + rgb×0.92a（0.92 为软边补偿）。
 
+**世代护栏（2026-10-15 加固）**：meta **无 `ground` 键** = 烘焙件早于地面 pass 世代——按旧口径
+合成会把该图底图回退一代（与线上不符）。`--write` 默认**拒写**该类渲染件（fail-closed），
+需显式 `--allow-legacy-render` 才放行；每张图的报告带 `generation` 字段便于核对。
+判据是语义标记，不做统计判定。
+
 用法：
   python tools/composite_overhead.py --pack release/asset_pack --map medvedkovo
   python tools/composite_overhead.py --pack release/asset_pack --all
@@ -125,9 +130,41 @@ def read_back_orientation(rgba: np.ndarray, base: np.ndarray, ground: np.ndarray
             "corr": scores}
 
 
+def render_generation(meta: dict) -> str:
+    """渲染件世代——判据是 meta 的**语义标记**（`ground` 键存在与否），不做任何统计判定：
+
+    · "ground-pass"    —— `ground=true`：渲染含完整分层地面 pass（2026-10-14 起），
+                          合成走"覆盖即替换"（权重 1.0），产物 = 线上现役世代；
+    · "no-terrain"     —— `ground=false`：该图 terrain.json/json+bin 均缺，烘焙按无地面口径
+                          出图（合法；合成走 0.92 软边补偿）；
+    · "pre-ground-pass"—— **无 `ground` 键**：烘焙件早于地面 pass（或非本工具链产物）。
+                          按 0.92 旧口径合成会产出"地面 pass 前世代"的底图——与线上世代不符
+                          （2026-10-15 审计实证：本机缓存即此世代，重合成会静默回退 36 张线上底图）。
+
+    为什么必须有这条：合成器只按 `<key>.rgba/.meta.json` 是否存在读取，本身分不出世代；
+    没有护栏时"旧渲染件 + 文档流程"会安静地产出回退版，且 `--verify` 用它自洽重建也测不出来。
+    """
+    if "ground" not in meta:
+        return "pre-ground-pass"
+    return "ground-pass" if meta["ground"] else "no-terrain"
+
+
+def write_refused(generation: str, write: bool, allow_legacy: bool) -> str | None:
+    """写回闸门：pre-ground-pass 世代默认**拒绝写回**（fail-closed），返回拒绝原因文本；
+    允许写/允许旧世代时返回 None。显式 `--allow-legacy-render` 才放行（仅用于诊断/复现历史，
+    不用于发布）。"""
+    if write and generation == "pre-ground-pass" and not allow_legacy:
+        return ("渲染件为地面 pass 前世代（meta 无 `ground` 键）——写回会把该图底图回退一代"
+                "（与线上世代不符）。先在上游仓重烘并归档："
+                "`bake-ground-overhead.mjs --all` → `tools/archive_overhead_bake.py`；"
+                "确认无需回退时再显式传 `--allow-legacy-render`。")
+    return None
+
+
 def composite_map(pack: Path, key: str, write: bool, quality: int,
                   render_dir: Path | None = None, base_dir: Path | None = None,
-                  map_index: Path = Path("map_index.json")) -> dict:
+                  map_index: Path = Path("map_index.json"),
+                  allow_legacy: bool = False) -> dict:
     mdir = pack / "map" / key
     ground_path = mdir / "ground.webp"
     rdir = render_dir or (pack / "overhead")
@@ -137,6 +174,11 @@ def composite_map(pack: Path, key: str, write: bool, quality: int,
     if not (raw_path.is_file() and meta_path.is_file() and base_path.is_file()):
         return {"key": key, "skipped": "缺 overhead 原始渲染或底图"}
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    # 世代闸门先于大件读取（拒写时不必读 64MB 像素/底图）——fail fast
+    generation = render_generation(meta)
+    refusal = write_refused(generation, write, allow_legacy)
+    if refusal is not None:
+        return {"key": key, "generation": generation, "refused": refusal, "written": False}
     size = meta["size"]
     rgba = np.frombuffer(raw_path.read_bytes(), np.uint8).reshape(size, size, 4)
     ground = np.asarray(Image.open(base_path).convert("RGB")).copy()
@@ -151,8 +193,9 @@ def composite_map(pack: Path, key: str, write: bool, quality: int,
     out = ground.astype(np.float32) * (1 - a) + over[..., :3] * a
     out_img = Image.fromarray(out.clip(0, 255).astype(np.uint8))
 
-    report = {"key": key, "orient": ORIENT, "audit": audit, "base": str(base_path),
-              "cover_pct": round(100 * (rgba[..., 3] > 8).mean(), 2), "written": False}
+    report = {"key": key, "orient": ORIENT, "generation": generation, "audit": audit,
+              "base": str(base_path), "cover_pct": round(100 * (rgba[..., 3] > 8).mean(), 2),
+              "written": False}
     if audit["best"] != ORIENT:
         report["audit_disagrees"] = (f"{audit['best']}(margin {audit['margin']})——"
                                      "仅诊断：该图底图↔渲染对照无信号属正常（见 audit_orientations），"
@@ -181,10 +224,16 @@ def verify_map(pack: Path, key: str, render_dir: Path | None = None,
     rgba = np.frombuffer(raw_path.read_bytes(), np.uint8).reshape(size, size, 4)
     base = np.asarray(Image.open(base_path).convert("RGB"))
     ground = np.asarray(Image.open(ground_path).convert("RGB"))
+    generation = render_generation(meta)
     back = read_back_orientation(rgba, base, ground, 1.0 if meta.get('ground') else 0.92)
     if back is None:
         return {"key": key, "skipped": "覆盖太小，无法判读"}
-    return {"key": key, **back, "ok": back["applied"] == ORIENT}
+    out = {"key": key, "generation": generation, **back, "ok": back["applied"] == ORIENT}
+    if generation == "pre-ground-pass":
+        out["generation_warning"] = ("渲染件为地面 pass 前世代：读回按 0.92 旧口径反解，"
+                                     "若包内为地面 pass 世代成品则相关性失真——该 ok 值不可用于判定，"
+                                     "先重烘归档再校验")
+    return out
 
 
 def main():
@@ -202,6 +251,9 @@ def main():
     ap.add_argument("--map-index", type=Path, default=Path("map_index.json"))
     ap.add_argument("--verify", action="store_true",
                     help="只读校验：反解包内成品实际烘入的朝向（应恒为 ORIENT）")
+    ap.add_argument("--allow-legacy-render", action="store_true",
+                    help="放行地面 pass 前的渲染件（meta 无 ground 键）：产物为回退世代，"
+                         "仅用于诊断/复现历史，不用于发布（缺省拒写，见 render_generation）")
     args = ap.parse_args()
     pack = Path(args.pack)
     rdir = args.render_dir or (pack / "overhead")
@@ -213,7 +265,8 @@ def main():
                                             args.map_index), ensure_ascii=False))
             else:
                 print(json.dumps(composite_map(pack, key, args.write, args.quality, args.render_dir,
-                                               args.base_dir, args.map_index), ensure_ascii=False))
+                                               args.base_dir, args.map_index,
+                                               args.allow_legacy_render), ensure_ascii=False))
         except Exception as e:  # noqa: BLE001
             print(json.dumps({"key": key, "error": str(e)[:300]}, ensure_ascii=False))
 
