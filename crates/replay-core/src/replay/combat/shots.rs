@@ -1032,7 +1032,8 @@ fn tick_window_samples(
 
 /// 从射击事件抽取复现数据（WotbTools 权威弹丸生命周期，全部 shotId 确定性配对）：
 /// method29 (0x1d) 发射 / method20 (0x14) 终点 / method38 (0x26) 命中结果（仅作者）；目标 = method38 victimVehicleId（服务器权威，无则 miss）；
-/// 伤害 = method1 血量链差值（victim + source=作者 + cause=0）。数据完整性 fail-fast：任何缺失/歧义直接返回 Err，不做保守降级（零值掩盖问题）。
+/// 伤害 = method1 血量链逐事件差值（victim + source=作者 + cause=0，命中时刻与降幅
+/// 事件时钟确定性配对）。数据完整性 fail-fast：任何缺失/歧义直接返回 Err，不做保守降级（零值掩盖问题）。
 /// `pitch_limits` = 昵称→(俯角°,仰角°) 锚定表
 /// （[`gun_pitch_limits_from`] 构建）。双方炮管俯仰主来源 = prop2 frac 比例解码；
 /// 无锚定表时回退路径（作者 method36 field2 / 他人速度向量 / 受击方车体 pitch）并打质量标记。
@@ -1144,8 +1145,16 @@ pub(crate) fn extract_shot_replays_from_shared(
     let mut dmg_losses_used: std::collections::HashSet<usize> = std::collections::HashSet::new();
     // 作者伤害计数器增量序列（共享收集，已剔除非弹伤害污染 tick）
     let dc_increments = &shared.dc_increments;
+    // 计数器增量按**时钟**消费（命中时钟 == 增量时钟），不再按顺序游标——顺序游标
+    // 在"命中存在但无 HP 掉血"（未穿/模块-only）的条目上会错位，把下一发的增量
+    // 提前消费（实测 2045：#2 结果 2 无掉血却吞掉 #4 的 604）。
+    let mut dc_used: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    // method8 命中通知消费标记（作者路径）：通知按 (shooter=作者, victim) 认领，
+    // 未消费最早一条 ≥ end_time——method8 的 t 才是真实命中时刻（与 method1 同 tick
+    // 逐位相等）；method38/method29续段/method20 都带**射击作用域时钟**（= 开火时刻，
+    // 实测有飞行时间时与命中时刻差 0.28s），不能当伤害配对键。
+    let mut d8_used: std::collections::HashSet<usize> = std::collections::HashSet::new();
     let mut hr_cursor = 0usize; // method38 消费游标（按时间顺序，逐发消费）
-    let mut dc_cursor = 0usize; // 计数器增量顺序游标（每个造成伤害的命中消费一条）
 
     // ⑦ 逐发处理（fail-fast：任何数据缺失/歧义直接报错）
     let mut out: Vec<ShotReplayData> = Vec::with_capacity(launches.len());
@@ -1351,36 +1360,48 @@ pub(crate) fn extract_shot_replays_from_shared(
             })
         };
 
-        // 伤害归属（确定性，WotbTools deriveLosses 同款）：穿透族谓词 0x1110 = 材料击穿 0x0010 /
-        // 内部模块穿 0x0100 / HE 爆炸 0x1000 → 互斥：一段降幅只归属一次（防同区间双发重复计数，
-        // 见 assign_dmg_losses 注）
+        // 伤害归属（**确定性时钟配对**）：method1 血量事件与 method8 命中通知共享同 tick
+        // 包时钟（逐位相等，实测同刻），降幅逐事件采样（同 tick 多发各成一段）。命中时刻
+        // = 本发认领的 method8 通知时钟（未消费最早一条 ≥ end_time）；降幅事件时钟与它
+        // 相等的那段即本发。无时间窗、无"区间包含"；计数器兜底同样按该时钟绑定。
+        // 穿透族谓词 0x1110 = 材料击穿 0x0010 / 内部模块穿 0x0100 / HE 爆炸 0x1000。
         let mut dmg_unattributed = false;
         if hit && hit_flags & hit_flags_mod::PENETRATION_FAMILY != 0 {
             let victim = target_eid.unwrap_or(0);
-            let containing: Vec<(usize, &DmgLoss)> = dmg_losses
+            let hit_t = direct_hits8
                 .iter()
                 .enumerate()
-                .filter(|(li, l)| {
+                .filter(|(di, d)| {
+                    !d8_used.contains(di)
+                        && d.shooter == author_player_eid
+                        && d.victim == victim
+                        && d.t >= end_time - 1e-6
+                })
+                .min_by(|(_, a), (_, b)| a.t.total_cmp(&b.t))
+                .map(|(di, d)| {
+                    d8_used.insert(di);
+                    d.t
+                });
+            let matched = hit_t.and_then(|t| {
+                dmg_losses.iter().enumerate().find(|(li, l)| {
                     !dmg_losses_used.contains(li)
                         && l.victim == victim
-                        && l.t_prev < end_time
-                        && end_time <= l.t_cur + 1e-6
+                        && (l.t_cur - t).abs() <= 1e-6
                 })
-                .collect();
-            if containing.len() > 1 {
-                anyhow::bail!(
-                    "{}: 伤害归属歧义（{} 个血量降幅区间包含命中时刻）",
-                    ctx(),
-                    containing.len()
-                );
-            }
-            let dc_delta = dc_increments.get(dc_cursor).map(|x| x.1);
-            if dc_delta.is_some() {
-                dc_cursor += 1;
-            }
-            match containing.first() {
+            });
+            let lookup_t = hit_t.unwrap_or(end_time);
+            let dc_idx = dc_increments
+                .iter()
+                .enumerate()
+                .find(|(di, inc)| !dc_used.contains(di) && (inc.0 - lookup_t).abs() <= 1e-6)
+                .map(|(di, _)| di);
+            let dc_delta = dc_idx.map(|di| {
+                dc_used.insert(di);
+                dc_increments[di].1
+            });
+            match matched {
                 Some((li, l)) => {
-                    dmg_losses_used.insert(*li);
+                    dmg_losses_used.insert(li);
                     damage = l.dmg;
                 }
                 None => {
@@ -1391,8 +1412,7 @@ pub(crate) fn extract_shot_replays_from_shared(
             }
             // hp_cur 已按哨兵族归一化（{0,-1,-2,-3}→0），==0 即终态；溺水（cause=5，HP 可为正）
             // 不产生降幅、不进入本链——非炮弹击杀，正确地不计入 is_kill
-            is_kill = containing
-                .first()
+            is_kill = matched
                 .map(|(_, l)| l.hp_cur == 0)
                 .unwrap_or(false)
                 || hit_flags & hit_flags_mod::DIRECT_KILL != 0;
@@ -2080,10 +2100,11 @@ pub(crate) fn extract_other_shot_replays_from_shared(
     // type=36 会话十分秒全值锚（与作者路径同构）
     let session_tick = shared.session_tick;
 
-    // ⑤ 血量链降幅区间（全 source 保留——作者路径 ⑥' 的无过滤版本，cause=0 炮弹直击；含 type=5 满血锚点）
+    // ⑤ 血量链降幅（逐事件采样，全 source 保留——作者路径 ⑥' 的无过滤版本，cause=0 炮弹直击；含 type=5 满血锚点）
     let dmg_losses = derive_dmg_losses(&shared.hp_events, None, &shared.initial_hp);
-    // ⑤' 互斥预归属：每段降幅只归属区间内 end_time 最大的命中发射（同区间未穿弹不计入、
-    // 不重复计数）。目标识别与循环内同式（method8 ±0.05s）。
+    // ⑤' **确定性时钟配对**预归属：降幅事件时钟 == 命中通知时钟（method8 t，与 method1
+    // 同 tick 逐位相等）的那一发得该段降幅；±0.05s 窗口仅用于**身份判定**（哪条 method8
+    // 属于这一发），不参与伤害配对。无时间窗、无就近匹配，配不上则走 dc 兜底。
     let shot_dmg_inputs: Vec<Option<(f32, u32, u32)>> = launches
         .iter()
         .map(|l| {
@@ -2091,7 +2112,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
             // 命中归属窗口基准 = 首个续段时刻（装甲接触），无续段则终点时刻
             let end_time =
                 shot_impact_time(segments.get(&(l.shooter, l.shot_id)), end_time);
-            let teid = direct_hits8
+            let d = direct_hits8
                 .iter()
                 .filter(|d| d.shooter == l.shooter && (d.t - end_time).abs() <= 0.05)
                 .min_by(|x, y| {
@@ -2099,9 +2120,8 @@ pub(crate) fn extract_other_shot_replays_from_shared(
                         .abs()
                         .partial_cmp(&(y.t - end_time).abs())
                         .unwrap_or(std::cmp::Ordering::Equal)
-                })
-                .map(|d| d.victim)?;
-            Some((end_time, l.shooter, teid))
+                })?;
+            Some((d.t, l.shooter, d.victim))
         })
         .collect();
     let dmg_assign = assign_dmg_losses(&shot_dmg_inputs, &dmg_losses);
@@ -2233,7 +2253,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
         }
         let terrain_impact = terrain_hit.map(|(_, d)| d.clone());
 
-        // 伤害归属：互斥预归属结果（assign_dmg_losses：区间内 end_time 最大者得降幅）
+        // 伤害归属：确定性时钟配对预归属结果（assign_dmg_losses：命中时刻 == 降幅事件时钟；同钟竞争取未消费第一段）
         let mut damage = 0u32;
         let mut is_kill = false;
         let mut dmg_unattributed = false;

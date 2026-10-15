@@ -499,7 +499,6 @@ pub(crate) struct ArenaWarning32 {
 pub(crate) struct DmgLoss {
     pub(crate) victim: u32,
     pub(crate) source: u32,
-    pub(crate) t_prev: f32,
     pub(crate) t_cur: f32,
     pub(crate) dmg: u32,
     pub(crate) hp_cur: u16,
@@ -960,9 +959,16 @@ pub(crate) fn decoded_target_gun_pitch(
 
 /// 血量链降幅区间推导（作者/他人路径共用）：同钟同 HP 去冲突后取相邻降幅；
 /// cause=0 炮弹直击；author_filter = Some(eid) 仅保留该射手造成的降幅（作者路径），None 保留全部 source（他人路径）。
-/// initial_hp（type=5 满血锚点）：早于受害者首个 method1 采样时前插 seed，使首刀降幅可推导；
-/// seed 时钟回退 1ms，避免与同钟 method1 事件构成同钟异值冲突而被去重整体丢弃；
-/// seed 晚于首个 method1（AoI 迟到全量包）时放弃，保持原行为。
+/// 血量链降幅区间推导（作者/他人路径共用）：**逐事件采样**——method1 每条 = 该次
+/// 伤害后的绝对血量快照，同钟多条（同 tick 多发命中同一受害者）按**包序**即施加
+/// 顺序，全部保留；相邻下降对即逐发真实伤害，归属看后一条的 source。
+/// 旧"同钟异值整组丢弃"规则在双命中同 tick 时会把中间采样吞掉，使区间吞并多发
+/// （实测：两发 357+341 与下一发 389 合成 1087 的假伤害）。cause=0 炮弹直击；
+/// author_filter = Some(eid) 仅保留该射手造成的降幅（作者路径），None 保留全部
+/// source（他人路径）。
+/// initial_hp（type=5 满血锚点）：早于受害者首个 method1 采样时前插 seed，使首刀
+/// 降幅可推导；seed 时钟回退 1ms 保持先序；seed 晚于首个 method1（AoI 迟到全量包）
+/// 时放弃，保持原行为。
 pub(crate) fn derive_dmg_losses(
     hp_events: &[HpEvent],
     author_filter: Option<u32>,
@@ -981,31 +987,16 @@ pub(crate) fn derive_dmg_losses(
                 samples.push(((ts - 1e-3).max(0.0), hp, 0, 0));
             }
         }
-        let mut i = 0usize;
-        while i < evs.len() {
-            let t = evs[i].clock;
-            let hp = evs[i].hp;
-            let mut conflict = false;
-            let mut j = i + 1;
-            while j < evs.len() && (evs[j].clock - t).abs() <= 1e-6 {
-                if evs[j].hp != hp {
-                    conflict = true;
-                }
-                j += 1;
-            }
-            if !conflict {
-                samples.push((t, hp_terminal_normalized(hp), evs[i].source, evs[i].cause));
-            }
-            i = j;
+        for e in evs {
+            samples.push((e.clock, hp_terminal_normalized(e.hp), e.source, e.cause));
         }
         for w in 1..samples.len() {
-            let (t_prev, hpp, _, _) = samples[w - 1];
+            let (_, hpp, _, _) = samples[w - 1];
             let (t_cur, hpc, srcc, causec) = samples[w];
             if hpc < hpp && causec == 0 && author_filter.is_none_or(|a| srcc == a) {
                 dmg_losses.push(DmgLoss {
                     victim: *victim,
                     source: srcc,
-                    t_prev,
                     t_cur,
                     dmg: (hpp - hpc) as u32,
                     hp_cur: hpc,
@@ -1017,19 +1008,19 @@ pub(crate) fn derive_dmg_losses(
     dmg_losses
 }
 
-/// 血量降幅 → 发射的互斥归属：每段降幅只归属一次，给区间
-/// (t_prev, t_cur] 内 (victim, shooter) 匹配且 end_time 最大的发射。血量事件与命中
-/// 同 tick（prop3/method1 时刻 == 命中时刻），降幅属于区间内最后一发命中；
-/// 更早命中的伤害会形成独立血量事件不共区间。未穿弹与降幅同区间时不抢归属
-/// （end_time 更小即让位）。
-/// 返回 发射序号 → (dmg, hp_cur)；无人认领的降幅丢弃（source 不符等）。
+/// 血量降幅 → 发射的**确定性时钟配对**：method1 血量事件与 method8 命中通知共享
+/// 同 tick 包时钟（逐位相等），每段降幅 = 一条 method1 相对前采样的下降，属于
+/// `source` 的、命中时钟与降幅事件时钟（t_cur）**相等**的那一发；同射手同受害者
+/// 同钟多发（弹夹双击同 tick，无法再细分）按发射序取未消费的第一发，每发至多
+/// 认领一段。无时间窗、无就近匹配——配不上的降幅直接丢弃，该发走 dc 计数器兜底。
+/// 返回 发射序号 → (dmg, hp_cur)。
 pub(crate) fn assign_dmg_losses(
     shots: &[Option<(f32, u32, u32)>], // (end_time, shooter, victim)；None = 无终点/脱靶
     losses: &[DmgLoss],
 ) -> HashMap<usize, (u32, u16)> {
     let mut out: HashMap<usize, (u32, u16)> = HashMap::new();
     for lo in losses {
-        let mut best: Option<(f32, usize)> = None; // (end_time, 发射序号)
+        let mut best: Option<usize> = None; // 发射序号（同钟多发取发射序最小者）
         for (si, s) in shots.iter().enumerate() {
             let Some((end_time, shooter, victim)) = *s else {
                 continue;
@@ -1037,17 +1028,17 @@ pub(crate) fn assign_dmg_losses(
             if victim != lo.victim || shooter != lo.source {
                 continue;
             }
-            if !(lo.t_prev < end_time && end_time <= lo.t_cur + 1e-6) {
+            if (end_time - lo.t_cur).abs() > 1e-6 {
                 continue;
             }
             if out.contains_key(&si) {
                 continue;
             }
-            if best.is_none_or(|(t, _)| end_time > t) {
-                best = Some((end_time, si));
+            if best.is_none_or(|b| si < b) {
+                best = Some(si);
             }
         }
-        if let Some((_, si)) = best {
+        if let Some(si) = best {
             out.insert(si, (lo.dmg, lo.hp_cur));
         }
     }
@@ -1805,5 +1796,89 @@ mod shot_segments_tests {
         assert!(via.is_empty());
         assert_eq!(legs.len(), 1);
         assert!((legs[0] - 0.1).abs() < 1e-3);
+    }
+}
+
+#[cfg(test)]
+mod dmg_attribution_tests {
+    use super::*;
+
+    fn ev(clock: f32, victim: u32, hp: u16, source: u32) -> HpEvent {
+        HpEvent { clock, victim, hp, source, cause: 0 }
+    }
+
+    /// 同 tick 双命中同一受害者：逐事件采样必须保留两条降幅（旧"同钟异值整组丢弃"
+    /// 会吞掉中间采样，把两发与下一发合成一个假降幅——实测 357+341+389→1087）。
+    #[test]
+    fn same_tick_events_survive_as_separate_losses() {
+        let author = 1001u32;
+        let other = 1002u32;
+        let victim = 2001u32;
+        let events = vec![
+            ev(74.94986, victim, 3213, author),
+            ev(74.94986, victim, 2872, other),
+            ev(82.632904, victim, 2483, author),
+        ];
+        let mut seed = HashMap::new();
+        seed.insert(victim, (56.93566f32, 3570u16));
+
+        // 全 source：三段降幅逐事件成立
+        let all = derive_dmg_losses(&events, None, &seed);
+        let got: Vec<(u32, u32, u16)> = all
+            .iter()
+            .map(|l| (l.source, l.dmg, l.hp_cur))
+            .collect();
+        assert_eq!(got, vec![(author, 357, 3213), (other, 341, 2872), (author, 389, 2483)]);
+
+        // 作者过滤：只剩本人的两段（357 / 389），绝不合成 1087
+        let mine = derive_dmg_losses(&events, Some(author), &seed);
+        let got: Vec<u32> = mine.iter().map(|l| l.dmg).collect();
+        assert_eq!(got, vec![357, 389]);
+    }
+
+    /// 确定性时钟配对：命中时刻 == 降幅事件时钟才成立；区间内的中间降幅不再被
+    /// "就近归属"吞掉（旧语义下 (t_prev, t_cur] 区间包含即认领）。
+    #[test]
+    fn assign_pairs_by_exact_clock_only() {
+        let author = 1001u32;
+        let other = 1002u32;
+        let victim = 2001u32;
+        let losses = vec![
+            DmgLoss { victim, source: author, t_cur: 74.94986, dmg: 357, hp_cur: 3213 },
+            DmgLoss { victim, source: other, t_cur: 74.94986, dmg: 341, hp_cur: 2872 },
+            DmgLoss { victim, source: author, t_cur: 82.632904, dmg: 389, hp_cur: 2483 },
+            // 位于两次命中之间的"孤儿"降幅（如别的来源未广播的伤害落入作者链）
+            DmgLoss { victim, source: author, t_cur: 80.0, dmg: 999, hp_cur: 0 },
+        ];
+        let shots: Vec<Option<(f32, u32, u32)>> = vec![
+            Some((74.94986, author, victim)),  // 首发：357（不是 999、不是 341）
+            Some((74.94986, other, victim)),   // 同刻他射：341
+            Some((82.632904, author, victim)),  // 第二发：389
+        ];
+        let got = assign_dmg_losses(&shots, &losses);
+        assert_eq!(got.get(&0), Some(&(357, 3213)));
+        assert_eq!(got.get(&1), Some(&(341, 2872)));
+        assert_eq!(got.get(&2), Some(&(389, 2483)));
+        assert_eq!(got.len(), 3, "孤儿降幅不得被任何一发认领");
+    }
+
+    /// 同射手同受害者同钟多发（弹夹双击）：按未消费第一段认领，互斥不重复计数。
+    #[test]
+    fn same_clock_competition_claims_in_launch_order() {
+        let author = 1001u32;
+        let victim = 2001u32;
+        let losses = vec![
+            DmgLoss { victim, source: author, t_cur: 50.0, dmg: 100, hp_cur: 900 },
+            DmgLoss { victim, source: author, t_cur: 50.0, dmg: 120, hp_cur: 780 },
+        ];
+        let shots: Vec<Option<(f32, u32, u32)>> = vec![
+            Some((50.0, author, victim)),
+            Some((50.0, author, victim)),
+            Some((50.0, author, victim)), // 无段可认领 → 不产出（走 dc 兜底）
+        ];
+        let got = assign_dmg_losses(&shots, &losses);
+        assert_eq!(got.get(&0), Some(&(100, 900)));
+        assert_eq!(got.get(&1), Some(&(120, 780)));
+        assert_eq!(got.get(&2), None);
     }
 }
