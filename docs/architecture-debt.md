@@ -1,22 +1,18 @@
 # 架构债：长期改动方案与实施状态
 
-> 2026-09-29 代码审查产出；同日第二轮回填实施状态。三项长期结构性改动中
-> **第 1、2 项已实施完毕**（字节级回归验证），**第 3 项大部分实施**（前端
-> 懒加载/共享 rig/ESLint 门禁已落地；tankViewer 巨石闭包的完整目录拆分
-> 仍留存）。历史方案细节保留在下文，供后续实施对照。
->
-> **2026-10-03 状态注记**：本仓前端已冻结（后续前端开发在 WotbTools 仓库），
-> 第 3 项的剩余部分（tankViewer 目录拆分）随之不在本仓实施；Rust 侧各项状态不变。
+> 代码审查产出与实施状态。三项长期结构性改动中 **第 1、2 项已完成**（字节级回归验证），
+> **第 3 项大部分完成**（前端懒加载/共享 rig/ESLint 门禁已落地；tankViewer 巨石闭包的
+> 完整目录拆分**随前端冻结搁置**——不在本仓实施，方案留档供 WotbTools 按需取用）。
 
-## 实施状态总览（2026-09-29 第二轮）
+## 实施状态总览
 
-| 项 | 状态 | 验证 |
+| 项 | 状态 | 验证口径 |
 |----|------|------|
-| 1. combat.rs 拆分 | ✅ 完成 | 8 样本 combat JSON 字节级一致；63 测试 + 探针 P1-P4 + wasm32 全绿 |
+| 1. combat.rs 拆分 | ✅ 完成 | 样本 combat JSON 字节级一致 |
 | 2. 双射击路径合并 | ✅ 完成（同构段收敛为共享实现） | 同上字节级一致 |
-| 3a. HTTP 层收敛 + 配置下沉 | ✅ 完成 | 测试全过 + 浏览器烟雾（装甲/回放） |
+| 3a. HTTP 层收敛 + 配置下沉 | ✅ 完成 | 测试 + 浏览器烟雾（装甲/回放） |
 | 3b. 前端路由懒加载 | ✅ 完成 | 首屏 entry chunk 970KB → 8.3KB |
-| 3c. tankViewer 目录拆分 | ⬜ 留存 → **2026-10-03 随前端冻结搁置**（方案留档，移交 WotbTools 按需取用） | eslint + glbRig 共享已就位 |
+| 3c. tankViewer 目录拆分 | ⬜ 随前端冻结搁置（方案留档，移交 WotbTools 按需取用） | eslint + glbRig 共享已就位 |
 
 ---
 
@@ -64,13 +60,11 @@
   AppState mtime 缓存实例，GLOBAL_RESOLVER 降为缺省回退）；
 - 路由全量懒加载 + `vendor-three` 分包（首屏 970KB → 8.3KB）；
 - `scene/glbRig.js`：poseFromYPR 共享（两场景逐字重复消除）；
-- ESLint 门禁（`npm run lint` + CI）：`no-undef` 恰好拦截 replaySource.js
-  漏 import 那类"构建通过、运行时才炸"的错误。
+- ESLint 门禁（`npm run lint` + CI）：拦截"构建通过、运行时才炸"的漏 import 一类错误。
 
 **仍留存（3c）**：tankViewer.js（~3900 行巨石闭包，92 嵌套函数 + 114 闭包
-状态变量）的完整目录拆分。**2026-10-03 状态变更**：本仓前端已冻结（桌面/移动端
-分发形态整体移除，见 [README §与 WotbTools 的关系](../README.md)），后续前端开发在 WotbTools
-仓库进行——**本项不再在本仓实施**，方案留档供对方按需取用。原方案：
+状态变量）的完整目录拆分。本仓前端已冻结（见 [README §与 WotbTools 的关系](../README.md)），
+**本项不在本仓实施**，方案留档供 WotbTools 按需取用。原方案：
 
 ```
 viewer/
@@ -87,16 +81,14 @@ viewer/
 shooterId, query })` 显式参数替换 `window.__INITIAL_TANK__`。eslint 已就位
 （死代码已清），拆分时的 no-undef/no-unused-vars 即时兜底。
 
-## 附：次级观察清单（2026-09-29 第三轮后剩余）
+## 附：次级观察清单
 
-已实施（本轮）：blitzkit models_map HashMap 索引 + `model_info` 返回
-`&'static`（构建期 O(N²) 与每请求深克隆消除）；tools.rs 共享 Runtime +
-find_chrome 探测缓存；bundle.rs 首释临时目录 + 原子换名（残缺态防误判）；
-tankViewer 穿透 resolution uniform 每帧全场景 traverse → 模式进入/resize
-事件驱动。`armor_tank_data_handler` 双份组装一项已随 viewer 三分自然消解
-（单行委托 tank_data_value_prefixed）。
+已实施：blitzkit models_map HashMap 索引 + `model_info` 返回 `&'static`
+（构建期 O(N²) 与每请求深克隆消除）；tools.rs 共享 Runtime + find_chrome 探测缓存；
+bundle.rs 首释临时目录 + 原子换名；tankViewer 穿透 resolution uniform 改为
+模式进入/resize 事件驱动；`armor_tank_data_handler` 双份组装随 viewer 三分消解。
 
-仍未实施：
+残余（未实施）：
 
 - `scanner.rs` 批量扫描串行，可加可选 `rayon` feature（WASM 目标保持串行）。
 - replay-core 错误处理三元混用（anyhow 中文 bail + 库内 eprintln），建议

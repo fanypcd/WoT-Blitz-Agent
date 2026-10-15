@@ -1,10 +1,8 @@
 # 坦克模型的本机自产管线与两来源对照
 
-> 2026-10-01 实施记录。写作时的口径是"**不替换运行期数据源**"（BlitzKit 缓存
-> `data/cache/models/` 仍是 Web/查看器的来源，本管线写到 `data/cache/local_models/` 并存
-> 逐辆对照）；**2026-10-07 已改为替换**：`data/cache/models/` 整体换为本地导出，与
-> `local_models/` 逐辆逐字节一致（735/735），包与 COS 随发——现状与接线证据见
-> [data-inventory.md](data-inventory.md) §一 #8 与 §三。可行性依据见
+> 坦克模型本机自产管线的实现记录与两来源对照。**现役口径**：`data/cache/models/`
+> 整体为本地导出（与 `local_models/` 逐辆逐字节一致），包与 COS 随发——现状与接线
+> 见 [data-inventory.md](data-inventory.md) §一 #8 与 §三。可行性依据见
 > [feasibility-glb-local-export.md](feasibility-glb-local-export.md)（报告 B）。
 
 ## 0. 结论
@@ -72,7 +70,7 @@ rust-embed 有 `#[exclude = "cache/**"]`，**不会**把这几百 MB 嵌进 exe�
 
 ## 3. 实现铁律（违反任一条都会静默出错）
 
-以下每条都是本轮实测得出的**新**结论，报告 B 未覆盖或与其表述不符：
+以下每条为实测得出的**新**结论（报告 B 未覆盖或与其表述不符）：
 
 1. **UV 偏移随 `vertexFormat` 变化，不能硬编码 floats 6:8。** 顶点流的 UV0 偏移由
    `vertexFormat` 位掩码决定：`bits{0,1}` → 24 B（UV 在 floats 6:8，如 E-100）；
@@ -266,7 +264,7 @@ BK 侧同一份产物里这些件错位/叠加，**不复刻**。全量重导的
 
 | 类别 | 车 | 件与量级 | 症状 / 依据 |
 |---|---|---|---|
-| 烘焙（米级） | 28689 `G125_Spz_57_Rh` | `gun_01_mask_cap`（炮盾顶盖，DecorItem）+`[0,1.855,2.278]` | 用户报障：贴在装甲查看器底面；`.sc2` 里 `world*` 非零、自身 local 为零 |
+| 烘焙（米级） | 28689 `G125_Spz_57_Rh` | `gun_01_mask_cap`（炮盾顶盖，DecorItem）+`[0,1.855,2.278]` | 现象：贴在装甲查看器底面；`.sc2` 里 `world*` 非零、自身 local 为零 |
 | 烘焙（米级） | 21249 `KV-1s-BP` | `Machine_gun_USSR.sc2` 子场景 `+[0.515,-0.209,2.479]` | 车体机枪藏进车体（原始块 x/y/z∈~1m 箱内） |
 | 烘焙（米级+旋转） | 28961 `M4A3E8TUR` | `Machine_gun_02.sc2` `[-0.804,-0.192,2.714]` + 28.2° | 车顶机枪藏进车体 |
 | 烘焙（十厘米级） | 10625 `It19_Controcarro_1MK2_Ciclope` / 10881 `It18_Semovente_mod_64` / 17265 `Oth69_Souleater` | `turret_01_nc_skin` −0.16y+0.146z+6.5° / `turret_0N_hide_elements` +0.08z+4° / `hull_cloth_01` 26 cm+scale 1.09 | 变体件/布幔件小偏移 |
@@ -305,12 +303,11 @@ python tools/compare_tank_glb.py --all --render --size 360 --jobs 6      # 全�
 
 `src/` 与既有 `tools/` 文件未作任何改动；本管线是纯新增，且不写入 `data/cache/models/`。
 
-## 坦克 PBR 因子口径（2026-10-09 修"真实坦克发白"）
+## 坦克 PBR 因子口径（无 MR 贴图时写显式因子）
 
 glTF 的 `metallicFactor` / `roughnessFactor` **默认值为 1.0/1.0**（全金属 + 全粗糙）。本仓
 导出器此前只在贴图解析成功时写 `metallicRoughnessTexture`，解析不到就什么都不写 ⇒ 落进该默认值：
-金属**没有漫反射**，整块只剩被 albedo 染色的环境反射，在逐图 IBL 下表现为**发白**（用户 2026-10-09
-报障）。实测影响 **278/735 辆**（270 辆为全部材质都无 MR 贴图的老式车：内联槽名 legacy
+金属**没有漫反射**，整块只剩被 albedo 染色的环境反射，在逐图 IBL 下表现为**发白**（"真实坦克发白"现象）。实测影响 **278/735 辆**（270 辆为全部材质都无 MR 贴图的老式车：内联槽名 legacy
 `albedo`/`normalmap`）。
 
 客户端口径（40 辆 / 2996 材质实测）：这批车**没有 `_RM`/`_MISC` 文件**（0/2996 存在），作者属性是
@@ -319,7 +316,7 @@ glTF 的 `metallicFactor` / `roughnessFactor` **默认值为 1.0/1.0**（全金�
 `metallicFactor = 0`（若确有 `metallic`/`metalness`/`metalAmount` 则照用）、
 `roughnessFactor = 1 − inGlossiness`（缺省 0.5）。单测 `tools/test_export_tank_material.py`。
 
-## 静态变换烘焙 + StateSwitcher 状态过滤（2026-10-10）
+## 静态变换烘焙 + StateSwitcher 状态过滤
 
 **触发**：用户"rhm pzw 炮塔有一个组件没放对位置（看起来是和主炮相关的，相应跟随旋转俯仰），
 但是它初始在装甲查看器的底面上"。
@@ -329,8 +326,7 @@ glTF 的 `metallicFactor` / `roughnessFactor` **默认值为 1.0/1.0**（全金�
 `[0, 1.855, 2.278]` 下（自身 `localTranslation` 为零、`worldTranslation` 同值——说明引擎会施加，
 而不是像 Souleater 的 lamp / F119 的 cap 那样用负 local 抵消成 world=0），而导出沿用 BlitzKit
 契约把**所有**节点变换写成 identity ⇒ 网格留在自身局部坐标 `z≈0`（整块贴地，正是"底面"）。
-它在场景树里挂在 `gun_01_mask` 之下，前端姿态系统照常带着它转——"跟随俯仰、初始贴底"与报障
-完全吻合。三份 model.glb（`data/cache/models` / `local_models` / 资产包）逐字节一致 ⇒ 不是本地
+它在场景树里挂在 `gun_01_mask` 之下，前端姿态系统照常带着它转——"跟随俯仰、初始贴底"与该现象完全吻合。三份 model.glb（`data/cache/models` / `local_models` / 资产包）逐字节一致 ⇒ 不是本地
 导出引入的，是**契约缺口**：非姿态节点的静态变换在数据面没有落点（WotbTools 手里只有 GLB，
 没有 `.sc2`，补不了）。场景脚本（`ssc.scripts["1"]`）只对 pivot 做 `SetRotation`（按火炮俯仰角
 的动画），从不设平移——静置位置就是这个平移。
@@ -356,7 +352,7 @@ glTF 的 `metallicFactor` / `roughnessFactor` **默认值为 1.0/1.0**（全金�
   `matrix_is_identity` 跳过（烘了也不变字节）。
 - 法线走逆转置 + 归一化；**纯平移不碰 NORMAL 段**（避免无谓的末位扰动）。
 
-**工具链（本轮的发布链）**：
+**工具链（发布链）**：
 ```bash
 python tools/export_tank_glb.py --all --texture-mode semantic --jobs 8   # → data/cache/local_models/
 # 同步至包源目录（两目录应逐辆一致）：把变化件复制进 data/cache/models/ 与 release/asset_pack/glb/

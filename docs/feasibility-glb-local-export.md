@@ -5,19 +5,15 @@
 > 复核方式为**对抗式重验**：独立重写 GLB 读取器与比对器、**27 辆抽样泛化测试**、
 > **735 辆全量路径覆盖**，并以证伪立场检查上一轮原型结论。脚本见 §9。
 >
-> **2026-10-03 整理注记**（本文为历史评估，实施结果与修正以
-> [local-model-export.md](local-model-export.md) 为准）：
-> ① **已实施**：`tools/export_tank_glb.py` 落地，验收口径从"按可达节点求和"收紧到
-> **逐字节 + 节点顺序**——`collision` **735/735**、`model` **733/735**；§5.0 的 35 辆
-> "4 类规则缺口"已由 `LodComponent` 判据、全批次导出等规则收敛（见该文 §3）。
-> ⚠️ 2026-10-10 起其中 **23 辆为有意分歧**（静态变换烘焙 / 状态过滤），等价数变
-> **710/735**——见 [local-model-export.md](local-model-export.md) §5.1。
-> ② **§3.3 的槽位指派结论已被逐通道实测推翻**：BlitzKit 的 `normal` 实为 legacy
-> `images/<T>_NM`（DXT1，非"miscMap.R 灰度"）；`metallicRoughness` 的 **G** 实为
-> `baseRMMap` 通道 0（粗糙度，非"legacy normalmap"）；`occlusion` 与 `miscMap.R`
-> 全量 1011/1011 逐像素一致（非"baseRMMap.R"）；真正无客户端来源的是 BlitzKit 的
-> MR **B 通道（金属度位）**。通道语义判别与摆放见 local-model-export.md §4.1/§4.2。
-> ③ §4 的"验收口径待决策"已定为 **semantic**；§7 的开工量估算随实施完成而过时。
+> **状态：已实施**——结果与修正以 [local-model-export.md](local-model-export.md) 为准：
+> `tools/export_tank_glb.py` 落地，验收口径 = **逐字节 + 节点顺序**（`collision` 735/735、
+> `model` 733/735，其中 **23 辆为有意分歧**——静态变换烘焙 / 状态过滤，等价数 710/735）；
+> §5.0 的"4 类规则缺口"已由 `LodComponent` 判据、全批次导出等规则收敛（该文 §3）。
+> **§3.3 的槽位指派结论已被逐通道实测推翻**：BlitzKit 的 `normal` 实为 legacy
+> `images/<T>_NM`（DXT1）；`metallicRoughness` 的 **G** 实为 `baseRMMap` 通道 0（粗糙度）；
+> `occlusion` 与 `miscMap.R` 全量 1011/1011 逐像素一致；真正无客户端来源的是 BlitzKit 的
+> MR **B 通道（金属度位）**——通道语义与摆放见 local-model-export.md §4.1/§4.2。
+> §4 的"验收口径待决策"已定为 **semantic**；§7 的开工量估算过时。本文为历史评估留档。
 
 ## 0. 结论
 
@@ -120,7 +116,7 @@
 连 accessor 共享形态都相同（两侧均 8 个 accessor、重数 5/5/13/13/10/10/5/5）。
 （索引编码的 uint16/uint32 说明同上。）
 
-### 3.3 贴图：BlitzKit 的槽位分配与客户端语义不符（本轮完整逆向）
+### 3.3 贴图：BlitzKit 的槽位分配与客户端语义不符（完整逆向）
 
 **客户端材质是权威。** E-100 的 `E_100_mtr`（`shader = ~res:/Materials/StandardAllQualities.material`）
 在 `.sc2` 的 `configArchive_0..4`（皮肤变体 `Default`/`E-100_skin`/`Skin2..4`）里给出 8 个贴图槽：
@@ -336,7 +332,7 @@ DVPL 解码、SFV2/SCPG 读取、`parentMaterialKey` 继承链、`GlbBuilder`、
 
 **合计约 3.5–5.5 人日**。与上一轮"3–5 人日"总量接近，但**构成差异明显**：
 上一轮**高估**了路径解析风险（实际 735/735 且零模糊匹配）、**低估**了贴图工作量
-（其 normal 0.95 的"高分"是比错了槽位）；且忽略了本轮的 LOD0 批次 bug 与
+（其 normal 0.95 的"高分"是比错了槽位）；且忽略了 LOD0 批次 bug 与
 NaN/索引编码两个"逐字节等价"障碍。
 
 ## 8. 建议的实施路径
@@ -354,7 +350,7 @@ NaN/索引编码两个"逐字节等价"障碍。
 ## 9. 证据与复跑
 
 ```bash
-# 本轮对抗式重验（独立重写的 GLB 读取器 + 27 辆泛化 + 735 辆覆盖）
+# 对抗式重验（独立重写的 GLB 读取器 + 27 辆泛化 + 735 辆覆盖）
 cd /d/Class/Rust/Project/tmp_glb_reverify && python run_all.py
 ```
 

@@ -6,16 +6,14 @@
 > 复核方式为**对抗式重验**：全部结论由独立重写的 protobuf dump 器与客户端解析器
 > 复算，不复用前一轮脚本；每项都给出样本量、命中数与反例。脚本见 §8。
 >
-> **2026-10-03 整理注记**（以最新实测为准，详见 [decoupling-status.md](decoupling-status.md) §2 C2）：
-> ① §2 表中"uk 的前缀是 `gb_vehicles`"与后文"uk 用 `uk_vehicles`"**各自只对一半**
-> （2026-10-10 复核）：`Strings/en.yaml` 里 `#gb_vehicles:`（450 键）与 `#uk_vehicles:`（478 键）
-> **并存**，且客户端条目的 userString 前缀逐条不同（uk 的 `list.xml`/`shells.xml` 多用
-> `gb_vehicles:`）。正确做法：**按元素自带的完整前缀键字面查**（`Names.display` 已如此），
-> 裸键回退会跨系相撞。
-> ② §7 "24 辆车 en.yaml 无本地化名键"——经 `list.xml` 的 userString 键复核为 **25 辆**；
-> 且该键与模型名不一致的有 **7 例**（`AMX_50B`→`AMX_50_68t`、`Object252`→`IS-6`、
-> `Oth06_Sega_Lupus`→`Sega_Lupus` 等），本地化查询必须用 list 的键而不是模型名。
-> ③ 本文评估的 `tanks.pb`/`models.pb` 提取器**仍待实施**（`data-inventory.md` §四）。
+> **状态：已实施**——提取器与同格式 pb 编码器已接线转正（`data/tanks.pb` / `data/models.pb`
+> 现为本机解包源；见 [data-inventory.md](data-inventory.md) §一 #1/#2 与
+> [game-data-sources.md](game-data-sources.md) §5.2b）。文中个别结论的精确口径以
+> [decoupling-status.md](decoupling-status.md) §2 C2 为准：名称面为**两个字符串源**（随包
+> 快照 + 运行时本地化覆盖层），userString 段前缀须按元素自带的完整前缀键**字面查**
+> （`gb_vehicles` 450 键与 `uk_vehicles` 478 键并存，裸键回退会跨系相撞）；list.xml 的
+> userString 键与模型名不一致的有 **7 例**（`AMX_50B`→`AMX_50_68t` 等），本地化查询必须用
+> list 的键而不是模型名。
 
 ## 0. 结论
 
@@ -262,12 +260,12 @@ field 7/8 实为**客户端 `<shotDispersionFactors><vehicleMovement>/<vehicleRo
 | 消费侧切换 | `blitzkit::load_tanks` 等 20+ 调用点零改动（同 schema）；若修 §7 的多值塌缩与三分稀有度则另计 | 0–1 人日 / +2–3 人日 |
 
 **合计：约 3–5 人日**做到"同 schema 直接替换 + 全量回归通过"；若要一并修正数据模型塌缩，
-再加 2–3 人日。估算依据：语义映射已全部验证完毕（本轮工作），剩下的主要是工程实现与回归。
+再加 2–3 人日。估算依据：语义映射已全部验证完毕（评估阶段），剩下的主要是工程实现与回归。
 
 ## 10. 证据与复跑
 
 ```bash
-# 本轮对抗式重验（全部脚本，独立重写的解析器）
+# 对抗式重验（全部脚本，独立重写的解析器）
 cd /d/Class/Rust/Project/tmp_pb_reverify && python run_all.py
 ```
 

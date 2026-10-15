@@ -21,9 +21,10 @@ World of Tanks Blitz（坦克世界闪击战）的**回放解析核心**：以 R
 - **WASM 通道**（`crates/replay-wasm`）：四个独立入口
   `parseResult` / `parsePlayback` / `parseShotReplays` / `parseAiReview`，
   `.wotbreplay` 字节 → 能力 JSON，消费方按需取用（只要结果时不强制物化全场时序）。
-- **数据与资产管线**（`src/wargaming/`、`tools/`、`scripts/`）：BlitzKit 数据源、
-  本机客户端 DVPL 提取（装甲 / 碰撞盒 / 地图场景 GLB）、坦克 GLB 双来源对照管线、
-  静态资产包导出（`release/asset_pack/`）。
+- **数据与资产管线**（`src/wargaming/`、`tools/`、`scripts/`）：本机客户端 DVPL 提取
+  （车辆数值 / 装甲 / 碰撞盒 / 模型 / 图标 / 地图资产）、同格式 pb 编码，资产包导出与
+  对象存储分发（`release/asset_pack/` → COS）；BlitzKit 仅作对照校验源（见
+  [docs/data-inventory.md](docs/data-inventory.md)）。
 - **质量门禁**：切面均为 additive（`PlaybackData` v2 / `AiReviewFacet` v1 版本不变）；
   CI 门禁 = wasm32 双目标编译 + `cargo test --workspace` + clippy 零告警。
 

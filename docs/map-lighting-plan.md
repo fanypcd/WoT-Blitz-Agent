@@ -1,21 +1,20 @@
 # 地图光照对齐实施设计（3D 回放场景）
 
-> 2026-10-09 制定 · **状态：待批准（本文只定方案，不动代码/资产）**。
-> 依据：[feasibility-map-lighting.md](feasibility-map-lighting.md)（可行性实测报告，含 36 图参数表与
-> 8 项未定项）。所有权边界见 [AGENTS.md](../AGENTS.md)：**期 1 在本仓，期 2/3 在 WotbTools**。
+> **状态：期 0–2 主体已落地**——逐图 `lighting.json`（太阳/环境色）、烘焙光照图（图集随包 +
+> 逐实例 `aLm`）、逐图 IBL（`scene.environment`）、动画混合层、环境反射遮罩与天空均已接线；
+> 出屏已按客户端口径切 `LinearToneMapping`（**自动曝光未实现**，如实记为缺口）。未落地项以
+> [map-render-align-audit.md](map-render-align-audit.md) 为准。本文为实施设计留档。
+> 依据：[feasibility-map-lighting.md](feasibility-map-lighting.md)（可行性实测报告，含 36 图参数表）。
+> 所有权边界见 [AGENTS.md](../AGENTS.md)：**期 1 在本仓，期 2/3 在 WotbTools**。
 
 ---
 
 
-> **进度（2026-10-09 更新）**：**期 1a 已落地**（`tools/export_map_lighting.py` → 逐图
-> `lighting.json`，55 张全量零 warnings；打包器已收入 `map/<key>/lighting.json`）。
-> **期 2a 已落地一半**：太阳方向/色/强度 + 环境色（半球光）已由 `lighting.json` 驱动
-> （WotbTools `applyMapLighting`，兜底灯保留、会话复位）；**曝光/色调映射对齐（A2）与
-> 雾/IBL、以及期 2b 的烘焙光照图未做**。触发这两步的现场：删除 `flatShading` 后
-> authored 法线生效，硬编码假太阳的错方位立刻显形（用户报障"面向太阳的面偏暗"）。
-> 同批落地的还有**动画混合层**（烟/瀑/浪的滚动纹理）与**期 2b 烘焙光照图**（36 图全量：
-> 图集随包 + 逐实例 `aLm` 变换 + 前端 unlit 材质；动态阴影混合与 `pbrLightmap` 未做）——
-> 均见 [index.md](index.md) 同名条目；**期 2d（坦克 IBL）亦已落地**（`ibl.webp` + `scene.environment`）；**B2 环境反射遮罩**（5 图，含着色器编译门禁）亦已落地，见 [index.md](index.md)。
+> **落地现状**：期 1a（逐图 `lighting.json` + `ibl.webp`/天空，打包器收入 `map/<key>/`）、
+> 期 2a（太阳/环境色驱动 + `LinearToneMapping` 出屏）、期 2b（烘焙光照图：图集随包 + 逐实例
+> `aLm` + 前端 unlit 材质）、期 2d（逐图 IBL）、B2 环境反射遮罩（含着色器编译门禁）与动画
+> 混合层（烟/瀑/浪滚动纹理）均已落地。**未做**：自动曝光（客户端为运行时自动曝光、无静态值
+> 可抄，如实记为缺口）、动态阴影（不做）、`pbrLightmap`（ULTRA 档 RG 光图）、雾（非目标）。
 
 ## 一、方案总览
 
@@ -138,9 +137,9 @@ sky.webp  sky.flow.webp
 
 | 步 | 内容 | 判据 |
 |---|---|---|
-| 2a | `lighting.json` → 逐图太阳（`DirectionalLight`，intensity = 客户端 intensity）+ `LinearToneMapping` + exposure。**2026-10-10 落点（用户裁示“保色相、归亮度”）**：客户端那套 intensity（36 图 3–14）是配它的**自动曝光**用的，我们没有自动曝光 ⇒ 照搬强度会让走 three 内建管线的材质（受光场景件/坦克）过曝 2–5×（米德尔堡地面“发白偏橙”用户报障）。现按 `toneMappingExposure = DEFAULT_SUN_INTENSITY / sun.intensity`（钳 0.05–4）把整图亮度归一到基准档：同一图内 太阳:环境:IBL 相对关系不变（夜图/冷图氛围保留），绝对亮度钉回基准（≈ 固定曝光模拟自动曝光）；未能覆盖客户端自动曝光的动态特性（如实记录）。 | 逐图色调差异出现（`karelia` 冷、`32_faust` 夜、`41_iceworld` 冷蓝） |
+| 2a | `lighting.json` → 逐图太阳（`DirectionalLight`，intensity = 客户端 intensity）+ `LinearToneMapping` + exposure。**落点（“保色相、归亮度”归一）**：客户端那套 intensity（36 图 3–14）是配它的**自动曝光**用的，我们没有自动曝光 ⇒ 照搬强度会让走 three 内建管线的材质（受光场景件/坦克）过曝 2–5×（米德尔堡地面“发白偏橙”即此）。现按 `toneMappingExposure = DEFAULT_SUN_INTENSITY / sun.intensity`（钳 0.05–4）把整图亮度归一到基准档：同一图内 太阳:环境:IBL 相对关系不变（夜图/冷图氛围保留），绝对亮度钉回基准（≈ 固定曝光模拟自动曝光）；未能覆盖客户端自动曝光的动态特性（如实记录）。 | 逐图色调差异出现（`karelia` 冷、`32_faust` 夜、`41_iceworld` 冷蓝） |
 | 2b | 静态场景改**烘焙光照图**（D1-B 实例属性；或先用 D1-A 快速上线） | `SCENERY_LAMBERT_EXPOSURE` 与假光整段删除；岩石过曝/红房子偏暗（现有注释里记的病灶）同时消失 |
-| 2c | 天空穹（unlit + flowmap）；**逐图雾不做**（2026-10-09 用户裁示：高视角分析用途，雾会削弱远景可见性；`lighting.json` 的 `fog` 块仅作数据备查） | 背景不再是纯色 |
+| 2c | 天空穹（unlit + flowmap）；**逐图雾不做**（决策：高视角分析用途，雾会削弱远景可见性；`lighting.json` 的 `fog` 块仅作数据备查） | 背景不再是纯色 |
 | 2d | 坦克 IBL（PMREM 近似）+ 太阳投影（单级 84 m 阴影近似） | 金属反光出现；坦克投影落到地面 |
 | 2e | 画质档门控（低档保留旧假光，中/高/极致走新管线） | 移动端帧率不退化 |
 
@@ -184,6 +183,6 @@ sky.webp  sky.flow.webp
 - [ ] 期 1a：`tools/export_map_lighting.py` + `lighting.json` + IBL/天空 WebP
 - [ ] 期 1b：`export_map_glb.py` 随导 UV1（raw）+ 节点/材质 extras + 图集 WebP（无光照图批次零回归）
 - [ ] 期 1c：打包器 + 全量重导 + 俯视重烘 + COS 差分上传 + 回拉校验
-- [ ] 文档：`docs/index.md` 进度条目、`data-inventory.md` §2.1 包布局与文件数、`game-data-sources.md`（新管线与陷阱）
+- [x] 文档：`data-inventory.md`（包布局与文件数）、`game-data-sources.md` §5.5（合成链与陷阱）、`map-render-align-audit.md`（逐项状态）
 - [ ] 期 2a→2e：WotbTools 场景改造（含 `wotbVersion` 递增）
 - [ ] 视觉终判（用户）：三张代表图逐项确认

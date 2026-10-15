@@ -1,6 +1,8 @@
 # 地图光照画质对齐（3D 回放场景）可行性评估
 
-> 2026-10-09 整理 · **状态：待决策——本次只出报告，未改任何代码、未重导任何资产**。
+> **状态：已实施**（逐图光照 / 烘焙光照图 / IBL / 天空均已落地；逐项状态见
+> [map-render-align-audit.md](map-render-align-audit.md) 与 [map-lighting-plan.md](map-lighting-plan.md)）。
+> 本文为可行性报告留档，未验证项在 §七 单列。
 > 结论均以**本机客户端全树实测**（Steam `Data/`，36 张可玩图全量扫描）与**客户端自带着色器源码**
 > （110 个 `.sl`/`.slh` 全量解码）双向锁定；未验证项在 §七 单列，不混入结论。
 > 姊妹文档：[game-data-sources.md](game-data-sources.md)（数据来源权威表）、
@@ -66,7 +68,7 @@
 
 - 每图 **2–11 个图集文件**（`lightmapAtlases/textureN`、少数图在 `lightmaps/`、pliego 有个 `lightmapsPBR/landscape`），2048² BC1 + 完整 mip 链，磁盘（DVPL 未压缩存储）合计 **252 MB / 36 图**；himmelsdorf 单图 4 张 × 2.79 MB。
 - **绑定关系在材质链上**：渲染批次的 `rb.nmatname` → 叶子 NMaterial（`textures.lightmap` + `properties.uvScale/uvOffset`）→ `parentMaterialKey` → `TextureLightmap.material`（`textures.albedo`）。即"贴图来自父级、光照图实例带图集与 UV 变换"。
-- **UV1 需逐材质变换**：客户端 `materials-vp.sl:117` 明确 `varTexCoord1 = uvScale * texcoord1 + uvOffset`。实测 himmelsdorf 每图 2497 个光照图材质实例对应 **2320 组不同的 (图集, uvScale, uvOffset)**，`uvScale` 为 1/16 或 1/32——即**每个物体占图集里的一块 128²/64² 瓦片**，瓦片按物体在世界中的位置分配（同一网格在不同位置的实例，图集与 scale 相同、offset 不同）。这解释了此前两次"albedo × lightmap × 2"烘焙失败中的第二次：**旧实现拿原始 UV1 直接采样，缺了这层 `uvScale/uvOffset` 变换，所以整片落在图集暗区**。
+- **UV1 需逐材质变换**：客户端 `materials-vp.sl:117` 明确 `varTexCoord1 = uvScale * texcoord1 + uvOffset`。实测 himmelsdorf 每图 2497 个光照图材质实例对应 **2320 组不同的 (图集, uvScale, uvOffset)**，`uvScale` 为 1/16 或 1/32——即**每个物体占图集里的一块 128²/64² 瓦片**，瓦片按物体在世界中的位置分配（同一网格在不同位置的实例，图集与 scale 相同、offset 不同）。这也是"albedo × lightmap × 2"烘焙的必检项：拿原始 UV1 直接采样会缺这层 `uvScale/uvOffset` 变换，整片落在图集暗区。
 - 图集内容实测有结构（himmelsdorf texture3：全图均值 0.215 / p95 0.631；`stn_ss04` 实例瓦片 [0.063,0.3149]+1/16 → 均值 0.367、max 0.871、std 0.199）——是"低亮度 + 高动态"的可乘光照图特征，与 `×2` 因子吻合。
 
 ### 1.3 动态物体（坦克等）= 平行光 + IBL + 级联阴影
