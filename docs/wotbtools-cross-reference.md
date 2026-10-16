@@ -70,7 +70,7 @@ f3/f4/f5/f6 全缺省的行 = 该基地整条状态广播（零值被 proto3 省
 | battle_results tag125 | WotbTools #301 字段集无 125；开局血量改用公式 `max(field1,0)+field11` 交叉验证（我方 125 记录标注"待复核"） | 文档 |
 | method38 位表 | 补名：0x0002 攻击时目标已死、0x0004 起火、0x0200 模块未被弹丸穿、0x2000/0x4000/0x8000 爆炸分支；headerHi16 保留 raw（不恒 0x0002，Maus 边界 0x0012/0x0028）；同钟批量需去重 | 文档（位常量已在码注） |
 | 组件表 | +37 炮塔旋转机、39 车长/40 驾驶/41 炮手/**42 禁猜**/43 装填手；rawState：1=受损或乘员受伤、2=critical/禁用族（"摧毁"过强）、0=命中但无新负面（"无变化"过强） | 文档 |
-| 死亡语义 | 哨兵族 {0,−1,−2,−3}；溺水 cause=5 正 HP 死亡（`dead ⇔ hp≤0` 被受控实验否定）；method1 source 按 cause 分域（0/1/2=对方、3/5=自身）；正确死亡面 = 哨兵族 ∨ prop1=00 ∨ wrapper6 ∨ 结算 field105 | **代码**（hp_terminal_normalized） |
+| 死亡语义 | 哨兵族 {0,−1,−2,−3}；溺水 cause=5 正 HP 死亡（`dead ⇔ hp≤0` 被受控实验否定）；method1 source 按 cause 分域（0/1/2=对方、3/5=自身）；正确死亡面 = 哨兵族 ∨ prop1=00 ∨ wrapper6 ∨ 结算 field105 | **代码**（`hp_terminal_normalized`；切面分类字段 `hp_state` 随 `damage`/`health` 透出——消费方判死读它、禁自行解释 u16，见 §七） |
 | method36 全字段 | field2=车体系炮管俯仰（vs type39 f6 中位 0.0018 rad）、field3/4=水平/垂直角速度上限（火炮受损 ×0.675）、field5=瞄准时间（Reticle Cal ×0.70）、field6.f1=bloom（开火必正跳 326/326、火炮受损 ×2） | **代码**（AimSnapshot） |
 | avatar prop9 | 炮塔相对偏航镜像（r=0.999993）——旧"瞄准角/俯仰回退"废弃 | **代码**（A2） |
 | AoI 生命周期 | Type33→Type5→观测→Type4→硬黑屏（485/485 零更新）；Type4 ≠ 死亡；隐藏段禁止插值；OBSERVED/LAST_KNOWN/DEAD 三态 | 代码+文档（`collect_aoi_lifecycle`） |
@@ -202,3 +202,83 @@ blob（ARENA_INFO subtype 1）证据链解析出的**实际搭载主炮配置**�
   `resolve_config_index` 同语义并有测试锁定）。
 - **时长不受影响**：装填时长/进度基准仍全部来自相位 f3 + `reload_effective`（回放广播真值，
   一场只装一门炮，天然按实际炮正确），本裁决只改 N 的来源。
+
+## §七 血量终态族裁决（消费方必读，2026-10-16）
+
+**裁决**：血量字段（u16）的**唯一权威分类 = 切面字段 `hp_state`**（`AiReviewFacet`
+的 `damage`/`health` 事件，随 `hp_raw` 恒在场、additive）。规则 = `hp_terminal_normalized`
+（终态 ⇔ 归一化为 0，即 `hp == 0 ∨ (hp as i16) < 0`），三值：
+
+| `hp_state` | 取值 | 语义 |
+|---|---|---|
+| `current` | 正 i16 | 可用当前血量 |
+| `zero` | 0x0000 | 确知 HP 归零（终态） |
+| `terminal` | 负 i16（实测族 0xFFFF/0xFFFE/0xFFFD，分布 −1:68/−2:1/−3:59） | 终态哨兵：血量不可用、**死亡面之一** |
+
+**死亡面**（本仓口径，§二"死亡语义"行）：`hp_state ∈ {zero, terminal}` ∨ prop1=00 ∨
+wrapper6 击杀播报 ∨ 结算 field105。**消费方判死一律读 `hp_state`，禁自行解释 `hp_raw`**；
+`hp_raw` 只服务显示口径（确知 0 与"哨兵未知"的区分），`visibility.hp_raw`（AoI 物化快照）
+不是死亡证据载体，维持显示域过滤（`0 < hp < 0xFF00`）。
+
+**动因（实测分歧）**：WotbTools canonical（`replay-local/canonical/hpRawState.ts`）只把
+{0x0000, 0xFFFD} 判为终态，0xFFFF/0xFFFE 归入"未证明哨兵（血量与生死都未知）"。于是
+`lifeTransitions` 只在 prop3 终态样本上产 `DESTROYED`，`healthTransitions` 又把哨兵样本
+（`hp=null`）跳过——死亡在 **2D 判活 + 血量冻在最后正值、3D 装填条继续播放**（`reloads`
+的 f2=5"取消"未被消费，整夹装填外推跑完）、残骸/爆焰不出现，直到回放结束。
+
+- 实例：`20260821_1910__…8963319361188400.wotbreplay`（Intotherainy，tank 4481，殉爆/飞头
+  实体 10796497）t=122.23 终态 `0xFFFE`——2D 恒 `1406/2520`、`destroyed=false`，3D 装填条
+  从 122.23 的 12.98 s 整夹装填继续外推。25 局 283 次击杀全量扫描中**唯一**一例落在 −1/−2 档。
+- 对照组：同晚 `20260821_1903` 局的 4 次殉爆（含同一玩家）终态全为 `0xFFFD`，两侧一致判死
+  （2D `pb-destroyed`、无装填条/血量 HUD）——**同一机制、仅哨兵取值不同**，正是本裁决要消除的
+  取值敏感性。
+
+**消费方义务（WotbTools 侧；pin bump 前即可落地，见 §七.2 实施记录）**：①
+`classifyHpRaw`/`isTerminalHpState` 消费 `hp_state`（在场时权威），缺省时按 hp_raw 的同一
+规则（int16 ≤ 0 全域）现算；②终态样本必须产出 `DESTROYED` 迁移（lifeTransitions）——血量帧
+保持哨兵语义（**不改写成 0**），归零呈现由 DESTROYED 覆盖（`healthDisplayAt` → 0/max）；
+③装填条的死亡后停播由既有 `destroyed` 门控承担（相位模型不动——f2=5 现测含带/不带时长两种
+形态，取消语义未闭环，禁猜）。
+
+**上游边界**：本仓只把**分类事实**透出，显示口径（0 与"未知"如何画）仍归消费方；
+`hp`（钳 0）与 `hp_raw`（原始）的既有双字段语义不变。规则族固定为 int16 ≤ 0 全域
+（同族全部取值同一处理，禁按分布裁剪/扩展——实测分布只作证据，不作判据）。
+
+### §七.1 迁移清单（本字段发布 + 消费方接入，按序执行）
+
+1. **本仓发布**：本改动不 bump `workspace.metadata.release.version`（普通 PR 纪律）；发布当次
+   按既有 release 流程产 `wotb-replay-wasm-v<version>.zip`。字段契约形状 = `AiReviewFacet` v1
+   不变、`damage`/`health` 事件 additive 新增 `hp_state`（**恒在场**，非 skip-when-none）。
+2. **WotbTools pin bump**：更新 `deploy/agent/source.json`（repo/ref/release/asset/sha256）→
+   `bash scripts/fetch-agent-wasm.sh`（sha256 + fingerprint 双校验）。
+3. **WotbTools golden**：按既有规则重生成 AI 投影 golden（provenance 必变）。**预期 diff 只有
+   provenance**——对方投影（`toClientAiReviewProjection`）按字段显式取值（`e.hp_raw`），不
+   spread 事件，`hp_state` 不应出现在投影产物里；若出现，说明存在 spread 站点，需逐条归因。
+4. **WotbTools 代码**（消费面修复，pin bump 前即可落地）：
+   - `frontend/src/replay-local/canonical/hpRawState.ts`：`classifyHpRaw(raw, hp_state?)` 消费
+     `hp_state`（在场时权威）；缺省按同一规则从 hp_raw 现算（终态 = int16 ≤ 0 全域），
+     `isTerminalHpState`/`knownHpOf` 同步；
+   - `frontend/src/replay-local/canonical/facts.ts`：`health`/`damage` 事件把 `hp_state` 透传进
+     分类（`TerminalKind.DEATH_SENTINEL` 覆盖全族）；`lifeTransitions` 由该分类驱动，无需改；
+   - 血量帧（`healthTransitions`）保持哨兵语义（不改写成 0）；装填条死亡后停播由既有
+     `destroyed` 门控承担（相位模型不动，f2=5 语义未闭环禁猜）。
+5. **Android `wotbVersion` 同步**：本字段改变回放运行时表现（消费面变更），按其
+   `.agents/AGENTS.md` 规则在**同一 WotbTools PR** bump `android/gradle.properties`。
+6. **验收样本**：`20260821_1910__…8963319361188400.wotbreplay`（Intotherainy 0xFFFE 殉爆 →
+   应显示阵亡 ✕、血量 0/2520、无装填条）；`20260821_1903__…8958401623634049.wotbreplay`
+   （4 次殉爆全 0xFFFD，修复前后行为都是正确判死——作回归对照，防过度修正）。
+
+### §七.2 实施记录（2026-10-16，两侧已完成；浏览器验证归属见 AGENTS.md）
+
+- **上游（本仓）**：`hp_state` 字段 + `HpState`/`classify_hp_state` + JSON 级回归测试；
+  facet 导出实测：1910 `0xFFFE → terminal`、1903 `0xFFFD/18 → terminal/current`；
+  `cargo test --workspace` + `clippy -D warnings` 绿灯。
+- **消费方（WotbTools 本机 checkout）**：`hpRawState.ts` / `facts.ts` / `agent-replay-facets.ts`
+  按上表改；新增 `canonical/facts.hpTerminal.test.ts`（两种产物形态：旧产物按 hp_raw 现算 /
+  新产物 `hp_state` 权威，各锁"终态证据 + DESTROYED 迁移"）；`playbackScene.test.js` 的
+  终态族用例改为全族判死（新增 0xFFFE 行）。WotbTools 全量 `vitest run`：250 文件 / 3628
+  用例通过（含 golden；三个 fixture 无 −1/−2 档死亡，golden 未变）。
+- **本机实测（锁定 WASM v0.4.7 + 真回放 + 2D 编排器挂载读 DOM）**：1910 → `pb-destroyed`、
+  无 `pb-reload`、血量 HUD 隐藏、aria `state_destroyed`；1903 → 同形（对照不变）。
+- **未做**：`hp_state` 的真正端到端（新 pin 产物走字段路径）需本仓发布 + WotbTools pin bump；
+  Android `wotbVersion` bump 属 WotbTools PR 纪律（见 §七.1 第 5 条），本机改动未含。
