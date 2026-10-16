@@ -37,7 +37,7 @@
 
 ### 版本与发行
 
-- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.8**）。
+- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.9**）。
   该值变更合并到 `main` 后，Release workflow 自动测试、构建、创建 `v<version>` tag
   并发布 `wotb-replay-wasm-v<version>.zip`；发布策略与 Android 同步规则见
   [AGENTS.md](../AGENTS.md)。
@@ -47,6 +47,7 @@
 
 | 版本 | 内容 |
 |---|---|
+| v0.4.9 | **血量终态分类字段（additive）**：`AiReviewFacet` 的 `damage`（method1）与 `health`（prop3）事件新增 `hp_state`（`current`/`zero`/`terminal`，**恒在场**）——血量 u16 的**唯一权威分类**（规则 = `hp_terminal_normalized`，int16 ≤ 0 全域；实测终态族 0xFFFF/0xFFFE/0xFFFD，禁按分布裁剪），消费方判死亡面读它、禁自行解释 `hp_raw`。动因：消费方 canonical 只认 {0x0000, 0xFFFD}，−1/−2 档的弹药架殉爆被判成存活（血量冻在最后正值、3D 装填条继续外播；实例 1910 局 Intotherainy `0xFFFE`）。**消费方适配**：字段 additive、旧产物缺省即旧行为；**要覆盖 −1/−2 档死亡必须消费 `hp_state`**（缺省路径保持 legacy 分类——仅 {0x0000, 0xFFFD} 终态，禁在缺省上放宽）；pin bump 后 AI 投影 golden 预期仅 provenance 变化（新字段不进投影产物）。`PlaybackData` v2 / `AiReviewFacet` v1 形状不变。裁决与迁移清单见 [wotbtools-cross-reference.md](wotbtools-cross-reference.md) §七。 |
 | v0.4.8 | **复活模式生命轨道（additive）+ method8 结算伤害直读 + 伤害归属确定性化 + 争霸残留占领清理**：①`VehicleTrack` 新增 `death_times`（**≥2 死才输出**）与 `resurrection_times`（**非空才输出**）——复活模式（爆燃等）同 eid 死而复生不再被判终态；普通回放 JSON 零扰动，消费方按"字段缺省 = 死亡终态"处理即行为逐位不变。②`shots[]` 伤害改**直读服务器结算值**（method8 直击通知尾部 `[u16 伤害][u8 状态]`；状态 ≠0 才已结算、overkill 已封顶），作者/他人两路径同优先，HP 链降级为无结算值时的兜底；22 场对账仅 3 处变化且全部为修正。③**伤害归属确定性化**：逐事件采样（删除"同钟异值整组丢弃"）+ method8 命中时钟精确配对，配不上 → 0 + `dmg_unattributed`（fail-closed）；22 场仅 5 发变化、全部对账。④已归属基地的占领中断后**清空残留进度**（保留归属；新增合成回归与公开契约）。⑤clippy `-D warnings` 清零（纯机械等价替换）。**消费方注意**：`shots[]` 的数值/归属与 HP 链兜底路径有可见变化（皆 bug 修正），WotbTools 随 pin bump 须重生成 golden 并逐条归因（复活字段则无需适配，缺省即旧行为）。切面 v2 形状未变。**附带（工具/资产面，非 WASM 行为）**：2D 战术底图改 pack `ground.webp` 派生 + COS `map2d/` 免发版通道（索引 schemaVersion 2 带世界框/取向几何契约）+ 客户端 HUD 小地图取景实测记录。 |
 | v0.4.7 | **独立炮塔回放轨道（additive）**：`detached_turrets`——class-8 初始化关联车辆，输出 AoI 区间与 raw 三轴关键帧（同刻移动收敛为最后接收帧，未知布局/身份冲突/非有限位姿 fail-closed）。附带：共享 st10/prop2 排序统一 `total_cmp`（NaN clock 不再 panic）；`packet_histogram` 键口径订正为包类型（仓内无消费方）。切面 v2 不变，消费方零适配。 |
 | v0.4.6 | **动态装甲状态载体重定位（数值语义订正）+ 穿深距离衰减 + 顶层弹表单权威化**：①`armorsStates` 真实载体 = **propID 16**（载荷 `[u8 n][n×u32 描述符]`，bit16=激活态；初态经 type=5 create 表物化）——字段名与形状不变，`armor_states` / `shots[].target_armor_state` 对动态车自本版起可信；②`PenetrationRequest` additive `distance_m`/`penetration_far`，d>100m 线性衰减到 far（HE 豁免；对齐客户端 0x719740）；③`tank/{id}.json` 顶层 `shells` 改为直接引用末档配置弹表同一份 JSON（结构性单源化，杜绝重抄漏字段）。数据面 735 辆重生成随包同步；WotbTools 随 pin bump 重生成 golden（仅 provenance 变化）。 |
@@ -105,8 +106,8 @@
   `dmg_unattributed`）；`hp_raw`、prop3；**`hp_state`（additive、`damage`/`health` 事件恒在场：
   `current`/`zero`/`terminal`）= 血量编码的唯一权威分类**——消费方判死亡面读它，禁自行解释
   u16（规则与 `hp_terminal_normalized` 同判；分歧实例、消费方义务与实测证据见
-  [wotbtools-cross-reference.md §七](wotbtools-cross-reference.md)）。**未发布**：随下一次
-  Release 生效，消费方 pin bump 时落地；
+  [wotbtools-cross-reference.md §七](wotbtools-cross-reference.md)）。**v0.4.9 起随发布产物在场**：
+  消费方须 pin bump 后消费（缺省路径保持 legacy：仅 {0x0000, 0xFFFD} 终态）；
 - **动态装甲**：`armor_states` / `shots[].target_armor_state`（propID 16，动态车 6 辆）；
 - **复活模式**：`death_times`（≥2 死才输出）/`resurrection_times`（契约 §8；绝对血量
   回升前提待真实样本验证，未验证时字段缺省 = 现状行为）；
