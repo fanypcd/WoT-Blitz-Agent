@@ -455,11 +455,16 @@ webp 即拒写（防指错目录）。`--verify` 按 manifest 逐张重算并比
 **COS 免发版通道（`map2d/` + `index.json`）**：同一次导出还会把同样字节写成
 `release/asset_pack/map2d/<code>.webp` + `map2d/index.json`（schemaVersion 1：`generated`、
 `recipe`、逐图 `path/sha256/bytes/width/height`），并在 staging 目录写下交接件
-`map2d-source.json`（`contentGeneratedAt` = 索引 `generated`、`indexSha256`、`recipe`）。
+`map2d-source.json`（schemaVersion 2：`contentGeneratedAt` = 索引 `generated`、`indexSha256`、
+`recipe`，以及**与字节的绑定** `maps: {code: {file, sha256}}`（29 条）与 `mapsDigest`）。
 该交接件随 29 张 webp 一起进 WotbTools `frontend/src/assets/maps/`：**包内"内容时间戳"的唯一来源**
 ——运行时用它与 COS 索引的 `generated` 做单调比较（`index.generated <= contentGeneratedAt ⇒ 包内即最新`）。
 **绝不能在消费侧改成构建时间**：stage 晚于 COS 发布才构建时会把真正更新的底图判成更旧而永久拒绝升级，
 且同一 commit 重跑构建会产出不同字节的 bundle（破坏 stage 可重跑性与 APK 不可变性）。
+**绑定是硬要求**：消费侧必须用本地真实字节重算 `maps`/`mapsDigest` 并 fail closed（WotbTools 构建期
+比对随包字节、CI 测试比对仓库 canonical 字节；均不查 COS）。缺了它，"换图但忘了重跑本工具并同步
+交接件"会让旧 `contentGeneratedAt` 配上新图，运行时据索引可能把包内更新的图 OTA 降级。
+`--verify` 对这三方（交接件 ↔ 索引 ↔ canonical 字节）逐条同源校验。
 复现同一批发布时用 `--generated <ISO-8601Z>` 固定时间戳（不加则每次导出都是新 `generated`）。上传走既有发布链（json → `no-cache`、
 webp → `max-age=3600`；`--only map2d/` 可局部发布）。**索引是 App 的唯一判据**：
 包内那份是否最新、远端该取哪张，全部按 `sha256` 比对；字节在使用前逐件校验，失败回落包内。
