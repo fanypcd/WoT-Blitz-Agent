@@ -122,7 +122,11 @@ testing** happen in the WotbTools repository (https://github.com/A158Coke/WotbTo
   the P2 bake — the composite now **refuses to write** such renders by default (fail-closed,
   `--allow-legacy-render` is diagnostics-only) and would otherwise silently roll all 36 grounds
   back a generation (re-bake upstream with `bake-ground-overhead.mjs --all` first; shipped bytes
-  are recoverable read-only from the COS origin — see §5.5 closing note). then **re-stamp the
+  are recoverable read-only from the COS origin — see §5.5 closing note). **The 2D tactical base
+  maps are pack content too** (`release/asset_pack/map2d/` — the OTA channel the Android app
+  validates against): the packer wipes the whole pack dir, so after every re-pack re-run
+  `python tools/export_2d_basemaps.py` (staging `release/2d-basemaps/` + pack `map2d/` + its index)
+  **before** re-stamping — [docs/game-data-sources.md](docs/game-data-sources.md) §5.6. then **re-stamp the
   manifest against the pack's actual bytes** — `python scripts/export_asset_pack.py --refresh-manifest`
   （合成器在打包之后改写 `map/*/ground.webp`，不重算则 manifest 一直记合成前哈希）— and upload the delta:
   `COS_SECRET_ID=… COS_SECRET_KEY=… python tools/upload_asset_pack_cos.py --local release/asset_pack`

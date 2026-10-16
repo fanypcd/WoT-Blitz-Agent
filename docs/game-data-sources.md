@@ -256,7 +256,7 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
 ### 5.2 资产面（COS）增量发布流程
 
 桶：`wotbtools-assets-1478073677`（ap-shanghai），布局与 `release/asset_pack/` 逐项对应，
-根 `manifest.json` 含全量逐文件 sha256（**5736 条**）。发布链固定为
+根 `manifest.json` 含全量逐文件 sha256（**5766 条**）。发布链固定为
 **重打包 → 俯视合成 → `--refresh-manifest`（合成之后、上传之前）→ 差分上传**——
 `--refresh-manifest` 是必需的：合成器在打包之后改写 `ground.webp`，不重算则这 36 项的
 manifest 条目与包内件不一致。朝向契约、重烘与读回校验见 §5.5。
@@ -423,9 +423,52 @@ alpha 覆盖率 ~20% = 只有俯视件）按本节命令重合成会把 36 张�
 （`https://wotbtools-assets-1478073677.cos.ap-shanghai.myqcloud.com/map/<key>/ground.webp`，
 逐张 sha256 对照 manifest）。
 
+### 5.6 2D 战术底图（WotbTools 前端资产）的派生链
+
+2D 地图鸟瞰 / 战局回放用的 29 张底图不是客户端资产，也**不再**是外部 AI 增强件，而是本仓自产：
+`release/asset_pack/map/<key>/ground.webp`（4096²，含俯视屋顶/树冠烘焙）经
+`tools/export_2d_basemaps.py` 派生 → `release/2d-basemaps/`（canonical 1254² WebP q90 / method 6）
+→ 交接 WotbTools `frontend/src/assets/maps/`（web 与 Android 共用；Android 再走其自身的 ≤1024² 派生）。
+
+**冻结配方**（全 29 张同一套，参数 = 工具内常量）：LANCZOS 1254² → 全局对比曲线
+`y' = softclip(128 + (y−128)×1.17)`（两端 24 级软肩）→ 饱和 ×0.9748 → 逐通道软肩（无硬裁切）
+→ USM 1.0px/80%/thr2 → WebP q90 / method 6。
+
+**取向/世界框 = 契约，不搜索**：`ground.webp` 顶行 = +Z_scene、左列 = +X_scene（与 §5.5 同一契约）；
+WotbTools 的 2D 渲染把回放坐标按 `coordinateBounds = ±300` 线性映射（其 `utils/mapView.js`），
+代入「场景 x = −游戏 x」的镜像后两侧同为「左 = −300(游戏 x)、上 = +300(游戏 z)」⇒ **无需翻转/裁剪**。
+另做过 8 朝向结构相关作为诊断（29 张全部 identity 最优），但按 §5.5 同一纪律：诊断不参与判决。
+
+**刻意不做的**：候选与旧 AI 增强批的色阶宽度差是**逐图属性**（中位 25.9 级，范围 −17…+46），
+按 29 张聚合分布求的匹配 LUT 近似恒等；逐图配平会违反 AGENTS.md「同类数据同一变换、不做测量驱动的
+逐项决策」⇒ 只用一条全局曲线按同一比例缩差，残余差距随 manifest 输出、如实记录。
+
+**fail closed 前置条件**（工具内断言）：WotbTools 注册表 `mapImages.js` 可解析且文件名唯一；
+源 `ground.webp` 必须 4096²；`terrain.json.worldBounds` 必须 ±300 m；输出目录含注册表之外的
+webp 即拒写（防指错目录）。`--verify` 按 manifest 逐张重算并比对 sha256（确定性 + 保真）。
+
+**现役产物**：`release/2d-basemaps/` 29 张 / **21.50 MiB**；`release/2d-basemaps-manifest.json`
+记录配方、逐件 sha256 与源 ground 的 sha256；与用户对照页验收版本**逐字节一致**。
+**WotbTools 侧不再派生**（2026-10-16 决定）：Web 与 APK 随包的就是这一份 canonical 字节，
+像素完全一致（此前 Android 用的 ≤1024²/q72 派生链已整体删除）。
+
+**COS 免发版通道（`map2d/` + `index.json`）**：同一次导出还会把同样字节写成
+`release/asset_pack/map2d/<code>.webp` + `map2d/index.json`（schemaVersion 1：`generated`、
+`recipe`、逐图 `path/sha256/bytes/width/height`）。上传走既有发布链（json → `no-cache`、
+webp → `max-age=3600`；`--only map2d/` 可局部发布）。**索引是 App 的唯一判据**：
+包内那份是否最新、远端该取哪张，全部按 `sha256` 比对；字节在使用前逐件校验，失败回落包内。
+App 侧消费（WotbTools `frontend/src/data/map2dOverlay.js`）与"包内兜底 + 在线校验"的完整规则见
+其 `docs/reference/maps.md` §2026-10-16。
+
+⚠️ **次序陷阱（与 §5.5 同类）**：`scripts/export_asset_pack.py` 会 `rmtree(--out)` 重建整个包——
+**`map2d/` 属于包内内容，重打包后必须重跑 `tools/export_2d_basemaps.py`**，再
+`--refresh-manifest`（30 条 map2d 条目）与上传。正确次序：
+打包 → 俯视合成（§5.5）→ **2D 底图导出（本节）** → `--refresh-manifest` → 上传。
+
 ---
 
 ## 六、许可
+
 
 从游戏文件提取的数据（装甲数值、模型、图标）版权归 Wargaming，README 已有声明。
 解除 BlitzKit 依赖只把来源从"第三方整理"换成"第一手提取"，**不改变权属**。

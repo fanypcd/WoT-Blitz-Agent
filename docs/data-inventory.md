@@ -26,6 +26,7 @@
 | 8 | `data/cache/models/{id}/*.glb` | **客户端解包（现役）**；BlitzKit CDN 退为缺失兜底（`web/assets.rs::ensure_glb_bytes` / `wargaming/model_fetch.rs`，休眠） | 它本身就是 | ✅ 100/100 | 738 辆（glb/ 1476 件）；与 BlitzKit 逐字节一致在 **23 辆上刻意打破**（静态变换烘焙 / StateSwitcher 状态过滤，见 [local-model-export.md](local-model-export.md) §5.1）；11.21.0 另按新客户端重导 3 辆新车与 2 辆碰撞变更（24945/8225） |
 | 9 | `data/cache/tank_images/{id}.webp` + `crops.json` | **本机客户端解包**：`tools/export_tank_icons.py`（DVPL 剥壳裸 webp、不重编码；逐车 `iconPath` 声明 738/738 命中）→ `local_tank_icons/` → 同步进 `cache/tank_images/`（两目录逐字节一致）；BlitzKit 退为缺失兜底（休眠） | 它本身就是 | ✅ 数据/接线 100% | 与 BK 同源同画：alpha 轮廓 100% 一致（BK 为二次重编码 + 更紧 1px 裁剪，RGB 均差 1.79 / max ≤17）；**展示裁剪**：`--emit-crops` 输出逐车内容框（alpha>0）→ 包 `tank_images/crops.json`（打包器 fail-closed），消费方展示层按框缩放（不改图标字节） |
 | 10 | `data/cache/maps/`、`data/cache/terrain/` | **客户端解包** `.sc2`/`.scg`、heightmap、colormap；地面再经 `tools/composite_overhead.py` 叠俯视合成（渲染件 `release/overhead-bake/` 须与线上同代，见 [game-data-sources.md](game-data-sources.md) §5.5） | 它本身就是 | ✅ 100/100 | 高度图缓存 `{key}.hm.c2.u16.bin`（terrainLayout 2 布局自描述）；小地图按 space **注册表首条目**选取；11.21.0 随版更新 mountain 高度图/小地图，36 图 scenery 全量复导对齐 |
+| 10b | 2D 战术底图 canonical（29 张 1254² WebP → WotbTools `frontend/src/assets/maps/`） | **本仓自产**：包内 `map/<key>/ground.webp`（4096²）→ `tools/export_2d_basemaps.py`（冻结配方：对比 ×1.17 / 饱和 ×0.9748 / USM B，全 29 张同一套） | 不适用（既非客户端资产也非 BK；旧批曾用外部 AI 增强件） | ✅ 29/29（`--verify` 全量重算；与用户验收版逐字节一致） | 合计 **21.50 MiB**（q90 m6）；**Web 与 APK 共用这一份字节**（Android 不再派生，2026-10-16 起）；取向由契约确定、无需翻转；**COS 免发版通道**（包内 `map2d/` + `index.json`，逐图 sha256 判据 + 在线校验 + 离线回落包内）见 [game-data-sources.md](game-data-sources.md) §5.6 |
 | 10a | `data/cache/maps/{key}/destructibles.json`（可破坏物清单） | **客户端解包** `.sc2` + `XML/destructibles.xml.dvpl` | 它本身就是 | ✅ 100/100 | 消费方与回放切面 `destructible_events` 联表（总集 §5.4）；**55 键**（36 基础 + 19 出生点变体；打包器按 space 只物化首个 key）；共享类型库 `typeTableSize` 随客户端走（11.21.0 = 941） |
 | 11 | `data/data_version.json` | 本机自产（`game_version` 取客户端 `Data/version.txt.dvpl`；`tank_count` / `game_data_files`） | 它本身就是 | ✅ 100/100 | 现值 `release/11.21.0` / 738；时间戳仅 `tank_cache_updated_at` / `game_data_updated_at` |
 
@@ -107,7 +108,7 @@
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-**当前包内布局**（本地实测，与远端 manifest 逐条一致：**5736 个文件 / 4177.7 MB**）：
+**当前包内布局**（本地实测；**5766 个文件 / 4200.3 MB** 为本地口径，远端仍为 5736 / 4177.7——`map2d/`（30 件 / 22.0 MB）尚未上传，见 §5.6）：
 
 | 包内路径 | 文件数 | 来自（见第一节编号） |
 |---|---|---|
@@ -121,6 +122,7 @@
 | `map/{key}/ibl.webp` | 36 | #10 配套：`tools/export_map_ibl.py` 逐图环境反射（等距柱状，~28KB/图） |
 | `suspension/{id}.json` | 728 | §1b 悬挂数据 |
 | `tread/{id}.json` + `tread/textures/*.webp` + `tread/textures.json` | 752 | §1b 履带印数据（738 + 13 + 1） |
+| `map2d/<code>.webp` + `map2d/index.json` | 30 | §10b：`tools/export_2d_basemaps.py` 写（**非打包器产物**，重打包后须重跑；COS 免发版通道） |
 | `index.json` | 1 | 打包器生成（地图 id → key/display） |
 | `manifest.json` | — | 打包器生成（全量 sha256；本身不登记自己） |
 
@@ -135,6 +137,8 @@
 **发布链（固定次序）**：
 `export_asset_pack.py`（重打包）→ **俯视合成**（`composite_overhead.py --all --write`，
 渲染件须与线上同代、先归档——[game-data-sources.md](game-data-sources.md) §5.5）→
+**2D 底图导出**（`tools/export_2d_basemaps.py`，写 canonical staging 与包内 `map2d/`——
+打包器会 `rmtree` 重建整个包，这一步必须在重打包之后，见 [game-data-sources.md](game-data-sources.md) §5.6）→
 **`export_asset_pack.py --refresh-manifest`**（按包内现有内容重算全部条目——合成器在打包
 之后改写 `ground.webp`，不重算则 manifest 的 36 项与包内件不一致）→
 `tools/upload_asset_pack_cos.py`（差分上传 + 回拉校验）。
@@ -242,6 +246,7 @@
 
 | 提取目标 | 工具 | 产出落点 | 接线 |
 |---|---|---|---|
+| 2D 战术底图 canonical（29 张 1254²） | `tools/export_2d_basemaps.py`（冻结配方；`--verify` 重算 + 索引/字节/canonical 三方对齐；`--self-test` 锁曲线单调/不裁切/色相） | `release/2d-basemaps/` + manifest → 交接 WotbTools `frontend/src/assets/maps/`；同时写包内 `release/asset_pack/map2d/<code>.webp` + `index.json`（COS 免发版通道，上传由既有发布链承担） | ✅ |
 | 地图场景（GLB + 地面 + 分层 + sidecar） | `tools/export_map_glb.py`（`--ground-only` / `--scenery-only` / `--jobs`） | `data/cache/maps/<space>.{glb,ground.*.webp,json}` | ✅ |
 | 地图可破坏物清单（碰撞 / 耐久 / 类型库联表） | `tools/export_map_destructibles.py` | `data/cache/maps/<key>/destructibles.json` | ✅ |
 | 坦克模型（`model.glb` + `collision.glb`） | `tools/export_tank_glb.py` | `data/cache/local_models/<id>/` → **同步进 `cache/models/`**；静态变换烘焙 / StateSwitcher 状态过滤见 [local-model-export.md](local-model-export.md) §1 铁律 14/15，单测 `tools/test_export_tank_static_transform.py` | ✅ |
