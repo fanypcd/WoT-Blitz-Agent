@@ -220,15 +220,27 @@ def write_map2d(map2d_dir: Path, records: list[dict], now_iso: str) -> dict:
     return index
 
 
-def write_source_stamp(out_dir: Path, index: dict, index_sha256: str) -> Path:
-    """交接给 WotbTools 的**内容时间戳**：内容的生成时刻（= 索引 `generated`），不是构建时间。
+def maps_digest(maps: dict) -> str:
+    """29 张的聚合指纹：对排序后的 `code\\tsha256` 行做 sha256（确定性、与文件顺序无关）。"""
+    lines = "\n".join(f"{code}\t{maps[code]['sha256']}" for code in sorted(maps))
+    return hashlib.sha256(lines.encode("utf-8")).hexdigest()
 
-    运行时用它做"远端是否有更新"的单调比较（`index.generated <= contentGeneratedAt ⇒ 包内就是最新的`）。
-    若换成 CI wall-clock：① Android stage 晚于 COS 发布时构建，会把真正更新的底图判成更旧而**永久
-    拒绝升级**；② 同一 commit 重跑构建会产出不同字节的 bundle，破坏 stage 可重跑性与 APK 不可变性。
+
+def write_source_stamp(out_dir: Path, records: list[dict], index: dict, index_sha256: str) -> Path:
+    """交接给 WotbTools 的**内容元数据**：生成时刻 + 与 29 张 canonical 字节的确定性绑定。
+
+    - `contentGeneratedAt`：内容的生成时刻（= 索引 `generated`），不是构建时间。运行时用它做
+      "远端是否有更新"的单调比较（`index.generated <= contentGeneratedAt ⇒ 包内就是最新的`）。
+      若换成 CI wall-clock：① Android stage 晚于 COS 发布时构建，会把真正更新的底图判成更旧而
+      **永久拒绝升级**；② 同一 commit 重跑构建会产出不同字节的 bundle，破坏 stage 可重跑性。
+    - `maps`（逐图 `file`/`sha256`）+ `mapsDigest`：把元数据**绑定到具体字节**。消费侧必须用
+      随包/仓库里的真实字节重算并逐条比对（fail closed）——否则"换了图但忘了更新交接件"会让
+      旧时间戳配上新图，运行时据索引判断时可能把包内更新的图 OTA 降级。
     """
-    payload = {"schemaVersion": 1, "contentGeneratedAt": index["generated"],
-               "indexSha256": index_sha256, "recipe": index["recipe"]}
+    maps = {rec["code"]: {"file": rec["file"], "sha256": rec["output"]["sha256"]} for rec in records}
+    payload = {"schemaVersion": 2, "contentGeneratedAt": index["generated"],
+               "indexSha256": index_sha256, "mapsDigest": maps_digest(maps),
+               "recipe": index["recipe"], "maps": maps}
     stamp = out_dir / SOURCE_NAME
     stamp.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     return stamp
@@ -266,7 +278,7 @@ def cmd_export(args) -> int:
         index = write_map2d(map2d_dir, records, args.generated or now_iso())
         idx_bytes = (map2d_dir / "index.json").read_bytes()
         index_sha = hashlib.sha256(idx_bytes).hexdigest()
-        stamp = write_source_stamp(Path(args.out), index, index_sha)
+        stamp = write_source_stamp(Path(args.out), records, index, index_sha)
         map2d_info = {"dir": str(map2d_dir), "index": "map2d/index.json",
                       "index_sha256": index_sha,
                       "source_stamp": SOURCE_NAME,
@@ -350,15 +362,35 @@ def verify_map2d(map2d_dir: Path, out: Path, rows: dict, expect: int) -> list[st
         bad.append(f"index.recipe {recipe} 与工具常量不符")
     stamp_path = out / SOURCE_NAME
     if not stamp_path.is_file():
-        bad.append(f"缺内容时间戳交接件 {stamp_path}（WotbTools 构建会 fail closed）")
+        bad.append(f"缺内容元数据交接件 {stamp_path}（WotbTools 构建会 fail closed）")
     else:
         stamp = json.loads(stamp_path.read_text(encoding="utf-8"))
-        if stamp.get("schemaVersion") != 1:
-            bad.append(f"{SOURCE_NAME} schemaVersion {stamp.get('schemaVersion')} ≠ 1")
+        if stamp.get("schemaVersion") != 2:
+            bad.append(f"{SOURCE_NAME} schemaVersion {stamp.get('schemaVersion')} ≠ 2")
         if stamp.get("contentGeneratedAt") != idx.get("generated"):
             bad.append(f"{SOURCE_NAME} contentGeneratedAt {stamp.get('contentGeneratedAt')!r} ≠ 索引 generated {idx.get('generated')!r}")
         if stamp.get("indexSha256") != sha256_file(idx_path):
             bad.append(f"{SOURCE_NAME} indexSha256 与 map2d/index.json 实际哈希不符")
+        # **字节绑定**：交接件里的逐图 sha256 必须等于 canonical staging 的真实字节，
+        # 且与 map2d 索引逐条一致——三者（索引/交接件/canonical）同源才算通过。
+        stamp_maps = stamp.get("maps") if isinstance(stamp.get("maps"), dict) else {}
+        idx_maps = idx.get("maps") if isinstance(idx.get("maps"), dict) else {}
+        for code in sorted(set(stamp_maps) | set(idx_maps)):
+            entry = stamp_maps.get(code)
+            if not isinstance(entry, dict) or not entry.get("sha256") or not entry.get("file"):
+                bad.append(f"{SOURCE_NAME} 缺 {code} 的绑定（file/sha256）")
+                continue
+            canonical = out / entry["file"]
+            if not canonical.is_file():
+                bad.append(f"{code}: 交接件指向的 canonical 文件不存在：{entry['file']}")
+                continue
+            actual = sha256_file(canonical)
+            if entry["sha256"] != actual:
+                bad.append(f"{code}: 交接件 sha256 与 canonical 字节不符（换图未更新交接件？）")
+            if (idx_maps.get(code) or {}).get("sha256") != actual:
+                bad.append(f"{code}: 交接件/index 与 canonical 三方的 sha256 不一致")
+        if stamp.get("mapsDigest") != maps_digest(stamp_maps):
+            bad.append(f"{SOURCE_NAME} mapsDigest 与 maps 条目不符")
     maps = idx.get("maps") or {}
     if len(maps) != expect:
         bad.append(f"index 条目数 {len(maps)} ≠ 注册表 {expect}")
