@@ -188,6 +188,7 @@ def preflight_out(out: Path, names: set[str]) -> None:
 
 
 INDEX_SCHEMA = 1
+SOURCE_NAME = "map2d-source.json"
 
 
 def write_map2d(map2d_dir: Path, records: list[dict], now_iso: str) -> dict:
@@ -217,6 +218,20 @@ def write_map2d(map2d_dir: Path, records: list[dict], now_iso: str) -> dict:
     }
     (map2d_dir / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=1), encoding="utf-8")
     return index
+
+
+def write_source_stamp(out_dir: Path, index: dict, index_sha256: str) -> Path:
+    """交接给 WotbTools 的**内容时间戳**：内容的生成时刻（= 索引 `generated`），不是构建时间。
+
+    运行时用它做"远端是否有更新"的单调比较（`index.generated <= contentGeneratedAt ⇒ 包内就是最新的`）。
+    若换成 CI wall-clock：① Android stage 晚于 COS 发布时构建，会把真正更新的底图判成更旧而**永久
+    拒绝升级**；② 同一 commit 重跑构建会产出不同字节的 bundle，破坏 stage 可重跑性与 APK 不可变性。
+    """
+    payload = {"schemaVersion": 1, "contentGeneratedAt": index["generated"],
+               "indexSha256": index_sha256, "recipe": index["recipe"]}
+    stamp = out_dir / SOURCE_NAME
+    stamp.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    return stamp
 
 
 def cmd_export(args) -> int:
@@ -250,11 +265,16 @@ def cmd_export(args) -> int:
         map2d_dir = Path(args.map2d_dir)
         index = write_map2d(map2d_dir, records, args.generated or now_iso())
         idx_bytes = (map2d_dir / "index.json").read_bytes()
+        index_sha = hashlib.sha256(idx_bytes).hexdigest()
+        stamp = write_source_stamp(Path(args.out), index, index_sha)
         map2d_info = {"dir": str(map2d_dir), "index": "map2d/index.json",
-                      "index_sha256": hashlib.sha256(idx_bytes).hexdigest(),
+                      "index_sha256": index_sha,
+                      "source_stamp": SOURCE_NAME,
+                      "source_stamp_sha256": sha256_file(stamp),
                       "schemaVersion": INDEX_SCHEMA, "entries": len(index["maps"]),
                       "generated": index["generated"]}
         print(f"map2d → {map2d_dir}（{len(index['maps'])} 张 + index.json，generated {index['generated']}）")
+        print(f"内容时间戳 → {stamp}（contentGeneratedAt = {index['generated']}）")
 
     if args.manifest:
         man_path = Path(args.manifest)
@@ -328,6 +348,17 @@ def verify_map2d(map2d_dir: Path, out: Path, rows: dict, expect: int) -> list[st
     if recipe != {"canonDim": CANON_DIM, "quality": CANON_Q, "method": CANON_M, "gain": GAIN,
                   "softShoulder": SOFT_M, "saturation": SAT, "usm": list(USM)}:
         bad.append(f"index.recipe {recipe} 与工具常量不符")
+    stamp_path = out / SOURCE_NAME
+    if not stamp_path.is_file():
+        bad.append(f"缺内容时间戳交接件 {stamp_path}（WotbTools 构建会 fail closed）")
+    else:
+        stamp = json.loads(stamp_path.read_text(encoding="utf-8"))
+        if stamp.get("schemaVersion") != 1:
+            bad.append(f"{SOURCE_NAME} schemaVersion {stamp.get('schemaVersion')} ≠ 1")
+        if stamp.get("contentGeneratedAt") != idx.get("generated"):
+            bad.append(f"{SOURCE_NAME} contentGeneratedAt {stamp.get('contentGeneratedAt')!r} ≠ 索引 generated {idx.get('generated')!r}")
+        if stamp.get("indexSha256") != sha256_file(idx_path):
+            bad.append(f"{SOURCE_NAME} indexSha256 与 map2d/index.json 实际哈希不符")
     maps = idx.get("maps") or {}
     if len(maps) != expect:
         bad.append(f"index 条目数 {len(maps)} ≠ 注册表 {expect}")
