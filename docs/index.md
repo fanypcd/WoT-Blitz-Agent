@@ -77,13 +77,20 @@
 - **游戏版本**：`release/11.21.0`，车辆 **738**（`data_version.json` 为准）。随版刷新链
   （pb / tank_cache / game_data / 图标 / GLB / 悬挂 / 履带印 / shellKinds）与新增
   collector 车清单见 [data-inventory.md](data-inventory.md) §一。
-- **资产包与 COS**：包内 **5736 件 / 4177.7 MB**（`release/asset_pack/`，manifest 逐文件
+- **资产包与 COS**：包内 **5766 件 / 4200.3 MB**（`release/asset_pack/`，manifest 逐文件
   sha256）；COS 桶与本地**逐条一致、同代**（包内 == 归档 == 线上）。包布局、发布链
   （合成 → `--refresh-manifest` → 差分上传）、上传判据与全部运维陷阱见
   [data-inventory.md](data-inventory.md) §2.1 与 [game-data-sources.md](game-data-sources.md) §5.2。
 - **俯视烘焙（均衡档底图）**：渲染件必须与线上同代（世代护栏：meta `ground` 键判据，
   旧世代 `--write` 拒写）；"先归档再合成"的次序约束与重烘命令见
   [game-data-sources.md](game-data-sources.md) §5.5。
+- **2D 战术底图换源（2026-10-16）**：29 张底图（web 与 Android 共用的 canonical）改由包内
+  `ground.webp` 派生，冻结配方 + 取向由契约确定（无需翻转），工具 `tools/export_2d_basemaps.py`
+  （`--verify` 全量重算；与用户验收版逐字节一致）。总量 21.50 MiB；WotbTools 侧 Android 派生
+  **Web 与 APK 共用同一份字节**（不再派生缩小副本，2026-10-16 决定）且随包版本号已递增。色阶宽度差为逐图属性，按仓规不做逐图配平。
+  同时产出 **COS 免发版通道**：包内 `map2d/<code>.webp` + `map2d/index.json`（逐图 sha256 判据），
+  App 侧"包内兜底 + 在线校验 + 离线可用"（下载字节 sha256 校验、失败回落包内、索引比包内旧不降级）。
+  链条、次序陷阱与纪律见 [game-data-sources.md](game-data-sources.md) §5.6。
 
 ### 回放切面（`PlaybackData` v2 / `AiReviewFacet` v1）
 

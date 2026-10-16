@@ -1,0 +1,416 @@
+#!/usr/bin/env python3
+"""导出 2D 战术底图（canonical 1254²）——由 asset_pack 的 ground.webp 生成，交接给 WotbTools。
+
+链条（每一步都可复现，参数是文件内常量）：
+  release/asset_pack/map/<key>/ground.webp（4096²，±300 m 世界框，顶行 = +Z_scene、左列 = +X_scene）
+    → LANCZOS 等比缩放到 1254²
+    → 全局对比曲线 y' = softclip(128 + (y−128)·GAIN)（输出两端各 SOFT_M 级指数软肩）
+    → 饱和 ×SAT
+    → 逐通道软肩（越过 [0,255] 的部分压成渐近线，无硬裁切）
+    → USM 配方 B：1.0px / 80% / thr2（半径口径 = 1254 尺度，对应 1024 尺度的 0.8px）
+    → WebP q90 / method 6  ⇒  <out>/<canonical 文件名>（与 WotbTools mapImages.js 注册表同名）
+
+**无需翻转/裁剪**：ground.webp 与 2D 渲染在同一坐标系（推导见 docs/game-data-sources.md「2D 底图」）；
+两侧都是固定契约，不按相关性搜索朝向（同 tools/composite_overhead.py 的纪律）。
+
+纪律：
+- 配方参数是常量、**全部地图同一套**，不做逐图统计决策（AGENTS.md：同类数据同一变换）；
+- fail closed：注册表读不到 / 源尺寸不是 4096² / worldBounds 不是 ±300 m / 输出目录含无关 webp /
+  派生尺寸不符 —— 任一不成立直接失败，不"生成了就当成功"；
+- 确定性：同输入 + 同 Pillow 版本 → 逐字节相同；`--verify` 全量重算 sha256 复核。
+
+用法：
+  python tools/export_2d_basemaps.py --self-test
+  python tools/export_2d_basemaps.py --out release/2d-basemaps            # 全部 29 张 + manifest
+  python tools/export_2d_basemaps.py --out release/2d-basemaps --map canal
+  python tools/export_2d_basemaps.py --verify --out release/2d-basemaps   # 只读：重算并逐张比对 sha256
+
+注册表（29 张图与 canonical 文件名）来自 WotbTools 的 `frontend/src/data/mapImages.js`：
+取 `--wotbtools` 参数 > 环境变量 WOTBTOOLS_DIR > 仓库同级目录 `../WotbTools`。
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import io
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+import numpy as np
+from PIL import Image, ImageFilter
+
+REPO = Path(__file__).resolve().parents[1]
+TOOL_VERSION = 1
+
+# ---- 冻结的配方（改这里就是改产品决策；任何改动都会改变全部 29 张输出）----
+CANON_DIM = 1254
+CANON_Q, CANON_M = 90, 6
+GAIN = 1.17          # 全局对比曲线斜率（用户选定 2026-10-16）
+SOFT_M = 24.0        # 软肩宽度（输出级数）
+SAT = 0.9748         # 饱和修正（= 2026-10-16 拟合值 ref_chroma/cand_chroma，四位小数；勿四舍五入到 0.975——
+                     #   那会改变全部输出字节，与用户审阅的方案不再逐字节一致）
+USM = (1.0, 80, 2)   # radius(px@1254) / percent / threshold
+LUMA = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+EXPECTED_SRC_DIM = 4096
+EXPECTED_WORLD_SPAN = 600.0
+
+
+class ExportError(RuntimeError):
+    """可复现的失败：消息里必须能一眼看出是哪张图、哪个前置条件不成立。"""
+
+
+def now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def sha256_file(p: Path) -> str:
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def locate_wotbtools(arg: str | None) -> Path:
+    for cand in (arg, os.environ.get("WOTBTOOLS_DIR"), str(REPO.parent / "WotbTools")):
+        if cand:
+            root = Path(cand)
+            if (root / "frontend/src/data/mapImages.js").is_file():
+                return root
+    raise ExportError("找不到 WotbTools 检出（需要 frontend/src/data/mapImages.js）；"
+                      "用 --wotbtools <dir> 或环境变量 WOTBTOOLS_DIR 指定")
+
+
+def registry(wotbtools: Path, pack: Path) -> list[dict]:
+    """29 张已登记地图：pack key、canonical 文件名、展示名。fail closed。"""
+    txt = (wotbtools / "frontend/src/data/mapImages.js").read_text(encoding="utf-8")
+    imports = dict(re.findall(r"import (\w+) from '\.\./assets/maps/([^']+)'", txt))
+    pairs = re.findall(r"^\s*([A-Za-z_][A-Za-z0-9_]*):\s*\{ src: (\w+),", txt, re.M)
+    if not pairs:
+        raise ExportError("mapImages.js 里解析不到注册表条目")
+    missing = [v for _, v in pairs if v not in imports]
+    if missing:
+        raise ExportError(f"mapImages.js 引用了未 import 的变量：{missing}")
+    names = [imports[v] for _, v in pairs]
+    if len(set(names)) != len(names):
+        raise ExportError("canonical 文件名重复——注册表异常")
+    idx_path = pack / "index.json"
+    display = {}
+    if idx_path.is_file():
+        idx = json.loads(idx_path.read_text(encoding="utf-8")).get("maps", {})
+        display = {v.get("key"): v.get("display") for v in idx.values() if isinstance(v, dict)}
+    return [{"code": c, "file": imports[v], "display": display.get(c) or c} for c, v in pairs]
+
+
+def soft_clip(v: np.ndarray, m: float = SOFT_M) -> np.ndarray:
+    """逐通道指数软肩：越界部分压成渐近线（单调、无硬裁切）。"""
+    hi, lo = 255.0 - m, m
+    return np.where(
+        v > hi, hi + m * (1.0 - np.exp(-(v - hi) / m)),
+        np.where(v < lo, lo - m * (1.0 - np.exp(-(lo - v) / m)), v),
+    )
+
+
+def build_lut(gain: float = GAIN, m: float = SOFT_M) -> np.ndarray:
+    v = np.arange(256, dtype=np.float64)
+    y = 128.0 + (v - 128.0) * gain
+    out = soft_clip(y, m)
+    out = np.maximum.accumulate(out)
+    out[0], out[-1] = 0.0, 255.0
+    return out
+
+
+LUT = build_lut()
+
+
+def luma(a: np.ndarray) -> np.ndarray:
+    return a @ LUMA
+
+
+def grade(a: np.ndarray) -> np.ndarray:
+    """对比曲线（按亮度加增量，色相不动）→ 饱和 → 逐通道软肩。"""
+    y = np.clip(luma(a), 0, 255)
+    y2 = np.interp(y, np.arange(256), LUT).astype(np.float32)
+    g = a + (y2 - y)[..., None]
+    y2 = luma(g)
+    g = y2[..., None] + (g - y2[..., None]) * SAT
+    return soft_clip(g)
+
+
+def export_one(pack: Path, row: dict) -> tuple[bytes, dict]:
+    key, name = row["code"], row["file"]
+    ground_path = pack / "map" / key / "ground.webp"
+    terrain_path = pack / "map" / key / "terrain.json"
+    if not ground_path.is_file():
+        raise ExportError(f"{key}: 缺 {ground_path}")
+    if not terrain_path.is_file():
+        raise ExportError(f"{key}: 缺 {terrain_path}")
+    terrain = json.loads(terrain_path.read_text(encoding="utf-8"))
+    wb = terrain.get("worldBounds") or {}
+    lo, hi = wb.get("min"), wb.get("max")
+    if not (isinstance(lo, list) and isinstance(hi, list) and len(lo) == 3 and len(hi) == 3):
+        raise ExportError(f"{key}: terrain.json 缺 worldBounds")
+    for axis, i in (("x", 0), ("z", 1)):
+        span = float(hi[i]) - float(lo[i])
+        if abs(span - EXPECTED_WORLD_SPAN) > 1e-6 or abs(float(lo[i]) + 300.0) > 1e-6:
+            raise ExportError(f"{key}: worldBounds {axis} 不是 ±300 m（{lo[i]}..{hi[i]}）——"
+                              "2D 渲染契约假定 ±300，先确认为何偏离")
+    src = Image.open(ground_path)
+    if src.size != (EXPECTED_SRC_DIM, EXPECTED_SRC_DIM):
+        raise ExportError(f"{key}: 源 ground.webp 尺寸 {src.size} ≠ {EXPECTED_SRC_DIM}²")
+
+    base = np.asarray(src.convert("RGB").resize((CANON_DIM, CANON_DIM), Image.LANCZOS)).astype(np.float32)
+    img = Image.fromarray(np.clip(grade(base), 0, 255).astype(np.uint8))
+    img = img.filter(ImageFilter.UnsharpMask(radius=USM[0], percent=USM[1], threshold=USM[2]))
+    buf = io.BytesIO()
+    img.save(buf, format="WEBP", quality=CANON_Q, method=CANON_M)
+    data = buf.getvalue()
+    if img.size != (CANON_DIM, CANON_DIM):
+        raise ExportError(f"{key}: 输出尺寸 {img.size} 不符")
+    return data, {"code": key, "file": name, "display": row["display"],
+                  "source": {"path": str(ground_path.relative_to(REPO)) if ground_path.is_relative_to(REPO) else str(ground_path),
+                             "bytes": ground_path.stat().st_size, "sha256": sha256_file(ground_path)},
+                  "output": {"width": CANON_DIM, "height": CANON_DIM,
+                             "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}}
+
+
+def preflight_out(out: Path, names: set[str]) -> None:
+    """输出目录只允许写注册表里的文件名；出现无关 webp ⇒ 立刻失败（防指错目录）。"""
+    if out.exists():
+        stray = sorted(p.name for p in out.glob("*.webp") if p.name not in names)
+        if stray:
+            raise ExportError(f"输出目录 {out} 含注册表之外的 webp：{stray[:5]}{'…' if len(stray) > 5 else ''}"
+                              "——拒绝写入，请换目录或清理")
+
+
+INDEX_SCHEMA = 1
+
+
+def write_map2d(map2d_dir: Path, records: list[dict], now_iso: str) -> dict:
+    """COS 免发版通道：`map2d/<code>.webp`（与 canonical 同字节）+ `map2d/index.json`（App 的版本判据）。
+
+    索引是**唯一判据**：App 只按它决定"包内那份是不是最新"，字节必须与索引逐件 sha256 对齐
+    （fail closed）。上传由 `tools/upload_asset_pack_cos.py` 承担（json → no-cache、webp → max-age=3600）。
+    """
+    map2d_dir.mkdir(parents=True, exist_ok=True)
+    maps_entries = {}
+    for rec in records:
+        code = rec["code"]
+        src = Path(rec["_out_path"])
+        dst = map2d_dir / f"{code}.webp"
+        data = src.read_bytes()
+        if hashlib.sha256(data).hexdigest() != rec["output"]["sha256"]:
+            raise ExportError(f"{code}: canonical 字节与 manifest 记录不一致——先重跑导出")
+        dst.write_bytes(data)
+        maps_entries[code] = {"path": f"map2d/{code}.webp", "sha256": rec["output"]["sha256"],
+                              "bytes": len(data), "width": CANON_DIM, "height": CANON_DIM}
+    index = {
+        "schemaVersion": INDEX_SCHEMA,
+        "generated": now_iso,
+        "recipe": {"canonDim": CANON_DIM, "quality": CANON_Q, "method": CANON_M, "gain": GAIN,
+                   "softShoulder": SOFT_M, "saturation": SAT, "usm": list(USM)},
+        "maps": maps_entries,
+    }
+    (map2d_dir / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=1), encoding="utf-8")
+    return index
+
+
+def cmd_export(args) -> int:
+    pack, out = Path(args.pack), Path(args.out)
+    wotb = locate_wotbtools(args.wotbtools)
+    rows = registry(wotb, pack)
+    if args.map:
+        rows = [r for r in rows if r["code"] == args.map]
+        if not rows:
+            raise ExportError(f"--map {args.map} 不在注册表里")
+    preflight_out(out, {r["file"] for r in registry(wotb, pack)})
+    out.mkdir(parents=True, exist_ok=True)
+
+    records = []
+    for row in rows:
+        data, rec = export_one(pack, row)
+        target = out / row["file"]
+        target.write_bytes(data)
+        rec["_out_path"] = str(target)
+        records.append(rec)
+        print(f"{row['code']:14s} {row['file']:24s} {len(data)/1024:6.0f} KB  {rec['output']['sha256'][:12]}")
+
+    total = sum(r["output"]["bytes"] for r in records)
+    print(f"合计 {len(records)} 张 / {total/1024/1024:.2f} MiB")
+
+    map2d_info = None
+    if not args.skip_map2d:
+        if args.map:
+            raise ExportError("--map 单张模式不写 map2d 索引（索引必须覆盖全部注册表条目）；"
+                              "要么去掉 --map，要么加 --skip-map2d 只出 staging 图")
+        map2d_dir = Path(args.map2d_dir)
+        index = write_map2d(map2d_dir, records, args.generated or now_iso())
+        idx_bytes = (map2d_dir / "index.json").read_bytes()
+        map2d_info = {"dir": str(map2d_dir), "index": "map2d/index.json",
+                      "index_sha256": hashlib.sha256(idx_bytes).hexdigest(),
+                      "schemaVersion": INDEX_SCHEMA, "entries": len(index["maps"]),
+                      "generated": index["generated"]}
+        print(f"map2d → {map2d_dir}（{len(index['maps'])} 张 + index.json，generated {index['generated']}）")
+
+    if args.manifest:
+        man_path = Path(args.manifest)
+        man_path.parent.mkdir(parents=True, exist_ok=True)
+        pack_man = pack / "manifest.json"
+        provenance = {}
+        if pack_man.is_file():
+            pm = json.loads(pack_man.read_text(encoding="utf-8"))
+            provenance = {"upstream_commit": pm.get("upstream_commit"), "pack_generated": pm.get("generated")}
+        man_path.write_text(json.dumps({
+            "tool": "tools/export_2d_basemaps.py", "tool_version": TOOL_VERSION,
+            "recipe": {"canonDim": CANON_DIM, "quality": CANON_Q, "method": CANON_M,
+                       "gain": GAIN, "softShoulder": SOFT_M, "saturation": SAT, "usm": list(USM)},
+            "provenance": provenance, "map2d": map2d_info,
+            "files": [{k: v for k, v in r.items() if k != "_out_path"} for r in records],
+        }, ensure_ascii=False, indent=1), encoding="utf-8")
+        print("manifest →", man_path)
+    return 0
+
+
+def cmd_verify(args) -> int:
+    """只读：按 manifest 逐张重算并与磁盘字节比对（确定性 + 保真）。"""
+    pack, out = Path(args.pack), Path(args.out)
+    wotb = locate_wotbtools(args.wotbtools)
+    rows = {r["code"]: r for r in registry(wotb, pack)}
+    man = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
+    recipe = man["recipe"]
+    frozen = {"canonDim": CANON_DIM, "quality": CANON_Q, "method": CANON_M, "gain": GAIN,
+              "softShoulder": SOFT_M, "saturation": SAT, "usm": list(USM)}
+    if recipe != frozen:
+        raise ExportError(f"manifest 配方 {recipe} ≠ 工具常量 {frozen}——先确认用哪套配方")
+    bad = []
+    for rec in man["files"]:
+        code = rec["code"]
+        if code not in rows:
+            bad.append(f"{code}: manifest 有但注册表没有")
+            continue
+        disk = out / rec["file"]
+        if not disk.is_file():
+            bad.append(f"{code}: 缺输出 {disk}")
+            continue
+        if sha256_file(disk) != rec["output"]["sha256"]:
+            bad.append(f"{code}: 磁盘 sha256 与 manifest 不符")
+            continue
+        data, fresh = export_one(pack, rows[code])
+        if fresh["output"]["sha256"] != rec["output"]["sha256"] or data != disk.read_bytes():
+            bad.append(f"{code}: 重算结果与已发布字节不一致（配方或依赖版本变了？）")
+    if not args.skip_map2d:
+        bad += verify_map2d(Path(args.map2d_dir), out, rows, len(rows))
+    if bad:
+        raise ExportError("verify 失败：\n  - " + "\n  - ".join(bad))
+    tail = "" if args.skip_map2d else " + map2d 索引/字节/canonical 三方对齐"
+    print(f"verify ok：{len(man['files'])} 张逐张重算一致{tail}"
+          f"（Pillow {Image.__version__ if hasattr(Image, '__version__') else 'n/a'}）")
+    return 0
+
+
+def verify_map2d(map2d_dir: Path, out: Path, rows: dict, expect: int) -> list[str]:
+    """索引是 App 的唯一判据 ⇒ 索引、map2d 字节、canonical staging 三者必须逐件对齐。"""
+    idx_path = map2d_dir / "index.json"
+    if not idx_path.is_file():
+        return [f"缺 map2d 索引 {idx_path}（先跑一次导出）"]
+    idx = json.loads(idx_path.read_text(encoding="utf-8"))
+    bad: list[str] = []
+    if idx.get("schemaVersion") != INDEX_SCHEMA:
+        bad.append(f"index schemaVersion {idx.get('schemaVersion')} ≠ {INDEX_SCHEMA}")
+    recipe = {k: idx.get("recipe", {}).get(k) for k in
+              ("canonDim", "quality", "method", "gain", "softShoulder", "saturation", "usm")}
+    if recipe["usm"] is not None:
+        recipe["usm"] = list(recipe["usm"])
+    if recipe != {"canonDim": CANON_DIM, "quality": CANON_Q, "method": CANON_M, "gain": GAIN,
+                  "softShoulder": SOFT_M, "saturation": SAT, "usm": list(USM)}:
+        bad.append(f"index.recipe {recipe} 与工具常量不符")
+    maps = idx.get("maps") or {}
+    if len(maps) != expect:
+        bad.append(f"index 条目数 {len(maps)} ≠ 注册表 {expect}")
+    for code, entry in maps.items():
+        if code not in rows:
+            bad.append(f"{code}: index 有但注册表没有")
+            continue
+        p = map2d_dir / f"{code}.webp"
+        if not p.is_file():
+            bad.append(f"{code}: 缺 map2d 图")
+            continue
+        if sha256_file(p) != entry.get("sha256") or p.stat().st_size != entry.get("bytes"):
+            bad.append(f"{code}: map2d 字节与 index 记录不符")
+        canonical = out / rows[code]["file"]
+        if not canonical.is_file():
+            bad.append(f"{code}: 缺 canonical staging {canonical}")
+        elif canonical.read_bytes() != p.read_bytes():
+            bad.append(f"{code}: map2d 与 canonical staging 不同字节")
+    return bad
+
+
+def self_test() -> None:
+    # 1) LUT：单调、端点、软肩不越界
+    lut = build_lut()
+    assert np.all(np.diff(lut) >= -1e-9), "LUT 非单调"
+    assert lut[0] == 0.0 and lut[-1] == 255.0
+    assert 100 < lut[128] < 160, f"中点映射异常：{lut[128]}"
+    # 2) 对比曲线确实放大中段（相对恒等）
+    assert lut[192] - lut[64] > 192 - 64, "曲线没有放大中段对比"
+    # 3) 软肩：越界不产生硬裁切
+    v = np.array([-40.0, -1.0, 0.0, 128.0, 255.0, 300.0, 400.0])
+    sc = soft_clip(v)
+    assert sc.min() > -1e-6 and sc.max() < 255.0, f"软肩越界：{sc}"
+    assert np.all(np.diff(sc) >= -1e-9)
+    # 4) grade：灰度渐变保持单调、色相不动、无贴顶
+    grad = np.repeat(np.arange(256, dtype=np.float32).reshape(1, 256, 1), 3, axis=2)
+    grad = np.repeat(grad, 8, axis=0)
+    out = grade(grad)
+    assert out.max() < 255.0 and out.min() > 0.0, "grade 产生硬裁切"
+    row = out[0, :, 0]
+    assert np.all(np.diff(row) >= -1e-4), "grade 破坏单调"
+    # 5) 彩色像素：软肩可能压缩某通道，但不得反转通道次序（= 不得改变色相）
+    warm = np.array([[[200.0, 60.0, 40.0]]], dtype=np.float32)
+    cool = np.array([[[40.0, 90.0, 200.0]]], dtype=np.float32)
+    gw, gc = grade(warm)[0, 0], grade(cool)[0, 0]
+    assert gw[0] > gw[1] > gw[2], f"暖色通道次序被破坏：{gw}"
+    assert gc[2] > gc[1] > gc[0], f"冷色通道次序被破坏：{gc}"
+    # 6) 注册表解析（环境里没有 WotbTools 时跳过）
+    try:
+        wotb = locate_wotbtools(None)
+        rows = registry(wotb, REPO / "release/asset_pack")
+        assert len(rows) >= 20 and all(r["code"] and r["file"].endswith(".webp") for r in rows)
+        print(f"self-test: ok（注册表 {len(rows)} 张）")
+    except ExportError as e:
+        print(f"self-test: ok（跳过注册表检查：{e}）")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--pack", default="release/asset_pack")
+    ap.add_argument("--out", default="release/2d-basemaps")
+    ap.add_argument("--manifest", default="release/2d-basemaps-manifest.json")
+    ap.add_argument("--map2d-dir", default="release/asset_pack/map2d",
+                    help="COS 免发版通道目录：map2d/<code>.webp + index.json（包内，随上传器发布）")
+    ap.add_argument("--skip-map2d", action="store_true", help="只出 canonical staging，不写 map2d 索引")
+    ap.add_argument("--generated", help="覆盖 index.json 的 generated 时间戳（ISO-8601Z；复现/测试用）")
+    ap.add_argument("--map", help="只导出单张（地图 key，如 canal）")
+    ap.add_argument("--wotbtools", help="WotbTools 检出根目录（默认 ../WotbTools 或 WOTBTOOLS_DIR）")
+    ap.add_argument("--verify", action="store_true", help="只读校验：按 manifest 逐张重算比对")
+    ap.add_argument("--self-test", action="store_true")
+    args = ap.parse_args()
+    try:
+        if args.self_test:
+            self_test()
+        elif args.verify:
+            return cmd_verify(args)
+        else:
+            return cmd_export(args)
+    except ExportError as e:
+        print(f"2d-basemaps: {e}", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
