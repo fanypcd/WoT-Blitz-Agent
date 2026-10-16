@@ -17,6 +17,9 @@
 - 配方参数是常量、**全部地图同一套**，不做逐图统计决策（AGENTS.md：同类数据同一变换）；
 - fail closed：注册表读不到 / 源尺寸不是 4096² / worldBounds 不是 ±300 m / 输出目录含无关 webp /
   派生尺寸不符 —— 任一不成立直接失败，不"生成了就当成功"；
+- **几何契约随件落盘**（索引 schemaVersion 2）：逐图 `worldBounds` + `orientation` 写进
+  `map2d/index.json`，`--verify` 回读真实像素尺寸并要求方形且与索引一致 —— 只校验 sha256/字节
+  校不出"换了图但世界范围/取景变了"（裁剪、补边后尺寸可以不变），那正是坦克位置与底图错位的成因；
 - 确定性：同输入 + 同 Pillow 版本 → 逐字节相同；`--verify` 全量重算 sha256 复核。
 
 用法：
@@ -43,7 +46,7 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 REPO = Path(__file__).resolve().parents[1]
-TOOL_VERSION = 1
+TOOL_VERSION = 2   # v2：索引/清单增几何契约（worldBounds + orientation），--verify 回读像素校验
 
 # ---- 冻结的配方（改这里就是改产品决策；任何改动都会改变全部 29 张输出）----
 CANON_DIM = 1254
@@ -172,6 +175,10 @@ def export_one(pack: Path, row: dict) -> tuple[bytes, dict]:
     if img.size != (CANON_DIM, CANON_DIM):
         raise ExportError(f"{key}: 输出尺寸 {img.size} 不符")
     return data, {"code": key, "file": name, "display": row["display"],
+                  # 世界框随件落盘（contract，不搜索）：顶行 = +Z、左列 = +X，覆盖 ±300 全幅。
+                  # OTA 消费侧（WotbTools `map2dOverlay.js`）据此校验"换了图但世界范围变了"。
+                  "worldBounds": {"xMin": -300.0, "xMax": 300.0, "yMin": -300.0, "yMax": 300.0},
+                  "orientation": "top=+Z,left=+X",
                   "source": {"path": str(ground_path.relative_to(REPO)) if ground_path.is_relative_to(REPO) else str(ground_path),
                              "bytes": ground_path.stat().st_size, "sha256": sha256_file(ground_path)},
                   "output": {"width": CANON_DIM, "height": CANON_DIM,
@@ -187,7 +194,7 @@ def preflight_out(out: Path, names: set[str]) -> None:
                               "——拒绝写入，请换目录或清理")
 
 
-INDEX_SCHEMA = 1
+INDEX_SCHEMA = 2
 SOURCE_NAME = "map2d-source.json"
 
 
@@ -196,6 +203,9 @@ def write_map2d(map2d_dir: Path, records: list[dict], now_iso: str) -> dict:
 
     索引是**唯一判据**：App 只按它决定"包内那份是不是最新"，字节必须与索引逐件 sha256 对齐
     （fail closed）。上传由 `tools/upload_asset_pack_cos.py` 承担（json → no-cache、webp → max-age=3600）。
+
+    schemaVersion 2（2026-10-16）：逐图增 `worldBounds` + `orientation` —— 消费侧据此校验
+    "换了图但世界范围变了"（只校验 sha256/尺寸是校不出来的：裁剪/补边后尺寸可以不变）。
     """
     map2d_dir.mkdir(parents=True, exist_ok=True)
     maps_entries = {}
@@ -208,7 +218,8 @@ def write_map2d(map2d_dir: Path, records: list[dict], now_iso: str) -> dict:
             raise ExportError(f"{code}: canonical 字节与 manifest 记录不一致——先重跑导出")
         dst.write_bytes(data)
         maps_entries[code] = {"path": f"map2d/{code}.webp", "sha256": rec["output"]["sha256"],
-                              "bytes": len(data), "width": CANON_DIM, "height": CANON_DIM}
+                              "bytes": len(data), "width": CANON_DIM, "height": CANON_DIM,
+                              "worldBounds": rec["worldBounds"], "orientation": rec["orientation"]}
     index = {
         "schemaVersion": INDEX_SCHEMA,
         "generated": now_iso,
@@ -404,6 +415,23 @@ def verify_map2d(map2d_dir: Path, out: Path, rows: dict, expect: int) -> list[st
             continue
         if sha256_file(p) != entry.get("sha256") or p.stat().st_size != entry.get("bytes"):
             bad.append(f"{code}: map2d 字节与 index 记录不符")
+        # 几何契约（schemaVersion 2）：世界框/取向随件落盘，且与**真实像素**一致。
+        # 只校验 sha256/尺寸是校不出"裁剪/补边/换框"的（尺寸可以不变）——这里补齐。
+        if entry.get("orientation") != "top=+Z,left=+X":
+            bad.append(f"{code}: index orientation 缺失/不符（{entry.get('orientation')!r}）")
+        wb = entry.get("worldBounds") if isinstance(entry.get("worldBounds"), dict) else {}
+        if any(abs(float(wb.get(k, 1e9)) - v) > 1e-6 for k, v in
+               (("xMin", -300.0), ("xMax", 300.0), ("yMin", -300.0), ("yMax", 300.0))):
+            bad.append(f"{code}: index worldBounds 不是 ±300（{wb or '缺'}）")
+        try:
+            size = Image.open(p).size
+        except Exception as exc:                                   # noqa: BLE001 —— 只报错不改判
+            bad.append(f"{code}: 读不出像素尺寸（{exc}）")
+        else:
+            if size[0] != size[1]:
+                bad.append(f"{code}: 像素 {size} 非方形（与 ±300 方框不同比 ⇒ 各向异性拉伸）")
+            if size != (entry.get("width"), entry.get("height")):
+                bad.append(f"{code}: 像素 {size} ≠ index {entry.get('width')}×{entry.get('height')}")
         canonical = out / rows[code]["file"]
         if not canonical.is_file():
             bad.append(f"{code}: 缺 canonical staging {canonical}")

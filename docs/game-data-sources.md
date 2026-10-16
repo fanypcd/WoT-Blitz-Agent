@@ -453,8 +453,9 @@ webp 即拒写（防指错目录）。`--verify` 按 manifest 逐张重算并比
 像素完全一致（此前 Android 用的 ≤1024²/q72 派生链已整体删除）。
 
 **COS 免发版通道（`map2d/` + `index.json`）**：同一次导出还会把同样字节写成
-`release/asset_pack/map2d/<code>.webp` + `map2d/index.json`（schemaVersion 1：`generated`、
-`recipe`、逐图 `path/sha256/bytes/width/height`），并在 staging 目录写下交接件
+`release/asset_pack/map2d/<code>.webp` + `map2d/index.json`（**schemaVersion 2**：`generated`、
+`recipe`、逐图 `path/sha256/bytes/width/height` **＋几何契约 `worldBounds` / `orientation`**，
+2026-10-16 起；schemaVersion 1 缺这两项，消费侧一律不换图），并在 staging 目录写下交接件
 `map2d-source.json`（schemaVersion 2：`contentGeneratedAt` = 索引 `generated`、`indexSha256`、
 `recipe`，以及**与字节的绑定** `maps: {code: {file, sha256}}`（29 条）与 `mapsDigest`）。
 该交接件随 29 张 webp 一起进 WotbTools `frontend/src/assets/maps/`：**包内"内容时间戳"的唯一来源**
@@ -471,10 +472,39 @@ webp → `max-age=3600`；`--only map2d/` 可局部发布）。**索引是 App �
 App 侧消费（WotbTools `frontend/src/data/map2dOverlay.js`）与"包内兜底 + 在线校验"的完整规则见
 其 `docs/reference/maps.md` §2026-10-16。
 
-⚠️ **次序陷阱（与 §5.5 同类）**：`scripts/export_asset_pack.py` 会 `rmtree(--out)` 重建整个包——
-**`map2d/` 属于包内内容，重打包后必须重跑 `tools/export_2d_basemaps.py`**，再
-`--refresh-manifest`（30 条 map2d 条目）与上传。正确次序：
-打包 → 俯视合成（§5.5）→ **2D 底图导出（本节）** → `--refresh-manifest` → 上传。
+**几何契约为什么必须随件落盘**：2D 渲染把回放坐标按注册表 `coordinateBounds`（±300 m）线性映射到
+整幅图，**栅格分辨率不参与映射**（底图与标记同框拉伸）——所以 sha256/尺寸全对也仍可能"换了图但取景
+变了"（裁剪、补边、换框后尺寸可以不变），只有世界框能判出来。索引 v2 的 `worldBounds` +
+`orientation` 是消费侧换图的前置条件：与注册表逐值不符 ⇒ 该图不换，`window.__wotbMap2d.maps[code]`
+记 `rejected: geometry`。`--verify` 同时回读**真实像素**：必须方形且与索引声明一致。
+**本批（2026-10-16）配准证据**（补齐本批此前未做的几何校验）：29 张逐个与
+`map/<key>/ground.webp`（±300 全幅渲染，取向/世界框由 `terrain.json` 契约校验）做零位移相关比对——
+移位 (0,0)、取向 identity 最优、尺度 1.000、相关 0.987–0.998（残差 = 导出侧色调/USM 逐点滤波），
+即**每一张都是包内渲染的全幅等比降采样**（一次性诊断，不入库；判据仍是契约，不搜索）。
+
+### 5.7 客户端小地图（`map/<key>/mini.webp`）——**已退出地面链路**（2026-10-16 裁定：以 ±300 为准）
+
+`src/wargaming/map_assets.rs` 把小地图 DVPL **原样**写成 `data/cache/maps/<space>.minimap.webp`
+（`MiniMapSmall@2x` 优先），`scripts/export_asset_pack.py` 再拷成包内 `map/<key>/mini.webp`。
+
+**实测（2026-10-16，36 张）**：把 `mini.webp` 与同图 `ground.webp`（±300 全幅渲染）对齐，36/36 都
+**不落在 600 m 方框上**——小地图内容需要**放大约 3%–7%** 才能与契约全幅对齐（canal/himmelsdorf/
+malinovka/mountain 聚在 0.962–0.968 ≈ 覆盖 620 m；medvedkovo 0.926），且外围"均匀带"只有 0–3 px
+⇒ 多出来的**不是边框，是真实内容**（水面/场景可以超出 Landscape 的 ±300 框；canal 湖面在
+`ground.webp` 里被切在画面外、在小地图里完整闭合）。**即：Landscape `worldBounds = ±300` 是地形框，
+不等于客户端 HUD 小地图的覆盖范围。**
+
+**处置（用户裁定，路线 B：以 ±300 为准，外圈不呈现）**：3D 地面贴图**四档统一改用契约化的
+`ground.webp`**（`frontend/src/scene/playbackScene.js` 不再按画质档选 `res=mini`；`map-mini`
+路由已从 `replaySource.js` 移除；守卫见 WotbTools `playbackScene.test.js`「地面贴图四档统一用
+契约化的 `map`」）。历史影响：最低档曾把约 620 m 的小地图按 600 m 铺，内容被压缩约 3% 且圈外内容
+摊进边界；2D 底图一直只有 ±300 框 ⇒ 低档 3D 与 2D 对不上（2026-10-16 用户报障）。
+
+**仍在包内的 `mini.webp`**：保留（资产面 `res=mini` 与 `map_minimap_response` 的"提取缓存 → 客户端
+随取随解 → 高清底图兜底"链未动），但**没有运行时消费方**；若要省包体（36 张合计约 3.6 MiB）可整体
+下线提取与打包，属独立决定。**不要**按像素测量值给 `data/maps/<key>.json` 填逐图 `size_m`
+（AGENTS.md：不做测量驱动的逐项决策；无权威判据时 fail closed 并上报）——若将来要走"呈现外圈"的
+路线 A，须先取到客户端小地图的**权威世界框**（HUD/地图 UI 配置），再统一归一化重出。
 
 ---
 
