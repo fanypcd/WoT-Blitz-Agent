@@ -192,6 +192,8 @@ AoI 收集器已实证"同 eid 重入"）。切面以 additive 字段表达多�
 - **死亡面**：`hp_state ∈ {zero, terminal}` ∨ prop1=00 ∨ wrapper6 击杀播报 ∨ 结算 field105。
   消费方判死读 `hp_state`；`hp_raw` 只服务显示口径（确知 0 与"哨兵未知"的区分），
   `visibility.hp_raw`（AoI 物化快照）不是死亡证据载体（维持显示域过滤 `0 < hp < 0xFF00`）。
+- **字段缺省（旧产物）= legacy 语义**：仅 `{0x0000, 0xFFFD}` 为终态，−1/−2 等负值仍是
+  "未证明哨兵"（消费方不得在缺省路径上把全族放宽为终态——全族语义**只能**经字段获得）。
 - **动因**：消费方只认 {0x0000, 0xFFFD} 会把 −1/−2 档死亡判成存活（血量冻在最后正值、
   装填条继续外播）——分歧实例、证据与消费方义务见
   [wotbtools-cross-reference.md §七](wotbtools-cross-reference.md)（含迁移清单 §七.1）。

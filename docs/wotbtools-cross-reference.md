@@ -233,12 +233,14 @@ wrapper6 击杀播报 ∨ 结算 field105。**消费方判死一律读 `hp_state
   （2D `pb-destroyed`、无装填条/血量 HUD）——**同一机制、仅哨兵取值不同**，正是本裁决要消除的
   取值敏感性。
 
-**消费方义务（WotbTools 侧；pin bump 前即可落地，见 §七.2 实施记录）**：①
-`classifyHpRaw`/`isTerminalHpState` 消费 `hp_state`（在场时权威），缺省时按 hp_raw 的同一
-规则（int16 ≤ 0 全域）现算；②终态样本必须产出 `DESTROYED` 迁移（lifeTransitions）——血量帧
-保持哨兵语义（**不改写成 0**），归零呈现由 DESTROYED 覆盖（`healthDisplayAt` → 0/max）；
-③装填条的死亡后停播由既有 `destroyed` 门控承担（相位模型不动——f2=5 现测含带/不带时长两种
-形态，取消语义未闭环，禁猜）。
+**消费方义务（WotbTools 侧；**必须在字段上线后消费，见 §七.2 实施记录）**：①
+`classifyHpRaw`/`isTerminalHpState` 消费 `hp_state`（在场时权威）；**字段缺省（旧产物）保持
+legacy 分类**（仅 `{0x0000, 0xFFFD}` 为终态；−1/−2 等负值在缺省路径上仍是"未证明哨兵"）——
+全族语义**只能**经字段获得，**禁在缺省路径上放宽**（WotbTools 存量语料把 0xFFFF 记为
+"unavailable"、并有"未证明哨兵"回归用例；缺省放宽会在旧产物上产生无旁证的死亡判定）。
+②终态样本必须产出 `DESTROYED` 迁移（lifeTransitions）——血量帧保持哨兵语义（**不改写成 0**），
+归零呈现由 DESTROYED 覆盖（`healthDisplayAt` → 0/max）；③装填条的死亡后停播由既有 `destroyed`
+门控承担（相位模型不动——f2=5 现测含带/不带时长两种形态，取消语义未闭环，禁猜）。
 
 **上游边界**：本仓只把**分类事实**透出，显示口径（0 与"未知"如何画）仍归消费方；
 `hp`（钳 0）与 `hp_raw`（原始）的既有双字段语义不变。规则族固定为 int16 ≤ 0 全域
@@ -256,8 +258,11 @@ wrapper6 击杀播报 ∨ 结算 field105。**消费方判死一律读 `hp_state
    spread 事件，`hp_state` 不应出现在投影产物里；若出现，说明存在 spread 站点，需逐条归因。
 4. **WotbTools 代码**（消费面修复，pin bump 前即可落地）：
    - `frontend/src/replay-local/canonical/hpRawState.ts`：`classifyHpRaw(raw, hp_state?)` 消费
-     `hp_state`（在场时权威）；缺省按同一规则从 hp_raw 现算（终态 = int16 ≤ 0 全域），
-     `isTerminalHpState`/`knownHpOf` 同步；
+     `hp_state`（在场时权威 → `DEATH_TERMINAL`）；**缺省路径保持 legacy 分类**
+     （`{0x0000, 0xFFFD}` 终态、其余负值仍 `UNKNOWN_*`），`isTerminalHpState`/`knownHpOf` 同步；
+   - `frontend/src/api/agent-replay-facets.ts`：`validateAgentAiReview` 对 `hp_state`
+     **在场值 fail-closed 校验**（非法枚举/类型 = 拒绝，不静默回退）；契约文档
+     `contracts/agent/replay-facets-v2.md` 同步登记该字段；
    - `frontend/src/replay-local/canonical/facts.ts`：`health`/`damage` 事件把 `hp_state` 透传进
      分类（`TerminalKind.DEATH_SENTINEL` 覆盖全族）；`lifeTransitions` 由该分类驱动，无需改；
    - 血量帧（`healthTransitions`）保持哨兵语义（不改写成 0）；装填条死亡后停播由既有
@@ -273,11 +278,11 @@ wrapper6 击杀播报 ∨ 结算 field105。**消费方判死一律读 `hp_state
 - **上游（本仓）**：`hp_state` 字段 + `HpState`/`classify_hp_state` + JSON 级回归测试；
   facet 导出实测：1910 `0xFFFE → terminal`、1903 `0xFFFD/18 → terminal/current`；
   `cargo test --workspace` + `clippy -D warnings` 绿灯。
-- **消费方（WotbTools 本机 checkout）**：`hpRawState.ts` / `facts.ts` / `agent-replay-facets.ts`
-  按上表改；新增 `canonical/facts.hpTerminal.test.ts`（两种产物形态：旧产物按 hp_raw 现算 /
-  新产物 `hp_state` 权威，各锁"终态证据 + DESTROYED 迁移"）；`playbackScene.test.js` 的
-  终态族用例改为全族判死（新增 0xFFFE 行）。WotbTools 全量 `vitest run`：250 文件 / 3628
-  用例通过（含 golden；三个 fixture 无 −1/−2 档死亡，golden 未变）。
+- **消费方（WotbTools）**：`hpRawState.ts` / `facts.ts` / `agent-replay-facets.ts` 按上表改
+  （**缺省路径保持 legacy**，全族语义经字段）；新增 `canonical/facts.hpTerminal.test.ts`
+  （字段权威 + legacy 缺省两侧各自锁定），`playbackScene.test.js` 终态族用例按"字段驱动"
+  改写（含 legacy 缺省不放宽的反例行）；上游契约文档与 AI 投影链路同步携带分类。
+  pin bump 至 v0.4.9 后 AI 投影 golden 预期仅 provenance 变化。
 - **本机实测（锁定 WASM v0.4.7 + 真回放 + 2D 编排器挂载读 DOM）**：1910 → `pb-destroyed`、
   无 `pb-reload`、血量 HUD 隐藏、aria `state_destroyed`；1903 → 同形（对照不变）。
 - **未做**：`hp_state` 的真正端到端（新 pin 产物走字段路径）需本仓发布 + WotbTools pin bump；
