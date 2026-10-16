@@ -177,3 +177,22 @@ AoI 收集器已实证"同 eid 重入"）。切面以 additive 字段表达多�
 - 消费侧（WotbTools）：scene fallback 与 canonical `lifeTransitions` 消费
   `death_times` + `resurrection_times` 允许 DESTROYED→ALIVE 回转（字段缺省 = 现状行为，
   无需强制同版升级）。
+
+## 9. 血量终态分类（additive）
+
+`AiReviewFacet` 的 `damage`（method1）与 `health`（prop3）事件新增 `hp_state`
+（`current` / `zero` / `terminal`，**恒在场**，非 skip-when-none）——同一个 u16 血量后
+消费方的**唯一权威分类**，规则 = `combat::hp_terminal_normalized`（终态 ⇔ 归一化为 0，
+即 `hp == 0 ∨ (hp as i16) < 0`）；枚举与函数同在 `replay::combat::events`
+（`classify_hp_state`，构造上同判，不会漂移）。
+
+- **语义**：`current` = 可用当前血量；`zero` = 0x0000 确知归零；`terminal` = 负 i16
+  终态哨兵（实测族 0xFFFF/0xFFFE/0xFFFD，终态分布 −1:68/−2:1/−3:59；其余负值同属该编码
+  ——同族全部取值同一处理，**禁按分布裁剪/扩展**，实测分布只作证据）。
+- **死亡面**：`hp_state ∈ {zero, terminal}` ∨ prop1=00 ∨ wrapper6 击杀播报 ∨ 结算 field105。
+  消费方判死读 `hp_state`；`hp_raw` 只服务显示口径（确知 0 与"哨兵未知"的区分），
+  `visibility.hp_raw`（AoI 物化快照）不是死亡证据载体（维持显示域过滤 `0 < hp < 0xFF00`）。
+- **动因**：消费方只认 {0x0000, 0xFFFD} 会把 −1/−2 档死亡判成存活（血量冻在最后正值、
+  装填条继续外播）——分歧实例、证据与消费方义务见
+  [wotbtools-cross-reference.md §七](wotbtools-cross-reference.md)（含迁移清单 §七.1）。
+- `PlaybackData` v2 / `AiReviewFacet` v1 形状不变（additive 字段；旧产物字段缺省即旧口径）。

@@ -244,6 +244,72 @@ pub fn hp_terminal_normalized(hp: u16) -> u16 {
     }
 }
 
+/// 血量编码分类（`hp_terminal_normalized` 的同一规则，逐值同判）——切面对外透出的
+/// 分类字段 [`crate::facets::ai_review::AiEvent`]（`hp_state`），消费方据此判定死亡面，
+/// **禁**自行解释 u16（两套解释曾出现分歧：只认 {0, 0xFFFD} 会把 −1/−2 档死亡判成存活）。
+///
+/// - `current`：正 i16 = 可用当前血量；
+/// - `zero`：0x0000 = 确知 HP 归零（终态）；
+/// - `terminal`：负 i16 = 终态哨兵（实测族 {0xFFFF, 0xFFFE, 0xFFFD}，终态分布 −1:68/−2:1/−3:59；
+///   其余负值同属该编码——同一规则作用于同族全部取值，禁按分布裁剪）。
+///
+/// **终态（`zero` ∨ `terminal`）本身即死亡面之一**，与 prop1 死亡广播 / wrapper6 击杀播报 /
+/// 结算 field105 并列（判据与消费方义务见 docs/wotbtools-cross-reference.md §七）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HpState {
+    /// 正 i16：可用当前血量
+    Current,
+    /// 0x0000：确知 HP 归零（终态）
+    Zero,
+    /// 负 i16：终态哨兵（血量不可用；死亡面之一）
+    Terminal,
+}
+
+/// 终态 ⇔ 归一化为 0——与 [`hp_terminal_normalized`] 同一规则（构造上同判，不可能漂移）。
+pub fn classify_hp_state(hp: u16) -> HpState {
+    match hp_terminal_normalized(hp) {
+        0 if hp == 0 => HpState::Zero,
+        0 => HpState::Terminal,
+        _ => HpState::Current,
+    }
+}
+
+#[cfg(test)]
+mod hp_state_tests {
+    use super::*;
+
+    #[test]
+    fn terminal_family_classifies_identically_to_normalization() {
+        assert_eq!(classify_hp_state(0), HpState::Zero);
+        for sentinel in [0xFFFFu16, 0xFFFE, 0xFFFD] {
+            assert_eq!(
+                classify_hp_state(sentinel),
+                HpState::Terminal,
+                "{sentinel:#06x} 属实测终态族"
+            );
+        }
+        // 同一编码规则：任何负 i16 都是终态（未观测实例不例外，禁按分布裁剪）
+        for other_negative in [0x8000u16, 0xFF00, 0xFFF0] {
+            assert_eq!(classify_hp_state(other_negative), HpState::Terminal);
+        }
+        for hp in [1u16, 18, 2664, 32767] {
+            assert_eq!(classify_hp_state(hp), HpState::Current, "{hp} 为可用血量");
+        }
+        // 与归一化函数逐值同判：终态 ⇔ 归一化为 0
+        let hps = [
+            0u16, 1, 18, 2664, 32767, 0x8000, 0xFF00, 0xFFFD, 0xFFFE, 0xFFFF,
+        ];
+        for hp in hps {
+            assert_eq!(
+                classify_hp_state(hp) != HpState::Current,
+                hp_terminal_normalized(hp) == 0,
+                "{hp:#06x}"
+            );
+        }
+    }
+}
+
 /// method1 (0x01) 血量/来源/原因事件（WotbTools AFFIRMED）：
 /// envelope entityId = 受害者；args 7B = [currentHpRaw u16][sourceEntity u32][causeFlag u8]；
 /// currentHpRaw = 事件后的绝对血量快照（非增量），终态哨兵族见 [`hp_terminal_normalized`]；

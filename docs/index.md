@@ -102,7 +102,11 @@
 - **车辆配置**：`config_idx` / `burst_size` / `turret_local` / `gun_local`（comp blob 证据链）；
 - **位姿与弹道折线**：`pose_kf`、`shots[].via`/`leg_secs`、`hull_roll`；
 - **血量与伤害**：`damage = 服务器结算值`（method8 尾部 u16；未结算时降级 HP 链并置
-  `dmg_unattributed`）；`hp_raw`、prop3；
+  `dmg_unattributed`）；`hp_raw`、prop3；**`hp_state`（additive、`damage`/`health` 事件恒在场：
+  `current`/`zero`/`terminal`）= 血量编码的唯一权威分类**——消费方判死亡面读它，禁自行解释
+  u16（规则与 `hp_terminal_normalized` 同判；分歧实例、消费方义务与实测证据见
+  [wotbtools-cross-reference.md §七](wotbtools-cross-reference.md)）。**未发布**：随下一次
+  Release 生效，消费方 pin bump 时落地；
 - **动态装甲**：`armor_states` / `shots[].target_armor_state`（propID 16，动态车 6 辆）；
 - **复活模式**：`death_times`（≥2 死才输出）/`resurrection_times`（契约 §8；绝对血量
   回升前提待真实样本验证，未验证时字段缺省 = 现状行为）；
@@ -116,6 +120,10 @@
   在本仓先修，对方再更新 pin。消费方式、pin bump 与 golden 重生成、Android `wotbVersion`
   同步规则见 [AGENTS.md](../AGENTS.md) 与 README。
 - 未完项（消费侧接入归 WotbTools 仓，落地状态以对方仓为准）：
+  - **血量终态族消费（2026-10-16 新发现，见 [cross-reference §七](wotbtools-cross-reference.md)）**：
+    canonical `hpRawState` 只认 {0x0000, 0xFFFD} 为终态，−1/−2 档死亡被判成存活（2D 血量冻在
+    最后正值、3D 装填条继续播放；实例：1910 局 Intotherainy 0xFFFE）——pin bump 时改读上游
+    `hp_state`（或扩全族），并给终态样本补 DESTROYED 迁移与装填条 f2=5 取消语义；
   - 复活轨道字段的消费（scene fallback 与 canonical `lifeTransitions` 支持 DESTROYED→ALIVE 回转）；
   - 地图 scenery extras 的消费接线（`decalTexture` / `decalSeparateLm` 等，后端数据已随包）；
   - 对方点名要的字段：`PlaybackData.damages[]`、`coverage`、`finish_reason`、

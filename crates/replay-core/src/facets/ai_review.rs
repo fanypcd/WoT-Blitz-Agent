@@ -10,8 +10,12 @@ use serde::Serialize;
 
 use crate::models::battle::BattleSummary;
 use crate::models::replay_dataset::{PlayerSettlementRow, ReplayDataset};
-use crate::replay::combat::ArenaPeriod;
+use crate::replay::combat::{classify_hp_state, ArenaPeriod};
 use crate::replay::model::{EntityRecord, ReplayModel};
+
+/// 血量编码分类（定义与规则在 `replay::combat::events`，数据面单一定义源）；此处 re-export
+/// 维持切面消费方的既有导入路径（同 `RawArmorStateTrack` 先例）。
+pub use crate::replay::combat::HpState;
 
 /// 智能体评审切面（单场）
 #[derive(Debug, Clone, Serialize)]
@@ -168,13 +172,18 @@ pub enum AiEvent {
     },
     /// 血量变化事件（method1；hp = 事件后绝对血量，overkill/哨兵钳 0）。
     /// `hp_raw` = 未钳制的原始 u16（0x0000 / 0xFFFD / 0xFFFF / 0xFFFE 等终态哨兵族原样保留），
-    /// 供消费方按自己的口径区分「确知 HP=0」与「终态哨兵（血量未知）」——`hp` 的钳 0
-    /// 只是显示便利，不是血量事实。
+    /// 供**显示口径**区分「确知 HP=0」与「终态哨兵（血量未知）」——`hp` 的钳 0 只是显示便利，
+    /// 不是血量事实；编码分类（判死用）见 `hp_state`。
+    /// `hp_state` = 该 u16 的**权威分类**（`current` / `zero` / `terminal`；规则 =
+    /// `combat::classify_hp_state`，与 `hp_terminal_normalized` 同判）。**消费方判死亡面一律
+    /// 读本字段**，禁自行解释 `hp_raw`——曾发生「只认 {0, 0xFFFD} → −1/−2 档死亡判存活」
+    /// 的分歧（裁决见 docs/wotbtools-cross-reference.md §七）。
     Damage {
         t: f32,
         victim_eid: u32,
         hp: u16,
         hp_raw: u16,
+        hp_state: HpState,
         source_eid: u32,
         cause: u8,
     },
@@ -199,7 +208,13 @@ pub enum AiEvent {
     },
     /// prop3（type=7 sub=3）血量属性广播：原始 u16（哨兵族原样）。与 `Damage`（method1）
     /// 互补而非重复——录像者自身车辆的血量变化常只有这一路。
-    Health { t: f32, eid: u32, hp_raw: u16 },
+    /// `hp_state` 同 `Damage`：该 u16 的权威分类（终态 = 死亡面之一）。
+    Health {
+        t: f32,
+        eid: u32,
+        hp_raw: u16,
+        hp_state: HpState,
+    },
     /// method8 伤害/命中反馈通知（原始全变体，不分类；字段缺失 = 载荷不足）。
     /// eid = envelope 方法调用目标实体；分类口径（直击 / 未解码变体 / 短体）属于消费方。
     HitNotice {
@@ -302,6 +317,7 @@ impl AiReviewFacet {
                 victim_eid: e.victim,
                 hp: hp_v,
                 hp_raw: e.hp,
+                hp_state: classify_hp_state(e.hp),
                 source_eid: e.source,
                 cause: e.cause,
             });
@@ -330,6 +346,7 @@ impl AiReviewFacet {
                 t: h.clock,
                 eid: h.eid,
                 hp_raw: h.hp_raw,
+                hp_state: classify_hp_state(h.hp_raw),
             });
         }
         for h in &model.timeline.hit_notices {
@@ -560,7 +577,7 @@ mod tests {
             "每次重入各自携带物化 HP"
         );
 
-        let dmg: Vec<(u16, u16)> = facet
+        let dmg: Vec<(u16, u16, HpState)> = facet
             .events
             .iter()
             .filter_map(|e| match e {
@@ -568,15 +585,19 @@ mod tests {
                     victim_eid,
                     hp,
                     hp_raw,
+                    hp_state,
                     ..
-                } if *victim_eid == victim => Some((*hp, *hp_raw)),
+                } if *victim_eid == victim => Some((*hp, *hp_raw, *hp_state)),
                 _ => None,
             })
             .collect();
         assert_eq!(
             dmg,
-            vec![(1700, 1700), (0, 0xFFFD)],
-            "hp 钳 0、hp_raw 保留哨兵原值"
+            vec![
+                (1700, 1700, HpState::Current),
+                (0, 0xFFFD, HpState::Terminal)
+            ],
+            "hp 钳 0、hp_raw 保留哨兵原值、hp_state 给出权威分类"
         );
 
         // 非战斗车辆（entityTypeId≠2）的物化不透出 HP
@@ -586,6 +607,81 @@ mod tests {
         let presence = crate::replay::combat::collect_aoi_lifecycle(&packets2);
         assert_eq!(presence.len(), 1);
         assert_eq!(presence[0].hp_raw, None);
+    }
+
+    /// 血量分类字段（`hp_state`）在 **facet JSON** 上锁定：终态族逐值同判（含报告实例
+    /// 0xFFFE——曾因消费方只认 {0, 0xFFFD} 被判成存活），正值为 `current`。
+    #[test]
+    fn hp_state_classification_is_exposed_in_facet_json() {
+        let summary = BattleSummary::from_naive(1);
+        let limits = crate::replay::combat::GunPitchLimits::new();
+        let victim = 0x66u32;
+        // method1：[eid][mid=1][alen=7][hp u16][source u32][cause]
+        let method1 = |hp: u16| {
+            let mut p = vec![0u8; 12 + 7];
+            p[0..4].copy_from_slice(&victim.to_le_bytes());
+            p[4..8].copy_from_slice(&1u32.to_le_bytes());
+            p[8..12].copy_from_slice(&7u32.to_le_bytes());
+            p[12..14].copy_from_slice(&hp.to_le_bytes());
+            p[14..18].copy_from_slice(&0x55u32.to_le_bytes());
+            p
+        };
+        // prop3：[eid][sub=3][..][hp u16 @12]
+        let prop3 = |hp: u16| {
+            let mut p = vec![0u8; 14];
+            p[0..4].copy_from_slice(&victim.to_le_bytes());
+            p[4..8].copy_from_slice(&3u32.to_le_bytes());
+            p[12..14].copy_from_slice(&hp.to_le_bytes());
+            p
+        };
+        let (a, b, c, d, e) = (
+            method1(1700),
+            method1(0x0000),
+            method1(0xFFFF),
+            method1(0xFFFE),
+            prop3(0xFFFD),
+        );
+        let packets: Vec<(u32, f32, &[u8])> = vec![
+            (8, 1.0, &a),
+            (8, 2.0, &b),
+            (8, 3.0, &c),
+            (8, 4.0, &d),
+            (7, 5.0, &e),
+        ];
+        let roster: Vec<crate::replay::playback::PlaybackPlayer> = Vec::new();
+        let model = ReplayModel::scan(&crate::replay::model::ScanInput {
+            packets: &packets,
+            roster: &roster,
+            author_account_id: 0,
+            pitch_limits: &limits,
+        })
+        .unwrap();
+        let facet = AiReviewFacet::from_model(&model, &summary);
+        let json = serde_json::to_value(&facet).unwrap();
+        let states: Vec<(String, String)> = json["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["victim_eid"] == victim || e["eid"] == victim)
+            .filter(|e| e["type"] == "damage" || e["type"] == "health")
+            .map(|e| {
+                (
+                    e["type"].as_str().unwrap().to_string(),
+                    e["hp_state"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            states,
+            vec![
+                ("damage".to_string(), "current".to_string()),
+                ("damage".to_string(), "zero".to_string()),
+                ("damage".to_string(), "terminal".to_string()),
+                ("damage".to_string(), "terminal".to_string()),
+                ("health".to_string(), "terminal".to_string()),
+            ],
+            "hp_state 必须逐事件随 hp_raw 透出（缺省省略不适用于本字段）"
+        );
     }
 
     /// method8 原始通知：全变体透出（直击 / 非直击结果 / 短体），字段缺失 = None，非 type=8 包不收。
