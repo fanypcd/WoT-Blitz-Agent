@@ -8,12 +8,12 @@
 ## 0. 结论
 
 在 735 辆全量语料上，本机客户端自产的 GLB 与 BlitzKit 产物**逐字节等价**（2026-10-10 起有
-**23 辆有意分歧**，见 §5）：
+**23 辆有意分歧**；2026-10-17 的 `hide_elements` 状态过滤使其扩到 **111 辆**，见 §5）：
 
 | 产物 | 等价 | 说明 |
 |---|---|---|
 | `collision.glb` | **735 / 735** | 节点集合/顺序 + POSITION/NORMAL/索引原始字节全等 |
-| `model.glb` | **710 / 735** | 同上，另含 TEXCOORD_0/1/2；差异 = 2 辆 BK 侧行为（§5）+ 23 辆本管线**有意修正**（§5，静态变换烘焙 / 状态过滤） |
+| `model.glb` | **623 / 735** | 同上，另含 TEXCOORD_0/1/2；差异 = 1 辆 BK 侧独有行为（21281，§5）+ **111 辆本管线有意修正**（§5，静态变换烘焙 / 状态过滤；12849 同时属 BK 侧行为，按并集计一次） |
 
 并排渲染（同一相机/同一光照，**认 `alphaMode: MASK` 镂空**）大多逐辆轮廓 IoU = 1.000，
 像素平均绝对差 0.1–1.6（0–255 量纲）；少数含履带镂空的车 IoU 0.966–0.998，成因与 §4.2 的
@@ -27,7 +27,7 @@ baseColor 残差同源。25 辆跨九系抽样 + 8 辆定点抽样 + 一组老�
 
 这比报告 B 的验收口径更严：报告 B 只比"按可达节点求和的顶点/索引数"（700/735），
 本管线比到**逐属性原始字节**、且要求**节点顺序一致**（733/735；2026-10-10 起其中
-**23 辆为有意分歧**——静态变换烘焙 / 状态过滤，见 §5.1）。
+**23 辆为有意分歧**——静态变换烘焙 / 状态过滤；2026-10-17 扩到 **111 辆**，见 §5.1）。
 
 ## 1. 工具
 
@@ -90,9 +90,13 @@ rust-embed 有 `#[exclude = "cache/**"]`，**不会**把这几百 MB 嵌进 exe�
 4. **不要按"动画骨骼"排除 `_anim_*`。** 骨架子树（`gun_03_mask_anim_tower`、`umbrella_anim`、
    `..._fish_anim`、`hull_panels_anim_1` 等）BlitzKit 是**保留**的——按名字排除会反向丢掉
    5 辆的几何。要排除的是烘焙 LOD 变体实体（`_lod\d`，如 `chassis_track_R_lod2`）。
-5. **坦克不做实体可见位过滤。** 客户端进场隐藏的皮肤/开关态子树（`visibility=2`，如
-   `hull_hide_elements_skin3`）BlitzKit 产物里是**保留**的。这与 `tools/export_map_glb.py`
-   的地图规则**相反**，属两套产物的目标差异，不要互相套用。
+5. **坦克不做实体可见位过滤；StateSwitcher 的默认 scene 只挂激活态。**
+   客户端进场隐藏、且**不在 StateSwitcher 里**的 `visibility=2` 子树（如
+   `hull_hide_elements_skin3`）BlitzKit 产物里是**保留**的，本管线也保留。这与
+   `tools/export_map_glb.py` 的地图规则**相反**，属两套产物的目标差异，不要互相套用。
+   注意区分：`*_hide_elements_switch` 的 state 子实体由 `ssc.activeState` 决定（铁律 15），
+   不适用本条——非激活 `_nc_skin` 等形态**不丢**，放备用 scene `wotb_inactive_states`，
+   默认不显示（2026-10-17）。
 6. **老式车的贴图内联槽名是 `albedo` / `normalmap`**（不是 `baseColorMap`/`baseNormalMap`），
    且没有 RM/MISC；缺内联时再走命名约定 `3d/Tanks/<Nation>/images/<材质名去 _mtr>`
    （`T_34_mtr` → `images/T-34`、`T_34_track_mtr` → `images/T-34_track`；后缀 `_NM` 法线、
@@ -145,11 +149,19 @@ rust-embed 有 `#[exclude = "cache/**"]`，**不会**把这几百 MB 嵌进 exe�
     残渣（15985 的 `turret_01_nc`），而最小待修作者值是 10625 的 `_nc` 变体件 2 mm
     起——两档差两个数量级，阈值落在中间），这是"与 BlitzKit
     逐字节一致"仍能对全量断言的前提；法线走逆转置 + 归一化，纯平移不碰 NORMAL 段。
-15. **StateSwitcher 容器按 `ssc.activeState` 只导激活态子实体**（2026-10-10）。`ssc.state{N}`
-    给出状态 N 对应的子实体名；`activeState` **越界（-1）= 整容器关闭**（客户端初始态没有
-    可激活的 stateN）。容器上的**非状态**子实体（FX 等）保留——只丢确定是"非激活态形态"的；
-    激活名对不上（形态未见过）→ fail-open 全保留。`*_hide_elements*` 容器**例外**（产品决策：
-    拆件/皮肤变体全渲染，见铁律 5）。不滤的症状：开/闭两套形态同屏（22385 护盾）。
+15. **StateSwitcher 容器：默认 scene 只挂激活态；`hide_elements` 非激活态保留在备用 scene**
+    （2026-10-10；2026-10-17 修订）。`ssc.state{N}` 给出状态 N 对应的子实体名；默认 scene
+    只引用 `activeState` 对应的子实体；`activeState` **越界（-1）= 默认 scene 关闭整个容器**。
+    容器上的**非状态**子实体（FX 等）保留；激活名对不上（形态未见过）→ fail-open 全保留。
+    **`*_hide_elements*` 的非激活子实体不丢**：构建到备用 glTF scene
+    **`wotb_inactive_states`**（scene index 1），默认 scene 不引用；标准查看器只加载
+    `gltf.scene`（index 0）⇒ **默认不显示**。节点带
+    `extras.wotb.hideElementsState` / `defaultVisible`；容器带 `extras.wotb.stateSwitch`
+    （`activeState`/`states`/`inactiveScene`）。这些形态是传奇涂装/隐藏元素的部分组件
+    （10625 的 `turret_01_nc_skin` 由 `ScenarioSkinSwitch_turret_01` 在激活时对主体
+    `turret_01_nc` 施加 -6.5°/位移；它只是涂装的一部分，默认不能和默认态同屏）。数据
+    保留供后续状态切换，默认隐藏。
+    不滤默认 scene 的症状：开/闭两套形态同屏（22385 护盾）、10625 双炮塔。
     碰撞 `.sc2` **不带** StateSwitcher，`*_state_NN` 变体初始态不可判定，**不做**此过滤
     （6 辆受影响者入案，见 §5）。
 
@@ -248,7 +260,7 @@ StuG III 0.897/0.897、VK2801 0.903/0.903）。
 
 | 车 | 现象 | 判断 |
 |---|---|---|
-| `Ch52_WZ_122_6_F3`（12849） | BlitzKit 把 `hull_nc`/`turret_01_nc` 提升为 `hull`/`turret_01` 的直接子节点，并丢弃 `*_hide_elements_switch` 容器与其 `visibility=2` 的 `_nc_skin` 兄弟；本管线按客户端实体树原样保留 | BlitzKit 侧对 `TankElementComponent`/`ScenarioComponent` 元素做了装配重写，未复刻。几何内容相同，只是层级与命名不同 |
+| `Ch52_WZ_122_6_F3`（12849） | BlitzKit 把 `hull_nc`/`turret_01_nc` 提升为 `hull`/`turret_01` 的直接子节点，并丢弃 `*_hide_elements_switch` 容器与其 `visibility=2` 的 `_nc_skin` 兄弟；本管线保留容器与激活态 `hull_nc`/`turret_01_nc`，非激活 `_nc_skin` 自 2026-10-17 起保留在备用 scene `wotb_inactive_states`（默认不显示） | BlitzKit 侧对 `TankElementComponent`/`ScenarioComponent` 元素做了装配重写，未复刻。几何内容相同，只是层级与命名不同 |
 | `М4А3Е8_ВР`（21281） | 两侧节点树完全对应，仅**名字编码**不同：BlitzKit 是 UTF-8 被按 latin1 解出的 mojibake（`Ðœ4Ð3Ð•8_Ð’Ð `），本管线是正确西里尔文 | BlitzKit 侧编码缺陷，**不应复刻** |
 
 **贴图（158 个槽位）**：PVR3 来源的 baseColor——BlitzKit 的图相对容器布局偏 16 字节（8 像素）。
@@ -256,22 +268,46 @@ StuG III 0.897/0.897、VK2801 0.903/0.903）。
 
 几何那两辆只影响节点名/层级，不影响几何与渲染（该辆渲染 MAD 0.2）。
 
-### 5.1 有意分歧：静态变换烘焙 + StateSwitcher 状态过滤（2026-10-10，**23 辆**）
+### 5.1 有意分歧：静态变换烘焙 + StateSwitcher 状态过滤（2026-10-10；2026-10-17 扩到 **111 辆**）
 
 两条都是**本管线超出 BlitzKit 契约的修正**（依据 = 客户端自己的数据，见 §3 铁律 14/15）。
-BK 侧同一份产物里这些件错位/叠加，**不复刻**。全量重导的逐字节 diff 实测：这 23 辆之外
-**712 辆 model.glb + 735 辆 collision.glb 零字节变化**（单位变换走字节不变快路径）。
+BK 侧同一份产物里这些件错位/叠加，**不复刻**。2026-10-17 的 `hide_elements` 策略修订新增
+**92 辆**（173 个多状态容器；与静态变换批重叠 4 辆），合并后有意分歧集 **111 辆**
+（= 23 ∪ 92）。**最终口径不是丢弃**：默认 scene 只挂激活态；非激活形态保留在备用 scene
+`wotb_inactive_states`（默认不显示，数据不丢）。92 辆的 model.glb 因此重导（scene 拆分 +
+`extras` + 节点归属），**643 辆 model.glb + 735 辆 collision.glb 与旧缓存逐字节一致**；
+92 辆的几何总量不变（旧件全部保留，仅 scene 结构变化）；模型批后本地包 **5766 件 / 4200.4 MB**
+（旧整包 4200.3，差量 +0.1 MB；随后逐炮塔 `tank/{id}.json` 数据补丁 +0.4 MB，整包
+**4201.0 MB**）。**COS 已同步**：partial publish `--only glb/` 92 条 + `--only tank/` 738 条，
+远端与本地 **0 hash diff**；远端 manifest 的 root `upstream_commit` 保持上一批 `58a891e`
+（note 已注明；本地 `8dcec2c`/`worktree_dirty=true`，因改动尚未提交）。
 
 | 类别 | 车 | 件与量级 | 症状 / 依据 |
 |---|---|---|---|
 | 烘焙（米级） | 28689 `G125_Spz_57_Rh` | `gun_01_mask_cap`（炮盾顶盖，DecorItem）+`[0,1.855,2.278]` | 现象：贴在装甲查看器底面；`.sc2` 里 `world*` 非零、自身 local 为零 |
 | 烘焙（米级） | 21249 `KV-1s-BP` | `Machine_gun_USSR.sc2` 子场景 `+[0.515,-0.209,2.479]` | 车体机枪藏进车体（原始块 x/y/z∈~1m 箱内） |
 | 烘焙（米级+旋转） | 28961 `M4A3E8TUR` | `Machine_gun_02.sc2` `[-0.804,-0.192,2.714]` + 28.2° | 车顶机枪藏进车体 |
-| 烘焙（十厘米级） | 10625 `It19_Controcarro_1MK2_Ciclope` / 10881 `It18_Semovente_mod_64` / 17265 `Oth69_Souleater` | `turret_01_nc_skin` −0.16y+0.146z+6.5° / `turret_0N_hide_elements` +0.08z+4° / `hull_cloth_01` 26 cm+scale 1.09 | 变体件/布幔件小偏移 |
-| 烘焙（毫米~厘米级） | 3921 `GB11_Caernarvon`、5969 `GB23_Centurion`、10753 `ST_I`、16001 `Pl18_BUGI`、20081 `Oth80_AC_16_Celeno`、22033 `VK2801_BP` | `*_nc`/`*_skin` 变体件与 `VK2801_BP_grid.sc2`，2 mm ~ 2.5 cm | 同上（量级小但口径一致：客户端就是这个位置） |
+| 烘焙（十厘米级） | 10881 `It18_Semovente_mod_64` / 17265 `Oth69_Souleater` | `turret_0N_hide_elements` +0.08z+4° / `hull_cloth_01` 26 cm+scale 1.09 | 拆件/布幔件小偏移（10881 的容器是**唯一激活态**，仍保留） |
+| 烘焙（毫米~厘米级） | 10625 `It19_Controcarro_1MK2_Ciclope`、3921 `GB11_Caernarvon`、5969 `GB23_Centurion`、10753 `ST_I`、16001 `Pl18_BUGI`、20081 `Oth80_AC_16_Celeno`、22033 `VK2801_BP` | `turret_0N_nc`（激活态）2 mm/4 mm、`*_nc`/`*_skin` 变体件与 `VK2801_BP_grid.sc2`，2 mm ~ 2.5 cm | 同上（量级小但口径一致：客户端就是这个位置） |
+| 状态过滤（hide_elements 传奇涂装组件） | **92 辆**（173 个多状态容器；代表：10625、385、2593、2817、3137、12849、29473…） | 非激活 `*_nc_skin*` / `*_hide_elements*` 子件（10625 的 `turret_01/02_nc_skin` −0.16y+0.146z+6.5°） | 默认 scene 只挂激活态；非激活形态**保留在备用 scene `wotb_inactive_states`**（默认不显示，节点 `extras.wotb.defaultVisible=false`）。这些是传奇涂装/隐藏元素的部分组件（10625 的 `_nc_skin` 1003/1021 三角与默认重合，只是涂装的一部分；脚本在激活时对主体施加 -6.5°/位移）。旧导出同屏会出现“挂件相对主体多转”的第二座倾斜炮塔；新口径默认 scene 不引用它们，数据供后续状态切换。 |
 | 状态过滤 | 8305 `Oth28_Sturmfeur_HW`、9073 `Oth30_T54MS`、12657 `Oth44_Charioteer_T`、17777 `Oth71_Titan_Strife`、22385 `Oth92_JagdPantherII_Titan`、24945 `Oth98_AMX_50_100_Titan` | `state_entity_NN` 容器：`activeState=-1` 或非激活 `stateN` 的护盾/面板/蒸汽变体 | 开/闭两套形态同屏叠影（22385 护盾实测双份） |
 | 状态过滤 | 17217 `ARL_44BP`、20817 `GB21_A27BP`、24145 `GB109_GSOR_1008_Fearless`、26145 `A05_M4_105BD`、29457 `G190_VK_1602_Quby` | 无人机/火箭巢/伞/雷达/太阳能板/耳朵/屏幕/炮口帽的**非激活态**变体 | 同上（初始态 = `activeState`，同地图侧口径） |
 | 状态过滤（无字节变化） | 21281 `М4А3Е8_ВР` | `Entity` 容器的 `Empty` 子件 | `Empty` 无网格/子树，本就不在 GLB 里——过滤后字节不变 |
+
+**10625 的默认态/传奇涂装组件（2026-10-17 用户报障）**：`turret_01_hide_elements_switch`
+的 state0 = `turret_01_nc`（默认主体，`visibility=0`，带炮塔自身的安装倾角），state1 =
+`turret_01_nc_skin`（传奇涂装的部分组件，`visibility=2`）。`ssc.scripts["2"]`
+（`ScenarioSkinSwitch_turret_01`）在涂装状态激活时 `ActivateState(1)`，并对
+`FindChildByName("turret_01_nc")` 做 `SetRotation(MakeFastAroundX(-6.5))` /
+`SetTranslation(0,-0.16,0.146)`；`_nc_skin` 的 `TransformComponent` 是同一姿态的作者值。
+**几何证据**：`_nc_skin` 的 1003/1021 个三角与 `turret_01_nc` 完全重合（位置/UV/材质
+相同），只有 6 个小三角独有——它是**传奇涂装的部分组件**（还缺其它部分），单独和默认态
+同屏时就会像“挂件相对主体多转了 -6.5°”的第二座倾斜炮塔；它不是完整的独立第二形态。
+**新口径**：默认 scene 只挂 `turret_01_nc`（`turret_02` 同理）；`_nc_skin` /
+`turret_02_nc_skin` / `hull_nc_skin` 等非激活形态**保留在备用 scene
+`wotb_inactive_states`**（scene index 1），节点带 `extras.wotb.defaultVisible=false`，
+默认 scene 不引用 ⇒ 标准查看器默认不显示，数据不丢，供后续传奇涂装状态使用。默认
+scene 的 `turret_01` 子树 z 上限 **3.898**；备用 scene 的形态仍到 **4.167**（数据保留）。
 
 **未做（在案）**：碰撞场景的 `*_state_NN` 变体（8305/9073/12657/17777/22385/24945 六辆的
 `hull_state_00/01` 等）**不做**状态过滤——碰撞 `.sc2` 不带 `StateSwitcher`，初始态无法从
@@ -336,7 +372,11 @@ glTF 的 `metallicFactor` / `roughnessFactor` **默认值为 1.0/1.0**（全金�
 客户端初始态：`ssc.activeState` 索引 `ssc.stateN` 名对应的子实体，只导激活那个；**越界（-1）=
 整容器关闭**（`ssc.state{N}` 不存在，初始态没有可激活的形态）。旁证：`state_entity_00` 与
 `state_entity_01` 成对出现且恰有一个 `activeState ≥ 0`（9073/12657/17777/24945 逐辆核对）。
-`*_hide_elements*` 容器按产品决策例外（拆件/皮肤变体全渲染，铁律 5）。
+`*_hide_elements*` 容器（2026-10-17 修订）：默认 scene 只挂激活态；非激活形态（10625 的
+`turret_01_nc_skin` 等传奇涂装部分组件）**保留在备用 scene `wotb_inactive_states`**，节点
+`extras.wotb.defaultVisible=false`，默认不显示。旧口径把非激活形态和默认态同屏（10625 因
+脚本在激活时对主体施加 -6.5°/位移而像第二座倾斜炮塔）；新口径默认 scene 不引用它们，
+数据保留，供后续状态切换（详见 §5.1）。
 
 **改动的口径边界（都有实测反例钉死）**：
 - 姿态节点 `hull`/`turret_NN`/`gun_NN`/`gun_NN_mask`/`chassis_*` **不烘**：Pershing 的
@@ -363,8 +403,11 @@ COS_SECRET_ID=… COS_SECRET_KEY=… python tools/upload_asset_pack_cos.py --onl
 `--refresh-manifest` 与上传器的 **sha256 跳过判定**是同轮补的：顶点烘焙**只改内容、不改尺寸**，
 旧上传器按 `Content-Length` 比对会把这类修正静默跳过（见 data-inventory §2.1 / game-data-sources §5.2）。
 
-**验证**：单测 `tools/test_export_tank_static_transform.py` **15/15**（姿态判据 / 四元数 /
-平移·旋转·非均匀缩放烘焙 / 状态规则五分支；客户端在场集成：28689 顶盖落位 z∈[2.278, 2.320]、
-22385 只剩初始态护盾、未命中车逐字节一致）。全量重导 735 辆逐字节 diff：变化 = **23 辆
-model.glb**（清单见 §5.1）、**collision.glb 0 辆**、其余 712 辆零字节变化。
-影响面与"未做"项见 §5.1。
+**验证**：单测 `tools/test_export_tank_static_transform.py` **16/16**（姿态判据 / 四元数 /
+平移·旋转·非均匀缩放烘焙 / 状态规则分支；客户端在场集成：28689 顶盖落位 z∈[2.278, 2.320]、
+22385 只剩初始态护盾、10625 默认 scene 只剩 `turret_01_nc`/`turret_02_nc` 且备用 scene
+保留 `_nc_skin`、未命中车逐字节一致）。2026-10-17 重导 92 辆逐字节 diff（相对只导激活态的
+中间版）：变化 = **92 辆 model.glb**（清单见 §5.1）、**collision.glb 0 辆**、其余 643 辆
+零字节变化；备用 scene 保留全部非激活几何，92 辆合计 **+12.1 MB**（模型批后 4200.4 MB，相对
+旧包 +0.1 MB；tank 数据补丁后整包 4201.0 MB）。COS 已同步：partial publish 92 条 glb，
+远端/本地 **0 hash diff**；10625 远端 `1031e5ad…`，默认 scene 无 `turret_01_nc_skin`、备用 scene 有。

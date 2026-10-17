@@ -84,6 +84,10 @@ pub(crate) fn synth_armor_model(tank_id: u32) -> Option<ArmorModel> {
                     .map(|s| &s.primary),
             )
         }),
+        // TODO(2026-10-17): chassis 仍只取顶级履带厚度；6 辆 stock/top 履带厚度不同
+        // （4369/5729/12081/18305/21569/21825）与 origin-only 6721 需按 module 透出
+        // TrackModelData.thickness/origin，并让查看器按当前底盘选；当前 GLB 只有一组
+        // chassis_track_L/R 网格。详见 docs/index.md 未完项。
         chassis: top_track_module(tank_id)
             .and_then(|mid| mi.tracks.get(&mid))
             .and_then(|td| td.thickness)
@@ -486,13 +490,13 @@ fn build_configs_uncached(tank_id: u32) -> Vec<Value> {
             .map(|t| t.model_node)
             .or_else(|| Some((ti as u32) + 1))
     };
-    // (model_node, gun_thickness, gun_mask, gun_spaced)
-    type GunModelInfo = (u32, Option<f32>, Option<f32>, Vec<u32>);
+    // (model_node, gun_thickness, gun_mask, gun_spaced, gun_plates)
+    type GunModelInfo = (u32, Option<f32>, Option<f32>, Vec<u32>, std::collections::BTreeMap<u32, f32>);
     let gun_model_info = |tmod: u32, gmod: u32| -> Option<GunModelInfo> {
         tmod_by_module
             .get(&tmod)
             .and_then(|t| t.guns.iter().find(|g| g.gun_module_id == gmod))
-            .map(|g| (g.model_node, g.thickness, g.mask, g.gun_spaced.clone()))
+            .map(|g| (g.model_node, g.thickness, g.mask, g.gun_spaced.clone(), g.gun_plates.clone()))
     };
 
     let mut configs = Vec::new();
@@ -507,11 +511,11 @@ fn build_configs_uncached(tank_id: u32) -> Vec<Value> {
             .and_then(|n| turret_dense.get(&n).copied())
             .unwrap_or(ti as u32);
         for gun in &tur.guns {
-            let (gun_node, gun_thickness, gun_mask, gun_spaced) = gun_model_info(
+            let (gun_node, gun_thickness, gun_mask, gun_spaced, gun_plates) = gun_model_info(
                 tur.module_id,
                 gun.module_id,
             )
-            .unwrap_or((u32::MAX, None, None, Vec::new()));
+            .unwrap_or((u32::MAX, None, None, Vec::new(), std::collections::BTreeMap::new()));
             let gun_index = if gun_node != u32::MAX {
                 gun_dense.get(&gun_node).copied()
             } else {
@@ -520,6 +524,11 @@ fn build_configs_uncached(tank_id: u32) -> Vec<Value> {
             .unwrap_or_else(|| *gun_idx_by_module.get(&gun.module_id).unwrap_or(&0));
             let turret_spaced = turret_def
                 .map(|t| t.turret_spaced.clone())
+                .unwrap_or_default();
+            // 逐炮塔装甲：与 turret_spaced 同一 models.pb 炮塔变体；装甲查看器按
+            // config.turret_index 选当前炮塔，不能复用顶级炮塔的单份 armor_model。
+            let turret_plates = turret_def
+                .map(|t| t.turret_plates.clone())
                 .unwrap_or_default();
             // 火炮原点（models.pb TurretModelDefinition.gun_origin，DAVA→GLB correctZY: (x,z,y)）
             let gun_origin = turret_def
@@ -617,7 +626,9 @@ fn build_configs_uncached(tank_id: u32) -> Vec<Value> {
                 "gun_thickness": gun_thickness,
                 "gun_mask": gun_mask,
                 "gun_spaced": gun_spaced,
+                "gun_plates": gun_plates,
                 "turret_spaced": turret_spaced,
+                "turret_plates": turret_plates,
                 // 火炮原点（correctZY 后的 GLB 坐标，装甲定位用，对齐 BlitzKit SpacedArmorScene）
                 "gun_origin": gun_origin,
                 "yaw_limits": yaw_limits,
@@ -831,5 +842,30 @@ mod synth_tests {
         assert_eq!(ap["caliber"], 105.0);
         assert_eq!(ap["normalization"], 5.0);
         assert_eq!(ap["ricochet"], 70.0);
+    }
+
+    /// 10625 两套炮塔的逐板装甲必须按 config.turret_index 分开：
+    /// stock turret_01 = 130 mm 主装甲（plate 11 非 spaced）；top turret_02 = 30 mm
+    /// 间隙甲（spaced=[11]）。顶层 armor_model 是顶级炮塔摘要（30），不能拿来判 stock。
+    #[test]
+    fn per_config_turret_plates_follow_turret_variant() {
+        let v = tank_data_value(10625);
+        let configs = v["configs"].as_array().expect("configs");
+        let stock = configs
+            .iter()
+            .find(|c| c["turret_index"] == 0)
+            .expect("stock config");
+        let top = configs
+            .iter()
+            .find(|c| c["turret_index"] == 1)
+            .expect("top config");
+        assert_eq!(stock["turret_plates"]["11"], 130.0);
+        assert_eq!(stock["turret_spaced"], serde_json::json!([]));
+        assert_eq!(top["turret_plates"]["11"], 30.0);
+        assert_eq!(top["turret_spaced"], serde_json::json!([11]));
+        // 逐主炮 plates 也必须逐 config 在场（装甲查看器 gun 段同样不回退顶级摘要）
+        assert!(configs.iter().all(|c| c.get("gun_plates").is_some()));
+        // 顶层 armor_model 仍是顶级炮塔摘要（兼容旧消费方）
+        assert_eq!(v["armor_model"]["turret"]["plates"]["11"], 30.0);
     }
 }
