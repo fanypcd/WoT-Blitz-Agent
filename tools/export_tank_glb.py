@@ -43,11 +43,17 @@ BlitzKit 契约要点（对照基准）：
     （M-5-Y 根 +0.8207 y，turret 原点仍与原始炮塔 bbox 中心对齐），烘根会把三者拆散。
     判据用**局部 TRS 累乘**而非 `world*` 直取：`world*` 含姿态祖先的作者残值，而运行期
     覆盖的正是那些节点——装饰件相对的是"被覆盖后"的父帧。
-  * **StateSwitcher 容器按初始态过滤**：容器（`state_entity_NN` 等）的 `ssc.activeState`
-    索引 `ssc.stateN` 名对应的子实体，只导激活那个；**越界（-1）= 整容器关闭**（客户端
-    初始态没有可激活的 stateN）。不滤会让开/闭两套形态叠加（Oth92_JagdPantherII_Titan
-    的护盾：`state_entity_01` 的 close 几何与 00 的 open 几何同屏）。`*_hide_elements*`
-    容器是**产品决策例外**（拆件/皮肤变体全渲染，用户要求完整模型），不参与过滤。
+  * **StateSwitcher 容器按初始态过滤**：容器（`state_entity_NN`、`*_hide_elements_switch`
+    等）的 `ssc.activeState` 索引 `ssc.stateN` 名对应的子实体，**默认 scene 只挂这个激活态**；
+    **越界（-1）= 默认 scene 关闭整个容器**。`hide_elements` 的非激活子实体**不丢**：它们
+    构建到备用 glTF scene **`wotb_inactive_states`**（scene index 1），默认 scene 不引用，
+    标准查看器只加载 `gltf.scene`（index 0）⇒ 默认不显示；数据仍完整保留在 GLB 里，供
+    后续传奇涂装/状态切换使用（节点带 `extras.wotb.hideElementsState` / `defaultVisible`）。
+    10625 的 `turret_01_nc_skin` 就是这套隐藏形态：`ScenarioSkinSwitch_turret_01` 脚本在
+    皮肤激活时对主体 `turret_01_nc` 做 `SetRotation(-6.5°)/SetTranslation(0,-0.16,0.146)`；
+    它是传奇涂装的部分组件（还缺其它部分），默认隐藏即可，不能和默认态同屏。
+    不滤默认 scene 会让开/闭两套形态叠加（Oth92_JagdPantherII_Titan 的护盾），或让
+    10625 出现第二座倾斜炮塔。
     碰撞场景的 `*_state_NN` 变体**不在**此列：碰撞 `.sc2` 不带 StateSwitcher，初始态不可
     判定（详见 docs/local-model-export.md §静态变换）。
 
@@ -512,9 +518,17 @@ class Glb:
         self.nodes.append(n)
         return len(self.nodes) - 1
 
-    def finish(self, roots: list[int], generator: str) -> bytes:
+    def finish(self, roots: list[int], generator: str,
+               alt_roots: list[int] | None = None) -> bytes:
+        scenes = [{"nodes": roots}]
+        if alt_roots:
+            # 非激活 hide_elements 形态的备用 scene：默认 scene（index 0）不含它们，
+            # 标准查看器只加载 gltf.scene → 默认不显示；数据仍在 GLB 里。
+            scenes.append({"name": "wotb_inactive_states", "nodes": alt_roots,
+                           "extras": {"wotb": {"role": "inactive_hide_elements",
+                                               "defaultVisible": False}}})
         gltf = {"asset": {"version": "2.0", "generator": generator},
-                "scene": 0, "scenes": [{"nodes": roots}], "nodes": self.nodes,
+                "scene": 0, "scenes": scenes, "nodes": self.nodes,
                 "meshes": self.meshes, "accessors": self.accessors,
                 "bufferViews": self.views, "buffers": [{"byteLength": len(self.buf)}]}
         if self.materials:
@@ -739,8 +753,6 @@ POSE_NODE_RE = re.compile(r"^(?:hull|turret_\d+|gun_\d+|gun_\d+_mask|chassis_\w+
 # [-1.04e-06, -3.18e-06, 0]、旋转 1.2e-5 rad（作者工具往返的舍入残渣）；而真正要修的
 # 最小作者值是 0.002 m（Caernarvon 5.5 mm）起——两档相差两个数量级，阈值落在中间。
 IDENTITY_EPS = 1e-5
-# 产品决策例外：拆件/皮肤变体容器不参与状态过滤（全渲染，用户要求完整模型）
-STATE_KEEP_ALL_MARK = "hide_elements"
 
 
 def is_pose_node(name: str) -> bool:
@@ -816,7 +828,7 @@ def bake_vertices(v: np.ndarray, m: np.ndarray) -> np.ndarray:
     return out
 
 
-def state_keep_children(sw: dict | None, container_name: str,
+def state_keep_children(sw: dict | None,
                         child_names: list[str]) -> tuple[bool, set[str] | None]:
     """StateSwitcherComponent → (容器是否导出, 允许的子实体名集合 | None = 全保留)。
 
@@ -825,10 +837,12 @@ def state_keep_children(sw: dict | None, container_name: str,
     给出该状态对应的子实体名，只有那一个参与渲染；**越界（-1）= 容器整体关闭**。
     容器上的非状态子实体（FX 等）保留——只丢确定是"非激活态形态"的那些。
     激活名不在子实体里（形态未见过）→ fail-open 全保留（宁可多、不可少）。
+
+    `hide_elements` 容器同样适用（2026-10-17）：默认 scene 只挂激活态；非激活子实体
+    （如 10625 的传奇涂装部分组件 `_nc_skin`）由 build() 构建到备用 scene
+    `wotb_inactive_states`，默认不显示，数据不丢（见模块 docstring）。
     """
     if not isinstance(sw, dict):
-        return True, None
-    if STATE_KEEP_ALL_MARK in (container_name or ""):
         return True, None
     active = sw.get("ssc.activeState", 0)
     if not isinstance(active, int):
@@ -976,33 +990,61 @@ def export_visual(sc2_path: pathlib.Path, glb: Glb, tex: TexStore, mode: str, st
         stats["materials"] = len(glb.materials)
         return mat_cache[name]
 
+    inactive_roots: list[int] = []
+
     def build(e: dict, m_acc: np.ndarray | None, is_root: bool = False):
         comps = entity_components(e)
         name = e.get("name") or e.get("##name") or "node"
         rc = comps.get("RenderComponent")
         # 静态变换累计：场景根（车体锚点）与运行期姿态节点不贡献自身变换（见模块 docstring）
         m = m_acc if (is_root or is_pose_node(name)) else compose_static(m_acc, comps.get("TransformComponent"))
-        # StateSwitcher 容器：非激活态子树不导出（hide_elements 例外，见 state_keep_children）
+        # StateSwitcher 容器：默认 scene 只放激活态；hide_elements 的非激活态不丢，
+        # 而是构建到备用 scene `wotb_inactive_states`（默认不渲染，见模块 docstring）。
+        sw = comps.get("StateSwitcherComponent")
+        is_hide = isinstance(sw, dict) and "hide_elements" in name
+        active = sw.get("ssc.activeState", 0) if isinstance(sw, dict) else 0
+        if not isinstance(active, int):
+            active = 0
+        state_index: dict[str, int] = {}
+        active_name = None
+        if is_hide:
+            for k, v in sw.items():
+                if k.startswith("ssc.state") and isinstance(v, str) and v:
+                    try:
+                        state_index[v] = int(k[len("ssc.state"):])
+                    except ValueError:
+                        pass
+            if active >= 0:
+                active_name = sw.get(f"ssc.state{active}")
+        # 只有多状态 hide_elements 才产生备用 scene/extras；单状态容器保持旧字节不变
+        is_hide_multi = is_hide and len(state_index) > 1
         child_names = [k.get("name") for k in nested(e)]
-        keep_container, keep_names = state_keep_children(
-            comps.get("StateSwitcherComponent"), name, child_names)
+        keep_container, keep_names = state_keep_children(sw, child_names)
         if not keep_container:
+            if is_hide_multi:
+                # activeState=-1：容器在默认 scene 关闭，但把各状态完整保留到备用 scene
+                for k in nested(e):
+                    kn = k.get("name")
+                    if kn in state_index:
+                        c = build(k, m)
+                        if c is not None:
+                            glb.nodes[c]["extras"] = {"wotb": {"hideElementsState": state_index[kn],
+                                                              "defaultVisible": False}}
+                            inactive_roots.append(c)
+                            stats["inactive_scene_nodes"] = stats.get("inactive_scene_nodes", 0) + 1
             stats["state_containers_off"] = stats.get("state_containers_off", 0) + 1
             return None
         mesh_nodes: list[int] = []
-        # 注：坦克**不做**实体可见位过滤——客户端进场隐藏的皮肤/开关态子树（visibility=2）
+        # 注：坦克**不做**实体可见位过滤——不在 StateSwitcher 里的 visibility=2 子树
         # BlitzKit 产物里是保留的（已实证 hull_hide_elements_skin3 vis=2）。这与
         # tools/export_map_glb.py 的地图规则不同，属两套产物的目标差异。
+        # StateSwitcher 的非激活态子树：默认 scene 不含；hide_elements 的进备用 scene。
         # 但**必须有 LodComponent**：那是"参与 LOD 系统的渲染实体"的判据，主体部件全部具备；
         # 少数游离对象（Object117 / polySurface2）、动画骨持有节点（hull_anim_bore）与
         # 引用的子场景（EagleSpirit2.sc2）都没有，BlitzKit 产物同样不含。
         if rc and not _excluded(name) and comps.get("LodComponent") is not None:
             ro = rc.get("rc.renderObj") or {}
             batches = ro.get("ro.batches") or {}
-            switcher = comps.get("StateSwitcherComponent")
-            active = switcher.get("ssc.activeState", 0) if switcher else 0
-            if not isinstance(active, int):
-                active = 0
             # 客户端批次激活规则（同 tools/export_map_glb.py）：lodIndex 取 LOD0 或通配(-1)、
             # switchIndex 取 activeState 或通配；**所有通过筛选的批次都导出**（同一部件可能有
             # 0000/0001 两个 LOD0 批次，只取一个会漏几何），另外丢弃 Shadow_Material 烘焙阴影。
@@ -1032,19 +1074,45 @@ def export_visual(sc2_path: pathlib.Path, glb: Glb, tex: TexStore, mode: str, st
                 stats["tris"] += len(idx) // 3
         kids = []
         for k in nested(e):
-            if keep_names is not None and k.get("name") not in keep_names:
+            kn = k.get("name")
+            if keep_names is not None and kn not in keep_names:
+                if is_hide_multi and kn in state_index:
+                    # 非激活 hide_elements 状态：默认 scene 不挂，构建到备用 scene
+                    c = build(k, m)
+                    if c is not None:
+                        glb.nodes[c]["extras"] = {"wotb": {"hideElementsState": state_index[kn],
+                                                          "defaultVisible": False}}
+                        inactive_roots.append(c)
+                        stats["inactive_scene_nodes"] = stats.get("inactive_scene_nodes", 0) + 1
+                    continue
                 stats["state_nodes_dropped"] = stats.get("state_nodes_dropped", 0) + 1
                 continue
             c = build(k, m)
             if c is not None:
+                if is_hide_multi and kn == active_name and kn in state_index:
+                    glb.nodes[c]["extras"] = {"wotb": {"hideElementsState": state_index[kn],
+                                                      "defaultVisible": True}}
                 kids.append(c)
         if not mesh_nodes and not kids:
             return None
         stats["nodes"] += 1
-        return glb.node(name, children=mesh_nodes + kids)
+        nidx = glb.node(name, children=mesh_nodes + kids)
+        if is_hide_multi and active_name and state_index:
+            glb.nodes[nidx]["extras"] = {"wotb": {"stateSwitch": {
+                "activeState": active,
+                "states": {str(i): nm for nm, i in sorted(state_index.items(), key=lambda kv: kv[1])},
+                "inactiveScene": "wotb_inactive_states",
+            }}}
+        return nidx
 
     roots = [n for n in (build(e, None, True) for e in nested(scene)) if n is not None]
-    return roots, stats
+    alt_roots: list[int] = []
+    if inactive_roots:
+        widx = glb.node("__wotb_inactive_states", children=inactive_roots)
+        glb.nodes[widx]["extras"] = {"wotb": {"role": "inactive_hide_elements",
+                                             "defaultVisible": False}}
+        alt_roots = [widx]
+    return roots, stats, alt_roots
 
 
 def export_collision(sc2_path: pathlib.Path, scg_path: pathlib.Path, glb: Glb) -> tuple[list[int], dict]:
@@ -1154,12 +1222,12 @@ def export_tank(game_data: pathlib.Path, tank_id: int, nation: str, stem: str,
     try:
         glb = Glb()
         tex = TexStore(res["tex_roots"], max_tex)
-        roots, s = export_visual(res["model_sc2"], glb, tex, mode, stem)
-        data = glb.finish(roots, "wotb-agent local sc2 exporter")
+        roots, s, alt_roots = export_visual(res["model_sc2"], glb, tex, mode, stem)
+        data = glb.finish(roots, "wotb-agent local sc2 exporter", alt_roots)
         (out / "model.glb").write_bytes(data)
         st.update({k: s[k] for k in ("nodes", "meshes", "tris", "materials")})
         # 2026-10-10 修正的足迹（静态变换烘焙/状态过滤只在少数车非零，见模块 docstring）
-        for k in ("static_baked", "state_containers_off", "state_nodes_dropped"):
+        for k in ("static_baked", "state_containers_off", "state_nodes_dropped", "inactive_scene_nodes"):
             if s.get(k):
                 st[k] = s[k]
         st["tex_fail"] = s["tex_fail"]

@@ -107,6 +107,14 @@
 | 炮塔初始姿态 `initial_turret_rotation` | 车辆 XML `<turretInitialRotation><yaw>/<pitch>/<roll>`（度）——与 models.pb field3 逐值一致（.sc2 的 TransformComponent 全是单位阵，不是来源） |
 | 履带厚度 / 原点 | chassis 段；已按**逐底盘 map** 保留（C1 修复，见 [decoupling-status.md](decoupling-status.md) §2） |
 
+**逐炮塔/逐主炮装甲透出**（2026-10-17）：`tank/{id}.json` 的 `configs[]` 现在带
+**additive** `turret_plates`/`turret_spaced`（按 `config.turret_index` 对应的 models.pb
+炮塔变体）与 `gun_plates`/`gun_spaced`（逐主炮；`gun_thickness` 已有）。顶层
+`armor_model.turret/gun` 仅保留为 tank 详情卡的**顶级摘要**。多炮塔/多主炮车（如 10625
+stock `turret_01` plate 11 = 130 mm 主装甲 vs top `turret_02` plate 11 = 30 mm 间隙甲）
+必须按当前 config 取表，不能把顶级摘要套到 stock——消费方按 `turret_index`/当前主炮
+选表；字段缺失按 0/空 **fail-closed，不回退 `armor_model`**。
+
 **枪序口径**：顶塔主炮列表按 **XML 文档序 = 游戏研发序**（末位 = 顶级主炮）导出；
 BlitzKit 的 models.pb 是**模块 id 升序**（与研发序在 105 辆上序不同——92 辆末位主炮不同，
 其中 15 辆末位主炮板集实际不同）。客户端 XML 每个 gun/turret 条目带 `<level>` 研发

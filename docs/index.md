@@ -79,9 +79,12 @@
 - **游戏版本**：`release/11.21.0`，车辆 **738**（`data_version.json` 为准）。随版刷新链
   （pb / tank_cache / game_data / 图标 / GLB / 悬挂 / 履带印 / shellKinds）与新增
   collector 车清单见 [data-inventory.md](data-inventory.md) §一。
-- **资产包与 COS**：包内 **5766 件 / 4200.3 MB**（`release/asset_pack/`，manifest 逐文件
-  sha256）；COS 桶与本地**逐条一致、同代**（包内 == 归档 == 线上）。包布局、发布链
-  （合成 → `--refresh-manifest` → 差分上传）、上传判据与全部运维陷阱见
+- **资产包与 COS**：本地包 **5766 件 / 4201.0 MB**（`release/asset_pack/`，manifest 逐文件
+  sha256）。**COS 已同步**（partial publish `--only glb/` 92 条 + `--only tank/` 738 条，
+  远端与本地 **0 hash diff**；`map2d/` 30 件、92 辆坦克 GLB、738 份 `tank/{id}.json`
+  均已上线）。本轮只补 `glb/` 与 `tank/` 条目，远端 manifest 的 root `upstream_commit`
+  保持上一批 `58a891e`（note 已注明；本地 `upstream_commit` 为 `8dcec2c`、
+  `worktree_dirty=true`，因改动尚未提交）。发布链、差分上传与全部运维陷阱见
   [data-inventory.md](data-inventory.md) §2.1 与 [game-data-sources.md](game-data-sources.md) §5.2。
 - **俯视烘焙（均衡档底图）**：渲染件必须与线上同代（世代护栏：meta `ground` 键判据，
   旧世代 `--write` 拒写）；"先归档再合成"的次序约束与重烘命令见
@@ -93,6 +96,28 @@
   同时产出 **COS 免发版通道**：包内 `map2d/<code>.webp` + `map2d/index.json`（逐图 sha256 判据），
   App 侧"包内兜底 + 在线校验 + 离线可用"（下载字节 sha256 校验、失败回落包内、索引比包内旧不降级）。
   链条、次序陷阱与纪律见 [game-data-sources.md](game-data-sources.md) §5.6。
+- **坦克 GLB：`hide_elements` 非激活形态保留在备用 scene、默认不显示（2026-10-17）**：
+  10625 CC1 Mk.2 的 `turret_01_nc_skin` 是**传奇涂装的部分组件**（不是完整独立形态）；脚本
+  `ScenarioSkinSwitch_turret_01` 在涂装状态激活时对**主体** `turret_01_nc` 施加 `-6.5°` /
+  `(0,-0.16,0.146)`。默认 scene 只挂激活态；非激活形态保留在 glTF 备用 scene
+  **`wotb_inactive_states`**（scene index 1，节点 `extras.wotb.defaultVisible=false`），
+  标准查看器只加载 `gltf.scene` ⇒ **默认不显示、数据不丢**。**92 辆**（173 个多状态容器）
+  重导，643 辆 model.glb + 735 辆 collision.glb 未命中车零变化；模型批后本地包 5766 件 /
+  4200.4 MB（旧包 4200.3，+0.1 MB；随后逐炮塔/逐主炮 tank 数据补丁 +0.6 MB，整包 **4201.0 MB**），
+  manifest 已重算，**COS 已同步**（partial publish 92 条 glb，远端 10625 `1031e5ad…`，
+  与本地 0 hash diff）。口径、脚本与受影响集见
+  [local-model-export.md](local-model-export.md) §5.1。
+- **装甲查看器：逐炮塔/逐主炮 plates 透出（2026-10-17）**：10625 CC1 Mk.2 的 stock
+  `turret_01` plate 11 = **130 mm 主装甲**（`turret_spaced=[]`）；top `turret_02` plate 11 =
+  **30 mm 间隙甲**（`turret_spaced=[11]`）。`tank/{id}.json` 的 `configs[]` 新增 additive
+  `turret_plates`/`turret_spaced`（逐炮塔）与 `gun_plates`/`gun_spaced`（逐主炮，
+  均来自 models.pb；`gun_thickness` 已有）；顶层 `armor_model` 仅保留为 tank 详情卡的
+  顶级摘要。738 份 `tank/{id}.json` 重生成并上传 COS（partial publish 738 条，0 hash diff；
+  整包 4201.0 MB）。WotbTools `frontend/src/scene/tankViewer.js::getPlateThickness` 对
+  turret/gun 只读当前 config 的 plates，`gunBarrel` 只读 `config.gun_thickness`；字段缺失
+  按 0/空 **fail-closed，不回退 `armor_model`**；切 config 时
+  `refreshConfigArmorThickness` 重算 turret/gun 的 `armorThickness`。数据字段 additive；
+  尚未部署的新查看器代码仍走旧的 `armor_model` 摘要路径，部署后消失。
 
 ### 回放切面（`PlaybackData` v2 / `AiReviewFacet` v1）
 
@@ -127,6 +152,15 @@
     `hp_state`（或扩全族），并给终态样本补 DESTROYED 迁移与装填条 f2=5 取消语义；
   - 复活轨道字段的消费（scene fallback 与 canonical `lifeTransitions` 支持 DESTROYED→ALIVE 回转）；
   - 地图 scenery extras 的消费接线（`decalTexture` / `decalSeparateLm` 等，后端数据已随包）；
+  - **履带逐配置装甲/模型适配（2026-10-17 待办）**：`armor_model.chassis` 仍只透出顶级底盘
+    `left_track`/`right_track` 厚度（models.pb top track）；`models.pb` 的
+    `TrackModelInfo.tracks` 已有逐 module `thickness`/`origin`，但尚未进 `tank/{id}.json`，
+    查看器 chassis 仍用顶级摘要。当前扫描 **6 辆** stock/top 厚度不同：4369 Pz. III（10/15）、
+    5729 Ju-Nu（20/25）、12081 BZ-68（30/20）、18305 SDP 40 Zadymka（15/20）、
+    21569 ERAC 105 Proto（15/20）、21825 Projet Louis（15/20）；另 **6721 BDR G1 B** 仅
+    origin 差约 13 mm（厚度同为 20）。可视 GLB 只有一组 `chassis_track_L/R`，当前数据没有
+    按履带模块的第二套网格；若客户端确有不同履带外形，需按模型语义另行确认。待办：逐 module
+    透出 thickness/origin 并让查看器按当前底盘选；视觉几何差异另行确认。
   - 对方点名要的字段：`PlaybackData.damages[]`、`coverage`、`finish_reason`、
     `unsupported_damage`（数据已在 `timeline.hp_events` 等的投影工作）。
 - 解析侧遗留未定项（禁猜、封存）以 [总集 第五篇](回放与射击逆向总集.md#第五篇-遗留未定项) 为准；

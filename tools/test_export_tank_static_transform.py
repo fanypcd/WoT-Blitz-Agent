@@ -8,8 +8,10 @@
   * **非姿态节点**的累计静态变换烘进 POSITION/NORMAL 两段（GLB 节点仍全 identity，
     消费方零改动）；姿态节点 `hull` / `turret_NN` / `gun_NN` / `gun_NN_mask` / `chassis_*`
     与**场景根**不烘——运行期被矩阵覆盖 / 是车体锚点。
-  * StateSwitcher 容器按 `ssc.activeState` 只导激活态子实体；越界（-1）= 整容器关闭；
-    `*_hide_elements*` 容器例外（产品决策：拆件变体全渲染）。
+  * StateSwitcher 容器：默认 scene 只挂 `ssc.activeState` 对应的激活态子实体；越界（-1）
+    = 默认 scene 关闭；`hide_elements` 的非激活子实体**不丢**：构建到备用 scene
+    `wotb_inactive_states`（默认 scene 不引用，标准查看器只加载 `gltf.scene` ⇒ 默认不
+    显示），节点带 `extras.wotb.hideElementsState/defaultVisible`，供传奇涂装/状态切换使用。
 
 用法：python tools/test_export_tank_static_transform.py
 （无客户端 / 无缓存时集成段自动跳过，纯函数段照跑。）
@@ -135,7 +137,7 @@ def test_state_active_in_range_keeps_active_and_extra_children():
     # 9073 turret/state_entity_00：激活 turret_01_shields，丢 shields_01；非状态子实体（FX）保留
     kids = ["Turret_steam_hit_close", "turret_01_shields", "turret_01_shields_01"]
     keep, names = state_keep_children(
-        sw(0, **{"0": "turret_01_shields", "1": "turret_01_shields_01"}), "state_entity_00", kids)
+        sw(0, **{"0": "turret_01_shields", "1": "turret_01_shields_01"}), kids)
     assert keep and names == {"Turret_steam_hit_close", "turret_01_shields"}
 
 
@@ -143,25 +145,25 @@ def test_state_out_of_range_off():
     # 22385 state_entity_01：activeState=-1 → 整容器关闭（close 几何不导出）
     keep, names = state_keep_children(
         sw(-1, **{"0": "hull_shields_close_anim", "1": "hull_shields_close"}),
-        "state_entity_01", ["hull_shields_close", "hull_shields_close_anim"])
+        ["hull_shields_close", "hull_shields_close_anim"])
     assert keep is False and names is None
 
 
-def test_state_hide_elements_exempt():
-    # 产品决策：拆件/皮肤变体容器不参与过滤（两套都留）
+def test_state_hide_elements_default_scene_active_only():
+    # 默认 scene 只挂激活态；非激活子实体的保留由 build() 的备用 scene `wotb_inactive_states` 负责
     keep, names = state_keep_children(
-        sw(0, **{"0": "hull_nc", "1": "hull_nc_skin"}),
-        "hull_hide_elements_switch", ["hull_nc_skin", "hull_nc"])
-    assert keep and names is None
+        sw(0, **{"0": "turret_01_nc", "1": "turret_01_nc_skin"}),
+        ["turret_01_nc_skin", "turret_01_nc"])
+    assert keep and names == {"turret_01_nc"}
 
 
 def test_state_active_name_missing_fails_open():
     # 形态未见过（激活名不在子实体里）→ 全保留，宁可多不可少
-    keep, names = state_keep_children(sw(0, **{"0": "nope", "1": "other"}), "weird_switch", ["a", "b"])
+    keep, names = state_keep_children(sw(0, **{"0": "nope", "1": "other"}), ["a", "b"])
     assert keep and names is None
     # 无组件 / activeState 非 int
-    assert state_keep_children(None, "x", ["a"]) == (True, None)
-    keep, names = state_keep_children({"ssc.activeState": "0", "ssc.state0": "a"}, "x", ["a"])
+    assert state_keep_children(None, ["a"]) == (True, None)
+    keep, names = state_keep_children({"ssc.activeState": "0", "ssc.state0": "a"}, ["a"])
     assert keep and names == {"a"}
 
 
@@ -239,16 +241,93 @@ def test_integration_22385_single_shield_set():
         assert gone not in names, f"非激活态 {gone} 仍在导出里"
 
 
+def test_integration_10625_default_scene_single_turret_alt_scene_preserved():
+    """10625 CC1 Mk.2：默认 scene 只有激活态；传奇涂装部分组件在备用 scene 保留、默认不显示。
+
+    `turret_01_nc_skin`/`turret_02_nc_skin` 是传奇涂装的部分组件（脚本在激活时对主体
+    `turret_01_nc` 施加 -6.5° 姿态）。默认 scene 不能挂它们，否则和默认炮塔同屏；
+    但数据要保留在备用 scene `wotb_inactive_states`，供后续状态切换使用。
+    """
+    glb = _export_to_tmp(10625)
+    if glb is None:
+        print("  (skip: 客户端不在场)"); return
+    js = _load_glb_json(glb)
+    assert js["scene"] == 0 and len(js["scenes"]) >= 2, js.get("scenes")
+
+    def reach(idx: int) -> set[str]:
+        seen: set[str] = set()
+        stack = list(js["scenes"][idx]["nodes"])
+        while stack:
+            i = stack.pop()
+            n = js["nodes"][i]
+            seen.add(n.get("name"))
+            stack.extend(n.get("children", []))
+        return seen
+
+    default = reach(0)
+    alt = reach(1)
+    for keep in ("turret_01", "turret_01_nc", "turret_02", "turret_02_nc"):
+        assert keep in default, f"{keep} 应在默认 scene"
+    for gone in ("turret_01_nc_skin", "turret_02_nc_skin", "hull_nc_skin"):
+        assert gone not in default, f"非激活形态 {gone} 不应出现在默认 scene"
+    assert js["scenes"][1].get("name") == "wotb_inactive_states"
+    for kept in ("turret_01_nc_skin", "turret_02_nc_skin", "hull_nc_skin"):
+        assert kept in alt, f"{kept} 应保留在备用 scene"
+    for nm in ("turret_01_nc_skin", "turret_02_nc_skin"):
+        i = [i for i, n in enumerate(js["nodes"]) if n.get("name") == nm][0]
+        assert js["nodes"][i]["extras"]["wotb"]["defaultVisible"] is False
+
+
+def _has_multi_state_hide_elements(tid: int) -> bool:
+    """该车是否有 >1 个状态的 hide_elements StateSwitcher 容器（本次修正会改变其 GLB）。"""
+    cache = globals().setdefault("_HIDE_STATE_CACHE", {})
+    if tid in cache:
+        return cache[tid]
+    import export_tank_glb as ex
+    from wotb_sc2 import decode_dvpl, read_sc2
+    root = pathlib.Path(__file__).resolve().parent.parent
+    game_data = ex.default_game_data()
+    table = ex.read_tank_table(root / "data" / "tanks.pb")
+    info = table.get(tid)
+    found = False
+    if info is not None:
+        res = ex.resolve_tank(game_data, info["nation"], info["stem"])
+        p = res["model_sc2"]
+        if p.exists():
+            scene = read_sc2(decode_dvpl(p.read_bytes()))
+
+            def walk(e):
+                nonlocal found
+                if found:
+                    return
+                comps = ex.entity_components(e)
+                sw = comps.get("StateSwitcherComponent")
+                if sw and "hide_elements" in (e.get("name") or ""):
+                    n = sw.get("ssc.statesCount")
+                    if isinstance(n, int) and n > 1:
+                        found = True
+                        return
+                for k in ex.nested(e):
+                    walk(k)
+
+            for e in ex.nested(scene):
+                walk(e)
+    cache[tid] = found
+    return found
+
+
 def test_integration_unaffected_tank_byte_identical():
     """未命中静态变换/状态过滤的车必须与现役缓存**逐字节一致**（修正的零副作用保证）。"""
     root = pathlib.Path(__file__).resolve().parent.parent
     cache = root / "data" / "cache" / "models"
-    affected = {3921, 5969, 8305, 9073, 10625, 10753, 10881, 12657, 16001, 17217, 17265,
-                17777, 20081, 20817, 21249, 22033, 22385, 24145, 24945, 26145, 28689,
-                28961, 29457}
+    static_affected = {3921, 5969, 8305, 9073, 10625, 10753, 10881, 12657, 16001, 17217,
+                       17265, 17777, 20081, 20817, 21249, 22033, 22385, 24145, 24945,
+                       26145, 28689, 28961, 29457}
     checked = 0
     for tid in sorted(p.name for p in cache.iterdir() if p.is_dir()):
-        if not tid.isdigit() or int(tid) in affected:
+        if not tid.isdigit():
+            continue
+        if int(tid) in static_affected or _has_multi_state_hide_elements(int(tid)):
             continue
         ref = cache / tid / "model.glb"
         if not ref.is_file():
