@@ -72,6 +72,14 @@
 
 ### 数据面
 
+- **地图加载正确性（2026-10-18，导出器 + 消费端）**：`scenery.glb` 新增语义 extras
+  `sky`（客户端 `Skyobject` 材质）与所有 BLEND 材质的 `alphaBlend`；变体映射不完整时
+  写 `variantMappingIncomplete`。消费端据此不再按节点名猜天穹、不再把真混合改写成
+  不透明+裁切；多变体地图无可用 `map_id` 映射时 fail-closed 隐藏全部变体节点；
+  `terrain.json` 缺 `terrainLayout`/`size`/`zmin`/`zmax`/`span` 或 `worldBounds` 非居中
+  正方形时 fail-closed 回退 2D（不再按缺省 layout/zmax 解码）；资产 404/解析失败写入
+  `assetIssues`/`assetDegraded`，不再静默计为完成。36 图本地 GLB 全量重导已验证：
+  每图 1 个 sky 材质、0 个 BLEND 缺 `alphaBlend`、0 个变体映射不完整。
 - **运行期 11+1 项数据已全部由本机客户端解包 / 自产承接**（含 `tanks.pb`/`models.pb` 与
   封面图换源转正）：外部依赖只剩 WG 战绩 API（性质不同不可本地化）与 BlitzKit
   "交叉校验对象"角色（两处缺失兜底休眠）。逐项来源 / 替代完成度见
@@ -127,6 +135,21 @@
 
 - **车辆配置**：`config_idx` / `burst_size` / `turret_local` / `gun_local`（comp blob 证据链）；
 - **位姿与弹道折线**：`pose_kf`、`shots[].via`/`leg_secs`、`hull_roll`；
+- **`pose_kf` 段首显示重建（2026-10-18）**：客户端 `setFilterOnEntity` 复位后 latency 从
+  0.02s 缓慢收敛到 0.2s，段首 2~5s 的逐帧输出是 `保持→整段跳变` 阶梯（本次逐帧探针复现：
+  某 AoI 段首 2s 内 **57/119 帧静止**，p90 0.58 m/帧；喂入策略 `全部已到样本` 与
+  `只喂最新` 逐帧一致，排除输入侧）。游戏内这段阶梯被模型加载/入场遮挡，我们的查看器
+  模型常驻，表现为"对方坦克刚进视野一顿一顿"。渲染折线改由
+  `SegmentedPoseTimeline::build_display` 生成：每个在场段按 10Hz 标称间隔铺满 8 槽、
+  latency 从稳态 0.2s 起步——段首仅 0.2s 静止，其后逐帧匀速（样例段首 0.4~1.5s 位移
+  0.1666~0.1667 m/帧，原客户端语义 37/60 帧静止）。**判定锚点 / 炮口 / 命中位置仍走
+  `SegmentedPoseTimeline::build`（0.02s 复位，WI 对齐不变）**；10Hz 网格列
+  `pos/hull_yaw/hull_pitch` 未改。同时修复短隐藏段（0.1~0.5s）下前段滤波尾部的 +0.5s
+  外推越过下一段 `t_in`、导致 `pose_kf` 时刻非单调的问题（有界段在 `t_out` 截断，消费端
+  二分/插值不再跨隐藏段滑移）。波及：`pose_kf` 消费方（WotbTools 2D/3D）自动变平滑；
+  WotbTools 侧炮塔/炮管/侧倾网格采样同步改为段内采样（`sampleChannelWithin`，按 playback
+  `visibility[]` 协议精确 AoI 段；短隐藏段在 `coverage` 中不断开，故不能用 `coverage`）；
+  契约字段形状不变、无新增字段。
 - **血量与伤害**：`damage = 服务器结算值`（method8 尾部 u16；未结算时降级 HP 链并置
   `dmg_unattributed`）；`hp_raw`、prop3；**`hp_state`（additive、`damage`/`health` 事件恒在场：
   `current`/`zero`/`terminal`）= 血量编码的唯一权威分类**——消费方判死亡面读它，禁自行解释

@@ -11,6 +11,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "wotbtools"))
 
 from export_map_glb import (  # noqa: E402
     MapEntry, entity_variant_label, resolve_variant_map, scene_variant_labels,
+    variant_mapping_incomplete,
 )
 
 
@@ -68,10 +69,16 @@ def test_resolve_variant_map_milbase_five():
         25: "mlb1", 50: "mlb2", 51: "mlb3", 52: "mlb4", 53: "mlb5"}
 
 
-def test_resolve_variant_map_fail_open():
-    # 组数 ≠ key 数 → {}（不写映射，前端不裁剪，fail-open 保持现状）
+def test_resolve_variant_map_incomplete_is_marked():
+    # 组数 ≠ key 数 → {}（不写映射）。旧行为是消费端 fail-open 全量渲染；
+    # 现在导出器把“带变体节点但没有完整映射”写成 scene extras，消费端据此 fail-closed。
     keys = [entry(7, "medvedkovo"), entry(46, "medvedkovo_02"), entry(47, "medvedkovo_03")]
-    assert resolve_variant_map(keys, scene(ent(["md1"]), ent(["md2"]))) == {}
+    incomplete = scene(ent(["md1"]), ent(["md2"]))
+    assert resolve_variant_map(keys, incomplete) == {}
+    labels = {"/x": "md1", "/y": "md2"}
+    assert variant_mapping_incomplete(labels, {}) is True
+    assert variant_mapping_incomplete(labels, {7: "md1", 46: "md2", 47: "md3"}) is False
+    assert variant_mapping_incomplete({}, {}) is False
     assert resolve_variant_map(keys, scene(ent())) == {}
     # 单变体图：组=1、key=1 → 自映射（前端裁剪为空操作）
     assert resolve_variant_map([entry(19, "lagoon")], scene(ent(["lg0"]))) == {19: "lg0"}
