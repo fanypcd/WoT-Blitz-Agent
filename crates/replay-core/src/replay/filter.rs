@@ -53,7 +53,7 @@ impl SeedMode {
         match self {
             Self::Client => (LATENCY_FRAMES as f64 * NONZERO_TIME_DIFFERENCE) as f32,
             // 满历史：older = newest − 7·dt，ratio = 5/7 ⇒ ideal = 2·dt = 0.2s
-            Self::Display => (LATENCY_FRAMES * ST10_NOMINAL_DT) as f32,
+            Self::Display => LATENCY_FRAMES * ST10_NOMINAL_DT,
         }
     }
 }
