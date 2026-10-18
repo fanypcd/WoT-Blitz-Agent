@@ -18,7 +18,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "wotbtools"))
 
 from PIL import Image  # noqa: E402
 
-from export_map_glb import GlbBuilder, _build_material  # noqa: E402
+from export_map_glb import GlbBuilder, _build_material, is_sky_material  # noqa: E402
 
 
 class _TexStub:
@@ -83,6 +83,34 @@ def test_mask_keyed_by_alphamask_path():
     t0 = glb.materials[i0]["extras"]["maskTexture"]
     t1 = glb.materials[i1]["extras"]["maskTexture"]
     assert t0 != t1, "不同 alphamask 必须各自成图（曾按 albedo_path 去重互相顶替）"
+
+
+def test_sky_material_semantic_flag():
+    """天空穹不得靠节点名猜：导出器按材质模板/着色器写 extras.sky。"""
+    assert is_sky_material({"fxName": "Skyobject.material"}) is True
+    assert is_sky_material({"fxName": "WaterAllQualities.material"}) is False
+    assert is_sky_material({"materialName": "Instance-1"}, {"shader": "skyobject-materials"}) is True
+    assert is_sky_material({"materialName": "SkySeaSurface"}) is False
+
+
+def test_sky_material_writes_extras():
+    glb = GlbBuilder()
+    d = _desc()
+    i = _build_material(glb, _TexStub(), "a/x.tex", d, _img(20), False, sky=True)
+    assert glb.materials[i]["extras"]["sky"] is True
+
+
+def test_blend_material_writes_alpha_blend_semantic_flag():
+    """所有 BLEND 材质都带 alphaBlend 语义；MASK 不得误标。"""
+    glb = GlbBuilder()
+    d = _desc()
+    blend = _build_material(glb, _TexStub(), "a/x.tex", d, _img(20), True,
+                            blend=True, opacity=1.0)
+    mask = _build_material(glb, _TexStub(), "a/x.tex", d, _img(20), True, alpha_cut=True)
+    assert glb.materials[blend]["alphaMode"] == "BLEND"
+    assert glb.materials[blend]["extras"]["alphaBlend"] is True
+    assert glb.materials[mask]["alphaMode"] == "MASK"
+    assert "alphaBlend" not in glb.materials[mask].get("extras", {})
 
 
 if __name__ == "__main__":

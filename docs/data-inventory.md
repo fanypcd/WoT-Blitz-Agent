@@ -126,6 +126,14 @@
 | `index.json` | 1 | 打包器生成（地图 id → key/display） |
 | `manifest.json` | — | 打包器生成（全量 sha256；本身不登记自己） |
 
+**`scenery.glb` 的语义 extras（2026-10-18）**：材质 `extras.sky` 由客户端 `Skyobject`
+材质模板/着色器判定（消费端不再按节点名猜天穹；旧包无标记才名字 fallback）；
+所有 `alphaMode=BLEND` 材质写 `extras.alphaBlend`（消费端据此不再把真混合改写成
+不透明+裁切）；场景级 `asset.extras` 在变体组数与注册表条目数不一致时可写
+`variantMappingIncomplete: true`，消费端对带 `mdVariant` 的节点 fail-closed
+（隐藏全部变体节点，不再全量渲染幻影布景）。`terrain.json` 的完整字段/居中
+`worldBounds` 契约见 [game-data-sources.md](game-data-sources.md)「地形高度图布局」。
+
 打包器：[scripts/export_asset_pack.py](../scripts/export_asset_pack.py)。注意它不是纯拷贝，
 中间有改名与派生：`tank_data/` → `tank/`；`tank_cache.json` 额外派生 `tank_names.json`；
 地图地形多一个 `terrain.json` sidecar（把 `X-Terrain-Meta` 头物化，含 `terrainLayout: 2`

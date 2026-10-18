@@ -8,6 +8,10 @@
 //! **渲染层锚点** = 游戏画面里模型实际呈现的位置（滞后 latency ≈ 0.1~0.2s）。
 //! 注意与判定层锚点（method8 通知状态，WI 对齐）分属两层语义：装甲命中几何必须用判定层。
 //!
+//! 两档段首复位（[`SeedMode`]）：`Client` 严格复现客户端 `setFilterOnEntity`（0.01s 槽距、
+//! latency 0.02s，段首数秒保持-跳变）；`Display` 供 `pose_kf` 显示重建（10Hz 槽距、稳态
+//! 0.2s latency，段首 0.2s 静止后匀速）。判定锚点只用 `Client`。
+//!
 //! 与 OSS 的有意差异（均不改位姿算法主干）：
 //! - `resolveOnGroundPosition`（地形吸附）与 `changeCoordinateSystem`（载具坐标系）
 //!   在离线回放域为 no-op（type=10 的 y 已是接地高度；WoTB 无载具搭乘）；
@@ -23,6 +27,36 @@ const LATENCY_CURVE_POWER: f32 = 2.0;
 const NUM_STORED_INPUTS: usize = 8;
 /// reset 重填历史时的非零时间步（OSS NONZERO_TIME_DIFFERENCE，避免零时间差除法）
 const NONZERO_TIME_DIFFERENCE: f64 = 0.01;
+
+/// 滤波器复位种子语义。
+///
+/// - [`SeedMode::Client`]：客户端 `setFilterOnEntity` 语义——8 槽同状态、按 0.01s 错开，
+///   latency 初值 0.02s。战斗判定锚点必须用这一档（WI 对齐）。
+/// - [`SeedMode::Display`]：渲染重建——8 槽按 type=10 标称 10Hz 间隔铺开（等于实体已有一个
+///   完整历史），latency 初值 = 稳态 0.2s（两个更新间隔）。段首只保留 0.2s 静止（模型
+///   出现），其后直接进入「输出时刻落在两个真实采样之间」的平滑插值；不改变判定锚点。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SeedMode {
+    Client,
+    Display,
+}
+
+impl SeedMode {
+    fn dt(self) -> f64 {
+        match self {
+            Self::Client => NONZERO_TIME_DIFFERENCE,
+            Self::Display => ST10_NOMINAL_DT as f64,
+        }
+    }
+
+    fn latency(self) -> f32 {
+        match self {
+            Self::Client => (LATENCY_FRAMES as f64 * NONZERO_TIME_DIFFERENCE) as f32,
+            // 满历史：older = newest − 7·dt，ratio = 5/7 ⇒ ideal = 2·dt = 0.2s
+            Self::Display => LATENCY_FRAMES * ST10_NOMINAL_DT,
+        }
+    }
+}
 
 /// 一条滤波器输入（OSS StoredInput：double 时间 + float 几何）。
 #[derive(Debug, Clone, Copy)]
@@ -100,6 +134,7 @@ pub struct AvatarFilter {
     time_of_last_output: f64,
     got_new_input: bool,
     reset_flag: bool,
+    seed: SeedMode,
 }
 
 impl Default for AvatarFilter {
@@ -110,6 +145,10 @@ impl Default for AvatarFilter {
 
 impl AvatarFilter {
     pub fn new() -> Self {
+        Self::with_seed(SeedMode::Client)
+    }
+
+    fn with_seed(seed: SeedMode) -> Self {
         Self {
             inputs: [StoredInput::zero(); NUM_STORED_INPUTS],
             current_input_index: 0,
@@ -121,6 +160,7 @@ impl AvatarFilter {
             time_of_last_output: 0.0,
             got_new_input: false,
             reset_flag: true,
+            seed,
         }
     }
 
@@ -129,7 +169,8 @@ impl AvatarFilter {
         &self.inputs[(self.current_input_index + index) % NUM_STORED_INPUTS]
     }
 
-    /// OSS reset(time)：只置标志，实际清史推迟到下一输入（reset StoredInputs 重填 8 份 -i*0.01s）。
+    /// OSS reset(time)：只置标志，实际清史推迟到下一输入（reset StoredInputs 按 [`SeedMode`]
+    /// 重填 8 份：客户端 0.01s / 显示重建 10Hz 标称间隔）。
     #[allow(dead_code)] // OSS 接口完整性；当前时间线构建从首个输入隐式 reset
     pub fn reset(&mut self, _time: f64) {
         self.reset_flag = true;
@@ -157,7 +198,7 @@ impl AvatarFilter {
         self.input_count += 1;
     }
 
-    /// OSS resetStoredInputs：全部 8 槽重填为同一状态（时间错开 0.01s 防零除）。
+    /// OSS resetStoredInputs：全部 8 槽重填为同一状态（时间按 [`SeedMode`] 错开防零除）。
     fn reset_stored_inputs(
         &mut self,
         time: f64,
@@ -170,23 +211,24 @@ impl AvatarFilter {
         self.input_count = 0;
         self.got_new_input = true;
         self.time_of_last_output = time;
+        let seed_dt = self.seed.dt();
         for (i, slot) in self.inputs.iter_mut().enumerate() {
             *slot = StoredInput {
-                time: time - (i as f64) * NONZERO_TIME_DIFFERENCE,
+                time: time - (i as f64) * seed_dt,
                 pos,
                 pos_error,
                 yaw,
                 pitch,
             };
         }
-        self.latency = (LATENCY_FRAMES as f64 * NONZERO_TIME_DIFFERENCE) as f32;
+        self.latency = self.seed.latency();
         self.next_waypoint = Waypoint {
-            time: time - NONZERO_TIME_DIFFERENCE,
+            time: time - seed_dt,
             pos,
             yaw,
             pitch,
             stored: StoredInput {
-                time: time - NONZERO_TIME_DIFFERENCE,
+                time: time - seed_dt,
                 pos,
                 pos_error,
                 yaw,
@@ -194,7 +236,7 @@ impl AvatarFilter {
             },
         };
         self.previous_waypoint = self.next_waypoint;
-        self.previous_waypoint.time -= NONZERO_TIME_DIFFERENCE;
+        self.previous_waypoint.time -= seed_dt;
     }
 
     /// OSS output(time) + extract()：推进延迟状态机并返回本帧渲染位姿。
@@ -426,7 +468,14 @@ pub struct FilteredTimeline {
 
 impl FilteredTimeline {
     /// 按时钟升序构建（内部兜底排序）。时间线覆盖 [首采样, 末采样+0.5s]。
+    /// 段首复位 = 客户端语义（[`SeedMode::Client`]）；渲染折线用
+    /// [`SegmentedPoseTimeline::build_display`]。
     pub fn build(samples: &[St10Sample]) -> Option<Self> {
+        Self::build_with_seed(samples, SeedMode::Client)
+    }
+
+    /// 指定段首复位语义构建；`SeedMode::Display` 只供渲染折线（`pose_kf`）使用。
+    pub fn build_with_seed(samples: &[St10Sample], seed: SeedMode) -> Option<Self> {
         if samples.is_empty() {
             return None;
         }
@@ -435,7 +484,7 @@ impl FilteredTimeline {
         let start = sorted[0].clock as f64;
         let end = sorted[sorted.len() - 1].clock as f64 + 0.5;
         let frames_cap = ((end - start) / FRAME_DT).ceil() as usize + 1;
-        let mut filter = AvatarFilter::new();
+        let mut filter = AvatarFilter::with_seed(seed);
         let mut frames = Vec::with_capacity(frames_cap);
         let mut next_input = 0usize;
         let mut t = start;
@@ -505,9 +554,25 @@ impl SegmentedPoseTimeline {
     /// 可见时即此形态）。段外零星样本（协议上 type=10 只在 AoI 内广播；防御性处理）
     /// 归入时间上最近的段。
     pub fn build(samples: &[St10Sample], presence: &[AoiPresence]) -> Option<Self> {
+        Self::build_with_seed(samples, presence, SeedMode::Client)
+    }
+
+    /// 渲染折线段化时间线：段首按 [`SeedMode::Display`] 初始化（稳态 0.2s 延迟），
+    /// 其余与 [`Self::build`] 相同。每个在场段独立重建。
+    pub fn build_display(samples: &[St10Sample], presence: &[AoiPresence]) -> Option<Self> {
+        Self::build_with_seed(samples, presence, SeedMode::Display)
+    }
+
+    /// 指定段首复位语义构建（判定锚点 = Client，渲染折线 = Display）。
+    pub fn build_with_seed(
+        samples: &[St10Sample],
+        presence: &[AoiPresence],
+        seed: SeedMode,
+    ) -> Option<Self> {
         if presence.is_empty() {
-            return FilteredTimeline::build(samples)
-                .map(|tl| Self { segments: vec![(f32::NEG_INFINITY, None, tl)] });
+            return FilteredTimeline::build_with_seed(samples, seed).map(|tl| Self {
+                segments: vec![(f32::NEG_INFINITY, None, tl)],
+            });
         }
         let mut seg_samples: Vec<Vec<St10Sample>> = vec![Vec::new(); presence.len()];
         for s in samples {
@@ -541,7 +606,7 @@ impl SegmentedPoseTimeline {
                     pos_error: [0.0; 3],
                 });
             }
-            let Some(tl) = FilteredTimeline::build(&list) else {
+            let Some(tl) = FilteredTimeline::build_with_seed(&list, seed) else {
                 continue; // 空段（无样本且无种子）：跳过
             };
             segments.push((p.t_in, p.t_out, tl));
@@ -1268,7 +1333,89 @@ mod aoi_reentry {
 
     fn median(v: &mut [f32]) -> f32 {
         v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        if v.is_empty() { 0.0 } else { v[v.len() / 2] }
+        if v.is_empty() {
+            0.0
+        } else {
+            v[v.len() / 2]
+        }
+    }
+
+    fn straight_line_samples() -> Vec<St10Sample> {
+        // 100.0 物化，100.1..103.0 每 0.1s 向 +x 移动 1m（10 m/s）
+        let mut v = Vec::new();
+        for k in 1..=30 {
+            let t = 100.0 + 0.1 * k as f32;
+            v.push(St10Sample {
+                clock: t,
+                pos: [5.0 + k as f32, 0.0, 0.0],
+                yaw: 0.0,
+                pitch: 0.0,
+                roll: 0.0,
+                pos_error: [0.001; 3],
+            });
+        }
+        v
+    }
+
+    fn straight_line_presence() -> combat::AoiPresence {
+        combat::AoiPresence {
+            eid: 7,
+            t_in: 100.0,
+            t_out: None,
+            hp_raw: None,
+            pose: Some(combat::MaterializationPose {
+                pos: [5.0, 0.0, 0.0],
+                yaw: 0.0,
+                pitch: 0.0,
+            }),
+        }
+    }
+
+    fn entry_steps(tl: &SegmentedPoseTimeline, from: f64, to: f64) -> Vec<f32> {
+        let mut out = Vec::new();
+        let mut prev: Option<[f32; 3]> = None;
+        let mut t = from;
+        while t <= to {
+            let p = tl.pose_at(t, false).expect("segment");
+            if let Some(q) = prev {
+                out.push(
+                    ((p.pos[0] - q[0]).powi(2)
+                        + (p.pos[1] - q[1]).powi(2)
+                        + (p.pos[2] - q[2]).powi(2))
+                    .sqrt(),
+                );
+            }
+            prev = Some(p.pos);
+            t += FRAME_DT;
+        }
+        out
+    }
+
+    #[test]
+    fn display_seed_smooths_entry_hold_jump() {
+        let samples = straight_line_samples();
+        let pres = [straight_line_presence()];
+        let display = SegmentedPoseTimeline::build_display(&samples, &pres).expect("display");
+        let client = SegmentedPoseTimeline::build(&samples, &pres).expect("client");
+        // 段首 0.25..1.5s：显示重建无「整帧不动」，逐步位移接近理论 10 m/s / 60Hz
+        let steps = entry_steps(&display, 100.4, 101.5);
+        let zero = steps.iter().filter(|d| **d < 0.001).count();
+        let moving: Vec<f32> = steps.iter().copied().filter(|d| *d >= 0.001).collect();
+        let max = moving.iter().cloned().fold(0.0f32, f32::max);
+        let min = moving.iter().cloned().fold(f32::INFINITY, f32::min);
+        // 段首 0.2s 静止后只允许至多一帧落在采样边界的保持；其余帧必须匀速
+        assert!(zero <= 1, "显示重建段首保持帧过多: {zero}");
+        assert!(
+            min > 0.12 && max < 0.25,
+            "显示重建速度摆动过大: {min}..{max}"
+        );
+        // 客户端语义仍保留原始阶梯（锚点路径不变）
+        let csteps = entry_steps(&client, 100.0, 101.0);
+        let czero = csteps.iter().filter(|d| **d < 0.001).count();
+        assert!(
+            czero > 20,
+            "客户端语义应保留 hold-jump（实际 zero={czero}）"
+        );
     }
 
     #[test]

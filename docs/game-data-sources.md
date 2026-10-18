@@ -547,14 +547,18 @@ URL 做缓存破坏即可保证配对；服务端 `/api/playback/terrain` 同链
 X-Terrain-Meta 同响应返回，天然配对，无需该字段）。
 
 - **缓存自描述**：`data/cache/terrain/{key}.hm.c2.u16.bin`（文件名带布局）。打包器仅无 c2
-  时兜底打包且**不写布局标记**（前端读取边界按旧布局平移一列补正，打警告提示重跑
-  `fetch-terrain --force`）；服务端不再伺服旧名（视作未命中走实时提取重写）；
-  `fetch-terrain` 成功写入 c2 后清除旧名。
-- **标记必须与字节一致**：消费端（WotbTools `decodeTerrainField`）对 `terrainLayout: 2`
-  原样使用、缺省按旧布局补正、未知值 fail-closed 回退 2D——错标比缺省更糟。字节口径上
-  四组合（新/旧包 × 新/旧前端）除"旧包+旧前端=原有偏移"外全部正确；json/bin 两个
-  请求的 HTTP 缓存错配窗口（见上）由前端按 `terrainBinSha256` 配对根除（落地前的过渡依赖
-  "前端切换晚于 COS 发布 ≥ 1 h bin 缓存窗口"的次序约束）。
+  时兜底打包且**不写布局标记**（消费端读不到 `terrainLayout` 会 fail-closed 回退 2D——
+  必须重跑 `fetch-terrain --force`；不再按旧布局猜）；服务端不再伺服旧名（视作未命中走
+  实时提取重写）；`fetch-terrain` 成功写入 c2 后清除旧名。
+- **标记必须与字节一致**：消费端（WotbTools `terrainMesh.js`）要求
+  `size`/`terrainLayout`/`zmin`/`zmax`/`span` 齐全；`terrainLayout: 2` 原样使用，
+  `terrainLayout: 1` 仅作显式旧布局平移一列；缺字段/未知布局 fail-closed 回退 2D——
+  不再按缺省 `layout=1`/`zmax=100` 解码（那会把 layout 2 的 bin 平移一列、高度缩放错）。
+  `worldBounds` 必须是居中正方形（当前消费口径）；2026-10-18 对 36 张 `terrain.json`
+  实测全部 `[-300,300]²`、`terrainLayout: 2`、0 违反。json/bin 两个请求的 HTTP 缓存错配
+  窗口（见上）由前端按 `terrainBinSha256` 配对根除；有 sha 但无 WebCrypto 时也 fail-closed。
+  **blitzinfo 的 `landscape.crop`/`m` 不在本仓契约内**：当前高度场按 `worldBounds` 全幅
+  解释；若未来客户端数据出现非恒等 crop/矩阵，需先补契约字段与测试，不能按字段名直接猜。
 - 手动覆盖 `data/maps/<key>.heightmap.u16.bin` 的契约 = corner 口径镜像数据（即
   `parse_heightmap` 的输出格式）。
 - 重导链：`fetch-terrain --force` → `export_asset_pack.py` → `composite_overhead`（重导会

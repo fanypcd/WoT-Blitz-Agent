@@ -202,14 +202,21 @@ pub struct VehicleTrack {
     pub pose_kf: Option<PoseKeyframes>,
 }
 
-/// 位姿关键帧折线：客户端渲染路径的**折点**序列。消费端在相邻关键帧间**线性插值**，
-/// 即复现客户端逐帧画面（关键帧之间的路径本身是线性的，偏差 ≤ 走廊容差 2cm/0.4°）。
+/// 位姿关键帧折线：渲染层的**显示重建**折点序列。消费端在相邻关键帧间线性插值。
 ///
-/// 为什么不能只给 10Hz 网格：滤波器在「预测-保持」阶段（latency 未收敛到输入间隔，= 车辆
-/// 刚进 AoI 的数秒内）逐帧输出是**保持-跳变阶梯**；按固定 10Hz 网格重采样、再在网格间线性
-/// 插值，会把阶梯混叠成速度大幅摆动的滑行（实测某 0.5s 窗内前端线速度 4.5→29.6 m/s，
-/// 同段真值稳定）——3D 回放里"一顿一顿/不连续"的观感来源。折线保留保持段两端与跳变段，
-/// 点数 7~10 点/秒/车（≈ 位置更新率，与 10Hz 网格同量级）。
+/// 两条语义必须分开：
+/// - **判定锚点**（`filter::FilteredTimeline` / `SegmentedPoseTimeline::build`）严格复现客户端
+///   `setFilterOnEntity` 复位：8 槽按 0.01s 铺开、latency 初值 0.02s。客户端滤波器在段首
+///   2~5s 内逐帧输出**保持-跳变阶梯**（latency 尚未收敛到 10Hz 输入间隔）。
+/// - **渲染折线**（本结构）由 [`filter::SegmentedPoseTimeline::build_display`] 生成：每个
+///   在场段按 10Hz 标称间隔铺满 8 槽、latency 从稳态 0.2s（两个更新间隔）起步——段首只保留
+///   0.2s 静止（实体物化），其后输出时刻始终落在两个真实采样之间，逐帧匀速插值。游戏内这
+///   段阶梯被模型加载/入场遮挡，我们的查看器模型常驻，若不重建就是用户可见的"刚进视野
+///   一顿一顿"。**不得**把该重建用于命中/炮口等判定锚点。
+///
+/// 为什么不能只给 10Hz 网格：段首阶梯按固定网格重采样会被混叠成速度大幅摆动的滑行
+/// （实测某 0.5s 窗内前端线速度 4.5→29.6 m/s，同段真值稳定）；稳态段网格相位误差也会
+/// 在关键帧切换处暴露。折线保留真实折点，点数 7~10 点/秒/车。
 ///
 /// 时序语义与网格列一致：早于首点/晚于末点按端点保持。
 #[derive(Debug, Clone, Default, Serialize)]
@@ -240,13 +247,21 @@ pub struct PoseKeyframes {
 pub fn pose_keyframes(tl: &filter::SegmentedPoseTimeline) -> PoseKeyframes {
     let mut frames: Vec<KfPos> = Vec::new();
     let mut prev_yaw: Option<f32> = None;
-    for (_, _, seg) in tl.segments() {
+    for (_, t_out, seg) in tl.segments() {
         let (start, _) = seg.time_range();
         let n = seg.frame_count();
         for k in 0..n {
             // 帧中点查询：floor((t−start)/dt) 恒等 = k，规避 1/60 累加的浮点边界
             let t = start + (k as f64 + 0.5) * filter::FRAME_DT;
-            let Some(p) = seg.pose_at(t, false) else { break };
+            let Some(p) = seg.pose_at(t, false) else {
+                break;
+            };
+            // 有界段只输出到 t_out：段末时间线自带 +0.5s 外推尾部；短隐藏段
+            // （0.1~0.5s）时它会越过下一段 t_in，使全局关键帧时刻非单调、消费端
+            // 二分/线性插值跨隐藏段滑移。截断后 prev 段末 ≤ t_out ≤ 下一段 t_in。
+            if t_out.is_some_and(|end| p.time > end as f64) {
+                break;
+            }
             // 航向解卷绕（与 `hull_yaw` 网格列同域）：消费端朴素线性插值即物理正确，
             // ±π 边界不出现 ≈2π 跳变（否则关键帧跨 ±π 时插值会反甩一整圈）
             let yaw = unwrap_angle(prev_yaw, p.ang[0]);
@@ -258,6 +273,15 @@ pub fn pose_keyframes(tl: &filter::SegmentedPoseTimeline) -> PoseKeyframes {
                 pitch: p.ang[1],
             });
         }
+    }
+    // 消费端按升序二分（trackInterp.keyframeAt）；段截断后的单调性是公开契约。
+    for w in frames.windows(2) {
+        debug_assert!(
+            w[0].t <= w[1].t,
+            "pose_kf 时刻必须升序：{} > {}",
+            w[0].t,
+            w[1].t
+        );
     }
     let mut out = PoseKeyframes::default();
     if frames.is_empty() {
@@ -1070,8 +1094,12 @@ pub fn from_model(
             None
         };
         let st_series: &[combat::St10Sample] = respaced.as_deref().unwrap_or(&st10[eid]);
-        let tl = filter::SegmentedPoseTimeline::build(st_series, &presences);
-        let Some(tl) = tl else { continue };
+        let Some(tl) = filter::SegmentedPoseTimeline::build(st_series, &presences) else {
+            continue;
+        };
+        // 渲染折线单独按 Display 复位重建（段首稳态 0.2s 延迟）：网格列仍取客户端滤波
+        // 输出（`tl`），只有 `pose_kf` 消费平滑版；判定锚点不受影响。
+        let tl_display = filter::SegmentedPoseTimeline::build_display(st_series, &presences);
         let clocks: Vec<f32> = st_series.iter().map(|s| s.clock).collect();
         // 俯仰极限锚定：本车昵称优先；作者无锚定时沿用其表项（与作者路径 prop9 兜底同级）
         let limits = render.pitch_limits.get(nickname.as_str()).or_else(|| {
@@ -1200,7 +1228,7 @@ pub fn from_model(
             turret_local: rec.and_then(|r| r.turret_local),
             gun_local: rec.and_then(|r| r.gun_local),
             coverage: build_coverage(&clocks),
-            pose_kf: Some(pose_keyframes(&tl)),
+            pose_kf: tl_display.as_ref().map(pose_keyframes),
         });
     }
 
@@ -1814,10 +1842,50 @@ mod tests {
         assert!(!kf_within(&yawbent, 0, 2));
     }
 
+    /// 短隐藏段（0.1s 级）时前段滤波尾部的 +0.5s 外推不得越过下一段 t_in：
+    /// 否则全局关键帧时刻非单调，消费端二分/插值会跨隐藏段滑移。
+    #[test]
+    fn keyframes_stay_monotonic_across_short_aoi_gap() {
+        let samples = synthetic_samples(1.0, 0.1, 30); // 10.0 .. 12.9
+        let seed = |pos: [f32; 3]| {
+            Some(combat::MaterializationPose {
+                pos,
+                yaw: 0.0,
+                pitch: 0.0,
+            })
+        };
+        let pres = [
+            combat::AoiPresence {
+                eid: 1,
+                t_in: 10.0,
+                t_out: Some(10.65),
+                hp_raw: None,
+                pose: seed([0.0, 0.0, 0.0]),
+            },
+            combat::AoiPresence {
+                eid: 1,
+                t_in: 10.75,
+                t_out: None,
+                hp_raw: None,
+                pose: seed([50.0, 0.0, 0.0]),
+            },
+        ];
+        let tl = filter::SegmentedPoseTimeline::build(&samples, &pres).unwrap();
+        let kf = pose_keyframes(&tl);
+        assert!(kf.t.len() >= 2);
+        for w in kf.t.windows(2) {
+            assert!(w[0] <= w[1], "关键帧时刻非单调：{} > {}", w[0], w[1]);
+        }
+        // 前段最后输出 ≤ t_out；后段最早关键帧不得早于其时间线起点（隐藏段样本可预先汇入）
+        assert!(kf.t.iter().all(|t| *t <= 10.65 || *t >= 10.7));
+        assert!(kf.t.iter().any(|t| *t >= 10.75), "重入段首关键帧缺失");
+    }
+
     /// 关键帧折线保真：任意时刻与 60Hz 渲染帧之差 ≤ 容差（对前端的契约）
     #[test]
     fn keyframes_reproduce_frames_within_tolerance() {
-        let tl = filter::SegmentedPoseTimeline::build(&synthetic_samples(1.4, 0.083, 200), &[]).unwrap();
+        let tl =
+            filter::SegmentedPoseTimeline::build(&synthetic_samples(1.4, 0.083, 200), &[]).unwrap();
         let kf = pose_keyframes(&tl);
         assert!(kf.t.len() >= 2, "关键帧数过少：{}", kf.t.len());
         assert_eq!(kf.pos.len(), kf.t.len() * 3, "列式数组必须等长");

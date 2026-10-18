@@ -630,6 +630,16 @@ def resolve_variant_map(space_entries: list, scene: dict) -> dict[int, str]:
     return {e.map_id: lab for e, lab in zip(ordered, labels)}
 
 
+def variant_mapping_incomplete(variant_labels: dict, variant_by_map_id: dict) -> bool:
+    """GLB 带变体节点、但没有完整 map_id→label 映射 ⇒ 消费端必须 fail-closed。
+
+    组数/注册表条目数不一致时 `resolve_variant_map` 返回 {}；若此时仍把
+    `mdVariant` 写到节点上，消费端无法知道哪一组是本局的激活组。旧行为是
+    fail-open（全量渲染 → 幻影布景），这里把事实显式写进 scene extras，消费端
+    据此隐藏全部带标记节点，而不是猜一个默认组。"""
+    return bool(variant_labels) and not variant_by_map_id
+
+
 def collect_renderables(scene: dict) -> dict:
     """按客户端批次激活规则收集场景内容。
 
@@ -1944,9 +1954,10 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         # （audit B6 记录的植被/建筑裁切路径）；SpeedTree 卡片由其着色器自带 discard（豁免）。
         alpha_cut = alpha_test_capable(mat_desc, fam)
         alpha_blend_preset = bool((mat_desc.get("presets") or {}).get("AlphaBlend"))
+        sky = is_sky_material(mat_desc, fam)
         mat_key = (albedo_path, decal_path, mask_path, flat_rgb, has_alpha,
                    bool(img is not None), anim_layer and mask_path is not None,
-                   is_water, st_tint, card_occ, tocc_applied,
+                   is_water, sky, st_tint, card_occ, tocc_applied,
                    # alpha 裁切判据进键：同 albedo 的实例可一个声明 AlphaTest、一个不声明
                    #（客户端一个裁一个不裁），不得串用首个的材质（2026-10-11 walls.sc2）
                    alpha_cut, alpha_blend_preset,
@@ -1995,6 +2006,7 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
                 detail_img=detail_img, detail_scale=detail_scale,
                 env=env_desc, water=is_water, water_surface=water_surface,
                 blend_by_angle=blend_by_angle, decal=is_decal,
+                sky=sky,
                 ground_cm_slot=ground_cm_slot)
         material_index = material_index_by_albedo[mat_key]
 
@@ -2071,9 +2083,13 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
             glb.add_node(mi, transform, name, inst_variant, lm_uv)
 
     # ---- GLB + sidecar + 地面贴图 ----
-    scene_extras = {"surfaceFlags": 1}   # 材质级 water 标记为权威（见 _build_material）
+    scene_extras = {"surfaceFlags": 1}   # 材质级 water/sky 标记为权威（见 _build_material）
     if variant_by_map_id:
         scene_extras["variantByMapId"] = variant_by_map_id
+    elif variant_mapping_incomplete(variant_labels, variant_by_map_id):
+        # 组数/注册表数不一致：节点仍带 mdVariant，但没有可用的 map_id→label 映射。
+        # 显式标记，消费端据此隐藏全部变体节点（fail-closed），不得全量渲染。
+        scene_extras["variantMappingIncomplete"] = True
     (output_dir / f"{space}.glb").write_bytes(
         glb.finish("wotb-agent export_map_glb (client-aligned)", scene_extras))
 
@@ -2103,6 +2119,7 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         "triangles": glb.total_tris,
         "textures": len(glb.images),
         "warnings": {k: v for k, v in stats.items() if v},
+        "variantMappingIncomplete": variant_mapping_incomplete(variant_labels, variant_by_map_id),
     }
     ground = None
     color_tex = land_mat.get("textures", {}).get("colorTexture")
@@ -2236,6 +2253,20 @@ def is_water_material(mat_desc: dict) -> bool:
     return "water" in (mat_desc.get("fxName") or "").lower()
 
 
+def is_sky_material(mat_desc: dict, family: dict | None = None) -> bool:
+    """天空穹材质判据：客户端材质模板/着色器 `Skyobject`（不看节点名）。
+
+    消费端过去按节点名 `/sky/i` 猜天空穹：名字不含 sky 的天穹会走普通材质，
+    而名字含 sky 的非天穹对象会被误判。导出器把材质判定写进 extras `sky: true`，
+    消费端以该标记为准；名字只在旧包（无标记）时作 fallback。"""
+    text = " ".join(str(x or "") for x in (
+        mat_desc.get("fxName"),
+        mat_desc.get("materialName"),
+        (family or {}).get("shader"),
+    )).lower()
+    return "skyobject" in text
+
+
 def bake_uv1_overlays(base_img: Image.Image, decal_img, mask_img,
                        tint, mult, uvs, uvs1, idx: list) -> Image.Image:
     """UV1 覆盖烘焙（materials-fp.sl 客户端公式）：
@@ -2342,6 +2373,7 @@ def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | 
                     water_surface: dict | None = None,
                     blend_by_angle: dict | None = None,
                     decal: bool = False,
+                    sky: bool = False,
                     ground_cm_slot: str | None = None) -> int:
     """albedo 贴图（含透明）→ GLB 材质；无贴图时用贴图均值色兜底。
 
@@ -2362,6 +2394,9 @@ def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | 
     blend_by_angle：视角淡出软混合效果片（客户端 `BLEND_BY_ANGLE` + `enabledPresets.AlphaBlend`）
     ——`{bounds, power, inversion}` 写进 `extras.blendByAngle`，并置 `extras.alphaBlend`
     （消费端据此跳过"伪透明→裁切"启发式，改用软混合 + 视角因子）。
+    sky：客户端 `Skyobject` 材质 → `extras.sky`；消费端不再按节点名猜天穹。
+    所有 `alphaMode=BLEND` 材质都写 `extras.alphaBlend`：这是"真混合"的语义标记，
+    消费端的 opacity≈1 伪透明启发式只允许作用于无标记的旧包材质。
     """
     base_name = (mat_desc.get("materialName") or "mat")[:60]
     base = {"name": ("ST|" + base_name) if st_tint is not None else base_name,
@@ -2370,6 +2405,8 @@ def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | 
     if st_tint is not None:
         base["pbrMetallicRoughness"]["baseColorFactor"] = [st_tint[0], st_tint[1], st_tint[2], 1.0]
     extras = {}
+    if sky:
+        extras["sky"] = True
     if decal:
         # 贴花（客户端 decal 路径，判据见 decal_capable）：消费端按
         # `albedo(UV0) × decal槽(UV1).rgb（LSC 图再 × 槽图.a）× 2.0` 渲染，**不受光**。
@@ -2479,8 +2516,6 @@ def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | 
         extras["tex0ShiftPerSecond"] = [round(float(shift_anim[0]), 6), round(float(shift_anim[1]), 6)]
     if shift_static is not None:
         extras["texture0Shift"] = [round(float(shift_static[0]), 6), round(float(shift_static[1]), 6)]
-    if extras:
-        base["extras"] = extras
     if img is not None:
         # 源贴图统一翻回"文件原始行序"再嵌入——decode_dds / decode_pvr3 各自
         # 都在解码里翻过一次（消掉容器行序），此处再翻即为文件行序，对齐
@@ -2519,6 +2554,12 @@ def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | 
     else:
         r, g, b = textures.avg_color.get(albedo_path or "", (0.62, 0.60, 0.55)) or (0.62, 0.60, 0.55)
         base["pbrMetallicRoughness"]["baseColorFactor"] = [r, g, b, 1.0]
+    if base.get("alphaMode") == "BLEND":
+        # 语义标记：这是客户端声明/导出器判定的真混合材质。消费端不得再按
+        # opacity≈1 把它改写成不透明 + alphaTest（旧包的伪透明启发式仅作 fallback）。
+        extras["alphaBlend"] = True
+    if extras:
+        base["extras"] = extras
     glb.materials.append(base)
     return len(glb.materials) - 1
 
