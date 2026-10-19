@@ -155,6 +155,13 @@ pub(crate) fn tank_data_value(tank_id: u32) -> Value {
     tank_data_value_prefixed(tank_id, "")
 }
 
+/// 装甲板/履带厚度的序列化精度：0.01mm。
+/// 既去掉 f32 尾差（62.4000015 → 62.4），又保留 6.35 这类真实板值；
+/// 不要改回 0.1mm——那会把 6.35 舍成 6.3，HE/判定少 0.05mm。
+fn round_armor_mm(f: f64) -> f64 {
+    (f * 100.0).round() / 100.0
+}
+
 pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value {
     let resolver = global_resolver();
 
@@ -196,8 +203,9 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
 
     let armor_model_val = armor_model.as_ref().map(|m| {
         let mut v = serde_json::to_value(m).unwrap_or(json!(null));
-        // f32 序列化尾差清洗：62.400001525878906 → 62.4（装甲厚度精度 0.1mm 已足够；
-        // 只清洗 plates/track 厚度，hull_position 等坐标保持原精度）
+        // f32 序列化尾差清洗：62.400001525878906 → 62.4。用 0.01mm 精度而不是
+        // 0.1mm：6.35 这类板值必须保留（0.1mm 舍入会把它变成 6.3，HE/判定少 0.05mm）。
+        // 只清洗 plates/track 厚度，hull_position 等坐标保持原精度。
         if let Some(obj) = v.as_object_mut() {
             for sec in ["hull", "turret", "gun"] {
                 if let Some(plates) = obj
@@ -207,7 +215,7 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
                 {
                     for (_, n) in plates.iter_mut() {
                         if let Some(f) = n.as_f64() {
-                            *n = json!((f * 10.0).round() / 10.0);
+                            *n = json!(round_armor_mm(f));
                         }
                     }
                 }
@@ -216,7 +224,7 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
                 for k in ["left_track", "right_track"] {
                     if let Some(n) = ch.get_mut(k) {
                         if let Some(f) = n.as_f64() {
-                            *n = json!((f * 10.0).round() / 10.0);
+                            *n = json!(round_armor_mm(f));
                         }
                     }
                 }
@@ -764,6 +772,14 @@ pub(crate) fn parse_gun_caliber(name: &str) -> Option<f64> {
 #[cfg(test)]
 mod synth_tests {
     use super::*;
+
+    #[test]
+    fn armor_thickness_serialization_keeps_hundredth_mm() {
+        // 0.01mm 清洗保留 6.35（0.1mm 会因 f32 尾差变成 6.3），同时去掉序列化尾差。
+        assert_eq!(round_armor_mm(6.3499999), 6.35);
+        assert_eq!(round_armor_mm(62.400001525878906), 62.4);
+        assert_eq!(round_armor_mm(22.799999237060547), 22.8);
+    }
 
     /// IS-7 合成锚点：逐板厚度/履带来自 models.pb（BlitzKit 唯一来源），
     /// primaryArmor 来自 game_data 拷贝；键格式（数值字符串）与前端 plateId 查找兼容。

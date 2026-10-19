@@ -1,10 +1,16 @@
 //! DetachedTurret (Type5 class 8): authoritative owner and raw rigid-body presence.
 //! No death/HP inference and no vehicle position filter. Unknown wire layouts or
 //! conflicting entity identities are rejected for the whole entity.
+//!
+//! The same Type5 header carries the **entity class** (`[eid u32][class u16]`), which is
+//! the replay's authoritative entity kind: 2 = combat vehicle, 3 = area destructible,
+//! 8 = detached turret. [`DetachedTurretScan::finish`] therefore also exposes the class-2
+//! vehicle set; consumers must use it instead of inferring vehicles from live streams
+//! (a vehicle that never turns its turret emits no turret-angle stream).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use super::combat::St10Sample;
+use super::combat::{St10Sample, ENTITY_TYPE_COMBAT_VEHICLE};
 
 #[derive(Debug, Clone)]
 pub struct DetachedTurretPresence {
@@ -17,6 +23,14 @@ pub struct DetachedTurretRecord {
     pub eid: u32,
     pub vehicle_eid: u32,
     pub presence: Vec<DetachedTurretPresence>,
+}
+
+/// Single-pass scan result: detached-turret records plus the authoritative entity classes.
+pub(crate) struct DetachedTurretScanOutput {
+    pub records: Vec<DetachedTurretRecord>,
+    pub detached_eids: HashSet<u32>,
+    /// Type5 class=2 (combat vehicle) eids. Class conflicts are excluded (fail-closed).
+    pub vehicle_eids: HashSet<u32>,
 }
 
 /// Fed by ReplayModel's existing packet scan; Type10 poses reuse its shared index.
@@ -112,7 +126,17 @@ impl DetachedTurretScan {
         }
     }
 
-    pub fn finish(mut self) -> (Vec<DetachedTurretRecord>, HashSet<u32>) {
+    pub fn finish(mut self) -> DetachedTurretScanOutput {
+        // Type5 class=2 is the protocol's entity-kind declaration for combat vehicles.
+        // A class conflict means the entity identity is contradictory -> never a vehicle.
+        let vehicle_eids: HashSet<u32> = self
+            .classes
+            .iter()
+            .filter(|(eid, class)| {
+                **class == ENTITY_TYPE_COMBAT_VEHICLE && !self.conflicts.contains(eid)
+            })
+            .map(|(eid, _)| *eid)
+            .collect();
         // Two detached entities claiming one vehicle have no unambiguous model
         // ownership. Reject both, even if their recorded lifetimes don't overlap.
         let mut owner_counts: HashMap<u32, usize> = HashMap::new();
@@ -132,7 +156,11 @@ impl DetachedTurretScan {
                 }
             }
         }
-        (self.records.into_values().collect(), self.detached_eids)
+        DetachedTurretScanOutput {
+            records: self.records.into_values().collect(),
+            detached_eids: self.detached_eids,
+            vehicle_eids,
+        }
     }
 }
 
@@ -186,13 +214,30 @@ mod tests {
         for (kind, t, p) in events {
             scan.observe(*kind, *t, p);
         }
-        scan.finish().0
+        scan.finish().records
     }
     fn entry(eid: u32, t: f32, owner: u32) -> Vec<(u32, f32, Vec<u8>)> {
         vec![
             (33, t - 0.1, eid.to_le_bytes().to_vec()),
             (5, t, create(eid, 8, owner)),
         ]
+    }
+
+    #[test]
+    fn type5_class_two_is_the_authoritative_vehicle_set() {
+        // Entity kind comes from the Type5 class field, never from whether a live stream
+        // (turret angle / positions) happens to be broadcast for the entity.
+        let mut scan = DetachedTurretScan::default();
+        scan.observe(5, 0.0, &create(1, 2, 0)); // combat vehicle
+        scan.observe(5, 0.0, &create(2, 3, 0)); // area destructible
+        scan.observe(5, 0.0, &create(3, 8, 1)); // detached turret
+        scan.observe(5, 0.0, &create(4, 2, 0));
+        scan.observe(5, 0.0, &create(4, 3, 0)); // contradictory class -> rejected
+        let out = scan.finish();
+        assert!(out.vehicle_eids.contains(&1));
+        assert!(!out.vehicle_eids.contains(&2), "class=3 是区域实体");
+        assert!(!out.vehicle_eids.contains(&3), "class=8 是炮塔残骸");
+        assert!(!out.vehicle_eids.contains(&4), "类冲突实体 fail-closed");
     }
 
     #[test]

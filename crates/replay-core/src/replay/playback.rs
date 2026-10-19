@@ -12,9 +12,11 @@
 //! - 射击 = 作者严格路径 + 他人宽松路径合并（与 web `replay_shots_handler` 同构）；
 //! - 血量 = type=5 满血锚点 + method1 事件链；死亡 = type=7 sub=1（击杀者取 hp==0 事件 source）。
 //!
-//! 车辆筛选 = **st10 ∧ prop2 双流**（KineticObject/DetachedTurret 也有 type=10 移动流但无
-//! 炮塔角广播）；花名册联表失败的车辆（昵称不在 battle_results 花名册，如观察者）
-//! 保留为 team=0/tank_id=0 的"未知"车，不丢战局画面（昵称域为 UTF-8 全域，见 combat::nickname）。
+//! 车辆集合 = **Type5 class=2 实体类型 ∧ 结算花名册参与者**（协议实体种类：
+//! 2=战斗车辆、3=区域可破坏物、8=炮塔残骸；花名册是显示车辆的权威名单——观察者/
+//! 中途离开等未进入 battle_results 的实体不渲染）。type=10 位姿流同样出现在相机/
+//! 区域实体上，prop2 炮塔角只在炮塔转动时广播——二者都不是"是不是车"的判据。
+//! 昵称联表失败（UTF-8 非法等）的车辆同样不进入显示集合（昵称域见 combat::nickname）。
 //!
 //! 序列化约定：位姿为列式 flat 数组（`pos` = [x,y,z]×N，其余各 N 项），时刻 `t_i = t_start + i*0.1`；
 //! 前端线性插值即可（hull_yaw/turret_yaw 为解卷绕连续域，见上）。
@@ -54,8 +56,6 @@ const KF_TOL_POS: f32 = 0.02;
 const KF_TOL_ANG: f32 = 0.007;
 /// 原始采样间隙超过此值视为 AoI 空洞（coverage 断开）
 const COVERAGE_GAP: f32 = 2.0;
-/// 实体收录的最少 type=10 采样数（噪声/瞬时实体过滤）
-const MIN_ST10_SAMPLES: usize = 20;
 
 /// 玩家身份（battle_results 联表产物，调用方组装；replay 层不依赖 TankResolver）
 #[derive(Debug, Clone)]
@@ -976,26 +976,29 @@ pub fn attach_packet_evidence(data: &mut PlaybackData, packets: &[(u32, f32, &[u
     }
 }
 
-/// 车辆实体筛选：`st10 ∧ prop2 ∧ 采样数达标`（BTreeMap 保证确定性顺序）。
+/// 车辆实体集合：**Type5 class=2 ∧ 结算花名册联表成功 ∧ 至少一条 type=10 采样**
+/// （BTreeMap 保证确定性顺序）。
 ///
-/// **prop2 全局缺失时退化为仅 `st10 ∧ 采样数达标`**（保留 fail-closed：退化后仍空 ⇒ 调用方照旧
-/// bail）。依据（2026-10-10 用户报障样本 `20261010_1212__Anonyme_R132_T100LT_…`，训练房 7 s）：
-/// 该场 **type=10 195 包**（两个实体各 100/95 样本，均 ≥ `MIN_ST10_SAMPLES`）、**type=7 零条**
-/// ——坦克全程未瞄炮 ⇒ 客户端不发炮塔更新 ⇒ `prop2` 不再具备"车 vs 地图对象"的区分力，
-/// 却把唯二的两个真实车辆实体一并否掉（3D 回放打不开）。而该场 41 个无名地图对象**没有任何
-/// type=10 流** ⇒ 退化不会放进幻影（实测）。prop2 存在时（常规对战）行为逐位不变。
+/// class=2 是回放协议对"战斗车辆"的权威实体类型声明（同族 class=3 区域可破坏物、
+/// class=8 炮塔残骸都有 type=10 移动流，不能按流的有无判断）。实体类型与炮塔是否
+/// 转动无关：全程静止、炮塔不转的车辆没有 prop2 流，但仍是车辆——2026-10-19 用户
+/// 报障样本（训练房 2 人，对手 SU-130PM 全程未转炮塔）旧实现按 `st10 ∧ prop2`
+/// 双流交集把对手整条丢掉，播放切面只剩作者一辆车。也**不**设采样数阈值：
+/// 类型已由协议确定，稀疏采样不是"可能不是车"的证据。
+///
+/// 显示名单再以**结算花名册**为准：花名册联表失败的 class=2 实体（观察者、中途离开、
+/// 昵称损坏等）不进入 `vehicles[]`——用户口径（2026-10-20）：只保留结算花名册中出现过的。
+///
+/// 没有 type=10 采样的车辆拿不到位姿，无法生成轨迹列（不是按内容统计筛掉）。
 fn vehicle_candidates(
     st10: &HashMap<u32, Vec<combat::St10Sample>>,
-    prop2: &HashMap<u32, Vec<(f32, f32, u16)>>,
+    vehicle_eids: &HashSet<u32>,
+    roster_eids: &HashSet<u32>,
 ) -> BTreeMap<u32, usize> {
-    let mut out: BTreeMap<u32, usize> = BTreeMap::new();
-    let prop2_absent = prop2.is_empty();
-    for (eid, samples) in st10.iter() {
-        if samples.len() >= MIN_ST10_SAMPLES && (prop2_absent || prop2.contains_key(eid)) {
-            out.insert(*eid, samples.len());
-        }
-    }
-    out
+    st10.iter()
+        .filter(|(eid, _)| vehicle_eids.contains(eid) && roster_eids.contains(eid))
+        .map(|(eid, samples)| (*eid, samples.len()))
+        .collect()
 }
 
 /// 从内部模型投影回放切面：位姿滤波/0.1s 网格/角度解卷绕/击杀归属增强都在本层完成，
@@ -1015,17 +1018,23 @@ pub fn from_model(
     let ent_by_eid: HashMap<u32, &crate::replay::model::EntityRecord> =
         model.entities.iter().map(|e| (e.eid, e)).collect();
 
-    // 实体索引：模型原始流（type=10 + prop2，车辆筛选 = 双流交集）
+    // 实体索引：模型原始流（type=10 位姿 + prop2 炮塔；车辆身份见 timeline.vehicle_eids）
     let st10 = &model.timeline.poses;
     let prop2 = &model.timeline.turret;
     let entity_names = &model.timeline.entity_names;
+    let vehicle_eids = &model.timeline.vehicle_eids;
+    // 结算花名册参与者 = 显示车辆的权威名单（账号联表成功；观察者/中途离开无 account_id）
+    let roster_eids: HashSet<u32> = ent_by_eid
+        .iter()
+        .filter(|(_, rec)| rec.account_id.is_some())
+        .map(|(eid, _)| *eid)
+        .collect();
 
-    // 车辆实体 = st10 ∧ prop2 ∧ 采样数达标（BTreeMap 保证确定性顺序；见 vehicle_candidates）
-    let mut candidates = vehicle_candidates(st10, prop2);
-    // Even the no-prop2 training fallback must not label a DetachedTurret as a tank.
-    candidates.retain(|eid, _| !model.timeline.detached_turret_eids.contains(eid));
+    // 车辆实体 = Type5 class=2 ∧ 花名册联表成功 ∧ 有 type=10 位姿（BTreeMap 保证
+    // 确定性顺序；见 vehicle_candidates——炮塔流是否存在与车辆身份无关）
+    let candidates = vehicle_candidates(st10, vehicle_eids, &roster_eids);
     if candidates.is_empty() {
-        bail!("无任何车辆姿态流（type=10 + prop2 双流交集为空；prop2 全局缺失时按仅 st10 退化，仍空才报此错）");
+        bail!("无任何可显示车辆（Type5 class=2 ∧ 结算花名册联表成功 ∧ 有 type=10 位姿）");
     }
 
     // 全部弹道（模型一次扫描产物；时间轴末端扩展与列表共用）
@@ -1109,8 +1118,8 @@ pub fn from_model(
                 .filter(|_| is_author)
         });
 
-        // prop2 流：常规对战必有（st10 ∧ prop2 交集）；**prop2 全局缺失**时（训练房全程未瞄炮，
-        // 见 vehicle_candidates）本车无炮塔流 ⇒ 按"炮塔随车体朝向（相对 0）、炮管水平"的中性口径
+        // prop2 流：客户端只在炮塔转动时广播，本车全场未转炮塔 ⇒ 无流（与是否为车辆无关，
+        // 见 vehicle_candidates）。此时按"炮塔随车体朝向（相对 0）、炮管水平"的中性口径
         // 渲染（客户端侧该车就是停着没瞄过；不给 angles 一个明确的缺省反而会让整场打不开）。
         let prop2_series = prop2.get(eid);
 
@@ -1152,7 +1161,7 @@ pub fn from_model(
                     });
                 }
                 None => {
-                    // 本车全场无 prop2（prop2 全局缺失的退化路径）：炮塔随车体、炮管水平
+                    // 本车全场无 prop2（该车全程未转炮塔）：炮塔随车体、炮管水平
                     let turret_abs = unwrap_angle(prev_turret_yaw, pose.ang[0]);
                     prev_turret_yaw = Some(turret_abs);
                     turret_yaw.push(r3(turret_abs));
@@ -1522,24 +1531,30 @@ mod tests {
     }
 
     #[test]
-    fn vehicle_candidates_fall_back_when_turret_stream_absent() {
-        // 训练房样本（20261010_1212__Anonyme_R132_T100LT_…）：type=10 两实体 100/95 样本、
-        // type=7 零条 ⇒ 仅 st10 口径选出这两辆；prop2 在场（常规对战）仍按双流交集，行为不变。
-        let a = 0x0810_1456u32;
-        let b = 0x0811_22ba_u32;
+    fn vehicle_candidates_follow_type5_class_not_live_streams() {
+        // 2026-10-19 用户报障样本：训练房对手 SU-130PM 全程未转炮塔 ⇒ 整场无 prop2。
+        // 车辆身份 = Type5 class=2，与炮塔流/采样密度无关。
+        let stationary = 0x0016_661au32; // 9 分钟原地不动，无 prop2
+        let normal = 0x0016_661bu32;
+        let sparse = 0x0016_661cu32; // 只有 1 条位姿（短暂可见）
+        let observer = 0x0016_661du32; // class=2 但不在结算花名册（观察者/中途离开）
+        let camera = 0x0019_4c93u32; // 无 Type5 class 的 type=10 流（回放相机实体）
+        let wreck = 0x0017_5502u32; // Type5 class=8 炮塔残骸
         let mut st10: HashMap<u32, Vec<crate::replay::combat::St10Sample>> = HashMap::new();
-        st10.insert(a, synthetic_samples(0.0, 0.1, 100));
-        st10.insert(b, synthetic_samples(0.0, 0.1, 95));
-        st10.insert(0x080f_815du32, synthetic_samples(0.0, 0.1, 5)); // 噪声/瞬时实体（样本不足）
-        let no_prop2: HashMap<u32, Vec<(f32, f32, u16)>> = HashMap::new();
-        let got = vehicle_candidates(&st10, &no_prop2);
-        assert_eq!(got.len(), 2, "prop2 全局缺失 ⇒ 退化为 st10 ∧ 采样阈值");
-        assert!(got.contains_key(&a) && got.contains_key(&b));
-        let mut prop2: HashMap<u32, Vec<(f32, f32, u16)>> = HashMap::new();
-        prop2.insert(b, vec![(0.5, 0.0, 0)]);
-        let got2 = vehicle_candidates(&st10, &prop2);
-        assert_eq!(got2.len(), 1, "prop2 在场 ⇒ 双流交集（常规对战行为不变）");
-        assert!(got2.contains_key(&b));
+        st10.insert(stationary, synthetic_samples(0.0, 0.1, 700));
+        st10.insert(normal, synthetic_samples(0.0, 0.1, 95));
+        st10.insert(sparse, synthetic_samples(0.0, 0.1, 1));
+        st10.insert(observer, synthetic_samples(0.0, 0.1, 400));
+        st10.insert(camera, synthetic_samples(0.0, 0.1, 1000));
+        st10.insert(wreck, synthetic_samples(0.0, 0.1, 300));
+        let vehicles = HashSet::from([stationary, normal, sparse, observer]);
+        let roster = HashSet::from([stationary, normal, sparse]);
+        let got = vehicle_candidates(&st10, &vehicles, &roster);
+        assert_eq!(
+            got.keys().copied().collect::<Vec<_>>(),
+            vec![stationary, normal, sparse],
+            "class=2 ∧ 花名册车辆全收（含无 prop2 与单采样）；未联表/非车辆流全排除"
+        );
     }
 
     /// ARENA_INFO comp blob：`[tank_id u16][chassis u16][engine u16][204 u32][turret u16][gun u16][00]`。
@@ -2004,7 +2019,8 @@ mod tests {
     // 运行：WOTB_PLAYBACK_PROBE=data/replay_samples cargo test playback_probe -- --ignored --nocapture
     //
     // 判定项：
-    //   P1 车辆收录：候选实体数 ∈ [10, 16]（14 车 ± 解析边界；KineticObject 等被双流过滤）；
+    //   P1 车辆收录：候选实体数 ∈ [10, 16]（14 车 ± 解析边界；相机/区域/炮塔残骸
+    //      由 Type5 class=2 实体类型过滤）；
     //   P2 位姿一致性：开火时刻的网格采样位 ≈ ShotReplayData.shooter_render（同为滤波器输出，
     //      仅 0.1s 网格舍入差，≤0.6m）；
     //   P3 角度连续性/值域：解卷绕后 hull_yaw/turret_yaw 相邻网格 |Δ| ≤ π/2（0.1s 物理极限，
@@ -2376,11 +2392,22 @@ mod detached_turret_tests {
             p[12..16].copy_from_slice(&x.to_le_bytes());
             p
         }
-        let mut packets = vec![(5, 0.0, create(1, 2, 0))];
+        // 车辆必须是结算花名册参与者：type5 满血锚点 + 昵称块 + 同名花名册记录
+        let mut vehicle = create(1, 2, 0);
+        vehicle.resize(58 + 6, 0);
+        vehicle[57] = 6;
+        vehicle[58..64].copy_from_slice(b"Tester");
+        let mut packets = vec![(5, 0.0, vehicle)];
         for i in 0..30 {
             packets.push((10, i as f32 * 0.1, sample(1, i as f32)));
         }
         let limits = GunPitchLimits::default();
+        let players = vec![PlaybackPlayer {
+            account_id: 7,
+            nickname: "Tester".into(),
+            team: 1,
+            tank_id: 0,
+        }];
         let build = |p: &[(u32, f32, Vec<u8>)]| {
             let tuples = p
                 .iter()
@@ -2388,7 +2415,7 @@ mod detached_turret_tests {
                 .collect::<Vec<_>>();
             build_playback_data(&PlaybackInput {
                 packets: &tuples,
-                players: vec![],
+                players: players.clone(),
                 author_account_id: 0,
                 winner_team: 0,
                 map_id: 0,

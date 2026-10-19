@@ -162,8 +162,9 @@ pub struct MaterializationPose {
     pub pitch: f32,
 }
 
-/// Type5 物化包的战斗车辆 entityTypeId（payload[4..6) u16）
-const ENTITY_TYPE_COMBAT_VEHICLE: u16 = 2;
+/// Type5 物化包的战斗车辆 entityTypeId（payload[4..6) u16；同族 3 = 区域可破坏物、
+/// 8 = 炮塔残骸）。车辆身份的唯一权威判据，与 type=10/prop2 流是否存在无关。
+pub(crate) const ENTITY_TYPE_COMBAT_VEHICLE: u16 = 2;
 /// Type5 战斗车辆物化快照的当前 HP 偏移（u16 LE；与 `collect_initial_hp` 同一偏移）
 const MATERIALIZATION_HP_OFFSET: usize = 51;
 /// Type5 物化快照位姿偏移：pos 3×f32 @14..26、yaw @26..30、pitch @30..34（LE；DAVA 世界系）

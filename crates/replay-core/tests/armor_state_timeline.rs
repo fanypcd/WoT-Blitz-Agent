@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use wotb_replay_core::facets::ai_review::{collect_armor_state_tracks, RawArmorStateTrack};
 use wotb_replay_core::replay::combat::GunPitchLimits;
 use wotb_replay_core::replay::packets::read_raw_packets;
-use wotb_replay_core::replay::playback::{build_playback_data, PlaybackInput};
+use wotb_replay_core::replay::playback::{build_playback_data, PlaybackInput, PlaybackPlayer};
 
 const SAMPLE_A: &str = "20261013_0954__Anonyme_Oth71_Titan_Strife_579709385753595713.wotbreplay";
 const SAMPLE_B: &str = "20261013_1615__Anonyme_Oth71_Titan_Strife_3316571242883186.wotbreplay";
@@ -105,8 +105,22 @@ fn playback_data_backfills_shot_impact_state() {
     let limits = GunPitchLimits::default();
     let pb = build_playback_data(&PlaybackInput {
         packets: &tuples,
-        players: Vec::new(),
-        author_account_id: 0,
+        // 显示车辆以结算花名册为准（样本 B 的双人训练房）
+        players: vec![
+            PlaybackPlayer {
+                account_id: 0,
+                nickname: "F0rget_U_F0rever".into(),
+                team: 2,
+                tank_id: 0,
+            },
+            PlaybackPlayer {
+                account_id: 2033684170,
+                nickname: "Anonyme".into(),
+                team: 1,
+                tank_id: 17777,
+            },
+        ],
+        author_account_id: 2033684170,
         winner_team: 0,
         map_id: 0,
         map_name: String::new(),

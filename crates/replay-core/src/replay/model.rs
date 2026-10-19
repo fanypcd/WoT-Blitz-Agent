@@ -60,6 +60,12 @@ pub struct Timeline {
     pub detached_turrets: Vec<super::detached_turrets::DetachedTurretRecord>,
     /// Known class-8 eids must never enter vehicle fallback, including rejected tracks.
     pub detached_turret_eids: std::collections::HashSet<u32>,
+    /// Type5 class=2 战斗车辆实体集合（协议权威实体类型；类冲突的实体已剔除）。
+    /// 车辆身份只取这里——type=10 位姿流也出现在相机/区域/炮塔残骸上，
+    /// 炮塔角流只在炮塔转动时存在，二者都不是"是不是车"的判据。
+    /// 播放切面另与结算花名册求交（只显示花名册参与者）；本集合保留协议的完整
+    /// class=2 事实（含观察者/未联表实体）。
+    pub vehicle_eids: std::collections::HashSet<u32>,
     /// 原始位姿流（type=10，未滤波）
     pub poses: HashMap<u32, Vec<St10Sample>>,
     /// 炮塔打包角流（type=7 prop2：(clock, 相对角 rad, frac 原始 6bit)）
@@ -458,12 +464,13 @@ impl ReplayModel {
             });
         }
 
-        let (detached_turrets, detached_turret_eids) = detached_scan.finish();
+        let classes = detached_scan.finish();
         Ok(Self {
             entities,
             timeline: Timeline {
-                detached_turrets,
-                detached_turret_eids,
+                detached_turrets: classes.records,
+                detached_turret_eids: classes.detached_eids,
+                vehicle_eids: classes.vehicle_eids,
                 poses: shared.st10,
                 turret: shared.prop2,
                 hp_events: shared.hp_events,
