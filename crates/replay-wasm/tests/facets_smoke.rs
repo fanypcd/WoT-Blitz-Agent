@@ -93,9 +93,9 @@ fn playback_smoke() {
 
 /// 跨 facet 身份不变量：Playback 中每个有昵称的 observed vehicle 必须能在
 /// Result 花名册找到同名玩家，且 account_id/team/tank_id 完全一致（Result 为
-/// oracle——昵称联表 SSOT 在模型 scan 一次完成；ASCII 过滤时代中文昵称车辆
-/// team=0 且无身份，本测试即回归锚）。不做全局车辆数断言：single-POV/AoI 下
-/// 整场未观察到的敌人合法缺席。
+/// oracle——昵称联表 SSOT 在模型 scan 一次完成）。车辆显示集合以结算花名册为准：
+/// 未进入花名册的实体（观察者/中途离开）不得出现在 vehicles[]。
+/// 不做全局车辆数断言：single-POV/AoI 下整场未观察到的敌人合法缺席。
 #[test]
 fn playback_result_identity_invariant() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data/replay_samples");

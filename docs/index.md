@@ -37,7 +37,7 @@
 
 ### 版本与发行
 
-- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.9**）。
+- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.10**）。
   该值变更合并到 `main` 后，Release workflow 自动测试、构建、创建 `v<version>` tag
   并发布 `wotb-replay-wasm-v<version>.zip`；发布策略与 Android 同步规则见
   [AGENTS.md](../AGENTS.md)。
@@ -47,6 +47,7 @@
 
 | 版本 | 内容 |
 |---|---|
+| v0.4.10 | **车辆集合判据修正 + 装甲厚度序列化精度**：①`vehicles[]` 入选改为 **Type5 class=2 实体类型 ∧ 结算花名册联表成功 ∧ 有 type=10 位姿**，删除 `st10 ∧ prop2` 双流交集、20 采样阈值与 prop2 退化分支——修复炮塔全程不转的敌方车辆整条丢失（2026-10-19 训练房 SU-130PM 样本，709 条 type=10、0 条 prop2），同时排除相机/区域可破坏物/炮塔残骸与未进结算花名册的观察者/中途离开实体。影响面：`vehicles[]`、`visibility[]`、时间轴 `meta.t_start/samples/duration`、`shots[]` 联表兜底；切面 v2 形状不变，WotbTools 随 pin bump 直接受益。②`tank/{id}.json` 的 plate/track 厚度序列化从 0.1mm 改为 0.01mm，保留 6.35 等真实板值（旧口径生成 6.3，HE/判定少 0.05mm）；738 辆数据重生成、manifest 刷新并同步 COS。消费方随 pin bump 重生成 AI 投影 golden：车辆集合修复带来的字段值变化属预期。 |
 | v0.4.9 | **血量终态分类字段（additive）**：`AiReviewFacet` 的 `damage`（method1）与 `health`（prop3）事件新增 `hp_state`（`current`/`zero`/`terminal`，**恒在场**）——血量 u16 的**唯一权威分类**（规则 = `hp_terminal_normalized`，int16 ≤ 0 全域；实测终态族 0xFFFF/0xFFFE/0xFFFD，禁按分布裁剪），消费方判死亡面读它、禁自行解释 `hp_raw`。动因：消费方 canonical 只认 {0x0000, 0xFFFD}，−1/−2 档的弹药架殉爆被判成存活（血量冻在最后正值、3D 装填条继续外播；实例 1910 局 Intotherainy `0xFFFE`）。**消费方适配**：字段 additive、旧产物缺省即旧行为；**要覆盖 −1/−2 档死亡必须消费 `hp_state`**（缺省路径保持 legacy 分类——仅 {0x0000, 0xFFFD} 终态，禁在缺省上放宽）；pin bump 后 AI 投影 golden 预期仅 provenance 变化（新字段不进投影产物）。`PlaybackData` v2 / `AiReviewFacet` v1 形状不变。裁决与迁移清单见 [wotbtools-cross-reference.md](wotbtools-cross-reference.md) §七。 |
 | v0.4.8 | **复活模式生命轨道（additive）+ method8 结算伤害直读 + 伤害归属确定性化 + 争霸残留占领清理**：①`VehicleTrack` 新增 `death_times`（**≥2 死才输出**）与 `resurrection_times`（**非空才输出**）——复活模式（爆燃等）同 eid 死而复生不再被判终态；普通回放 JSON 零扰动，消费方按"字段缺省 = 死亡终态"处理即行为逐位不变。②`shots[]` 伤害改**直读服务器结算值**（method8 直击通知尾部 `[u16 伤害][u8 状态]`；状态 ≠0 才已结算、overkill 已封顶），作者/他人两路径同优先，HP 链降级为无结算值时的兜底；22 场对账仅 3 处变化且全部为修正。③**伤害归属确定性化**：逐事件采样（删除"同钟异值整组丢弃"）+ method8 命中时钟精确配对，配不上 → 0 + `dmg_unattributed`（fail-closed）；22 场仅 5 发变化、全部对账。④已归属基地的占领中断后**清空残留进度**（保留归属；新增合成回归与公开契约）。⑤clippy `-D warnings` 清零（纯机械等价替换）。**消费方注意**：`shots[]` 的数值/归属与 HP 链兜底路径有可见变化（皆 bug 修正），WotbTools 随 pin bump 须重生成 golden 并逐条归因（复活字段则无需适配，缺省即旧行为）。切面 v2 形状未变。**附带（工具/资产面，非 WASM 行为）**：2D 战术底图改 pack `ground.webp` 派生 + COS `map2d/` 免发版通道（索引 schemaVersion 2 带世界框/取向几何契约）+ 客户端 HUD 小地图取景实测记录。 |
 | v0.4.7 | **独立炮塔回放轨道（additive）**：`detached_turrets`——class-8 初始化关联车辆，输出 AoI 区间与 raw 三轴关键帧（同刻移动收敛为最后接收帧，未知布局/身份冲突/非有限位姿 fail-closed）。附带：共享 st10/prop2 排序统一 `total_cmp`（NaN clock 不再 panic）；`packet_histogram` 键口径订正为包类型（仓内无消费方）。切面 v2 不变，消费方零适配。 |
@@ -72,6 +73,10 @@
 
 ### 数据面
 
+- **装甲厚度序列化精度（2026-10-20）**：`tank/{id}.json` 的 plate/track 厚度清洗从
+  0.1mm 改为 0.01mm：去掉 f32 尾差（62.4000015 → 62.4）的同时保留 6.35 等真实板值
+  （0.1mm 会把它舍成 6.3，HE/判定少 0.05mm）。738 辆 `data/tank_data` 已重生成，
+  包内 `tank/` 与 manifest 同步、COS 已按 `--only tank/` 差分上传。
 - **地图加载正确性（2026-10-18，导出器 + 消费端）**：`scenery.glb` 新增语义 extras
   `sky`（客户端 `Skyobject` 材质）与所有 BLEND 材质的 `alphaBlend`；变体映射不完整时
   写 `variantMappingIncomplete`。消费端据此不再按节点名猜天穹、不再把真混合改写成
@@ -133,6 +138,19 @@
 哨兵保留 raw，禁猜）。当前能力面（详情见 [总集 §八](回放与射击逆向总集.md#八提取链消费地图字段级回退与质量标记)
 与 [契约 v2](replay-contract-v2-supremacy-type39.md)）：
 
+- **车辆集合（2026-10-20 修正）**：`vehicles[]` 的入选判据 = **Type5 class=2 实体类型
+  ∧ 结算花名册联表成功 ∧ 有 type=10 位姿**（协议权威实体种类；class=3 区域可破坏物、
+  class=8 炮塔残骸均非车辆；未进入花名册的观察者/中途离开实体不渲染——用户口径
+  "只保留结算花名册中出现过的"）。旧口径 `st10 ∧ prop2` 双流交集把"炮塔流"当成车辆
+  身份证据——车辆全程不转炮塔时整场没有 prop2，被误判为非车辆：用户样本
+  `20261019_0237`（Copperfield 训练房，作者 Grille 15 vs 对手 SU-130PM 静止未瞄炮）
+  旧口径只输出 1 辆车，对手实体 `0x10cddb90`（709 条 type=10 位姿、0 条 prop2）
+  整条丢失，3D 回放无法显示。反向错误同样存在：旧"prop2 全局缺失 → 仅 st10"退化会把
+  无 Type5 class 的相机实体当成第二辆车（`20261010_1212` 训练房样本，相机流位置随后
+  跳到 `(0,0,0)`）。现口径同时移除 20 采样阈值（稀疏采样不是"非车辆"的证据）。
+  影响面：`vehicles[]` 集合、由候选集派生的 `visibility[]` 与全场时间轴
+  （`meta.t_start/samples/duration`），以及 `shots[]` 的射手/目标联表兜底；切面形状不变，
+  WotbTools 3D 回放随 pin bump 直接受益，无消费方适配。
 - **车辆配置**：`config_idx` / `burst_size` / `turret_local` / `gun_local`（comp blob 证据链）；
 - **位姿与弹道折线**：`pose_kf`、`shots[].via`/`leg_secs`、`hull_roll`；
 - **`pose_kf` 段首显示重建（2026-10-18）**：客户端 `setFilterOnEntity` 复位后 latency 从

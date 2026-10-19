@@ -1,19 +1,19 @@
 //! 回归：**prop2（炮塔流）全局缺失**的回放必须仍能建出回放数据（2026-10-10 用户"3D 回放打不开"）。
 //!
 //! 样本 `20261010_1212__Anonyme_R132_T100LT_…`（训练房 7 s）实测：type=10 位姿 195 包、
-//! 两个实体各 100/95 样本（≥ MIN_ST10_SAMPLES），**type=7 零条**（坦克全程未瞄炮）。旧判据
-//! `st10 ∧ prop2` 交集为空 ⇒ `无任何车辆姿态流` ⇒ 回放打不开。现口径：prop2 全局缺失时退化
-//! 为仅 st10（地图对象没有 type=10 流 ⇒ 不引入幻影）；该车炮塔按"随车体、炮管水平"中性渲染。
+//! **type=7 零条**（坦克全程未瞄炮）。车辆身份由 Type5 class=2 决定，与炮塔流无关 ⇒ 该车
+//! 正常收录，炮塔按"随车体、炮管水平"中性渲染。同场另一条 type=10 流没有 Type5 class
+//! （回放相机实体，位置随后跳到 0,0,0）——旧 `st10` 退化口径会把它当第二辆车，现口径不收录。
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 use wotb_replay_core::replay::combat::GunPitchLimits;
 use wotb_replay_core::replay::packets::read_raw_packets;
-use wotb_replay_core::replay::playback::{build_playback_data, PlaybackInput};
+use wotb_replay_core::replay::playback::{build_playback_data, PlaybackInput, PlaybackPlayer};
 
 #[test]
-fn training_room_without_any_turret_stream_still_builds() {
+fn training_room_without_any_turret_stream_keeps_the_real_vehicle_only() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../data/replay_samples")
         .join("20261010_1212__Anonyme_R132_T100LT_579650759449754426.wotbreplay");
@@ -30,7 +30,13 @@ fn training_room_without_any_turret_stream_still_builds() {
     let limits = GunPitchLimits::default();
     let input = PlaybackInput {
         packets: &tuples,
-        players: Vec::new(),
+        // 结算花名册是显示车辆的权威名单：样本里唯一 class=2 车辆昵称即 "Anonyme"
+        players: vec![PlaybackPlayer {
+            account_id: 2033684170,
+            nickname: "Anonyme".into(),
+            team: 2,
+            tank_id: 6225,
+        }],
         author_account_id: 0,
         winner_team: 0,
         map_id: 21,
@@ -38,10 +44,18 @@ fn training_room_without_any_turret_stream_still_builds() {
         pitch_limits: &limits,
         tank_names: HashMap::new(),
     };
-    let pb = build_playback_data(&input).expect("prop2 全局缺失时应退化放行，而不是 fail-closed");
-    assert!(!pb.vehicles.is_empty(), "至少一辆车（实测 2 辆）");
-    for v in &pb.vehicles {
-        assert_eq!(v.turret_yaw.len(), v.hull_yaw.len(), "炮塔列与车体列严格同长");
-        assert_eq!(v.gun_pitch.len(), v.hull_yaw.len());
-    }
+    let pb = build_playback_data(&input).expect("prop2 全局缺失不应 fail-closed");
+    assert_eq!(pb.vehicles.len(), 1, "唯一 class=2 车辆；无 class 的相机流不得成车");
+    let v = &pb.vehicles[0];
+    assert_eq!(v.nickname, "Anonyme", "Type5 昵称身份应保留");
+    assert_eq!(v.turret_yaw.len(), v.hull_yaw.len(), "炮塔列与车体列严格同长");
+    assert_eq!(v.gun_pitch.len(), v.hull_yaw.len());
+    assert!(
+        v.turret_yaw
+            .iter()
+            .zip(&v.hull_yaw)
+            .all(|(turret, hull)| (turret - hull).abs() < 1e-6),
+        "无 prop2 的车辆炮塔应随车体朝向"
+    );
+    assert!(v.gun_pitch.iter().all(|p| *p == 0.0), "无 prop2 时炮管按水平");
 }
