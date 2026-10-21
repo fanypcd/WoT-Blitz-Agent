@@ -272,6 +272,10 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
 **重打包 → 俯视合成 → `--refresh-manifest`（合成之后、上传之前）→ 差分上传**——
 `--refresh-manifest` 是必需的：合成器在打包之后改写 `ground.webp`，不重算则这 36 项的
 manifest 条目与包内件不一致。朝向契约、重烘与读回校验见 §5.5。
+**2026-10-18 批次已发布**：36 图 `map/*/scenery.glb` 因 SpeedTree 静态叶 COLOR_0/净染色
+修复重导（本地 manifest 重算为 5766 件 / 4201.1 MB；15 图字节变化），已用 `--only map/`
+局部发布 15 条 / 511.7 MB；远端 manifest `files` 与本地 **0 hash diff**，root 仍为
+`58a891e`（partial patch note）。后续同类批次沿用 `--only map/`。
 
 **首选工具**：
 [tools/upload_asset_pack_cos.py](../tools/upload_asset_pack_cos.py)（差分比对 + 并发上传 +
