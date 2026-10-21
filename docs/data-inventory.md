@@ -108,7 +108,7 @@
 - 发布流程（差分上传 + 上传后回拉逐对象校验 + 回滚素材）见
   [game-data-sources.md](game-data-sources.md) §5.2
 
-**当前包内布局**（本地实测；本地/远端均 **5766 个文件 / 4201.1 MB**，逐文件 **0 hash diff**——`map2d/` 30 件 / 22.0 MB、2026-10-17 的 92 辆坦克 GLB 备用 scene 重排、738 份逐炮塔/逐主炮 `tank/{id}.json` 均已上线（2026-10-20 精度重生成后 8 个字节变化文件差分补传、730 个按 sha256 跳过）；partial publish 只补 `glb/` + `tank/` 条目，远端 manifest 的 root `upstream_commit` 保持上一批 `58a891e`，note 已注明，见 §5.6）：
+**当前包内布局**（本地实测；本地/远端均 **5766 个文件 / 4201.1 MB**，逐文件 **0 hash diff**——`map2d/` 30 件 / 22.0 MB、2026-10-17 的 92 辆坦克 GLB 备用 scene 重排、738 份逐炮塔/逐主炮 `tank/{id}.json` 均已上线（2026-10-20 精度重生成后 8 个字节变化文件差分补传、730 个按 sha256 跳过）；2026-10-18 的 36 图 SpeedTree scenery 重导也已 `--only map/` 局部发布 15 条 / 511.7 MB（其余 21 图字节未变未重传），远端 manifest `files` 与本地 0 hash diff；partial publish 只补对应前缀条目，远端 manifest 的 root `upstream_commit` 保持上一批 `58a891e`，note 已注明，见 §5.6）：
 
 | 包内路径 | 文件数 | 来自（见第一节编号） |
 |---|---|---|

@@ -1004,6 +1004,62 @@ def decode_speedtree_cards(group: dict):
     }
 
 
+def decode_speedtree_colors(group: dict):
+    """COLOR0 u8x4 → flat RGBA floats [0,1]（SpeedTree 烘焙遮挡）。
+
+    客户端 `speedtree-materials-vp.sl` 对所有 SpeedTree 几何（不只是锚定叶卡）
+    都把 `input.color0` 乘进 `varVertexColor`；静态导出此前只给卡片/混合批的刚体
+    子集写 COLOR_0，纯静态组（desert_train 棕榈等 w=0 固定叶）整批丢遮挡 ⇒
+    消费端回退 `vOcc=1`，叶片按 `albedo×SH` 过亮。本函数按同一顶点流布局解出
+    COLOR0（位 2），供静态网格随导。
+
+    fail-closed：无 COLOR0 流 / 长度与顶点数不符 → None（调用方按旧口径不写该
+    属性，不产出错误颜色）。
+    """
+    vf = group.get("vertexFormat")
+    vc = group.get("vertexCount")
+    payload = decode_bytes(group.get("vertices"))
+    if not isinstance(vf, int) or not isinstance(vc, int) or vc <= 0 or payload is None:
+        return None
+    lo = _vertex_offsets(vf)
+    if lo is None:
+        return None
+    off, total = lo
+    col_off = off.get(2)
+    if col_off is None or col_off + 4 > total or len(payload) != vc * total:
+        return None
+    arr = np.frombuffer(payload, dtype=np.uint8).reshape(vc, total)
+    return (arr[:, col_off:col_off + 4].astype(np.float32) / 255.0).reshape(-1).tolist()
+
+
+def apply_speedtree_vertex_ao(colors, contrast: float, brightness: float):
+    """SPHERICAL_LIT 的客户端 `vertexOcclusion` 烘进 COLOR_0。
+
+    `speedtree-materials-vp.sl:283`：
+        vertexOcclusion = aoContrast × (color0.r − 0.5) + 0.5 + aoBrightness
+    客户端 `color0.rgb` 同值（烘焙遮挡灰度）；这里把三通道都写成该标量。前端
+    `vOcc` 只读 `.r`，其余通道不影响结果。不做 [0,1] 截断——客户端也不截断，
+    高光端（如 bush 的 aoBrightness=0.4）本来就会 >1，消费端按客户端同式相乘。
+    """
+    arr = np.asarray(colors, dtype=np.float32).reshape(-1, 4)
+    occ = contrast * (arr[:, 0] - 0.5) + 0.5 + brightness
+    out = arr.copy()
+    out[:, :3] = occ[:, None]
+    return out.reshape(-1).tolist()
+
+
+def speedtree_spherical_tint(sh_l0, ao_mult: float):
+    """SPHERICAL_LIT 的常数染色项：0.282094 × SH(L0) × shOcclusionMult。
+
+    消费端最终净值 = 本染色 × vOcc（COLOR_0 已按客户端 vertexOcclusion 烘好），
+    即 `speedtree-materials-vp.sl:236-285` 的 varVertexColor 公式。SH 的 2.0 上限
+    是导出侧的坏值护栏（客户端无此钳制；实测全库 SH ≤ √π）。
+    """
+    if isinstance(sh_l0, tuple):
+        return tuple(min(c, 2.0) * 0.282094 * ao_mult for c in sh_l0)
+    return (min(sh_l0, 2.0) * 0.282094 * ao_mult,) * 3
+
+
 def strip_to_triangles(seq: list[int]) -> list[int]:
     """三角条带 → 三角形列表（标准交替绕序；退化三角形剔除）。"""
     out: list[int] = []
@@ -1813,19 +1869,34 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         # 客户端按普通【受光】几何渲染（materials shader），旧口径把它们当 ST|
         # 不受光 + SH 加亮 = 芦苇/蕨异常偏亮发平的根因。
         # 染色按材质族分派（同一份客户端源码的两个分支，见 ClientMaterialFamily）：
-        # - SPHERICAL_LIT/PBR_SPEEDTREE：SH(L0) 字面 RGB（2026-10-07 定版，erlenberg
-        #   实测）；客户端另乘 0.282094(≈A0) 与 aoMult，属已知偏差，本前端未复刻。
+        # - SPHERICAL_LIT/PBR_SPEEDTREE：客户端净染色 = 0.282094 × SH(L0) ×
+        #   vertexOcclusion × shOcclusionMult（`speedtree-materials-vp.sl:236-285`）。
+        #   st_tint 只写常数项 0.282094×SH×aoMult；逐顶点 AO 修正在下方烘进
+        #   COLOR_0（静态几何也随导）。旧口径只写 SH 字面值，漏乘 A0/aoMult，
+        #   在无 AO 亮度偏移的棕榈叶上把 albedo 放大 1.77×（2026-10-18 报障）。
         # - legacy（SpeedTree.material）：**SH 完全不参与**——客户端公式为
         #   color0 × treeLeafColorMul × treeLeafOcclusionMul + treeLeafOcclusionOffset；
         #   skit/karelia/canal 等图全体树木走这一支，skit 该组属性 = (1,1,1)/1.0
         #   ⇒ 叶色 = albedo × COLOR0，旧口径乘 SH(1.7725) 使叶片偏亮 77%（实测报障）。
         is_st = bool(st_family)
+        # SPHERICAL_LIT 的逐顶点遮挡参数（客户端 property 缺省：brightness 0 /
+        # contrast 1 / shOcclusionMult 2）。只取非 PBR 档（HIGH/MEDIUM/LOW =
+        # SpeedTree.SphericalLit.material）；消费端是无光照近似，不接 ULTRA 的
+        # pbrVertexAOBrightnessContrast/pbrSHOcclusionMult。
+        st_ao_contrast, st_ao_brightness, st_ao_mult = 1.0, 0.0, 2.0
+        if is_st and st_spherical:
+            st_ao_brightness, st_ao_contrast = _prop_floats(
+                mat_desc, "vertexAOBrightnessContrast", (0.0, 1.0))[:2]
+            st_ao_mult = _prop_floats(mat_desc, "shOcclusionMult", (2.0,))[0]
+            if not math.isfinite(st_ao_contrast):
+                st_ao_contrast = 1.0
+            if not math.isfinite(st_ao_brightness):
+                st_ao_brightness = 0.0
+            if not math.isfinite(st_ao_mult) or st_ao_mult <= 0:
+                st_ao_mult = 2.0
         if is_st:
             if st_spherical and sh_l0 is not None:
-                if isinstance(sh_l0, tuple):
-                    st_tint = tuple(min(c, 2.0) for c in sh_l0)
-                else:
-                    st_tint = (min(sh_l0, 2.0),) * 3
+                st_tint = speedtree_spherical_tint(sh_l0, st_ao_mult)
             elif st_spherical:
                 st_tint = (1.0, 1.0, 1.0)   # 无 SHCoeff：等价只乘 color0（客户端同式）
             else:
@@ -1836,6 +1907,29 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
                 st_tint = tuple(min(max(tcm[i] * tom[0] + too[0], 1e-3), 4.0) for i in range(3))
         else:
             st_tint = None
+        # 逐顶点遮挡烘进 COLOR_0：卡片/刚体子集与纯静态组走同一份客户端公式。
+        # legacy 保持原始 color0（客户端乘 tcm/tom/offset，不做 AO 改写）。
+        st_static_colors = None
+        if is_st:
+            if st_spherical:
+                if card is not None:
+                    if card.get("colors"):
+                        card["colors"] = apply_speedtree_vertex_ao(
+                            card["colors"], st_ao_contrast, st_ao_brightness)
+                    if card.get("rigid") and card["rigid"].get("colors"):
+                        card["rigid"]["colors"] = apply_speedtree_vertex_ao(
+                            card["rigid"]["colors"], st_ao_contrast, st_ao_brightness)
+                else:
+                    raw_colors = decode_speedtree_colors(group)
+                    if raw_colors is not None:
+                        st_static_colors = apply_speedtree_vertex_ao(
+                            raw_colors, st_ao_contrast, st_ao_brightness)
+            elif card is None:
+                st_static_colors = decode_speedtree_colors(group)
+            if st_static_colors is not None and len(st_static_colors) != len(positions) * 4:
+                # 顶点数不齐 = 解错流/偏移，fail-closed：不写 COLOR_0（旧口径 vOcc=1）
+                st_static_colors = None
+                stats["st_color_dropped"] = stats.get("st_color_dropped", 0) + 1
         card_occ = card["occ_mean"] if card is not None else None
         # 烘焙光照图（客户端 `materials-fp.sl` 的 MATERIAL_LIGHTMAP：静态场景在客户端是
         # **不受光**的烘焙光照——`color = albedo(UV0) × lightmap(UV1×uvScale+uvOffset) × 2`）。
@@ -2071,7 +2165,11 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
             mesh_index = glb.add_shared_mesh(
                 datasource, positions, indices, uvs,
                 authored_normals or compute_normals(positions, indices), material_index,
-                uvs1=uv1_attr)
+                uvs1=uv1_attr,
+                # 纯静态 SpeedTree 组（w=0 固定叶/树干）的 COLOR_0：客户端同样乘
+                # varVertexColor；缺它则消费端 vOcc=1，叶片按 albedo×SH 过亮。
+                extra_attrs=([{"name": "COLOR_0", "type": "VEC4", "data": st_static_colors}]
+                             if st_static_colors else None))
             if uv1_attr is not None:
                 stats["uv1_shipped"] = stats.get("uv1_shipped", 0) + 1
             if mesh_index is not None:

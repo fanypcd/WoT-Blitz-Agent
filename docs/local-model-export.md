@@ -278,7 +278,8 @@ BK 侧同一份产物里这些件错位/叠加，**不复刻**。2026-10-17 的 
 `extras` + 节点归属），**643 辆 model.glb + 735 辆 collision.glb 与旧缓存逐字节一致**；
 92 辆的几何总量不变（旧件全部保留，仅 scene 结构变化）；模型批后本地包 **5766 件 / 4200.4 MB**
 （旧整包 4200.3，差量 +0.1 MB；随后逐炮塔 `tank/{id}.json` 数据补丁 +0.4 MB，整包
-**4201.0 MB**）。**COS 已同步**：partial publish `--only glb/` 92 条 + `--only tank/` 738 条，
+**4201.0 MB**；2026-10-18 的 36 图 SpeedTree scenery 重导后 **4201.1 MB**，该批 scenery 已局部
+发布 COS（15 条变更，0 hash diff））。**COS 已同步**：partial publish `--only glb/` 92 条 + `--only tank/` 738 条，
 远端与本地 **0 hash diff**；远端 manifest 的 root `upstream_commit` 保持上一批 `58a891e`
 （note 已注明；本地 `8dcec2c`/`worktree_dirty=true`，因改动尚未提交）。
 
@@ -409,5 +410,6 @@ COS_SECRET_ID=… COS_SECRET_KEY=… python tools/upload_asset_pack_cos.py --onl
 保留 `_nc_skin`、未命中车逐字节一致）。2026-10-17 重导 92 辆逐字节 diff（相对只导激活态的
 中间版）：变化 = **92 辆 model.glb**（清单见 §5.1）、**collision.glb 0 辆**、其余 643 辆
 零字节变化；备用 scene 保留全部非激活几何，92 辆合计 **+12.1 MB**（模型批后 4200.4 MB，相对
-旧包 +0.1 MB；tank 数据补丁后整包 4201.0 MB）。COS 已同步：partial publish 92 条 glb，
+旧包 +0.1 MB；tank 数据补丁后整包 4201.0 MB；scenery 重导后 4201.1 MB，已局部发布
+（15 条变更，0 hash diff））。COS 已同步：partial publish 92 条 glb，
 远端/本地 **0 hash diff**；10625 远端 `1031e5ad…`，默认 scene 无 `turret_01_nc_skin`、备用 scene 有。

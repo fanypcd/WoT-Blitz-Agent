@@ -96,7 +96,9 @@
   sha256）。**COS 已同步**（partial publish `--only glb/` 92 条 + `--only tank/` 738 条，
   远端与本地 **0 hash diff**；`map2d/` 30 件、92 辆坦克 GLB、738 份 `tank/{id}.json`
   均已上线）。2026-10-20 装甲厚度精度重生成后再以 `--only tank/` 差分补传 **8 个**
-  变更 tank JSON（730 个按 sha256 跳过），远端 manifest 就地登记 8 条。本轮只补 `glb/` 与 `tank/` 条目，远端 manifest 的 root `upstream_commit`
+  变更 tank JSON（730 个按 sha256 跳过），远端 manifest 就地登记 8 条。此前 2026-10-18
+  的 36 图 SpeedTree scenery 重导已以 `--only map/` 局部发布 **15 条 / 511.7 MB**
+  （其余 21 图字节未变未重传），远端 `files` 与本地一致。本轮只补 `glb/` 与 `tank/` 条目，远端 manifest 的 root `upstream_commit`
   保持上一批 `58a891e`（note 已注明；本地 `upstream_commit` 为 `8dcec2c`、
   `worktree_dirty=true`，因改动尚未提交）。发布链、差分上传与全部运维陷阱见
   [data-inventory.md](data-inventory.md) §2.1 与 [game-data-sources.md](game-data-sources.md) §5.2。
@@ -132,6 +134,26 @@
   按 0/空 **fail-closed，不回退 `armor_model`**；切 config 时
   `refreshConfigArmorThickness` 重算 turret/gun 的 `armorThickness`。数据字段 additive；
   尚未部署的新查看器代码仍走旧的 `armor_model` 摘要路径，部署后消失。
+- **SpeedTree 静态叶过亮修复（2026-10-18，导出器 + WotbTools 前端）**：客户端
+  `speedtree-materials-vp.sl:236-285` 的 SPHERICAL_LIT 净染色 =
+  `0.282094 × SH(L0) × vertexOcclusion × shOcclusionMult`，其中
+  `vertexOcclusion = aoContrast × (COLOR_0.r − 0.5) + 0.5 + aoBrightness`。旧导出把
+  `st_tint` 写成 SH 字面值（√π = 1.7725），且只给叶卡/混合批刚体子集写 COLOR_0；
+  纯静态组（`pivot.w=0` 固定叶，如 DesertSands 棕榈 `palm1_dt`/`palm2_dt`）整批丢遮挡
+  ⇒ 消费端 `vOcc=1`，叶净值 1.7725 vs 客户端 COLOR_0（叶均值 0.722–0.733），约 **2.4×
+  过曝**（旧口径下 **57.8% 可见叶像素在回放侧近白**，客户端不白）。修复：`st_tint = 0.282094×SH×shOcclusionMult`
+  （√π 且 aoMult=2 → 1.0；每树彩色 SH 逐通道同式）、**所有 ST 组静态网格随导 COLOR_0**
+  并按客户端 AO 对比度/亮度烘焙；legacy 分支染色式不变（SH 不参与）。36 图 scenery 全量
+  重导（其中 15 图字节变化），本地包 5766 件 / 4201.1 MB、manifest 已重算；**COS 已局部
+  发布**（`--only map/` 15 条变更 scenery，511.7 MB；远端 `files` 与本地 0 hash diff，root
+  仍 `58a891e`）。WotbTools 同步改 `sceneryMaterials.js::makeBillboardMaterial`：
+  `occMean=1`（新包哨兵）时 COLOR_0 已是 `vertexOcclusion`，去掉 1.25 亮部上限；旧包路径
+  不变。数据级实测 DesertSands 棕榈叶 viewer/client 净值逐通道一致（0.722/0.733），
+  旧口径的 57.8% 近白差异归零；全库 1284 个 ST 网格均带 COLOR_0。影响面：36 图所有 SpeedTree 几何
+  （全库 28,411 个 speedtree 批次）及消费该包的 WotbTools/Android；WotbTools 侧属
+  scene-runtime，PR 需按 Android version rule 同步 `wotbVersion`。回归：
+  `tools/test_export_speedtree_ao.py` 6 项、既有导出器单测；WotbTools
+  `sceneryMaterials` 78 项 + `test:shader-check` 24 程序 0 失败。
 
 ### 回放切面（`PlaybackData` v2 / `AiReviewFacet` v1）
 
