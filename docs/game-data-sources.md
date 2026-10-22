@@ -1,8 +1,8 @@
 # 游戏数据来源与 BlitzKit 依赖评估
 
 > 回答两个问题：**每一份数据到底从哪来**，以及**能否摆脱对 BlitzKit 数据源的依赖、
-> 改由解析本机游戏文件自产**。文末附资产面（COS）发布流程与运维陷阱。
-> 所有结论均有实测证据。
+> 改由解析本机游戏文件自产**。文末附资产 origin（Alibaba；COS 为 legacy）发布流程与
+> 运维陷阱。所有结论均有实测证据。
 
 ## 一、结论
 
@@ -210,6 +210,62 @@ fail-closed）；消费方展示层按框缩放定位。图标重导后须重跑
 （alpha 归一化表）；`.tex` 引用在数据面的落点规则 = `<stem>.tex` → `<stem>.dx11.dds.dvpl`
 （与坦克贴图同）。可行性定案与前端消费口径见 [feasibility-track-marks.md](feasibility-track-marks.md)。
 
+### 2.7 11.22 tier XI 超测预览 ZIP（非现役源）
+
+2026-10-22 核验的公开 CDN 包（BlitzKit Preview 构建的 `CLIENT_SOURCE`）：
+
+- URL：`http://cdn.static.wotb.app/win7/WotBlitz_11.4.0.119_t11b.zip`
+- 20,666,565,975 B（约 19.25 GiB），`Accept-Ranges: bytes`，Last-Modified 2026-10-19
+- 包内 `Data/version.txt.dvpl` = `11.4.0.119_7388926 11.22_supertest_tier11_4 WOTB_Win7`
+- 完整 Windows 客户端（`app/wotblitz.exe` 75 MB + `app/Data` + `app/locales`），standalone
+  布局；不是 Steam depot，也不是 11.21 现役包。`cdn.static.wotb.app` 同时是现役客户端
+  `Data/server_config_urls.yaml.dvpl` 的 `Location2`（`.../conf`），域名属官方 CDN。
+
+**实装范围**：`item_defs` 878 条目；`list.xml` 只有两辆 level 11：
+
+| 车辆 | list id | tank_id（`(id<<8) \| 国家基数`） | 科技树 | 状态 |
+|---|---|---|---|---|
+| `Ch67_BZ_79` | 59 | 15153 | `[11, 3]` | 车辆 XML + 主模型/碰撞/参数/图标齐 |
+| `R230_Object_432U` | 109 | 27905 | `[11, 8]` | 同上 |
+
+科技树另登记 `R228_KR_1` `[11,5]`、`A183_XM69_Hacker` `[11,6]`、`G189_Hirschkafer`
+`[11,3]`、`G187_Taschenratte` `[11,7]`、`J77_Ho_Ri_4` `[11,2]`、
+`F135_AS_XX_40_t` `[11,4]`；这些**没有车辆 XML/list 条目**，部分只有
+`Customization/Skin_*` 皮肤资产，不能提取统计/模型定义。BZ-79 与 432U 的数据已用现役
+提取链生成 `tank_data`/`tank_cache`/`game_data`/GLB（semantic 贴图，`tex_fail=[]`）/
+图标/悬挂/履带印；弹种表为现役 2084 + 6 个新 ID，旧条目零差异。
+
+**产物与边界**：
+
+- `release/asset_pack_t11_preview/`：11.21 现役包 + 2 辆 = **740 辆**；
+  `data_version` = `release/11.21.0+t11-preview`、`tank_count=740`；manifest 5780 件。
+- `release/asset_pack_t11_preview_delta/`：**30 件**变更/新增（含 manifest 与 8 件
+  0.01mm 精度补差），**14.9 MB**；用于在 Alibaba host 的现役 release 上做“硬链接复制 +
+  覆盖”，不重传全包。线上 `initial-20261019` 与本地基线仅差这 8 个 `tank/{id}.json`
+  （6.3→6.35、15.9→15.87），并入后 manifest 逐文件自洽（预检 0 mismatch）。
+- **已上线 `assets.wotbtools.com`**：`current` 已切到
+  `releases/t11-preview-20261022-destructibles`（host `ali-sh-asset-01` / 47.101.141.111）。
+  该 release 由 `t11-preview-20261022`（740 辆预览数据）硬链接复制 + **15 个修正后的
+  `destructibles.json` + `index.json`（7 个变体重映射）** 增量组成（2026-10-22 可破坏物
+  lka 选表修复）；manifest **5891 件 / 4427.2 MB、0 mismatch**，公网 15 个文件哈希逐一
+  核对，`deploy/assets/verify.sh` PASS；旧 `t11-preview-20261022` 与 `initial-20261019`
+  均保留回滚。WotbTools 端无代码改动（tier 标签/过滤数据驱动；destructibles 走每 key
+  目录，index 已指向本变体 key）。本地验收：
+  `node scripts/serve_asset_pack.mjs 8124 release/asset_pack_t11_preview`，
+  前端 `?assets=http://127.0.0.1:8124&view=agent-tankopedia&tank=15153`。
+
+**口径注意**：
+
+- 超测数据，非正式服；只在独立预览包，不并入 `data/tanks.pb`/`tank_cache.json` 的
+  11.21 现役数据（WotbTools 生产资产 origin 已切到该独立 release）。
+- 图标是预览包占位图：两辆的 128² 基础图与 256² `@2x` 逐字节相同；`crops.json` 按
+  128×128 记录（不是现役 256×128 画布）。
+- BZ-79 第二弹种 XML 名/icon 为 HEAT（`_152mm_HEAT_Po_152ZPL`、`he_premium`），但
+  `<kind>` 写 `HIGH_EXPLOSIVE`；现提取链按 `<kind>` 得 `type_id=3`、`type=he_premium`。
+  两者矛盾，接入穿透判定前必须确认，不能静默按 HE 或 HEAT 处理。
+- HP 口径：`tank_cache`/`tank_data` 的 `hp` = 车体 + 炮塔（2770 / 2260）；
+  `configs[].hull_hp` = 车体（2170 / 1760）。
+
 ---
 
 ## 三、`tank_id` ↔ 游戏模型名的桥（可由客户端重建）
@@ -265,52 +321,63 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
   打包器对它 fail-closed（缺源即拒绝打包），但**同版性只能靠刷新链顺序保证**——先 `update-data`
   再 `dump-shell-kinds`，同一回合完成
 
-### 5.2 资产面（COS）增量发布流程
+### 5.2 资产 origin（Alibaba）增量发布流程
 
-桶：`wotbtools-assets-1478073677`（ap-shanghai），布局与 `release/asset_pack/` 逐项对应，
-根 `manifest.json` 含全量逐文件 sha256（**5766 条**）。发布链固定为
-**重打包 → 俯视合成 → `--refresh-manifest`（合成之后、上传之前）→ 差分上传**——
-`--refresh-manifest` 是必需的：合成器在打包之后改写 `ground.webp`，不重算则这 36 项的
-manifest 条目与包内件不一致。朝向契约、重烘与读回校验见 §5.5。
-**2026-10-18 批次已发布**：36 图 `map/*/scenery.glb` 因 SpeedTree 静态叶 COLOR_0/净染色
-修复重导（本地 manifest 重算为 5766 件 / 4201.1 MB；15 图字节变化），已用 `--only map/`
-局部发布 15 条 / 511.7 MB；远端 manifest `files` 与本地 **0 hash diff**，root 仍为
-`58a891e`（partial patch note）。后续同类批次沿用 `--only map/`。
+**当前生产 origin = `https://assets.wotbtools.com`**（Alibaba 主机 `ali-sh-asset-01` /
+47.101.141.111，`/srv/wotb-assets/current -> releases/<pack-id>`）。Web 与新 Android 都读
+这里；COS 桶 `wotbtools-assets-1478073677` 只保留给旧 APK 与临时回滚（legacy，见文末）。
 
-**首选工具**：
-[tools/upload_asset_pack_cos.py](../tools/upload_asset_pack_cos.py)（差分比对 + 并发上传 +
-`manifest.json` 强传 + Cache-Control 策略；`--only <prefix>` = **局部发布**——只传匹配前缀的
-文件，且 manifest 改为**拉远端清单就地补丁**、只登记本次上传的条目，多会话共用一个包目录时
-不会把他人在飞的改动宣布为线上内容）。下列要点同时是手工流程的检查单：
+发布链固定为 **重打包 → 俯视合成 → 2D 底图 → 变体目录物化 → `--refresh-manifest` →
+新 release 增量覆盖 → 主机重算 manifest/校验 → 原子切 `current`**。`--refresh-manifest`
+是必需的：合成器在打包之后改写 `ground.webp`，变体工具还会新增目录；不重算则 manifest
+条目与包内件不一致。朝向契约、重烘与读回校验见 §5.5。
 
-1. **先做一致性安全检查**：比对桶内 `manifest.json` 与本地旧包快照的 sha256，并抽查若干
-   对象核对清单哈希——确认桶处于预期状态，避免覆盖他人改动
-2. **按 manifest 差分上传**，只传真正变化的：`新增 + 内容变更` 的对象，外加 `manifest.json`
-   本身
-3. **跳过判定 = 桶内 `manifest.json` 的逐文件 sha256**：内容变了就必须传，**哪怕尺寸相同**
-   （只比 `Content-Length` 会把这类修正静默跳过——如 `map/lagoon/ground.webp` 与坦克
-   顶点烘焙：只改内容不改字节数）。远端 manifest 缺该条目（首传/旧对象）时
-   回退尺寸比对；取不到远端 manifest 则整体回退并告警——此时第 5 步的逐对象回拉校验是唯一兜底
-4. ⚠️ **上传会遍历包目录下全部文件**：俯视烘焙的渲染中间产物 `<pack>/overhead/*.rgba`
-   （按图 64 MB，非包内资产）必须提前移出，约定缓存在 `release/overhead-bake/`
-   （曾误传 73 个对象 / ~2.4 GB，已清理）
-5. **上传后回拉校验**：逐对象下载与**本地包文件**比对 sha256（manifest 条目现与包内容自洽，
-   可当基准；仍建议抽样回拉以防传输侧意外）
-6. **不设 Content-Type**：桶内既有对象均未设置，保持一致以免引入元数据漂移
-7. `manifest.json` 的 `generated` 是本次更新时刻，可能与 `index.json`（地图资产未变）不同步；
-   需两者一致须重跑 `export_asset_pack.py` 全量重打包（或按第 3 条判据重传 `index.json`）。
-   另：`worktree_dirty=true` 的包**不等于**标注 commit 的原样工作区（见
-   [data-inventory.md](data-inventory.md) §2.1）
-8. 回滚素材：旧包状态的本地快照（`game_data/` + `tank/` + `manifest.json`），必要时原样传回
-9. ⚠️ **凭据字节要干净**：Windows 下经管道/命令替换传 `COS_SECRET_*` 时注意尾部 `\r`
-   （python 文本模式的换行转换会把 `\r` 带进 SecretKey ⇒ 比对与上传**全部** `SignatureDoesNotMatch`；
-   上传阶段全失败即先核对凭据长度是否与源文件一致，多 1 字节即此坑）
-10. ⚠️ **发布后"客户端仍显示旧图"先查缓存窗口**：二进制资产带 `Cache-Control: max-age=3600`
-   （有意折中，见 `tools/upload_asset_pack_cos.py` 注释）⇒ 浏览器在新鲜期内**不回源**，改图后
-   最多约 1 小时才可见。诊断三步：①带 `?v=` 查询串另开一页对照（换缓存键 ⇒ 必为服务端现内容）；
-   ②DevTools → Network 看 `ground.webp` 的 `(disk cache)` 与 `Content-Length`/`Last-Modified`；
-   ③需要精确判定就 `fetch(url, {cache:'no-store'})` 算 sha256 与本地件比对。App 端不同：
-   Native 代理（`AgentAssetProxy.kt`）每次请求都带 `If-None-Match` 条件重取 ⇒ 换内容即时生效。
+**变体目录物化**（2026-10-22 起）：
+`python tools/materialize_destructible_variants.py --pack release/asset_pack --map-index map_index.json`
+——多变体 space 的 lka 是每变体一张分段表，映射确有差异的变体（当前 7 个：
+`medvedkovo_03`、`amigosville_03`、`rudniki_01/02/03`、`canal_01`、`neptune_02`）必须
+有独立 `map/<key>/`；共享资产用硬链接，index 的该 map_id 指向本 key。其余 12 个变体
+分段表与基础变体一致，共用基础目录。工具按 `instances`（含 serverId）逐项比较，
+只物化真正不同的变体；不靠内容统计，也不改动共享资产的字节。
+
+**发布（Alibaba）**：
+
+1. 本地完成打包链并用 `--refresh-manifest` 重算；记录变更文件清单（只传这些）。
+2. 把变更文件 `scp` 到主机临时目录（如 `/srv/wotb-assets/incoming-<batch>/`）。
+3. 主机上 `cp -al releases/<current> releases/<new>`（硬链接复制，不重传全包）；
+   需要新变体目录时 `cp -al releases/<new>/map/<base> releases/<new>/map/<variant>`。
+4. 覆盖变更文件**必须断链**：`cp --remove-destination`（或临时文件 + `os.replace`）。
+   新 release 里未变更的文件与上一 release 共享 inode，直接 `cp` 会同时改写回滚版本。
+5. 主机上重算 manifest：遍历新 release 全部文件，排除 `manifest.json` / `delta.json`，
+   保留 base manifest 的 `version` / `data_version` / `upstream_commit` / `worktree_dirty`，
+   更新 `generated` 与逐文件 sha256；写 `delta.json` 记录相对 base 的变更。
+6. **校验 0 mismatch**：重算全部文件哈希与 manifest 条目比对；核对上一 release 的
+   `manifest.json` / `index.json` / 被覆盖文件的哈希未变（证明断链正确）；抽查变体目录
+   共享文件哈希与基础目录一致。
+7. `ln -s releases/<new> current.new && mv -T current.new current` 原子切换；公网逐文件
+   回拉比对 sha256，并在 WotbTools 仓跑 `bash deploy/assets/verify.sh https://assets.wotbtools.com`。
+8. 旧 release 保留回滚（至少保留当前 + 上一代）；`delta.json` 随 release 留存。
+
+**当前 release（2026-10-22）**：`t11-preview-20261022-destructibles`，基于
+`t11-preview-20261022`（740 辆预览数据）硬链接复制 + 15 个修正后的
+`destructibles.json` + `index.json`（7 个变体重映射）增量；manifest **5891 件 /
+4427.2 MB、0 mismatch**，公网 15 个文件哈希逐一核对，`deploy/assets/verify.sh` PASS；
+旧 `t11-preview-20261022` 与 `initial-20261019` 保留回滚。
+
+**历史批次（COS，legacy）**：2026-10-18 的 36 图 SpeedTree scenery 重导曾用
+`--only map/` 局部发布 15 条 / 511.7 MB；2026-10-20 的 8 个 0.01mm 精度 `tank/{id}.json`
+同理。此类记录只说明 COS legacy 的维护方式，不再适用于新内容发布。
+
+**COS legacy 工具**：[tools/upload_asset_pack_cos.py](../tools/upload_asset_pack_cos.py)
+（仅旧 APK / 临时回滚；`--only <prefix>` = 只登记本次上传的前缀，manifest 改为远端清单
+就地补丁）。注意事项：跳过判定必须是桶内 manifest 的逐文件 sha256（**同尺寸不同内容
+也要传**）；凭据只从 `COS_SECRET_ID` / `COS_SECRET_KEY` 读且注意 Windows 尾部 `\r`；
+浏览器的 `max-age=3600` 缓存窗口只对 COS legacy 生效。新 origin 由 Caddy 用短 TTL
+（`max-age=300, must-revalidate`）+ ETag 提供，App 端每次带 `If-None-Match` 条件重取。
+
+`manifest.json` 的 `generated` 是本次更新时刻，可能与 `index.json` 的 `generated`
+不同步（地图资产未变时 index 可保持原样）；`worktree_dirty=true` 的包**不等于**标注
+commit 的原样工作区（见 [data-inventory.md](data-inventory.md) §2.1）。
 
 ### 5.2b 本机解包 → pb 编码器（现役数据源）
 
@@ -435,9 +502,9 @@ alpha 覆盖率 ~20% = 只有俯视件）按本节命令重合成会把 36 张�
    回归锁：`tools/test_overhead_guard.py`（世代判据 / 拒写闸门 / 成对校验三组用例）。
 
 **现役渲染件**：`release/overhead-bake/` 归档 = ground-pass 世代（与线上底图同代，
-包内 == 归档 == 线上）；仅需线上字节时可用 COS 公开源只读回拉
-（`https://wotbtools-assets-1478073677.cos.ap-shanghai.myqcloud.com/map/<key>/ground.webp`，
-逐张 sha256 对照 manifest）。
+包内 == 归档 == 线上）；仅需线上字节时可用资产 origin 只读回拉
+（`https://assets.wotbtools.com/map/<key>/ground.webp`；COS legacy 同路径仍可读），
+逐张 sha256 对照 manifest。
 
 ### 5.6 2D 战术底图（WotbTools 前端资产）的派生链
 
@@ -468,22 +535,23 @@ webp 即拒写（防指错目录）。`--verify` 按 manifest 逐张重算并比
 **WotbTools 侧不再派生**（2026-10-16 决定）：Web 与 APK 随包的就是这一份 canonical 字节，
 像素完全一致（此前 Android 用的 ≤1024²/q72 派生链已整体删除）。
 
-**COS 免发版通道（`map2d/` + `index.json`）**：同一次导出还会把同样字节写成
+**资产 origin 免发版通道（`map2d/` + `index.json`）**：同一次导出还会把同样字节写成
 `release/asset_pack/map2d/<code>.webp` + `map2d/index.json`（**schemaVersion 2**：`generated`、
 `recipe`、逐图 `path/sha256/bytes/width/height` **＋几何契约 `worldBounds` / `orientation`**，
 2026-10-16 起；schemaVersion 1 缺这两项，消费侧一律不换图），并在 staging 目录写下交接件
 `map2d-source.json`（schemaVersion 2：`contentGeneratedAt` = 索引 `generated`、`indexSha256`、
 `recipe`，以及**与字节的绑定** `maps: {code: {file, sha256}}`（29 条）与 `mapsDigest`）。
 该交接件随 29 张 webp 一起进 WotbTools `frontend/src/assets/maps/`：**包内"内容时间戳"的唯一来源**
-——运行时用它与 COS 索引的 `generated` 做单调比较（`index.generated <= contentGeneratedAt ⇒ 包内即最新`）。
-**绝不能在消费侧改成构建时间**：stage 晚于 COS 发布才构建时会把真正更新的底图判成更旧而永久拒绝升级，
+——运行时用它与资产 origin 索引的 `generated` 做单调比较（`index.generated <= contentGeneratedAt ⇒ 包内即最新`）。
+**绝不能在消费侧改成构建时间**：stage 晚于资产发布才构建时会把真正更新的底图判成更旧而永久拒绝升级，
 且同一 commit 重跑构建会产出不同字节的 bundle（破坏 stage 可重跑性与 APK 不可变性）。
 **绑定是硬要求**：消费侧必须用本地真实字节重算 `maps`/`mapsDigest` 并 fail closed（WotbTools 构建期
-比对随包字节、CI 测试比对仓库 canonical 字节；均不查 COS）。缺了它，"换图但忘了重跑本工具并同步
+比对随包字节、CI 测试比对仓库 canonical 字节；均不查远端 origin）。缺了它，"换图但忘了重跑本工具并同步
 交接件"会让旧 `contentGeneratedAt` 配上新图，运行时据索引可能把包内更新的图 OTA 降级。
 `--verify` 对这三方（交接件 ↔ 索引 ↔ canonical 字节）逐条同源校验。
-复现同一批发布时用 `--generated <ISO-8601Z>` 固定时间戳（不加则每次导出都是新 `generated`）。上传走既有发布链（json → `no-cache`、
-webp → `max-age=3600`；`--only map2d/` 可局部发布）。**索引是 App 的唯一判据**：
+复现同一批发布时用 `--generated <ISO-8601Z>` 固定时间戳（不加则每次导出都是新 `generated`）。发布走 §5.2 的
+Alibaba 新 release 流程（json → `no-cache`、webp → 短 TTL；COS legacy 的 `--only map2d/`
+仅用于回滚维护）。**索引是 App 的唯一判据**：
 包内那份是否最新、远端该取哪张，全部按 `sha256` 比对；字节在使用前逐件校验，失败回落包内。
 App 侧消费（WotbTools `frontend/src/data/map2dOverlay.js`）与"包内兜底 + 在线校验"的完整规则见
 其 `docs/reference/maps.md` §2026-10-16。
@@ -570,5 +638,6 @@ X-Terrain-Meta 同响应返回，天然配对，无需该字段）。
 - 手动覆盖 `data/maps/<key>.heightmap.u16.bin` 的契约 = corner 口径镜像数据（即
   `parse_heightmap` 的输出格式）。
 - 重导链：`fetch-terrain --force` → `export_asset_pack.py` → `composite_overhead`（重导会
-  覆写 overhead 烘焙地面，必须重烘——见 §5.5 世代硬约束）→ `--refresh-manifest` → COS 差分上传；
+  覆写 overhead 烘焙地面，必须重烘——见 §5.5 世代硬约束）→ `--refresh-manifest` → 按 §5.2
+  发布到 Alibaba origin 的新 release；
   地形件 ~512 KB/图 × 36 图，模型/地面纹理/场景 GLB 不受影响。

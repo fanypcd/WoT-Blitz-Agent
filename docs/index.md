@@ -13,7 +13,7 @@
 | [docs/wotbtools-cross-reference.md](wotbtools-cross-reference.md) | 与 WotbTools 逆向结论的逐条裁决（采纳/驳回/互证），防止误采或回退已定案；附跨仓协作现状 |
 | [docs/tank-suspension-client-re.md](tank-suspension-client-re.md) | **客户端坦克悬挂逆向**：处理链与节点绑定契约、逐车 `suspension:` 数据面（`wheels`/履带折线/`chassis.textureScale`）、负重轮-履带求解公式（反汇编还原）、对齐可行性分级与剩余未定项 |
 | [docs/architecture-debt.md](architecture-debt.md) | 架构债与长期改动方案：已完成项（combat.rs 拆分、双路径合并）与仍留存项 |
-| [docs/game-data-sources.md](game-data-sources.md) | **数据来源权威表**：每份数据取自 BlitzKit / 本机客户端 / WG API / 自产；本地提取链、间隙甲 spaced 规则、DVPL 校验契约、DLC 覆盖层、COS 资产面发布流程与运维陷阱、俯视合成朝向契约 |
+| [docs/game-data-sources.md](game-data-sources.md) | **数据来源权威表**：每份数据取自 BlitzKit / 本机客户端 / WG API / 自产；本地提取链、间隙甲 spaced 规则、DVPL 校验契约、DLC 覆盖层、资产 origin 发布流程（Alibaba；COS legacy）与运维陷阱、俯视合成朝向契约 |
 | [docs/data-inventory.md](data-inventory.md) | **数据面清单 / 运行所需数据总账**：运行期 11+1 项核心数据的"目前来源 / 可替代来源 / 替代完成度"+ 派生/注入数据 + 非数据类外部依赖；分发渠道与包内布局；工具索引 |
 | [docs/decoupling-status.md](decoupling-status.md) | 解耦现状（BlitzKit → 本机客户端自产，已全量完成）：已定案差异清单、封面图与命名域细节、对外沟通材料 |
 | [docs/local-model-export.md](local-model-export.md) | 坦克模型本机自产管线：实现铁律（违反会静默出错）、贴图语义口径与通道搬迁、与 BlitzKit 的逐维度对照结论 |
@@ -89,19 +89,44 @@
   封面图换源转正）：外部依赖只剩 WG 战绩 API（性质不同不可本地化）与 BlitzKit
   "交叉校验对象"角色（两处缺失兜底休眠）。逐项来源 / 替代完成度见
   [data-inventory.md](data-inventory.md) §一、§五；解耦口径见 [decoupling-status.md](decoupling-status.md)。
+- **11.22 tier XI 超测预览包（2026-10-22，非现役数据面）**：公开 CDN 的
+  `WotBlitz_11.4.0.119_t11b.zip`（`version.txt` = `11.22_supertest_tier11_4`，20.67 GB，
+  支持 Range）完整实装了两辆 XI 车：中国 **BZ-79**（15153）与苏联 **Object 432U**
+  （27905）；科技树另登记 6 个 XI 节点，但无车辆定义/主模型。已构建独立预览包
+  `release/asset_pack_t11_preview/`（11.21 的 738 辆 + 2 = 740，含 `tank/`、GLB、图标、
+  `game_data/`、悬挂/履带印），并生成 **30 件增量** `release/asset_pack_t11_preview_delta/`
+  （14.9 MB；其中 8 件是线上 `initial-20261019` 缺失的 0.01mm 精度补差）。WotbTools 端无需改代码（tier 过滤/标签数据驱动）；**已作为
+  `releases/t11-preview-20261022` 上传 Alibaba origin**（公网 740 辆、
+  `deploy/assets/verify.sh` PASS；旧 `initial-20261019` 保留回滚）。2026-10-22 的
+  可破坏物修复已在其上发布 `t11-preview-20261022-destructibles`（见下），
+  `t11-preview-20261022` 仍保留回滚；本地验收仍可走
+  `?assets=http://127.0.0.1:8124`。来源、口径与
+  注意事项（超测属性、图标占位、BZ-79 弹种 `<kind>` 冲突）见
+  [game-data-sources.md](game-data-sources.md) §2.7；预览包不进入 11.21 运行期数据面。
 - **游戏版本**：`release/11.21.0`，车辆 **738**（`data_version.json` 为准）。随版刷新链
   （pb / tank_cache / game_data / 图标 / GLB / 悬挂 / 履带印 / shellKinds）与新增
   collector 车清单见 [data-inventory.md](data-inventory.md) §一。
-- **资产包与 COS**：本地包 **5766 件 / 4201.1 MB**（`release/asset_pack/`，manifest 逐文件
-  sha256）。**COS 已同步**（partial publish `--only glb/` 92 条 + `--only tank/` 738 条，
-  远端与本地 **0 hash diff**；`map2d/` 30 件、92 辆坦克 GLB、738 份 `tank/{id}.json`
-  均已上线）。2026-10-20 装甲厚度精度重生成后再以 `--only tank/` 差分补传 **8 个**
-  变更 tank JSON（730 个按 sha256 跳过），远端 manifest 就地登记 8 条。此前 2026-10-18
-  的 36 图 SpeedTree scenery 重导已以 `--only map/` 局部发布 **15 条 / 511.7 MB**
-  （其余 21 图字节未变未重传），远端 `files` 与本地一致。本轮只补 `glb/` 与 `tank/` 条目，远端 manifest 的 root `upstream_commit`
-  保持上一批 `58a891e`（note 已注明；本地 `upstream_commit` 为 `8dcec2c`、
-  `worktree_dirty=true`，因改动尚未提交）。发布链、差分上传与全部运维陷阱见
-  [data-inventory.md](data-inventory.md) §2.1 与 [game-data-sources.md](game-data-sources.md) §5.2。
+- **可破坏物 `(cell,slot)` 联表修复（2026-10-22，资产管线）**：`parse_lka` 只认
+  `er*` 分段表，黄沙荒漠（`dt1/dt2/dt3`）等 8 个多变体 space 回退到改版前遗留主表；
+  主表实体 id 被复用，同一 `(cell,slot)` 错联到别的物体（desert_train 178 棵树中 27 棵
+  指向非树物体、11 棵是 `bld_desert_house_*`，即「树倒演成房屋倒下」）。改为**通用前缀
+  发现 + 按 map_id 序数选本变体分段表**，并加结构自检（分段表每个 key 必须在场景、
+  格子码必须等于实体位置；不满足 fail-closed）。全库 9 个 space 复核：分段表
+  100% 可解析且格子码一致；主表 desert_train 47% 悬空。7 个映射确有差异的变体在包内
+  物化独立 `map/<key>/`（共享资产硬链接，index 指向本 key），其余 12 个变体共用基础
+  目录。已发布 `assets.wotbtools.com` 新 release **`t11-preview-20261022-destructibles`**
+  （manifest **5891 件 / 0 mismatch**、`deploy/assets/verify.sh` PASS；旧 release 保留
+  回滚），WotbTools 无代码改动。
+- **资产包与资产 origin**：本地 11.21 包 **5877 件 / 4415.6 MB**（`release/asset_pack/`，
+  manifest 逐文件 sha256；含 7 个变体目录）。生产 origin 已迁移到
+  **`https://assets.wotbtools.com`**（Alibaba `ali-sh-asset-01`，
+  `/srv/wotb-assets/releases/<pack-id>` + `current` 原子软链）；当前线上 release
+  **`t11-preview-20261022-destructibles`**（740 辆预览数据 + 本次可破坏物修复，
+  manifest **5891 件 / 0 mismatch**）。发布按「新 release 硬链接复制 + 增量覆盖
+  （`cp --remove-destination` / `os.replace` 断链）+ 主机重算 manifest + 校验 +
+  原子切 `current`」；**不要再走 COS 根目录全量上传**——COS 仅保留旧 APK 与临时回滚，
+  本次未动。发布链、增量发布与运维陷阱见 [data-inventory.md](data-inventory.md) §2.1
+  与 [game-data-sources.md](game-data-sources.md) §5.2；历史 COS 同步记录保留在版本条目中。
 - **俯视烘焙（均衡档底图）**：渲染件必须与线上同代（世代护栏：meta `ground` 键判据，
   旧世代 `--write` 拒写）；"先归档再合成"的次序约束与重烘命令见
   [game-data-sources.md](game-data-sources.md) §5.5。
