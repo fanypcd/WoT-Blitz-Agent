@@ -99,10 +99,12 @@ testing** happen in the WotbTools repository (https://github.com/A158Coke/WotbTo
   (`deploy/agent/source.json` — the release workflow fetches the pin into APK assets and records
   `agentWasm.commit/release` in `bundle-manifest.json`, so an unbumped pin ships a different
   runtime under the same versionCode), parser-facing contract adaptations, and packaged
-  asset/serving-path changes. Server-only, COS-only and docs changes skip it. A release here
+  asset/serving-path changes. Server-only, asset-origin-only and docs changes skip it. A release here
   needs no bump by itself — its *consuming pin bump* in WotbTools does.
-- **Asset-data changes must be re-synced to COS** (bucket `wotbtools-assets-1478073677` — the
-  production origin proxied by tx Caddy): map re-export, ground rebake, texture/material fixes.
+- **Asset-data changes must be published to the Alibaba asset origin** (`https://assets.wotbtools.com`,
+  host `ali-sh-asset-01` / 47.101.141.111, `/srv/wotb-assets/releases/<pack-id>` + `current`).
+  COS (`wotbtools-assets-1478073677`) is **legacy only** (old APKs and temporary rollback):
+  never publish new content to the COS bucket root. Map re-export, ground rebake, texture/material fixes.
   Tank models are the same deal — the shipped bytes are our own export, so a tank fix is
   `python tools/export_tank_glb.py --tank <id> --out data/cache/models`（全量：先导
   `data/cache/local_models` 再同步两目录，二者应逐辆一致），随后把同批文件替换进
@@ -122,19 +124,35 @@ testing** happen in the WotbTools repository (https://github.com/A158Coke/WotbTo
   the P2 bake — the composite now **refuses to write** such renders by default (fail-closed,
   `--allow-legacy-render` is diagnostics-only) and would otherwise silently roll all 36 grounds
   back a generation (re-bake upstream with `bake-ground-overhead.mjs --all` first; shipped bytes
-  are recoverable read-only from the COS origin — see §5.5 closing note). **The 2D tactical base
+  are recoverable read-only from the current asset origin — see §5.5 closing note). **The 2D tactical base
   maps are pack content too** (`release/asset_pack/map2d/` — the OTA channel the Android app
   validates against): the packer wipes the whole pack dir, so after every re-pack re-run
   `python tools/export_2d_basemaps.py` (staging `release/2d-basemaps/` + pack `map2d/` + its index)
-  **before** re-stamping — [docs/game-data-sources.md](docs/game-data-sources.md) §5.6. then **re-stamp the
-  manifest against the pack's actual bytes** — `python scripts/export_asset_pack.py --refresh-manifest`
-  （合成器在打包之后改写 `map/*/ground.webp`，不重算则 manifest 一直记合成前哈希）— and upload the delta:
-  `COS_SECRET_ID=… COS_SECRET_KEY=… python tools/upload_asset_pack_cos.py --local release/asset_pack`
-  （多会话共用一个包目录时用 **`--only <prefix>`** 局部发布：只传该前缀，manifest 改为远端清单
-  就地补丁，只登记本次上传的条目——不把他人 WIP 宣布为线上内容）. 
-  The uploader's skip test is **per-file sha256 from the bucket's manifest**, not Content-Length:
-  a fix that changes content without changing size (vertex bakes, 2026-10-10) would otherwise be
-  silently skipped and never ship. Credentials are env-var only, never committed.
+  **before** re-stamping — [docs/game-data-sources.md](docs/game-data-sources.md) §5.6. Then
+  **materialize per-variant map dirs** — `python tools/materialize_destructible_variants.py
+  --pack release/asset_pack --map-index map_index.json`（多变体 space 的 lka 每变体一张；只给
+  映射确有差异的变体建独立 `map/<key>/`，共享资产硬链接，index 按 map_id 指向本 key；必须在
+  composite/2D 之后、manifest 重算之前）— then **re-stamp the manifest against the pack's actual
+  bytes** — `python scripts/export_asset_pack.py --refresh-manifest`（合成器在打包之后改写
+  `map/*/ground.webp`、变体工具新增目录；不重算则 manifest 与包内件不一致）.
+  **Publish to Alibaba as a new immutable release** (never overwrite the live tree; never upload
+  the whole pack to COS):
+  1. `scp` only the changed files to `/srv/wotb-assets/incoming-<batch>/`（密钥
+     `~/.ssh/wotb_asset_upload`，用户 `admin@47.101.141.111`；凭据不入库）。
+  2. On the host: `cp -al releases/<current> releases/<new>`；需要新变体目录时
+     `cp -al releases/<new>/map/<base> releases/<new>/map/<variant>`。
+  3. Overlay changed files with `cp --remove-destination`（或临时文件 + `os.replace`）——
+     **绝不能用普通 `cp`**：未变更文件与上一 release 共享 inode，截断一个就同时改坏回滚版本。
+  4. Regenerate `manifest.json` on the host over the new release（排除 `manifest.json` /
+     `delta.json`；保留 `version`/`data_version`/`upstream_commit`/`worktree_dirty`，刷新
+     `generated` 与逐文件 sha256），写 `delta.json`，并复核 **0 mismatch**——包括上一 release
+     的 manifest/index 哈希未变。
+  5. `ln -s releases/<new> current.new && mv -T current.new current`；从
+     `https://assets.wotbtools.com` 逐文件回拉比对 sha256，并在 WotbTools 仓跑
+     `deploy/assets/verify.sh https://assets.wotbtools.com`。旧 release 保留回滚。
+  The manifest's **per-file sha256** is the verification authority — a content change with the same
+  size must still ship (vertex bakes, 2026-10-10). `tools/upload_asset_pack_cos.py` is
+  **legacy-only**（旧 APK/回滚）；其 `--only <prefix>` 语义不适用于新 origin。
 - Background: [README §与 WotbTools 的关系](README.md), [docs/index.md](docs/index.md) §前端面收敛,
   [docs/architecture-debt.md](docs/architecture-debt.md).
 
@@ -249,7 +267,12 @@ python tools/composite_overhead.py --pack release/asset_pack --all --write \
                                                                    # (orientation = fixed YX;
                                                                    #  --base-dir avoids double-baking
                                                                    #  on the already-composited files)
-# COS re-upload if production users must see it (see §Asset-data changes above)
+python tools/export_2d_basemaps.py                                # pack map2d/ + index (after re-pack)
+python tools/materialize_destructible_variants.py --pack release/asset_pack \
+    --map-index map_index.json                                    # per-variant map dirs (hardlinks)
+python scripts/export_asset_pack.py --out release/asset_pack --refresh-manifest
+# publish a new Alibaba release if production users must see it (see §Asset-data changes above);
+# COS is legacy only — do not upload new content to the COS bucket root
 ```
 
 `export_asset_pack.py` rebuilds `ground.webp` from the client colormap and **destroys the
