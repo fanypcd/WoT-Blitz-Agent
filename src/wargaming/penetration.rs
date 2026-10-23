@@ -190,6 +190,12 @@ pub struct PenetrationRequest {
     /// 主射入（true）可跳弹；跳弹后的出射射线（blitzkit 递归 shoot(...,false,...)）传 false。
     #[serde(default = "default_true")]
     pub allow_ricochet: bool,
+    /// 射击复现门禁（additive，默认 false = BlitzKit 末层语义）：
+    /// true 且链上无 Primary（hull/turret/gun；0mm 也算）、非 HE、非跳弹时，
+    /// 末层外部模块/间隙甲被穿透不得返回 PENETRATION + 全额伤害——服务器对这类
+    /// 命中为 result=1/2/4、damage=0。相机点击不传，保持 BlitzKit 行为。
+    #[serde(default)]
+    pub require_primary: bool,
     /// 交战距离（米）。与 `penetration_far` 同时提供且 >100 时启用距离衰减：
     /// `pen = near + (far − near) × (d−100)/400`（线性外推、最终 max(0)），对齐客户端
     /// 装甲指示器（wotblitz.exe 0x719740，常量 100/400 为反汇编实测；证据链见
@@ -479,7 +485,7 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
         }
     };
 
-    let result = if ricochet {
+    let mut result = if ricochet {
         "RICOCHET".to_string()
     } else if is_splash {
         "SPLASH".to_string()
@@ -490,6 +496,18 @@ pub fn calculate(req: &PenetrationRequest) -> PenetrationResult {
     } else {
         "-".to_string()
     };
+    let mut result_damage = result_damage;
+    // 射击复现门禁：无 Primary 的链（只命中履带/炮管/间隙甲）不得给 PEN + 满伤；
+    // 相机点击默认 false，保持 BlitzKit 末层语义。
+    if req.require_primary
+        && !is_he
+        && !ricochet
+        && result == "PENETRATION"
+        && !filtered_hits.iter().any(|h| h.section.is_primary())
+    {
+        result = "BLOCKED".to_string();
+        result_damage = 0.0;
+    }
 
     PenetrationResult {
         result,
@@ -534,6 +552,7 @@ mod tests {
             normalization_deg: None,
             ricochet_deg: None,
             allow_ricochet: true,
+            require_primary: false,
             distance_m: None,
             penetration_far: None,
         }
@@ -550,6 +569,49 @@ mod tests {
         ));
         assert_eq!(r.result, "PENETRATION");
         assert_eq!(r.damage, 400.0);
+    }
+
+    #[test]
+    fn require_primary_blocks_external_module_only_penetration() {
+        // 射击复现：只命中履带时不得返回 PEN + 满伤（服务器 result=1/2/4、damage=0）；
+        // 默认 false 保持 BlitzKit 末层语义（相机点击路径）。
+        let mut rq = req("ap", 100.0, 100.0, vec![hit(ArmorSection::Chassis, 20.0, [0.0; 3])]);
+        rq.require_primary = true;
+        let r = calculate(&rq);
+        assert_eq!(r.result, "BLOCKED");
+        assert_eq!(r.damage, 0.0);
+        assert_eq!(r.layers.len(), 1);
+
+        // 有 Primary 的链不受影响
+        let mut rq2 = req(
+            "ap",
+            200.0,
+            100.0,
+            vec![
+                hit(ArmorSection::Chassis, 20.0, [0.0; 3]),
+                hit(ArmorSection::Hull, 100.0, [0.0, 0.6, 0.0]),
+            ],
+        );
+        rq2.require_primary = true;
+        let r2 = calculate(&rq2);
+        assert_eq!(r2.result, "PENETRATION");
+        assert_eq!(r2.damage, 400.0);
+    }
+
+    #[test]
+    fn require_primary_keeps_he_and_ricochet() {
+        // HE 走溅射/爆炸语义，不受门禁影响
+        let mut he = req("he", 80.0, 100.0, vec![hit(ArmorSection::Chassis, 20.0, [0.0; 3])]);
+        he.require_primary = true;
+        he.explosion_radius = 3.0;
+        assert_ne!(calculate(&he).result, "BLOCKED");
+
+        // 间隙甲跳弹保留 RICOCHET（门禁只拦“无主装甲的击穿”）
+        let mut h = hit(ArmorSection::Spaced, 100.0, [0.0; 3]);
+        h.normal = [0.0, (75f32).to_radians().cos(), (75f32).to_radians().sin()];
+        let mut rq = req("ap", 300.0, 100.0, vec![h]);
+        rq.require_primary = true;
+        assert_eq!(calculate(&rq).result, "RICOCHET");
     }
 
     #[test]

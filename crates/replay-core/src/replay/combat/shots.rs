@@ -24,6 +24,11 @@ pub struct ShotQuality {
     /// 命中弹未在血量链找到伤害区间（服务器未记账 HP，damage 可能为 0）
     #[serde(skip_serializing_if = "is_false")]
     pub dmg_unattributed: bool,
+    /// 受击方在开火前已死亡（HP 终态证据 / 作者 method38 `TARGET_ALREADY_DEAD`）：
+    /// 服务器 method8 仍可能报告残骸命中，但该发按 miss 处理（target_eid/name 置空，
+    /// 不进入伤害归属与本地穿深判定）。false 时省略（旧产物缺省 = false）。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub target_dead: bool,
     /// 锚点快照来源（仅降级/回退路径序列化，供 UI 徽章告警；正常路径不序列化）：
     /// - shooter："nearest"=最近包（AoI 稀疏）、"extrapolated"=段末速度外推；"filtered"（段内插值）=正常不序列化；
     /// - target："nearest"/"filtered"/"extrapolated" 均为 method8 命中通知缺失后的回退路径；
@@ -61,6 +66,22 @@ pub struct ShotQuality {
     /// 极限的如实上报，不算冻结）："shooter" / "target"
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pitch_frozen: Vec<String>,
+}
+
+/// 受击方在 `t`（开火时刻）之前是否已死亡。
+///
+/// 判据 = HP 事件链最后一条 `clock <= t - TOL` 的状态：终态（0 / 负 i16 哨兵，
+/// 与 `hp_terminal_normalized` 同判）→ true；正 HP（含复活后的正向事件）→ false。
+/// 无 HP 证据 → false（fail-open：AoI 缺失不误杀活目标）。
+/// TOL=0.1s 吸收时钟量化：同 tick 的击杀（死亡事件略早于 method29）仍算有效射击。
+fn victim_dead_before(hp_events: &[HpEvent], eid: u32, t: f32) -> bool {
+    const TOL: f32 = 0.10;
+    hp_events
+        .iter()
+        .rev()
+        .find(|e| e.victim == eid && e.clock <= t - TOL)
+        .map(|e| hp_terminal_normalized(e.hp) == 0)
+        .unwrap_or(false)
 }
 
 /// 一次射击事件的"复现数据"：双方位置/朝向（type=10 实体状态包解码），供 3D 查看器复现热力图视角。
@@ -165,8 +186,10 @@ pub struct ShotReplayData {
     /// 判定冗余位）、res=0 恒 ~71-83；参照系未解，保留透传
     pub hit_triangle: u16,
     /// 游戏命中结果枚举（method8 b9 / type=32 segment 低字节同源）：
-    /// 0=无命中结果 1=未击穿 2=间隙层止 3=有伤害（击穿/HE 爆炸）4=履带/模块交互
-    /// （非跳弹——与内部模块穿旗标共存）；255 = 未获取。
+    /// 0=无命中结果 1=未击穿 2=间隙层止 3=有伤害（击穿/HE 爆炸）；
+    /// **4 = raw（语义未定）**——观测中既有履带/模块交互（cmpIndex 0/3、0 伤），
+    /// 也有带伤 case；按 `docs/wotbtools-cross-reference.md` §三.2 裁决，禁命名为
+    /// 跳弹或履带，消费方保留 raw、不要把 4 映射成跳弹/击穿/未穿。255 = 未获取。
     pub game_hit_result: u8,
     /// method8 ↔ type=32 同事件共享的 6 字节 = 游戏客户端 DecodeShotSegment 两点编码
     /// （出入点的部件 AABB 量化坐标，权威定义见《回放与射击逆向总集》第三篇 §二）；
@@ -1207,6 +1230,7 @@ pub(crate) fn extract_shot_replays_from_shared(
         let mut target_name = String::new();
         let mut is_kill = false;
         let mut hit = false;
+        let mut target_dead = false;
         let mut hit_flags: u32 = 0;
         let mut crit_modules: u32 = 0;
         let mut destroyed_modules: u32 = 0;
@@ -1248,6 +1272,19 @@ pub(crate) fn extract_shot_replays_from_shared(
             // fail-soft：名字是显示域，缺失（受击方昵称损坏等）不中止整条作者射击链——
             // 保留 shot，target_name 空串 + target_eid 照传（身份/弹道/判定不受影响）
             target_name = names.get(&teid).cloned().unwrap_or_default();
+        }
+        // 作者 method38 的 TARGET_ALREADY_DEAD 位是服务器权威“打残骸”信号；HP 终态早于
+        // 开火是等价证据（method38 缺失/未转发时兜底）。与其他人路径同语义：按 miss 处理，
+        // 不发布活目标、不进入伤害/穿深链，quality.target_dead 标记残骸命中。
+        if let Some(teid) = target_eid {
+            if hit_flags & hit_flags_mod::TARGET_ALREADY_DEAD != 0
+                || victim_dead_before(&shared.hp_events, teid, fire_time)
+            {
+                target_dead = true;
+                hit = false;
+                target_eid = None;
+                target_name.clear();
+            }
         }
 
         // ⑧' 游戏原生命中段 + 结果枚举（wotinspector segment 对齐）：type=32 警告包优先（segment 低字节=结果枚举），
@@ -1712,6 +1749,7 @@ pub(crate) fn extract_shot_replays_from_shared(
                 },
                 turret_degraded: Vec::new(), // 作者路径 prop2 缺失即 fail-fast，不存在降级
                 dmg_unattributed,
+                target_dead,
                 shell_from_broadcast,
                 shell_from_terrain,
                 shooter_pitch_from_velocity: false,
@@ -1845,6 +1883,8 @@ pub struct OtherShotsExtraction {
     /// 多候选 method8 几何判别不出（前后纵列/受击方位姿缺失）→ 回退时间最近绑定的
     /// 次数（综合方案：完整性优先；旧实现此处无差别静默就近，可错配无痕迹）
     pub ambiguous_time_fallback: usize,
+    /// method8 指向的受击方在开火前已死亡（残骸命中）→ 按 miss 处理并剔除目标的次数
+    pub skipped_dead_target: usize,
 }
 
 /// method8 来向角自洽门的有效阈值（与 [`collect::decoded_target_gun_pitch`] 共用同一常量，15°）。
@@ -2172,6 +2212,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
     let mut skipped_no_target_state = 0usize;
     let mut muzzle_fallback = 0usize;
     let mut ambiguous_time_fallback = 0usize;
+    let mut skipped_dead_target = 0usize;
     for (li, l) in launches.iter().enumerate() {
         // ctx 仅在跳过/兜底打印时格式化（避免逐发无条件分配）
         let ctx = || {
@@ -2247,6 +2288,20 @@ pub(crate) fn extract_other_shot_replays_from_shared(
                     })
                 }
             },
+        };
+        // 服务器对残骸仍会发 method8（victim = 已死亡车辆）：该发不能作为活目标射击发布。
+        // 判据 = HP 终态事件早于开火时刻（0.1s 容差吸收时钟量化；同 tick 击杀保留）。
+        // 剔除后按 miss 处理：保留 method20 弹道/地形落点，target_eid/name 置空，
+        // quality.target_dead 标记供消费方识别“残骸命中”。
+        let mut target_dead = false;
+        let dhit = match dhit {
+            Some(d) if victim_dead_before(&shared.hp_events, d.victim, l.t) => {
+                skipped_dead_target += 1;
+                target_dead = true;
+                eprintln!("[replay_others] 剔除 {}: 受击方在开火前已死亡", ctx());
+                None
+            }
+            other => other,
         };
         let target_eid = dhit.map(|d| d.victim);
         let hit = target_eid.is_some();
@@ -2541,6 +2596,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
                 },
                 turret_degraded,
                 dmg_unattributed,
+                target_dead,
                 shell_from_broadcast: false, // 0x07 弹种广播 = 作者 Avatar 弹药状态，他人不可得
                 shell_from_terrain,
                 shooter_pitch_from_velocity: gun_pitch_degraded.iter().any(|s| s == "shooter"),
@@ -2574,14 +2630,15 @@ pub(crate) fn extract_other_shot_replays_from_shared(
     // ⑯' 弹种指纹回填（发射包自带 method29 args[8] 编码 + 弹速）：段包/0x1b 之外的弹种来源
     // （典型 = cmpIndex=0 底盘/履带命中无 26/27B 段包）；同场同射手自校准，只补弹种。
     let fill = fill_shells_from_launch_fingerprints(&mut out, &launches);
-    eprintln!("[replay_others] 其他玩家射击提取: {} 发（终点缺失跳过 {}、受击方状态缺失跳过 {}、射手状态炮口兜底 {}、多目标歧义回退时间最近 {}、弹种指纹回填 {} = 编码 {} / 编码+弹速 {} / 弹速 {}、指纹未唯一 {}）",
-        out.len(), skipped_no_endpoint, skipped_no_target_state, muzzle_fallback, ambiguous_time_fallback,
+    eprintln!("[replay_others] 其他玩家射击提取: {} 发（终点缺失跳过 {}、受击方状态缺失跳过 {}、受击方开火前已死亡剔除 {}、射手状态炮口兜底 {}、多目标歧义回退时间最近 {}、弹种指纹回填 {} = 编码 {} / 编码+弹速 {} / 弹速 {}、指纹未唯一 {}）",
+        out.len(), skipped_no_endpoint, skipped_no_target_state, skipped_dead_target, muzzle_fallback, ambiguous_time_fallback,
         fill.total(), fill.filled_by_code, fill.filled_by_code_velocity, fill.filled_by_velocity, fill.unresolved);
     OtherShotsExtraction {
         shots: out,
         total_launches: launches.len(),
         skipped_no_endpoint,
         skipped_no_target_state,
+        skipped_dead_target,
         muzzle_fallback,
         ambiguous_time_fallback,
     }
@@ -2843,5 +2900,50 @@ mod shell_fingerprint_tests {
             launch_speed_key([-842.5001, 7.9001, 56.2001])
         );
         assert_ne!(launch_speed_key([620.0, 0.0, 0.0]), launch_speed_key([670.0, 0.0, 0.0]));
+    }
+}
+
+#[cfg(test)]
+mod dead_target_tests {
+    use super::*;
+
+    fn hp(clock: f32, victim: u32, hp: u16) -> HpEvent {
+        HpEvent {
+            clock,
+            victim,
+            hp,
+            source: 0,
+            cause: 0,
+        }
+    }
+
+    #[test]
+    fn dead_before_fire_is_rejected_with_tolerance() {
+        let events = vec![hp(91.2, 7, 0)];
+        assert!(victim_dead_before(&events, 7, 91.616));
+        // 同一 tick 击杀（死亡事件略早于 method29）不剔除
+        assert!(!victim_dead_before(&events, 7, 91.25));
+        // 其它实体不受影响
+        assert!(!victim_dead_before(&events, 8, 91.616));
+    }
+
+    #[test]
+    fn positive_hp_after_death_means_resurrected() {
+        let events = vec![hp(91.2, 7, 0), hp(95.0, 7, 500)];
+        assert!(victim_dead_before(&events, 7, 93.0));
+        assert!(!victim_dead_before(&events, 7, 96.0));
+    }
+
+    #[test]
+    fn no_hp_evidence_fails_open() {
+        assert!(!victim_dead_before(&[], 7, 91.616));
+        let events = vec![hp(91.2, 7, 800)];
+        assert!(!victim_dead_before(&events, 7, 91.616));
+    }
+
+    #[test]
+    fn negative_hp_sentinel_is_terminal() {
+        let events = vec![hp(91.2, 7, 0xFFFD)];
+        assert!(victim_dead_before(&events, 7, 91.616));
     }
 }

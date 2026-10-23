@@ -566,7 +566,8 @@ fn parse_section_bbox_from(text: &str, from: usize, section_name: &str) -> Optio
     let max = parse_float_array(max_str)?;
 
     // 退化盒（全零）：部分 TD 的炮塔段在源文件里就是零盒——视为缺失，
-    // 让上层回退（game_extract 节点兜底 / 前端网格紧致盒），与 models.pb 的省略一致
+    // 让上层回退（game_extract 按节点段兜底）；前端不再自算网格盒，缺失即 fail-closed，
+    // 与 models.pb 的省略一致
     if min == [0.0, 0.0, 0.0] && max == [0.0, 0.0, 0.0] {
         return None;
     }

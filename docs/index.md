@@ -37,7 +37,7 @@
 
 ### 版本与发行
 
-- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.10**）。
+- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.11**）。
   该值变更合并到 `main` 后，Release workflow 自动测试、构建、创建 `v<version>` tag
   并发布 `wotb-replay-wasm-v<version>.zip`；发布策略与 Android 同步规则见
   [AGENTS.md](../AGENTS.md)。
@@ -47,6 +47,7 @@
 
 | 版本 | 内容 |
 |---|---|
+| v0.4.11 | **射击复现匹配与配件解析修正**：①其他玩家/作者射击在 method8/method38 绑定后按 HP 终态剔除“受击方开火前已死亡”的残骸命中（`ShotQuality.target_dead`，0.1s 容差；样本 7 发），不再发布为活目标；`OtherShotsExtraction.skipped_dead_target` 统计。②Type5 loadout 的 item 描述符数量变长（实测 3..=7，含 `0A 04`），且装备检测不再依赖 `0A KK` 描述符块——只认 `0B` 配件串 + `0C 00 0D` 帧尾；描述符块缺失时 `items` 为空但 `equipment` 仍采集（校准弹 103 正常识别，XM551 #30 实测）。③`game_hit_result=4` 保持 raw（消费方统一「结果未定（4）」，不得命名跳弹/履带/击穿）。④`collision_boxes` 四盒直读客户端 Parameters YAML（hull/turret 选段仍用 models.pb 模块→节点映射；数值不变，非 WASM 行为）。⑤`PenetrationRequest` additive `require_primary`（默认 false；射击复现传 true）。**消费方**：WotbTools pin bump 后 `shots[]` 的残骸命中、`target_dead`、`skipped_dead_target` 与射手装备可见；需按新产物重生成 AI 投影 golden；前端射击复现路径使用 `require_primary`。 |
 | v0.4.10 | **车辆集合判据修正 + 装甲厚度序列化精度**：①`vehicles[]` 入选改为 **Type5 class=2 实体类型 ∧ 结算花名册联表成功 ∧ 有 type=10 位姿**，删除 `st10 ∧ prop2` 双流交集、20 采样阈值与 prop2 退化分支——修复炮塔全程不转的敌方车辆整条丢失（2026-10-19 训练房 SU-130PM 样本，709 条 type=10、0 条 prop2），同时排除相机/区域可破坏物/炮塔残骸与未进结算花名册的观察者/中途离开实体。影响面：`vehicles[]`、`visibility[]`、时间轴 `meta.t_start/samples/duration`、`shots[]` 联表兜底；切面 v2 形状不变，WotbTools 随 pin bump 直接受益。②`tank/{id}.json` 的 plate/track 厚度序列化从 0.1mm 改为 0.01mm，保留 6.35 等真实板值（旧口径生成 6.3，HE/判定少 0.05mm）；738 辆数据重生成、manifest 刷新，8 个字节变化的 tank JSON 已差分同步 COS（730 个按 sha256 跳过）。消费方随 pin bump 重生成 AI 投影 golden：车辆集合修复带来的字段值变化属预期。 |
 | v0.4.9 | **血量终态分类字段（additive）**：`AiReviewFacet` 的 `damage`（method1）与 `health`（prop3）事件新增 `hp_state`（`current`/`zero`/`terminal`，**恒在场**）——血量 u16 的**唯一权威分类**（规则 = `hp_terminal_normalized`，int16 ≤ 0 全域；实测终态族 0xFFFF/0xFFFE/0xFFFD，禁按分布裁剪），消费方判死亡面读它、禁自行解释 `hp_raw`。动因：消费方 canonical 只认 {0x0000, 0xFFFD}，−1/−2 档的弹药架殉爆被判成存活（血量冻在最后正值、3D 装填条继续外播；实例 1910 局 Intotherainy `0xFFFE`）。**消费方适配**：字段 additive、旧产物缺省即旧行为；**要覆盖 −1/−2 档死亡必须消费 `hp_state`**（缺省路径保持 legacy 分类——仅 {0x0000, 0xFFFD} 终态，禁在缺省上放宽）；pin bump 后 AI 投影 golden 预期仅 provenance 变化（新字段不进投影产物）。`PlaybackData` v2 / `AiReviewFacet` v1 形状不变。裁决与迁移清单见 [wotbtools-cross-reference.md](wotbtools-cross-reference.md) §七。 |
 | v0.4.8 | **复活模式生命轨道（additive）+ method8 结算伤害直读 + 伤害归属确定性化 + 争霸残留占领清理**：①`VehicleTrack` 新增 `death_times`（**≥2 死才输出**）与 `resurrection_times`（**非空才输出**）——复活模式（爆燃等）同 eid 死而复生不再被判终态；普通回放 JSON 零扰动，消费方按"字段缺省 = 死亡终态"处理即行为逐位不变。②`shots[]` 伤害改**直读服务器结算值**（method8 直击通知尾部 `[u16 伤害][u8 状态]`；状态 ≠0 才已结算、overkill 已封顶），作者/他人两路径同优先，HP 链降级为无结算值时的兜底；22 场对账仅 3 处变化且全部为修正。③**伤害归属确定性化**：逐事件采样（删除"同钟异值整组丢弃"）+ method8 命中时钟精确配对，配不上 → 0 + `dmg_unattributed`（fail-closed）；22 场仅 5 发变化、全部对账。④已归属基地的占领中断后**清空残留进度**（保留归属；新增合成回归与公开契约）。⑤clippy `-D warnings` 清零（纯机械等价替换）。**消费方注意**：`shots[]` 的数值/归属与 HP 链兜底路径有可见变化（皆 bug 修正），WotbTools 随 pin bump 须重生成 golden 并逐条归因（复活字段则无需适配，缺省即旧行为）。切面 v2 形状未变。**附带（工具/资产面，非 WASM 行为）**：2D 战术底图改 pack `ground.webp` 派生 + COS `map2d/` 免发版通道（索引 schemaVersion 2 带世界框/取向几何契约）+ 客户端 HUD 小地图取景实测记录。 |
@@ -70,6 +71,38 @@
 | v0.3.6 | prop3 血量属性广播（录像者自身血量的唯一来源，与 method1 非镜像）。 |
 | v0.3.5 | 原始 HP 证据 `Damage.hp_raw`（未钳制 u16，区分零血与终态未知）与 AoI 开段物化 HP；method8 原始命中通知（全变体、不分类）。 |
 | v0.3.4 | 包流自行分帧（不再依赖 crate 对 payload 的反序列化——单个 pickle 形状偏差不再让整场失败）。 |
+
+### 射击复现匹配与配件解析（2026-10-23）
+
+- **死亡目标/残骸命中剔除**：其他玩家路径在 method8 绑定后按 HP 事件链检查受击方开火前
+  是否已死亡（0.1s 容差吸收时钟量化，同 tick 击杀保留）；已死亡 → 按 miss 处理
+  （`target_eid`/`target_name` 置空，保留 method20 弹道/地形落点），新增
+  `ShotQuality.target_dead`（skip-when-false）与 `OtherShotsExtraction.skipped_dead_target`。
+  作者路径同时检查 method38 `TARGET_ALREADY_DEAD (0x0002)` 与 HP 终态。修复内容：
+  GB109 样本 6 发、GB48 1 发残骸命中不再发布为活目标（如受击方为已死亡的 P46）。
+- **Type5 loadout 描述符数量**：`0A KK` 的 KK 实测 3..=7（旧实现只接受 6..=10，
+  少带消耗品/给养的玩家整条 loadout 被丢弃，射击复现无法自动识别校准弹）；
+  解析放宽到 1..=10，观察者/非战斗实体由 eid/class/结算花名册过滤，不按 KK 猜身份。
+  **装备检测不再依赖 `0A KK` 描述符块**：只认 `0B <n>` 配件串 + `0C 00 0D` 帧尾，
+  描述符块缺失/数量不认识时 `items` 为空但 `equipment` 仍采集（XM551 #30 实测
+  `0A 04` + 9 件串；校准弹 103 正常识别）。
+- **`game_hit_result=4` 保持 raw**：按
+  [wotbtools-cross-reference §三.2](wotbtools-cross-reference.md) 裁决，4 的语义未定，
+  不得命名跳弹/履带/击穿；消费方（WotbTools）显示「结果未定（4）」并从结果对照中排除。
+- **射击复现无主装甲链门禁**：`PenetrationRequest` additive `require_primary`（默认 false
+  保持 BlitzKit 相机点击语义；射击复现传 true）。无 hull/turret/gun（0mm Primary 仍算）
+  且非 HE/非跳弹时，末层履带/炮管/间隙甲穿透不再返回 PEN + 全额伤害；Rust `/api/penetrate`
+  与 WotbTools `penetration.js` 同口径。
+- **碰撞数据口径（J20 #77 排查）**：`collision_boxes` 四盒**直读客户端 Parameters YAML**
+  （hash6 量化框；hull/turret 的选段用 models.pb 模块→节点映射，数值与 YAML 逐值相等），
+  `collision.glb` 是 CollisionMeshes `.sc2/.scg` 的装甲三角网格——两者都是客户端解包、
+  **不是 BlitzKit**；部件盒不是网格 AABB（738 辆中 287 辆完全相等，其余主要在 +z 差，
+  中位 20.8mm）。射击复现盒缺失改为 fail-closed，不再按网格自算 AABB。J20 #77 的 27.5mm
+  盒-网格差不是选板原因：换 GLB 盒重跑仍为 plate3/RICOCHET，且全量换框会让首发板匹配
+  488→457、部件匹配 577→502。详见
+  [回放与射击逆向总集 §6.3](回放与射击逆向总集.md) 与
+  [game-data-sources §2.4](game-data-sources.md)。
+- 行为变化随本轮 **v0.4.11** 发布 WASM；WotbTools 需 pin bump 后生效。
 
 ### 数据面
 
