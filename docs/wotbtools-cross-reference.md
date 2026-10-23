@@ -76,7 +76,7 @@ f3/f4/f5/f6 全缺省的行 = 该基地整条状态广播（零值被 proto3 省
 | AoI 生命周期 | Type33→Type5→观测→Type4→硬黑屏（485/485 零更新）；Type4 ≠ 死亡；隐藏段禁止插值；OBSERVED/LAST_KNOWN/DEAD 三态 | 代码+文档（`collect_aoi_lifecycle`） |
 | type39 | 28B=**7×f32**：f0/f1=世界系炮线 yaw/pitch（开火锚定 0.27°/0.45°）、f2-4=瞄准射线点、f5=相对偏航族（门控）、f6=车体系俯仰（0.17°）。撤销"排除于战斗分析" | 文档 |
 | battle_results 字段 | 105=deathReason(−1 存活/1 火/2 撞/3 世界)、24=lifeTime、16=spotted、119=毁灭协助、120=炮印、117=挡伤、9/10=助攻两族、1=终局HP(−2=自动击毁✓与 parser.rs 现行为互证) | 文档 |
-| Type5 尾部 loadout | 3 消耗品+3 给养（位置序 1037/1037）+9B 配件（字节=ID）；**敌方再物化亦带**（683/683）。解析已泛化：`0A 06`+6×14B 标准（观察者族 4 条拒收）与 XM551 受控场实测的 `0A 07` 变体（KK≥6 严丝合缝采纳）；扫描 `0B <n>`+nB（ID 域 100..=123 校验）。权威目录 `103=校准弹 CALIBRATED_SHELLS`、`110=强化装甲 ENHANCED_ARMOR`。`ShotReplayData.shooter/target_equipment` 注入双方搭载，viewer 自动穿深 ×1.06/1.07 与厚度 ×1.04（数据在场时禁用手动勾选框，缺失回退） | 代码+文档 |
+| Type5 尾部 loadout | 3 消耗品+3 给养（位置序 1037/1037）+9B 配件（字节=ID）；**敌方再物化亦带**（683/683）。解析已泛化：`0A KK`+KK×14B（KK 实测 3..=7；旧实现只接受 6..=10，已修）与 XM551 受控场实测的 `0A 07`/`0A 04` 变体；扫描 `0B <n>`+nB（ID 域 100..=123 校验）。**装备检测不再把 `0A KK` 描述符块当准入门槛**：只认 `0B <n>` 配件串 + `0C 00 0D` 帧尾，描述符块缺失/数量不认识时 `items` 为空但 `equipment` 仍采集（XM551 #30 实测）。观察者/非战斗实体由 eid/class/结算花名册过滤，不按 KK 猜身份（避免误杀少带消耗品/给养的真实玩家）。权威目录 `103=校准弹 CALIBRATED_SHELLS`、`110=强化装甲 ENHANCED_ARMOR`。`ShotReplayData.shooter/target_equipment` 注入双方搭载，viewer 自动穿深 ×1.06/1.07 与厚度 ×1.04（数据在场时禁用手动勾选框，缺失回退） | 代码+文档 |
 | wrapper6 = 击杀播报 | victim/killer/deathReason + field3=>50% 伤害助攻者（46/46） | 代码（`collect_kill_feed`） |
 | 其他 | prop4=engineMode TUPLE<u8,2>（&3 移动位）；type35=会话十分秒计数低字节（非"服务器 tick"；type36=u32/10.0 时间基锚）；avatar 0x0c=method12 累计伤害反馈（eventCode/count/value）；0x11=method17 弹药余弹递减；type10 [24..36]=滤波误差（禁当速度）、[8..12] parent≠0 时位置非世界坐标；1 位置单位=1 米；容器头 magic/totalLengthMinus8/variableHeaderLength 三字段互验；payloadLen==0 合法 | 文档 |
 

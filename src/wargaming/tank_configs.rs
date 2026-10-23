@@ -298,19 +298,12 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
         .and_then(|c| c.gun_bbox.clone())
         .map(|b| json!({ "min": b.min, "max": b.max }));
     // 各部件原生碰撞盒（坐标系 = 各部件节点枢轴系 x右/y前/z上；chassis/hull 位于模型原点）。
-    // 供 DecodeShotSegment 解码盒使用。hull/turret：models.pb（BlitzKit 唯一来源，炮塔取
-    // 顶级配置）；gun/chassis：BlitzKit 无对应数据，仍取本机客户端提取（game_data）。
-    let top_module = crate::wargaming::blitzkit::tank_full(tank_id)
-        .and_then(|t| t.turrets.last().map(|t2| t2.module_id));
-    let hull_bbox = m_info.as_ref().and_then(|mi| mi.hull_bbox.clone());
-    let turret_bbox = m_info.as_ref().and_then(|mi| {
-        mi.turrets
-            .iter()
-            .find(|t| Some(t.module_id) == top_module)
-            .or_else(|| mi.turrets.last())
-            .and_then(|t| t.bbox.clone())
-    });
+    // 供 DecodeShotSegment 解码盒使用。**四盒全部直读本机客户端 game_data（Parameters YAML）**：
+    // hull/turret 在 extract 阶段已按 models.pb 的模块→节点映射选好顶级配置，不再从
+    // models.pb 或 collision.glb 的网格 AABB 重算。部件盒不是网格 AABB，两者不可互换。
     let gd_collision = game_data.as_ref().and_then(|gd| gd.collision.as_ref());
+    let hull_bbox = gd_collision.and_then(|c| c.hull_bbox.clone());
+    let turret_bbox = gd_collision.and_then(|c| c.turret_bbox.clone());
     let bbox_json = |b: Option<crate::wargaming::dvpl::BoundingBox>| {
         b.map(|b| json!({ "min": b.min, "max": b.max }))
     };

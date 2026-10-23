@@ -764,6 +764,7 @@ impl AgentTools {
                 None
             },
             allow_ricochet: true,
+            require_primary: false,
             // 距离衰减：d>100 且 far 存在时启用（对齐客户端指示器 0x719740）
             distance_m: (distance > 0.0).then_some(distance),
         };

@@ -1014,6 +1014,12 @@ fn replay_shots_blocking(
             others.skipped_no_target_state
         ));
     }
+    if others.skipped_dead_target > 0 {
+        extraction_notes.push(format!(
+            "其他玩家 {} 发因受击方开火前已死亡（残骸命中）按未命中处理",
+            others.skipped_dead_target
+        ));
+    }
     if others.muzzle_fallback > 0 {
         extraction_notes.push(format!(
             "其他玩家 {} 发射手位置用炮口坐标兜底",

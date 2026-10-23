@@ -223,8 +223,9 @@ pub fn collect_vehicle_equipment(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, 
         .collect()
 }
 
-/// 采集每实体的完整开局 loadout（Type5 3+3+9；含 6 条 raw item 描述符）。
-/// 同一实体取首条成功解析者（与 equipment 采集同语义）。
+/// 采集每实体的完整开局 loadout（Type5 3+3+9；item 描述符可变 3..=7）。
+/// 同一实体取首条成功解析者（与 equipment 采集同语义）。观察者/非战斗实体由
+/// 调用方按 eid/class/结算花名册过滤；本函数不按 k 值猜身份。
 pub fn collect_vehicle_loadout(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, VehicleLoadout> {
     let mut out: HashMap<u32, VehicleLoadout> = HashMap::new();
     for (ptype, _, p) in packets {
@@ -387,10 +388,15 @@ pub struct VehicleLoadout {
     pub items: Vec<[u8; 14]>,
 }
 
-/// 在单条 Type5 载荷内扫描 loadout 块：先定位 `0B 09` + 9B 配件串（字节域 100..=123 校验），
-/// 再回找计数标记 `0A KK`——要求 `0A KK` + KK×14B 描述符 + `0B 09` 严丝合缝且 KK≥6
-/// （6 条=标准 3 消耗品+3 给养；7 条=受控场变体，多 1 条 14B 描述符、
-/// 配件串本身完好；4 条=观察者族，勿当战斗者搭载，拒收）。
+/// 在单条 Type5 载荷内扫描 loadout 块：先定位 `0B <n>` + nB 配件串（字节域 100..=123
+/// 校验）与帧尾 `0C 00 0D`——这是**装备检测的唯一准入门槛**；`0A KK` + KK×14B
+/// item 描述符块只用于填充 `items`，缺失/数量不认识时不再丢弃装备串。
+///
+/// `KK` 是**变长**的 item 描述符数量：实测 3..=7（3 消耗品 + 3 给养为常见 6 条；
+/// 少带消耗品/给养的玩家会出现 3/4/5 条）。旧实现把 `0A KK` 当作整个 loadout 的
+/// 硬门槛（且只接受 6..=10），这类玩家的整条 loadout 被静默丢弃（射击复现里表现为
+/// 「射手校准弹未自动识别」）。观察者/非战斗实体不做 k 值启发式排除——由调用方按
+/// eid/class/结算花名册过滤，避免把配装较少的真实玩家误判为观察者。
 fn scan_loadout(p: &[u8]) -> Option<VehicleLoadout> {
     let n = p.len();
     let mut pos = 0usize;
@@ -407,25 +413,32 @@ fn scan_loadout(p: &[u8]) -> Option<VehicleLoadout> {
                     && p[pos + 3 + count] == 0x00
                     && p[pos + 4 + count] == 0x0D
                 {
-                    for k in 6..=10usize {
-                        if pos >= 2 + k * 14 {
+                    let mut equipment = [0u8; 9];
+                    // 变长串按原序填入，空槽补 0（0 不在 ID 域，不是合法件）
+                    equipment[..count].copy_from_slice(eq);
+                    // 描述符块是可选的：只用于 items，不作为 equipment 的准入门槛。
+                    let items = (1..=10usize)
+                        .find_map(|k| {
+                            if pos < 2 + k * 14 {
+                                return None;
+                            }
                             let start = pos - 2 - k * 14;
-                            if p[start] == 0x0A && p[start + 1] as usize == k {
-                                let mut equipment = [0u8; 9];
-                                // 变长串按原序填入，空槽补 0（0 不在 ID 域，不是合法件）
-                                equipment[..count].copy_from_slice(eq);
-                                let items = (0..k)
+                            if p[start] != 0x0A || p[start + 1] as usize != k {
+                                return None;
+                            }
+                            Some(
+                                (0..k)
                                     .map(|i| {
                                         let s = start + 2 + i * 14;
                                         let mut it = [0u8; 14];
                                         it.copy_from_slice(&p[s..s + 14]);
                                         it
                                     })
-                                    .collect();
-                                return Some(VehicleLoadout { equipment, items });
-                            }
-                        }
-                    }
+                                    .collect::<Vec<[u8; 14]>>(),
+                            )
+                        })
+                        .unwrap_or_default();
+                    return Some(VehicleLoadout { equipment, items });
                 }
             }
         }
@@ -1538,6 +1551,17 @@ mod loadout_tests {
         mk_type5_loadout_with(6, &[100, 101, 102, 103, 104, 105, 106, 107, 108])
     }
 
+    /// 只有装备串与帧尾、没有 `0A <k>` item 描述符块的 Type5 载荷。
+    fn mk_type5_equipment_only(eq: &[u8]) -> Vec<u8> {
+        let mut p = vec![0u8; 60];
+        p[0..4].copy_from_slice(&0x31u32.to_le_bytes());
+        p[51..53].copy_from_slice(&1000u16.to_le_bytes());
+        p.extend_from_slice(&[0x0B, eq.len() as u8]);
+        p.extend_from_slice(eq);
+        p.extend_from_slice(&[0x0C, 0x00, 0x0D, 0x00, 0x00, 0x00]);
+        p
+    }
+
     #[test]
     fn collects_equipment_and_six_raw_descriptors() {
         let payload = mk_type5_loadout();
@@ -1556,6 +1580,56 @@ mod loadout_tests {
                 .unwrap(),
             v.equipment
         );
+    }
+
+    /// item 描述符数量也是变长的：3 条（少带消耗品/给养）不能被旧 `k>=6` 守卫丢弃。
+    /// 实测 Takuchan（J39 样本）Type5：`0A 03` + `0B 05 67 6D 7A 6B 6E`，
+    /// 103=校准弹、110=强化装甲；旧实现导致射击复现无法自动勾选校准弹。
+    #[test]
+    fn collects_three_descriptor_loadout_with_calibrated_shells() {
+        let payload = mk_type5_loadout_with(3, &[103, 109, 122, 107, 110]);
+        let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &payload)];
+        let v = collect_vehicle_loadout(&packets)
+            .get(&0x31)
+            .cloned()
+            .expect("3 条描述符的 loadout 应被采集");
+        assert_eq!(v.items.len(), 3);
+        assert_eq!(v.equipment, [103, 109, 122, 107, 110, 0, 0, 0, 0]);
+        let eq = VehicleEquipment::from_ids(&v.equipment);
+        assert!(eq.calibrated_shells, "103 = 校准弹应判为已装备");
+        assert!(eq.enhanced_armor, "110 = 强化装甲应判为已装备");
+    }
+
+    /// XM551 #30 射手（Player_9617219477）的实测串：`0A 04` + 4×14B + `0B 09` +
+    /// `[103,109,115,107,111,116,105,112,101]` + `0C 00 0D`。4 条描述符同样必须被采集。
+    #[test]
+    fn collects_four_descriptor_loadout_from_xm551_sample() {
+        let eq_ids = [103, 109, 115, 107, 111, 116, 105, 112, 101];
+        let payload = mk_type5_loadout_with(4, &eq_ids);
+        let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &payload)];
+        let v = collect_vehicle_loadout(&packets)
+            .get(&0x31)
+            .cloned()
+            .expect("4 条描述符的 loadout 应被采集");
+        assert_eq!(v.items.len(), 4);
+        assert_eq!(v.equipment, eq_ids);
+        assert!(VehicleEquipment::from_ids(&v.equipment).calibrated_shells);
+    }
+
+    /// 装备检测不再依赖 `0A KK` item 描述符块：载荷里只有 `0B` 装备串 + 帧尾时，
+    /// 仍必须识别 103 校准弹（items 为空），否则解析器结构一变就会整条丢装备。
+    #[test]
+    fn collects_equipment_without_item_descriptor_block() {
+        let eq_ids = [103, 109, 115, 107, 111, 116, 105, 112, 101];
+        let payload = mk_type5_equipment_only(&eq_ids);
+        let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &payload)];
+        let v = collect_vehicle_loadout(&packets)
+            .get(&0x31)
+            .cloned()
+            .expect("装备串 + 帧尾应足够采集 loadout");
+        assert!(v.items.is_empty(), "缺失描述符块时 items 为空");
+        assert_eq!(v.equipment, eq_ids);
+        assert!(VehicleEquipment::from_ids(&v.equipment).calibrated_shells);
     }
 
     /// 变长配件串（空槽省略）必须被采集：此前硬编码 `0B 09` 把不满 9 件的玩家整条

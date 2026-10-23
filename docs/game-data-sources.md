@@ -143,6 +143,17 @@ BlitzKit models.pb 也只有 **4 字节空消息**（`0a 00 12 00`，min/max 两
 | 视觉模型 | `resourcesPath.blitzModelPath` 指向的目录 | `Data/3d/Tanks/<大写国名>/<模型名>.sc2.dvpl` + `.scg.dvpl` |
 | 碰撞模型 | `resourcesPath.collisionMesh` | `Data/3d/Tanks/CollisionMeshes/<小写国名>-<模型名>.sc2.dvpl` + `.scg.dvpl` |
 
+**部件的 `collision_boxes` 不是这套碰撞网格的包围盒**：`tank/{id}.json` 的
+`collision_boxes` **四盒全部直读** `Parameters/<小写国名>/<模型名>.yaml.dvpl` 的
+`collision.*` 段（hull/turret 的**选段**仍用 models.pb 的模块→节点映射，但 bbox 数值
+不再经 models.pb），是客户端的**部件代理盒**，也是回放 hash6 命中段
+（`DecodeShotSegment`）的 1/255 量化框；`collision.glb` 则是
+`CollisionMeshes/*.sc2/.scg` 的装甲三角网格（每顶点第 8 个 float = 装甲板号）。两者都是
+本机客户端解包，但定义不同：全量 738 辆中 287 辆的 hull 盒与网格 AABB 完全相等，其余主要
+在 +z 有差（中位 20.8mm、p90 81.7mm、最大 426mm）。射击复现/解码必须用部件盒，**不能**用
+网格 AABB 替换，盒缺失时 fail-closed（本机审计换框后首发板匹配 488→457、部件匹配 577→502；
+见 [回放与射击逆向总集](回放与射击逆向总集.md) §6.3）。
+
 **两套国名互不相同，按目录去猜必错**：
 
 - `XML/item_defs/vehicles/` 与 `CollisionMeshes/` 用 **tanks.pb 的小写国名**（`germany`/`uk`/`ussr`…）
