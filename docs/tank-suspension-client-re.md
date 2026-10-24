@@ -346,7 +346,7 @@ XML 与 sc2 侧确实没有（XML 是物理/经济参数，sc2 只有节点）�
 ## 七、实现含义（分级路径）
 
 **本仓（数据面）——已落地（2026-10-10）**：`tools/export_tank_suspension.py` → 包内
-`suspension/<tank_id>.json`（725/735 辆；回归 `tools/test_export_tank_suspension.py` 7 项）。
+`suspension/<tank_id>.json`（728/738 辆；回归 `tools/test_export_tank_suspension.py` 7 项）。
 细节留档：
 - 必须导：`wheels`（flag/a/b，≤22×12 B）、`left/rightTrackChains`（逐侧 59–63 点 ×8 B，
   两种键式都要处理，见 §三 3.2）、`trackBendingInfo`、`trackLayingInfo`、

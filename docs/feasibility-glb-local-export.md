@@ -7,7 +7,7 @@
 >
 > **状态：已实施**——结果与修正以 [local-model-export.md](local-model-export.md) 为准：
 > `tools/export_tank_glb.py` 落地，验收口径 = **逐字节 + 节点顺序**（`collision` 735/735、
-> `model` 733/735，其中 **23 辆为有意分歧**——静态变换烘焙 / 状态过滤，等价数 710/735）；
+> `model` 623/735，其中 **111 辆为有意分歧**——静态变换烘焙 / 状态过滤）；
 > §5.0 的"4 类规则缺口"已由 `LodComponent` 判据、全批次导出等规则收敛（该文 §3）。
 > **§3.3 的槽位指派结论已被逐通道实测推翻**：BlitzKit 的 `normal` 实为 legacy
 > `images/<T>_NM`（DXT1）；`metallicRoughness` 的 **G** 实为 `baseRMMap` 通道 0（粗糙度）；

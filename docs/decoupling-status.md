@@ -15,9 +15,9 @@
 
 | 项 | 状态 | 入口 |
 |---|---|---|
-| `game_data` 冻结故障修复（field2→field32） | ✅ 已在 main | [game-data-sources.md](game-data-sources.md) §5 |
+| `game_data` 冻结故障修复（field2→field32） | ✅ 已在 main | 见 git 历史与 [data-inventory.md](data-inventory.md) §一 #4 |
 | 两处 pb 字段号 bug（引擎起火率 / 履带阻力） | ✅ 已修复 | 报告 A §8；`data/tank_data/*.json` 重生成 |
-| **GLB 自产管线** | ✅ 已接线 | `data/cache/models/` 为自产导出：738 辆 `model.glb` + `collision.glb`（generator = `wotb-agent local sc2 exporter`），与 `local_models/` 逐辆逐字节一致，包与 COS 随发（[data-inventory.md](data-inventory.md) §一 #8）；工具 `tools/export_tank_glb.py` + `tools/compare_tank_glb.py`；等价性口径（对照基准为 735 辆时代）：`collision` 735/735、`model` 733/735 逐字节等价（含 UV0/1/2 与节点顺序），规则见 [local-model-export.md](local-model-export.md) §3；**其中 23 辆为有意分歧**（静态变换烘焙 / 状态过滤，见该文 §5.1） |
+| **GLB 自产管线** | ✅ 已接线 | `data/cache/models/` 为自产导出：738 辆 `model.glb` + `collision.glb`（generator = `wotb-agent local sc2 exporter`），与 `local_models/` 逐辆逐字节一致，包随 Alibaba asset origin 发布（[data-inventory.md](data-inventory.md) §一 #8）；工具 `tools/export_tank_glb.py` + `tools/compare_tank_glb.py`；等价性口径（对照基准为 735 辆时代）：`collision` 735/735、`model` 623/735 逐字节等价（含 UV0/1/2 与节点顺序），规则见 [local-model-export.md](local-model-export.md) §3；**其中 111 辆为有意分歧**（静态变换烘焙 / 状态过滤，见该文 §5.1） |
 | **封面图自产管线** | ✅ 已接线（客户端剥壳字节为现役来源；BlitzKit 退为缺失兜底/对照） | `tools/export_tank_icons.py`；**738/738 且全为大图档**（逐车 `iconPath` 声明全命中；接线复核见 §3） |
 | **`tanks.pb`/`models.pb` 本机解析器 + 换源转正** | ✅ 已接线 | `tools/extract_vehicles.py`（客户端 XML/components/yaml/en.yaml → 同构 JSON）+ `tools/compare_vehicle_data.py`（pb→同形 dict 逐字段对照）+ `tools/emit_vehicle_pb.py`（同格式 pb 编码器）；`data/tanks.pb` / `data/models.pb` 现为本机解包编码（同格式 pb + 补充表），BlitzKit 降为**对照校验源**。`data/tank_id_bridge.json` 738 条已固化，**并已证明可纯客户端重建** |
 | `baseRMMap` 通道搬迁（MR 槽） | ✅ 已对齐 | ch0→G（粗糙度）、ch1→B（金属度）；修后与 BlitzKit 的 G 通道一致 1010/1011；[local-model-export.md](local-model-export.md) §4.1 |

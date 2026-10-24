@@ -100,9 +100,39 @@
   中位 20.8mm）。射击复现盒缺失改为 fail-closed，不再按网格自算 AABB。J20 #77 的 27.5mm
   盒-网格差不是选板原因：换 GLB 盒重跑仍为 plate3/RICOCHET，且全量换框会让首发板匹配
   488→457、部件匹配 577→502。详见
-  [回放与射击逆向总集 §6.3](回放与射击逆向总集.md) 与
+  [回放与射击逆向总集 第四篇 §6.3「固有差异界限」](回放与射击逆向总集.md) 与
   [game-data-sources §2.4](game-data-sources.md)。
 - 行为变化随本轮 **v0.4.11** 发布 WASM；WotbTools 需 pin bump 后生效。
+
+### 文档勘误与代码注释体检（2026-10-24，纯文档/.gitignore，无行为变化）
+
+全仓文档对照现实逐条核查后修复过期事实（权威口径以被引文档为准），并完成两仓代码注释/
+工作区体检。**修改面**：仅 docs/、README.md、.gitignore；Rust/Python 代码零改动
+（clippy `--workspace --all-targets` 零警告，无需动）。
+- **数字过期**：v0.4.7→v0.4.11（data-inventory §2.2）；有意分歧车辆 23→**111 辆**、
+  `model` 等价 733/735→**623/735**（data-inventory §一 #8、decoupling-status §1、
+  local-model-export §0/头部、feasibility-glb 头部——与 local-model-export §0 表对齐）；
+  悬挂 725/735→**728/738**（tank-suspension-client-re §七）；t11 线上 release 名补
+  `-destructibles` 后缀（data-inventory §1b）。
+- **COS→Alibaba 残留**：local-model-export「工具链（发布链）」的 COS 上传命令改为指向
+  Alibaba origin 流程（game-data-sources §5.2）；「包与 COS 随发」措辞更正（local-model-export
+  头部、decoupling-status §1）；map-lighting-plan §九 加留档注记（清单不回勾、COS 链已废弃）；
+  feasibility-track-marks §二「COS 未同步」按其 §五实施状态回写。
+- **自相矛盾/指向漂移**：game-data-sources §5.6 删「Android 再走 ≤1024² 派生」（与本节结尾
+  及 data-inventory #10b 矛盾）；map-render-align-audit TL;DR/§三 计数 23/19→**33**（后续追加
+  B6-B8/D3-D8/P3 未回写）、重复编号 D5（贴地贴花）改 **D8**；README「契约第 6 节」失效引用
+  改指 replay-wasm lib.rs 文档注释 + WotbTools contracts/agent/replay-facets-v2.md；
+  「总集 §6.3」歧义（两处 §6.3）标注为第四篇；decoupling-status 冻结故障行指向 §5 的死链改指
+  data-inventory §一 #4。
+- **注释体检结论（两仓）**：本仓 Rust/Python 注释纪律良好——零被注释掉的死代码、零过期
+  TODO（仅 2 处有效 TODO/占位）、横幅仅存在于验证探针 binary 且承载分节语义，**不做删减**
+  （注释均为口径/理由载体）；WotbTools（对照 origin/main）frontend+common 零 TODO/FIXME、
+  零死代码块、无违规归档目录，其 pin `deploy/agent/source.json` 已是 v0.4.11 无需 bump。
+- **.gitignore**：补 `tmp_wi_probe/`、`tmp_pw/`（`tmp_*` 通配只覆盖 txt/json，两个探针目录
+  此前以未跟踪状态挂在 git status 里）。
+- **遗留提示**：本地 `tmp_analysis/`(5.4G)+`tmp_pw/`(499M)+`tmp_wi_probe/`(155M) 共约 6G
+  调查产物可按需清理；WotbTools 本地检出落后 origin/main 31 提交（分支工作已全在 main），
+  其本地 `common/fixtures/tournament/csv/{4x2,5x3}.csv` 的未提交改动仅为行尾符差异。
 
 ### 数据面
 

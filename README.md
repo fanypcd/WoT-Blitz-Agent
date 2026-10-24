@@ -56,7 +56,7 @@ WotbTools 仓库进行**，本仓只出 Rust 核心与 WASM 发行产物。
 | 路径 | 说明 |
 |------|------|
 | `crates/replay-core/` | 回放解析核心库（零网络依赖，原生 / WASM 双目标）：协议解码、领域模型、时间线、投影切面 |
-| `crates/replay-wasm/` | 浏览器通道入口：四个独立能力 JSON 入口（契约第 6 节） |
+| `crates/replay-wasm/` | 浏览器通道入口：四个独立能力 JSON 入口（入口契约见 `crates/replay-wasm/src/lib.rs` 顶部文档注释；切面 schema 落 WotbTools `contracts/agent/replay-facets-v2.md`） |
 | `src/` | 历史应用层（CLI / LLM Agent / Web GUI / 资产管线）：产品面退役后作为数据与资产管线的载体保留 |
 | `docs/` | [文档索引](docs/index.md)：逆向总集、回放契约 v2、数据来源、WotbTools 交叉引用裁决等 |
 | `tools/`、`scripts/` | 地图 / 坦克 GLB 导出、资产包导出与本机联调伺服脚本 |
