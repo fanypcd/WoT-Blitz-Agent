@@ -9,11 +9,13 @@
 
 ## 结论（TL;DR）
 
-三方对照下来，**共 23 条**（§三逐条列出，另 1 条 D1 为已对齐基线），按性质分三类：
+三方对照下来，**共 33 条**（§三逐条列出，另 1 条 D1 为已对齐基线；后续审计追加的 B6/B7/B8、
+D3–D8、P3 已并入计数），按性质分四类（逐条现役状态见 §三 各行）：
 
-- **错误（我们的输出与客户端不一致、且已有证据指出偏差）6 条**（C1 已于 2026-10-09 修复）：静态场景用假光而非烘焙光照图（A3）、ACES/曝光与客户端"线性 × exposure"不符并派生一批补偿旋钮（A2，2026-10-09 出屏口径已改客户端 linear，残余见 §A）、逐图光照数据未使用（A1）、场景几何 `flatShading` 抹掉 authored 法线（I4，v0.4.1 的成果被前端丢弃）、~~贴图分辨率被导出器封顶 1024（C1，已修）~~、GLB 贴图无各向异性（C2）、地面在伽马空间做乘法而场景侧走 sRGB 解码（C3，口径不统一）。
-- **缺失（客户端有、我们完全没有）9 条**：天空穹（E1）、雾（E2）、水面着色（F1）、动态阴影（G1）、`DETAIL` 细节层（B1）、`ENVIRONMENT_MAPPING` 环境反射（B2）、`TILED_DECAL_MASK`（B4）、地面动态贴花（D2）、草（H1）。
-- **画质档/取舍差异 7 条**：均衡档整块移除建筑与分层地面（I1）、战场静帧贴花 vs 动态铺展（B3）、软透明语义（B5）、树的风相位（H2）、只导 LOD0（I2）、全场景 `DoubleSide`（I3）、ULTRA 档 PBR 路径（A4）。
+- **错误 15 条**：静态场景用假光而非烘焙光照图（A3）、ACES/曝光与客户端"线性 × exposure"不符并派生一批补偿旋钮（A2）、逐图光照数据未使用（A1）（三件均已落地/部分）、软混合/光图判据/裁切判据（B6/B7/B8，已修复）、贴图分辨率封顶（C1，已修）、GLB 贴图无各向异性（C2，已修）、地面伽马空间乘法（C3，已核实对齐）、地形相位/贴地 LOD/岸线量化/水下件/贴地贴花（D3/D4/D7/D6/D8，已修复）、`flatShading` 抹掉 authored 法线（I4，已修复）。
+- **缺失 11 条**：天空穹（E1，已修复）、水面着色（F1，MEDIUM 档已对齐）、动态阴影（G1，决策不做）、`DETAIL` 细节层（B1）、`ENVIRONMENT_MAPPING` 环境反射（B2）、软透明语义（B5）（已修复）、`TILED_DECAL_MASK`（B4，本版无对象）、岸线淡化（D5，已实现）、地面动态贴花（D2，碾压痕已落地）、状态切换器 + 骨骼网格（P3，已修复）、草（H1，未做）。
+- **画质档/取舍差异 6 条**：均衡档整块移除建筑与分层地面（I1）、战场静帧贴花 vs 动态铺展（B3）、树的风相位（H2）、只导 LOD0（I2）、全场景 `DoubleSide`（I3）、ULTRA 档 PBR 路径（A4）。
+- **非目标 1 条**：雾（E2，决策不做）。
 
 **影响面最大的三件**（按"可见收益 × 覆盖批次"排序）：① 静态场景烘焙光照图（36 图 / 42,651 个批次绑定了光照图）；② 逐图太阳/环境色 + 线性曝光（替掉现有一整套补偿 hack）；③ 天空 + 雾（36/36 图）。这三件已在光照文档里排期，本文补的是它们之外的部分。
 
@@ -55,7 +57,7 @@
 
 ---
 
-## 三、差异总账（19 条）
+## 三、差异总账（33 条；D 区为追加审计顺序，编号非排列序）
 
 标注：**〔错误〕** = 我们与客户端口径不一致且有偏差；**〔缺失〕** = 客户端有我们没有；**〔画质〕** = 各自的取舍/档位差异。影响面按批次或图数计。
 
@@ -99,7 +101,7 @@
 | D5 | 水面与地形交界：客户端片元末按"水面片元 vs **背后表面**（深度预通道 `dynamicDepthPrepass`）的**相对**深度差"做 `coastLine` 淡化（`water-fp.sl` `RETRIEVE_FRAG_DEPTH_AVAILABLE` 分支 + `depth-fetch.slh`），随后 `fresnel *= coastLine` | 我们只有硬边相交（水/地边界逐 texel 阶梯） | 岸线生硬、随 LOD 出现阶梯 | ★ | **已实现（前端）**：机理 = **水面自身贡献**在岸线带里与地形逐像素抢深度（地形跨水面的等高线本身平滑；所谓"水面"= `env_ma_ice02_*` 冰面片，其下 1 cm 另有不透明冰 `env_ma_ice01_*`、客户端 `ro.flags` 含 `VISIBLE_REFRACTION`）。无深度预通道 ⇒ 由同一等式反推：`ΔndcZ/ndcZ = Δz_沿视线/z_沿视线`、`z_沿视线·|视线.y| = 相机高 − 水面高` ⇒ **`coastLine = saturate(dNdcZ / (2·uDepthUlp))`**（`dNdcZ = 2fn/((f−n)z²)·(水面高−地形高)/|视线.y|`，`uDepthUlp = 2/2^depthBits` 实测位深、near/far 取相机实际值）——**淡出带 = 该视距的深度抢胜带（2 ulp）**、深水任何角度满反射（含俯视）；地形高采渲染用高度场、缺则 fail-open。**边界**：背后表面只算地形（结构/浮冰不参与；冰面上方保留少量反射）。**禁止复活的两条废弃口径**（∝视距的"单元格上界"；相机高分母——后者致俯视深水透明），守卫锁死 | 〔缺失→已实现〕 |
 | D7 | 沿岸线的**特征解析**：客户端相机（TPS，贴地）让"水陆平缓坡"天生落在 1 texel 级网格上 | 回放相机常在数百米外 ⇒ 客户端三条判据在同一相机位置**合法地**给粗格 ⇒ 2–5 cm/texel 的平缓坡被量化成米级台阶（网格量化，非深度抢闪/非数据噪声） | 岸线呈锯齿台阶、拉近才变细 | ★★ | **回退为客户端同构**：自研第四条判据（`terrainMesh.js` `shores`，水陆交界特征细分）已整体删除（DAVA `SubdividePatch` 只有三条判据——"纯客户端三判据"目标下无自研判据位置；负向守卫锁死不复活）。远相机下岸线的网格量化 = 客户端同相机位置的忠实结果。**保留**：根补片步长取 2 的幂（非 2 的幂时 `step>>1` 会留空洞——与判据无关的几何修复）。**已知差异**：1 texel 级残余起伏属数据自身噪声（客户端同有） | 〔错误→已修复〕 |
 | D6 | **水下静态件**的着色通道：客户端的 `ReflectionRefraction` 通道不计漫反射（`materials-fp.sl` 的 `albedo × lightmap × 2` 只在 `#if MATERIAL_LIGHTMAP && VIEW_DIFFUSE` 下发生；`#else` 支注释 "do not scale lightmap in view diffuse only case" ⇒ `color = albedo`），而水面在客户端是**不透明**的（`water-fp.sl` REAL_REFLECTION 分支 `outColor.a = 1`）⇒ 水面覆盖处的可见结果 = 折射画面，**不含光照图乘法** | 我们按主通道渲染水下件：`albedo × lightmap × 2`。马利诺夫卡 25 片水下冰 `env_ma_ice01_*` 在客户端图集里落在**未烘焙黑格**（逐片实测 63–71% 黑，邻片 0–9%：烘焙器跳过河面）⇒ 冰面成黑块 | 黑冰面 + 黑色边界锯齿 | ★★ | **已修复（前端）**：纯几何判据（整个包围盒落在某片水面占地内 0.5 m 余量、且低于其标高 5 cm 余量）⇒ 不接光照图、走不受光 albedo（`MeshBasicMaterial`，即 `VIEW_DIFFUSE=0` 口径）。受灾面实测全 36 图仅 2 张（malinovka 26 实例、italy 1）。**已知差异**：客户端另有 `flatColor` 末乘（冰上 ≤4%）未随包导出；部分淹没件（桥/沉船）仍按主通道渲染。另：水下薄板**逐件**带作者染色（马利诺夫卡冰面多数 (0.922,1.0,0.973)、`ice01_09` 为 (0.647,0.753,0.796) 偏蓝）⇒ 在染色变化的那条 tile 边界上有一道 ~22% 色阶——这是客户端作者数据本身；导出器不施加"统一染色"，如实保留客户端数据 | 〔错误→已修复〕 |
-| D5 | 贴地"被地形着色"的贴花件（铁轨/地界标线：材质 `Decal.material`，`MATERIAL_DECAL`）：`albedo(UV0) × 地图 colormap(UV1).rgb（separate_lm 图再 × colormap.a）× 2.0`，**不受光**，UV 用网格自带 UV1（无 uvScale） | 导出器无贴花判据（材质不打标）且 UV1 随导门槛只覆盖光照图/动画掩码 ⇒ 贴花批次丢 UV1；前端无贴花材质 ⇒ 落到受光 Lambert | 铁轨贴图比客户端**亮约 1.5–2.3×**（客户端等效乘子 0.84 vs 我们受光 1.2–1.9） | ★★ | **已修复**：`decal_capable` 判据 + `extras.decal`/`decalLmAdjust`/`decalSeparateLm` + UV1 随导（fail-closed 计数）+ 前端 `makeDecalMaterial`（不受光，含 GLOBAL_TINT 调整分支）；后续审计修复 decal 烘焙连乘残留与 FLATALBEDO 丢染色（判定 = 有效 define 集 ∪ 实例 flags） | 〔错误→已修复〕 |
+| D8 | 贴地"被地形着色"的贴花件（铁轨/地界标线：材质 `Decal.material`，`MATERIAL_DECAL`）：`albedo(UV0) × 地图 colormap(UV1).rgb（separate_lm 图再 × colormap.a）× 2.0`，**不受光**，UV 用网格自带 UV1（无 uvScale） | 导出器无贴花判据（材质不打标）且 UV1 随导门槛只覆盖光照图/动画掩码 ⇒ 贴花批次丢 UV1；前端无贴花材质 ⇒ 落到受光 Lambert | 铁轨贴图比客户端**亮约 1.5–2.3×**（客户端等效乘子 0.84 vs 我们受光 1.2–1.9） | ★★ | **已修复**：`decal_capable` 判据 + `extras.decal`/`decalLmAdjust`/`decalSeparateLm` + UV1 随导（fail-closed 计数）+ 前端 `makeDecalMaterial`（不受光，含 GLOBAL_TINT 调整分支）；后续审计修复 decal 烘焙连乘残留与 FLATALBEDO 丢染色（判定 = 有效 define 集 ∪ 实例 flags） | 〔错误→已修复〕 |
 | D2 | 地面贴花（碾压痕/弹坑/血迹）动态生成 | 无（客户端贴图不在可得数据面：游戏层 geo-decal 贴图由游戏层传入） | ~~战场缺少"被踩过"的痕迹~~ ⇒ 无可对齐实现 | ★ | **弹坑/血迹：不做**——客户端构成 = FX 粒子（`3d/FX/<map>/hit_surface/groundHit_*.sc2`）+ 游戏层 geo-decal（`GeoDecalManager`；**贴图不在数据面**）；重做前置 = 先定位客户端弹痕贴图。**碾压痕：已落地**——TreadSystem 作者数据在数据面（逐车 `treadParameters` 块 88/764 yaml + `3d/Tanks/Common/images/` 13 张 `*_tread.dx11.dds.dvpl`），数据面已导出（包内 `tread/`）、前端由 WotbTools 几何贴花消费（[feasibility-track-marks.md](feasibility-track-marks.md)） | 〔弹坑/血迹不做；碾压痕已落地〕 |
 | P3 | 信号灯等"**状态切换器 + 骨骼网格**"对象：客户端每盏灯 = `env_fc_trafic_light_02.sc2`（渲染组件 = 杆）**＋同位置的 `env_fc_trafic_light_01.sc2`**（`StateSwitcherComponent` 3 状态 + 子实体 `State 0/1/2` = **`SkinnedMesh`** 灯头/悬臂） | 导出器渲染类白名单只有 `Mesh`/`SpeedTreeObject` ⇒ **`SkinnedMesh` 整类被跳过** ⇒ `_01` 全图缺失（GLB 内该名字节点 0） | 2026-10-10 用户"图中的信号灯组件不完全"（只有杆、没有灯头/悬臂） | ★★ | **已修复（2026-10-10，上游导出）**：白名单纳入 `SkinnedMesh`，按**静止绑定姿态**导出（不读骨架/动作 ⇒ 不随动），并**只取激活状态** `State 0`（全图 335 个切换器无一 `activeState≠0`，故规则严格成立；损毁态 `State 1/2` 按用户决定不导，撞毁仍"直接消失"）。forgecity 实测：`_01` 节点 **0 → 61**（每个 450 顶点、z ∈ [4.27, 6.98] 的灯头+悬臂），杆 `_02` 完好形态另已逐层核实与客户端一致（138 顶点/240 索引/80 三角形 = datasource 77797、包围盒逐位相同、材质链 `TextureLightmap`+`traffic_light.tex`+lightmap、逐实例 UV 变换 61/61）。客户端破坏机制（`FallingType 2` 倒伏 + `objects_falling_lamppost_creak/down` + 扬尘 + `fallingAtoms` 碎件）本仓不实现 | 〔缺失→已修复〕 |
 

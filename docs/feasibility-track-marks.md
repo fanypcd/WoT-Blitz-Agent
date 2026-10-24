@@ -78,8 +78,8 @@
     DDS **无损**转 webp，保客户端像素；幂等可重跑，与逐车参数解耦）。
 - 打包接线：`scripts/export_asset_pack.py` 新增 tread 段（紧随 suspension 段，additive）；
   本地包已增量补入并 `--refresh-manifest` 重算（**5288 文件 / 4286.1 MB**，
-  tread 计 324 条目）。**COS 未同步**——生产可见需按常规流程上传增量
-  （`--only tread/`）。
+  tread 计 324 条目）。当时 COS 未同步；后已随 v0.4.4 pin bump 上传
+  （`--only tread/`，749 文件 / 1.2 MB，见 §五实施状态表）。
 - 回归：`python tools/test_export_tank_tread.py`（6 项：块解析/fail-closed/贴图路径形状/
   产物自洽/真实客户端抽样含 DDS alpha 软边断言）。
 

@@ -1,7 +1,7 @@
 # 坦克模型的本机自产管线与两来源对照
 
 > 坦克模型本机自产管线的实现记录与两来源对照。**现役口径**：`data/cache/models/`
-> 整体为本地导出（与 `local_models/` 逐辆逐字节一致），包与 COS 随发——现状与接线
+> 整体为本地导出（与 `local_models/` 逐辆逐字节一致），包随 Alibaba asset origin 发布——现状与接线
 > 见 [data-inventory.md](data-inventory.md) §一 #8 与 §三。可行性依据见
 > [feasibility-glb-local-export.md](feasibility-glb-local-export.md)（报告 B）。
 
@@ -26,8 +26,8 @@ baseColor 残差同源。25 辆跨九系抽样 + 8 辆定点抽样 + 一组老�
 > 才进入指标；上表的 0.966–0.998 就是这条维度加入后暴露出来的既有残差，不是新引入的。
 
 这比报告 B 的验收口径更严：报告 B 只比"按可达节点求和的顶点/索引数"（700/735），
-本管线比到**逐属性原始字节**、且要求**节点顺序一致**（733/735；2026-10-10 起其中
-**23 辆为有意分歧**——静态变换烘焙 / 状态过滤；2026-10-17 扩到 **111 辆**，见 §5.1）。
+本管线比到**逐属性原始字节**、且要求**节点顺序一致**（623/735，见表；有意分歧 2026-10-10 起
+23 辆、**2026-10-17 起共 111 辆**——静态变换烘焙 / 状态过滤，另 1 辆为 BK 侧独有行为，见 §5.1）。
 
 ## 1. 工具
 
@@ -398,8 +398,8 @@ glTF 的 `metallicFactor` / `roughnessFactor` **默认值为 1.0/1.0**（全金�
 python tools/export_tank_glb.py --all --texture-mode semantic --jobs 8   # → data/cache/local_models/
 # 同步至包源目录（两目录应逐辆一致）：把变化件复制进 data/cache/models/ 与 release/asset_pack/glb/
 python scripts/export_asset_pack.py --refresh-manifest                   # 按包内容重算 manifest sha256
-COS_SECRET_ID=… COS_SECRET_KEY=… python tools/upload_asset_pack_cos.py --only glb/   # 只传坦克 glb
-#（--only = 局部发布：manifest 远端清单就地补丁；不传则整份发布，见 game-data-sources §5.2）
+# 发布走 Alibaba asset origin 新 release（增量覆盖 + 主机重算 manifest + 原子切 current，
+# 见 game-data-sources §5.2）；tools/upload_asset_pack_cos.py 仅 COS legacy（旧 APK/回滚），不用于新发布
 ```
 `--refresh-manifest` 与上传器的 **sha256 跳过判定**是同轮补的：顶点烘焙**只改内容、不改尺寸**，
 旧上传器按 `Content-Length` 比对会把这类修正静默跳过（见 data-inventory §2.1 / game-data-sources §5.2）。

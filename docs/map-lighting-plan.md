@@ -179,6 +179,11 @@ sky.webp  sky.flow.webp
 
 ## 九、清单（照此执行）
 
+> **历史清单，留档不回勾**：期 0–2 主体已落地（落地状态以本文头部与
+> [map-render-align-audit.md](map-render-align-audit.md) §三/§四 各行为准）；期 1c 与
+> 同步项中的 **COS 差分发布链已由 Alibaba asset origin 取代**
+> （[game-data-sources.md](game-data-sources.md) §5.2），按当时方案执行不再适用。
+
 - [ ] 期 0：天空最亮点自证 → 标定记录（太阳约定 / exposure / `×2`）
 - [ ] 期 1a：`tools/export_map_lighting.py` + `lighting.json` + IBL/天空 WebP
 - [ ] 期 1b：`export_map_glb.py` 随导 UV1（raw）+ 节点/材质 extras + 图集 WebP（无光照图批次零回归）

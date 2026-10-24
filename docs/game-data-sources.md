@@ -152,7 +152,7 @@ BlitzKit models.pb 也只有 **4 字节空消息**（`0a 00 12 00`，min/max 两
 本机客户端解包，但定义不同：全量 738 辆中 287 辆的 hull 盒与网格 AABB 完全相等，其余主要
 在 +z 有差（中位 20.8mm、p90 81.7mm、最大 426mm）。射击复现/解码必须用部件盒，**不能**用
 网格 AABB 替换，盒缺失时 fail-closed（本机审计换框后首发板匹配 488→457、部件匹配 577→502；
-见 [回放与射击逆向总集](回放与射击逆向总集.md) §6.3）。
+见 [回放与射击逆向总集](回放与射击逆向总集.md) 第四篇 §6.3「固有差异界限」——部件盒 vs 网格 AABB）。
 
 **两套国名互不相同，按目录去猜必错**：
 
@@ -522,7 +522,7 @@ alpha 覆盖率 ~20% = 只有俯视件）按本节命令重合成会把 36 张�
 2D 地图鸟瞰 / 战局回放用的 29 张底图不是客户端资产，也**不再**是外部 AI 增强件，而是本仓自产：
 `release/asset_pack/map/<key>/ground.webp`（4096²，含俯视屋顶/树冠烘焙）经
 `tools/export_2d_basemaps.py` 派生 → `release/2d-basemaps/`（canonical 1254² WebP q90 / method 6）
-→ 交接 WotbTools `frontend/src/assets/maps/`（web 与 Android 共用；Android 再走其自身的 ≤1024² 派生）。
+→ 交接 WotbTools `frontend/src/assets/maps/`（web 与 Android 共用这一份 canonical 字节；Android 不再派生，见本节结尾）。
 
 **冻结配方**（全 29 张同一套，参数 = 工具内常量）：LANCZOS 1254² → 全局对比曲线
 `y' = softclip(128 + (y−128)×1.17)`（两端 24 级软肩）→ 饱和 ×0.9748 → 逐通道软肩（无硬裁切）
