@@ -268,6 +268,33 @@ impl ReplayModel {
                     .push((e.clock, e.source, e.cause));
             }
         }
+        // —— 隐藏段掉血兑现：重入 Type5 物化快照血量并入血量链 ——
+        // Type4 隐藏段「零更新」（type=7/8/10 全断），method1 只覆盖在场段；重广播 type=5
+        // 的 offset51 = 物化时刻当前血量（§2.6，非开局值）。客户端语义 = 二次点亮物化时
+        // HP 条直接跳到快照值——盲炮/视野外伤害没有 method1 事件（来源不可知，fail-closed
+        // 不归属凶手），但绝对血量必须在此兑现，否则重入后血量链停在丢视野前旧值、直到
+        // 下一次受击才修正（实测 J20 CN_LEVITHAN：重入快照 348 vs 血量链 1192，缺 844）。
+        // 首段与 initial_hp seed 同包同偏移（同钟同值 → 插入后即被去重还原）；哨兵族归一
+        // 与 method1 显示口径同判（hp_terminal_normalized；死亡面权威仍在 hp_state/prop1，
+        // 不在此扩大）。无锚点实体（首物化短包）以首个带血量快照为链起点——有证据不丢弃。
+        for p in &presence {
+            let Some(raw) = p.hp_raw else { continue };
+            let hp_v = hp_terminal_normalized(raw);
+            let Some(series) = hp_series.get_mut(&p.eid) else {
+                hp_series.insert(p.eid, vec![(p.t_in, hp_v)]);
+                continue;
+            };
+            // 插在首个 clock ≥ t_in 的既有事件之前（同钟物化先于更新，客户端顺序）
+            let idx = series.partition_point(|(t, _)| *t < p.t_in);
+            let prev_differs = idx == 0 || series[idx - 1].1 != hp_v;
+            if prev_differs {
+                series.insert(idx, (p.t_in, hp_v));
+                // 同值紧随的既有事件（物化/更新同值突发）由物化时刻代表
+                if series.get(idx + 1).map(|(_, h)| *h) == Some(hp_v) {
+                    series.remove(idx + 1);
+                }
+            }
+        }
         // 死亡记录 = 广播 × 归零 就近配对（同一次死亡的两路证据；门控 5s 与击杀播报
         // 归属门控同源）。单广播×单归零无条件配对（t 取广播、凶手/死因取归零）——
         // 与既往单死行为逐位一致；仅多证据（复活模式）走 5s 就近配对，落单者按自身
@@ -822,5 +849,98 @@ mod tests {
         assert_eq!((rs[0].t, rs[0].killer_eid, rs[0].cause), (40.5, 3, 2));
         assert_eq!((rs[1].t, rs[1].killer_eid, rs[1].cause), (46.0, 0, 255));
         assert!(!model.timeline.resurrections.contains_key(&e));
+    }
+
+    // —— 隐藏段掉血兑现（重入 Type5 物化快照血量）：盲炮/视野外伤害没有 method1
+    //    事件，重入快照的当前血量是唯一绝对证据，二次点亮时必须并入血量链 ——
+
+    /// type=5 战斗车辆物化包：[eid][entityTypeId=2 @4..6][…][hp u16 @51]
+    fn mk_mat(eid: u32, hp: u16) -> Vec<u8> {
+        let mut p = vec![0u8; 53];
+        p[0..4].copy_from_slice(&eid.to_le_bytes());
+        p[4..6].copy_from_slice(&2u16.to_le_bytes());
+        p[51..53].copy_from_slice(&hp.to_le_bytes());
+        p
+    }
+    /// Type33 预备帧 / Type4 离开帧：[eid]
+    fn mk_aoi(eid: u32) -> Vec<u8> {
+        eid.to_le_bytes().to_vec()
+    }
+
+    #[test]
+    fn hp_series_folds_hidden_period_damage_on_reentry() {
+        let v = 0x41u32;
+        let model = scan_min(vec![
+            (33, 0.5, mk_aoi(v)),
+            (5, 1.0, mk_mat(v, 1000)),     // 首物化 = 满血锚点（同包双证据）
+            (8, 5.0, mk_hp(v, 800, 7, 0)), // 在场段受击
+            (4, 6.0, mk_aoi(v)),           // 丢视野
+            // 隐藏段盲炮掉血 800→650：Type4 隐藏段零更新，无任何包
+            (33, 9.0, mk_aoi(v)),
+            (5, 9.5, mk_mat(v, 650)),      // 二次点亮物化：当前血量 650
+            (8, 12.0, mk_hp(v, 400, 8, 0)), // 再次在场受击
+            (4, 13.0, mk_aoi(v)),
+        ]);
+        assert_eq!(
+            &model.timeline.hp_series[&v],
+            &vec![(1.0, 1000), (5.0, 800), (9.5, 650), (12.0, 400)],
+            "重入物化血量在 t_in 兑现，链不停在丢视野前旧值"
+        );
+    }
+
+    #[test]
+    fn hp_series_reentry_without_hidden_change_stays_deduped() {
+        let v = 0x42u32;
+        let model = scan_min(vec![
+            (33, 0.5, mk_aoi(v)),
+            (5, 1.0, mk_mat(v, 1000)),
+            (8, 5.0, mk_hp(v, 800, 7, 0)),
+            (4, 6.0, mk_aoi(v)),
+            (33, 9.0, mk_aoi(v)),
+            (5, 9.5, mk_mat(v, 800)), // 隐藏段无掉血：快照 = 丢视野前值
+            (8, 12.0, mk_hp(v, 400, 8, 0)),
+        ]);
+        assert_eq!(
+            &model.timeline.hp_series[&v],
+            &vec![(1.0, 1000), (5.0, 800), (12.0, 400)],
+            "无隐藏段变化不产生新事件（去重序列契约）"
+        );
+    }
+
+    #[test]
+    fn hp_series_reentry_terminal_snapshot_normalizes_to_zero() {
+        let v = 0x43u32;
+        let model = scan_min(vec![
+            (33, 0.5, mk_aoi(v)),
+            (5, 1.0, mk_mat(v, 1000)),
+            (8, 5.0, mk_hp(v, 800, 7, 0)),
+            (4, 6.0, mk_aoi(v)),
+            // 隐藏段死亡：重入物化为终态哨兵
+            (33, 9.0, mk_aoi(v)),
+            (5, 9.5, mk_mat(v, 0xFFFD)),
+        ]);
+        assert_eq!(
+            &model.timeline.hp_series[&v],
+            &vec![(1.0, 1000), (5.0, 800), (9.5, 0)],
+            "终态哨兵归一与 method1 显示口径同判（钳 0）"
+        );
+    }
+
+    #[test]
+    fn hp_series_starts_from_first_materialization_when_seed_missing() {
+        let v = 0x44u32;
+        let short = v.to_le_bytes().to_vec(); // <53B：无锚点（首物化短包）
+        let model = scan_min(vec![
+            (33, 0.5, mk_aoi(v)),
+            (5, 1.0, short), // 短包：initial_hp 不收、presence hp_raw=None
+            (4, 6.0, mk_aoi(v)),
+            (33, 9.0, mk_aoi(v)),
+            (5, 9.5, mk_mat(v, 650)), // 重入快照是唯一血量证据
+        ]);
+        assert_eq!(
+            &model.timeline.hp_series[&v],
+            &vec![(9.5, 650)],
+            "无锚点实体以首个带血量物化快照为链起点（有证据不丢弃）"
+        );
     }
 }
