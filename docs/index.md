@@ -14,8 +14,8 @@
 | [docs/tank-suspension-client-re.md](tank-suspension-client-re.md) | **客户端坦克悬挂逆向**：处理链与节点绑定契约、逐车 `suspension:` 数据面（`wheels`/履带折线/`chassis.textureScale`）、负重轮-履带求解公式（反汇编还原）、对齐可行性分级与剩余未定项 |
 | [docs/architecture-debt.md](architecture-debt.md) | 架构债与长期改动方案：已完成项（combat.rs 拆分、双路径合并）与仍留存项 |
 | [docs/game-data-sources.md](game-data-sources.md) | **数据来源权威表**：每份数据取自 BlitzKit / 本机客户端 / WG API / 自产；本地提取链、间隙甲 spaced 规则、DVPL 校验契约、DLC 覆盖层、资产 origin 发布流程（Alibaba；COS legacy）与运维陷阱、俯视合成朝向契约 |
-| [docs/data-inventory.md](data-inventory.md) | **数据面清单 / 运行所需数据总账**：运行期 11+1 项核心数据的"目前来源 / 可替代来源 / 替代完成度"+ 派生/注入数据 + 非数据类外部依赖；分发渠道与包内布局；工具索引 |
-| [docs/decoupling-status.md](decoupling-status.md) | 解耦现状（BlitzKit → 本机客户端自产，已全量完成）：已定案差异清单、封面图与命名域细节、对外沟通材料 |
+ | [docs/data-inventory.md](data-inventory.md) | **数据面清单 / 运行所需数据总账**：运行期 11+1 项核心数据的"目前来源 / 可替代来源 / 替代完成度"+ 派生/注入数据 + 非数据类外部依赖；分发渠道与包内布局；工具索引 |
+ | [docs/decoupling-status.md](decoupling-status.md) | 解耦现状（BlitzKit → 本机客户端自产，已全量完成）：已定案差异清单、封面图与命名域细节、对外沟通材料 |
 | [docs/local-model-export.md](local-model-export.md) | 坦克模型本机自产管线：实现铁律（违反会静默出错）、贴图语义口径与通道搬迁、与 BlitzKit 的逐维度对照结论 |
 
 ## 档案（已执行完毕 / 报告留档）
@@ -133,6 +133,28 @@
 - **遗留提示**：本地 `tmp_analysis/`(5.4G)+`tmp_pw/`(499M)+`tmp_wi_probe/`(155M) 共约 6G
   调查产物可按需清理；WotbTools 本地检出落后 origin/main 31 提交（分支工作已全在 main），
   其本地 `common/fixtures/tournament/csv/{4x2,5x3}.csv` 的未提交改动仅为行尾符差异。
+
+### 回放血量链：隐藏段（盲炮）掉血在二次点亮兑现（2026-10-26，解析器行为修正，未发版）
+
+丢视野期间挨的盲炮/视野外伤害此前**完全脱离回放血量链**：Type4 隐藏段零更新
+（type=7/8/10 全断），method1 事件只覆盖在场段，而重入 Type5 物化快照的当前血量
+（`AoiPresence.hp_raw`，offset51 重广播语义）此前只透传给评审切面、未并入
+`hp_series`——坦克二次点亮后血量链停在丢视野前旧值，直到下一次受击才被动修正，
+3D 血条看不出隐藏段掉过血（**J20 样本实测：CN_LEVITHAN 在场末 1192 → 重入快照 348，
+隐藏段缺 844 点，链上无任何体现**）。
+
+- **修复**：`ReplayModel::scan` 将每个在场段开段 Type5 物化快照血量并入血量链，在
+  `t_in`（二次点亮时刻）落台阶——与客户端语义同构（`onEnterAoI` 物化时 HP 条直接跳到
+  快照值）。哨兵族按 `hp_terminal_normalized` 钳 0（与 method1 显示口径同判，死亡面
+  权威仍在 `hp_state`/prop1）；首段与 `initial_hp` seed 同包同值（插入即被去重还原）；
+  无锚点实体（首物化短包）以首个带血量快照为链起点。**凶手归属 fail-closed 不做**
+  （隐藏段无 method1 来源，证据链不足不猜）。
+- **证据与验证**：合成包流 4 条单测锁定（隐藏段掉血兑现/无变化去重/终态哨兵钳 0/
+  无锚点起点）；13 份仓内样本探针（血量链 vs 重入快照逐段比对）基线 1 处脱节 →
+  修复后 0 处，J20 样本血量链在 t=187.25 出现 348 台阶、191.33 归零闭合。
+- **影响面**：`PlaybackData.vehicles[].hp`（3D 血条曲线）在有隐藏段掉血的车辆上新增
+  台阶点；切面 v2 形状不变；AI 投影 golden 不受影响（投影不走 `hp_series`）。WotbTools
+  随下次 pin bump 生效，3D 血条在二次点亮时出现台阶属预期修正。
 
 ### 数据面
 
