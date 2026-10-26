@@ -37,7 +37,7 @@
 
 ### 版本与发行
 
-- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.11**）。
+- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.12**）。
   该值变更合并到 `main` 后，Release workflow 自动测试、构建、创建 `v<version>` tag
   并发布 `wotb-replay-wasm-v<version>.zip`；发布策略与 Android 同步规则见
   [AGENTS.md](../AGENTS.md)。
@@ -47,7 +47,7 @@
 
 | 版本 | 内容 |
 |---|---|
-| v0.4.11 | **射击复现匹配与配件解析修正**：①其他玩家/作者射击在 method8/method38 绑定后按 HP 终态剔除“受击方开火前已死亡”的残骸命中（`ShotQuality.target_dead`，0.1s 容差；样本 7 发），不再发布为活目标；`OtherShotsExtraction.skipped_dead_target` 统计。②Type5 loadout 的 item 描述符数量变长（实测 3..=7，含 `0A 04`），且装备检测不再依赖 `0A KK` 描述符块——只认 `0B` 配件串 + `0C 00 0D` 帧尾；描述符块缺失时 `items` 为空但 `equipment` 仍采集（校准弹 103 正常识别，XM551 #30 实测）。③`game_hit_result=4` 保持 raw（消费方统一「结果未定（4）」，不得命名跳弹/履带/击穿）。④`collision_boxes` 四盒直读客户端 Parameters YAML（hull/turret 选段仍用 models.pb 模块→节点映射；数值不变，非 WASM 行为）。⑤`PenetrationRequest` additive `require_primary`（默认 false；射击复现传 true）。**消费方**：WotbTools pin bump 后 `shots[]` 的残骸命中、`target_dead`、`skipped_dead_target` 与射手装备可见；需按新产物重生成 AI 投影 golden；前端射击复现路径使用 `require_primary`。 |
+| v0.4.12 | **隐藏段（盲炮）掉血在二次点亮兑现（血量链修正）**：重入 Type5 物化快照的当前血量（`AoiPresence.hp_raw`，offset51 重广播语义）并入血量链 `hp_series`——Type4 隐藏段零更新（type=7/8/10 全断）、method1 只覆盖在场段，此前丢视野期间的掉血在二次点亮后链上无体现、直到下一次受击才被动修正（J20 实测 CN_LEVITHAN 在场末 1192 → 重入快照 348，缺 844 点）。现按在场段逐段在 `t_in` 落台阶，与客户端 `onEnterAoI` 物化时 HP 条直接跳到快照值同构；哨兵族钳 0 与 method1 显示口径同判，首段与 seed 同包同值去重还原（无隐藏段变化的既有回放零扰动），无锚点实体以首个带血量快照为链起点；凶手归属 fail-closed 不做（隐藏段无 method1 来源）。**消费方**：`vehicles[].hp` 在有隐藏段掉血的车辆上新增台阶点——WotbTools 伤害飘字由血量链差分推导（`buildTransientSources`），随 pin bump 自动在二次点亮显示该次掉血；切面 v2 形状不变，AI 投影 golden 预期仅 provenance 变化。证据与验证（4 合成单测 + 13 样本探针 1→0）见本文件 2026-10-26 条目与 [wotbtools-cross-reference.md](wotbtools-cross-reference.md) §五。 |
 | v0.4.10 | **车辆集合判据修正 + 装甲厚度序列化精度**：①`vehicles[]` 入选改为 **Type5 class=2 实体类型 ∧ 结算花名册联表成功 ∧ 有 type=10 位姿**，删除 `st10 ∧ prop2` 双流交集、20 采样阈值与 prop2 退化分支——修复炮塔全程不转的敌方车辆整条丢失（2026-10-19 训练房 SU-130PM 样本，709 条 type=10、0 条 prop2），同时排除相机/区域可破坏物/炮塔残骸与未进结算花名册的观察者/中途离开实体。影响面：`vehicles[]`、`visibility[]`、时间轴 `meta.t_start/samples/duration`、`shots[]` 联表兜底；切面 v2 形状不变，WotbTools 随 pin bump 直接受益。②`tank/{id}.json` 的 plate/track 厚度序列化从 0.1mm 改为 0.01mm，保留 6.35 等真实板值（旧口径生成 6.3，HE/判定少 0.05mm）；738 辆数据重生成、manifest 刷新，8 个字节变化的 tank JSON 已差分同步 COS（730 个按 sha256 跳过）。消费方随 pin bump 重生成 AI 投影 golden：车辆集合修复带来的字段值变化属预期。 |
 | v0.4.9 | **血量终态分类字段（additive）**：`AiReviewFacet` 的 `damage`（method1）与 `health`（prop3）事件新增 `hp_state`（`current`/`zero`/`terminal`，**恒在场**）——血量 u16 的**唯一权威分类**（规则 = `hp_terminal_normalized`，int16 ≤ 0 全域；实测终态族 0xFFFF/0xFFFE/0xFFFD，禁按分布裁剪），消费方判死亡面读它、禁自行解释 `hp_raw`。动因：消费方 canonical 只认 {0x0000, 0xFFFD}，−1/−2 档的弹药架殉爆被判成存活（血量冻在最后正值、3D 装填条继续外播；实例 1910 局 Intotherainy `0xFFFE`）。**消费方适配**：字段 additive、旧产物缺省即旧行为；**要覆盖 −1/−2 档死亡必须消费 `hp_state`**（缺省路径保持 legacy 分类——仅 {0x0000, 0xFFFD} 终态，禁在缺省上放宽）；pin bump 后 AI 投影 golden 预期仅 provenance 变化（新字段不进投影产物）。`PlaybackData` v2 / `AiReviewFacet` v1 形状不变。裁决与迁移清单见 [wotbtools-cross-reference.md](wotbtools-cross-reference.md) §七。 |
 | v0.4.8 | **复活模式生命轨道（additive）+ method8 结算伤害直读 + 伤害归属确定性化 + 争霸残留占领清理**：①`VehicleTrack` 新增 `death_times`（**≥2 死才输出**）与 `resurrection_times`（**非空才输出**）——复活模式（爆燃等）同 eid 死而复生不再被判终态；普通回放 JSON 零扰动，消费方按"字段缺省 = 死亡终态"处理即行为逐位不变。②`shots[]` 伤害改**直读服务器结算值**（method8 直击通知尾部 `[u16 伤害][u8 状态]`；状态 ≠0 才已结算、overkill 已封顶），作者/他人两路径同优先，HP 链降级为无结算值时的兜底；22 场对账仅 3 处变化且全部为修正。③**伤害归属确定性化**：逐事件采样（删除"同钟异值整组丢弃"）+ method8 命中时钟精确配对，配不上 → 0 + `dmg_unattributed`（fail-closed）；22 场仅 5 发变化、全部对账。④已归属基地的占领中断后**清空残留进度**（保留归属；新增合成回归与公开契约）。⑤clippy `-D warnings` 清零（纯机械等价替换）。**消费方注意**：`shots[]` 的数值/归属与 HP 链兜底路径有可见变化（皆 bug 修正），WotbTools 随 pin bump 须重生成 golden 并逐条归因（复活字段则无需适配，缺省即旧行为）。切面 v2 形状未变。**附带（工具/资产面，非 WASM 行为）**：2D 战术底图改 pack `ground.webp` 派生 + COS `map2d/` 免发版通道（索引 schemaVersion 2 带世界框/取向几何契约）+ 客户端 HUD 小地图取景实测记录。 |
@@ -134,7 +134,7 @@
   调查产物可按需清理；WotbTools 本地检出落后 origin/main 31 提交（分支工作已全在 main），
   其本地 `common/fixtures/tournament/csv/{4x2,5x3}.csv` 的未提交改动仅为行尾符差异。
 
-### 回放血量链：隐藏段（盲炮）掉血在二次点亮兑现（2026-10-26，解析器行为修正，未发版）
+### 回放血量链：隐藏段（盲炮）掉血在二次点亮兑现（2026-10-26，解析器行为修正，v0.4.12）
 
 丢视野期间挨的盲炮/视野外伤害此前**完全脱离回放血量链**：Type4 隐藏段零更新
 （type=7/8/10 全断），method1 事件只覆盖在场段，而重入 Type5 物化快照的当前血量

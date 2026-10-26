@@ -135,7 +135,7 @@ WotbTools 的 canonical 流水线（Java `wotb-core` + 前端）需要 Agent 侧
 - **车辆实际搭载配置与弹容**（`config_idx`/`burst_size`）：见 §六弹容裁决。
 - **AoI 重入段化滤波**：位置滤波器按 AoI 在场段独立实例化（客户端 `onEnterAoI →
   setFilterOnEntity()` 同构）；`visibility[]` additive `pose`（Type5 物化快照位姿 = 段首种子）。
-- **AoI 重入血量兑现（2026-10-26，未发版）**：`vehicles[].hp`（血量链显示序列）并入重入
+- **AoI 重入血量兑现（2026-10-26，v0.4.12）**：`vehicles[].hp`（血量链显示序列）并入重入
   Type5 物化快照血量——丢视野期间的盲炮/视野外伤害在二次点亮时刻（`t_in`）落台阶
   （客户端语义 = 物化时 HP 条直接跳到快照值；实测 J20 CN_LEVITHAN 隐藏段 844 点此前
   链上无体现）。隐藏段死亡的重入快照哨兵按显示口径钳 0；凶手归属不提供（隐藏段无
