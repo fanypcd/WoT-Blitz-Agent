@@ -284,8 +284,8 @@
   图自己作为 `paste` mask，边缘 alpha 被二次相乘后消失，96×96 图标内容框偏到一侧
   （102 张中 32 张四边距差 >1px，最差 11px）；改为 `alpha_composite` 后重新生成
   全部物品/模块/技能/弹种图标，新增 `tools/test_research_icons.py` 几何门禁。乘员
-  技能图标先在客户端 64×64 帧内取 alpha 内容框再居中（packed 大图只在帧左上角
-  承载图标），排除帧外光效后仍保证可见内容居中。英文
+  技能图标按 BlitzKit `sharp().trim()` 的默认阈值 10 取可见内容框再居中，
+  忽略近乎透明的帧外光晕；英文
   `agentTanks.pen_far` 的 `"Pen @ far"` 触发 vue-i18n linked-message 编译错误，切到
   English 时右侧参数栏整块消失；改为 `"Far-range pen"` 并新增三语消息全量编译门禁。
   WotbTools 图标同步至 `common/research/icons`；3.17.9 / 3.17.10 均已 stage 但未

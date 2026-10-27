@@ -3,8 +3,8 @@
 导出器的 `_normalize_icon` 必须把 alpha 内容框居中放进固定画布。曾用
 `out.paste(resized, pos, resized)`，把 RGBA 图自己当 mask，边缘 alpha 被二次相乘
 （alpha²）后消失，内容框偏到一侧——2026-10-27 实测 102 张里 32 张偏差 >1px。
-本测试检查最终资产几何：alpha 内容框四边距差 ≤1px。技能图标先在客户端 64×64
-语义帧内取 alpha 内容框，再居中；帧外光效不参与。
+本测试检查最终资产几何：alpha 内容框四边距差 ≤1px。技能图标按 BlitzKit
+`sharp().trim()` 的默认阈值 10 取可见内容框（忽略近乎透明的光晕）。
 
 用法：python tools/test_research_icons.py
 """
@@ -25,7 +25,12 @@ def test_icon_canvas_and_alpha_bbox_centered():
         if image.size != (96, 96):
             bad.append(f"{path.relative_to(ICON_ROOT)}: canvas {image.size}")
             continue
-        bbox = image.getchannel("A").getbbox()
+        alpha = image.getchannel("A")
+        if path.parent.name == "skills":
+            # BlitzKit 的技能图标接口用 sharp().trim() 默认阈值 10；可见内容框
+            # 应按同一阈值检查，否则近乎透明的光晕会掩盖真实主体的偏移。
+            alpha = alpha.point(lambda value: 255 if value > 10 else 0)
+        bbox = alpha.getbbox()
         if bbox is None:
             bad.append(f"{path.relative_to(ICON_ROOT)}: empty alpha")
             continue
