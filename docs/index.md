@@ -15,6 +15,7 @@
 | [docs/architecture-debt.md](architecture-debt.md) | 架构债与长期改动方案：已完成项（combat.rs 拆分、双路径合并）与仍留存项 |
 | [docs/game-data-sources.md](game-data-sources.md) | **数据来源权威表**：每份数据取自 BlitzKit / 本机客户端 / WG API / 自产；本地提取链、间隙甲 spaced 规则、DVPL 校验契约、DLC 覆盖层、资产 origin 发布流程（Alibaba；COS legacy）与运维陷阱、俯视合成朝向契约 |
  | [docs/data-inventory.md](data-inventory.md) | **数据面清单 / 运行所需数据总账**：运行期 11+1 项核心数据的"目前来源 / 可替代来源 / 替代完成度"+ 派生/注入数据 + 非数据类外部依赖；分发渠道与包内布局；工具索引 |
+| [docs/wotbtools-research-loadout-plan.md](wotbtools-research-loadout-plan.md) | **WotbTools 复刻实施方案**（UI 对齐客户端）：数据源铁律（客户端解析权威 / BlitzKit 备用+公式参照）、`data/research/` 导出契约、计算层规格（BK 公式逐条 + 两处冲突以客户端为准）、逐屏交互规格（科技树/研发页/支付弹窗/装备/消耗品补给/参数差分/回放装配）、已知偏差表、P0–P5 分期与测试门禁 |
  | [docs/decoupling-status.md](decoupling-status.md) | 解耦现状（BlitzKit → 本机客户端自产，已全量完成）：已定案差异清单、封面图与命名域细节、对外沟通材料 |
 | [docs/local-model-export.md](local-model-export.md) | 坦克模型本机自产管线：实现铁律（违反会静默出错）、贴图语义口径与通道搬迁、与 BlitzKit 的逐维度对照结论 |
 
@@ -37,7 +38,7 @@
 
 ### 版本与发行
 
-- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.13**）。
+- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.14**）。
   该值变更合并到 `main` 后，Release workflow 自动测试、构建、创建 `v<version>` tag
   并发布 `wotb-replay-wasm-v<version>.zip`；发布策略与 Android 同步规则见
   [AGENTS.md](../AGENTS.md)。
@@ -47,6 +48,7 @@
 
 | 版本 | 内容 |
 |---|---|
+| v0.4.14 | **血量链死亡证据与显示去重分离（v0.4.13 的复审缺陷）**：v0.4.13 把 `zero_hits`（method1 归零事件的凶手/死因登记）放在显示链相邻同值去重之后——终态快照（0/0xFFFD/0xFFFE/0xFFFF，隐藏段死亡后残骸重入）先到时，随后（或同钟）的 method1 归零被相邻去重吞掉，死亡归属退化 `0/255` 甚至消失（存在 prop1 时）。现改为**归零是否立死看上一条 method1 更新的值**（同值归零 = 同一次死亡的 overkill 重复，不重复立死），与夹在中间的快照无关；显示链行为与 v0.4.13 逐位一致，仅死亡归属修正。**消费方**：`death_t`/`killer_eid`/`cause` 对「隐藏段死亡 + 残骸重入」场景恢复 method1 归属；切面 v2 形状不变，AI 投影 golden 预期仅 provenance 变化。证据：WotbTools #767 复审 P2-2 反例 + 回归 `hp_series_zero_hit_survives_terminal_snapshot_adjacency`（双向 + overkill 重复归零仍单条；6 合成单测 + 13 样本探针 0 脱节 + clippy 零警告）。 |
 | v0.4.13 | **血量链合并顺序修正（v0.4.12 的复审缺陷）**：v0.4.12 的实现先对 method1 做相邻同值去重、再把重入快照插回——快照夹在两条同值 method1 之间时（隐藏段死亡无 method1 归零 + 复活回满血再受击、值恰同受击前，复活语义可达），后一条真实受击被吞（`t` 之后 `hpAt` 读到旧值，伤害飘字同源受累）。现改为**全部血量证据（种子 + method1 + 重入快照）统一按时间合并（同钟快照在前 = 客户端物化先于属性更新）、最后做一次相邻同值去重**；`zero_hits` 登记移入最终去重（幸存归零才立死，逐位等价）。**消费方**：普通回放与 v0.4.12 输出逐位一致，仅复活/同值边界修正；切面 v2 形状不变，AI 投影 golden 预期仅 provenance 变化。证据：WotbTools #767 复审 P2 反例 + 回归 `hp_series_snapshot_between_equal_method1_values_keeps_latter`（5 合成单测 + 13 样本探针 0 脱节 + clippy 零警告）。 |
 | v0.4.12 | **隐藏段（盲炮）掉血在二次点亮兑现（血量链修正）**：重入 Type5 物化快照的当前血量（`AoiPresence.hp_raw`，offset51 重广播语义）并入血量链 `hp_series`——Type4 隐藏段零更新（type=7/8/10 全断）、method1 只覆盖在场段，此前丢视野期间的掉血在二次点亮后链上无体现、直到下一次受击才被动修正（J20 实测 CN_LEVITHAN 在场末 1192 → 重入快照 348，缺 844 点）。现按在场段逐段在 `t_in` 落台阶，与客户端 `onEnterAoI` 物化时 HP 条直接跳到快照值同构；哨兵族钳 0 与 method1 显示口径同判，首段与 seed 同包同值去重还原（无隐藏段变化的既有回放零扰动），无锚点实体以首个带血量快照为链起点；凶手归属 fail-closed 不做（隐藏段无 method1 来源）。**消费方**：`vehicles[].hp` 在有隐藏段掉血的车辆上新增台阶点——WotbTools 伤害飘字由血量链差分推导（`buildTransientSources`），随 pin bump 自动在二次点亮显示该次掉血；切面 v2 形状不变，AI 投影 golden 预期仅 provenance 变化。证据与验证（4 合成单测 + 13 样本探针 1→0）见本文件 2026-10-26 条目与 [wotbtools-cross-reference.md](wotbtools-cross-reference.md) §五。合并顺序缺陷由 **v0.4.13** 修正。 |
 | v0.4.10 | **车辆集合判据修正 + 装甲厚度序列化精度**：①`vehicles[]` 入选改为 **Type5 class=2 实体类型 ∧ 结算花名册联表成功 ∧ 有 type=10 位姿**，删除 `st10 ∧ prop2` 双流交集、20 采样阈值与 prop2 退化分支——修复炮塔全程不转的敌方车辆整条丢失（2026-10-19 训练房 SU-130PM 样本，709 条 type=10、0 条 prop2），同时排除相机/区域可破坏物/炮塔残骸与未进结算花名册的观察者/中途离开实体。影响面：`vehicles[]`、`visibility[]`、时间轴 `meta.t_start/samples/duration`、`shots[]` 联表兜底；切面 v2 形状不变，WotbTools 随 pin bump 直接受益。②`tank/{id}.json` 的 plate/track 厚度序列化从 0.1mm 改为 0.01mm，保留 6.35 等真实板值（旧口径生成 6.3，HE/判定少 0.05mm）；738 辆数据重生成、manifest 刷新，8 个字节变化的 tank JSON 已差分同步 COS（730 个按 sha256 跳过）。消费方随 pin bump 重生成 AI 投影 golden：车辆集合修复带来的字段值变化属预期。 |
@@ -135,7 +137,7 @@
   调查产物可按需清理；WotbTools 本地检出落后 origin/main 31 提交（分支工作已全在 main），
   其本地 `common/fixtures/tournament/csv/{4x2,5x3}.csv` 的未提交改动仅为行尾符差异。
 
-### 回放血量链：隐藏段（盲炮）掉血在二次点亮兑现（2026-10-26，解析器行为修正，v0.4.12→v0.4.13）
+### 回放血量链：隐藏段（盲炮）掉血在二次点亮兑现（2026-10-26，解析器行为修正，v0.4.12→v0.4.14）
 
 丢视野期间挨的盲炮/视野外伤害此前**完全脱离回放血量链**：Type4 隐藏段零更新
 （type=7/8/10 全断），method1 事件只覆盖在场段，而重入 Type5 物化快照的当前血量
@@ -150,10 +152,13 @@
   `t_in`（二次点亮时刻）落台阶。哨兵族按 `hp_terminal_normalized` 钳 0（与 method1
   显示口径同判，死亡面权威仍在 `hp_state`/prop1）；无锚点实体（首物化短包）以首个
   带血量快照为链起点。**凶手归属 fail-closed 不做**（隐藏段无 method1 来源，证据链
-  不足不猜）。**合并顺序不变式**（v0.4.13 修正 v0.4.12 的先去重后并入缺陷）：去重必须
-  在全部证据并齐之后——快照夹在两条同值 method1 之间时（隐藏段死亡 + 复活回满血再
-  受击、值恰同受击前），先去重会吞掉后一条真实受击。
-- **证据与验证**：合成包流 5 条单测锁定（隐藏段掉血兑现/无变化去重/终态哨兵钳 0/
+  不足不猜）。**两条构建不变式**：①合并顺序（v0.4.13 修正 v0.4.12 的先去重后并入
+  缺陷）——去重必须在全部证据并齐之后，快照夹在两条同值 method1 之间时（隐藏段死亡 +
+  复活回满血再受击、值恰同受击前），先去重会吞掉后一条真实受击；②死亡证据分离
+  （v0.4.14 修正 v0.4.13 的登记次序缺陷）——method1 归零是否立 `zero_hit` 看上一条
+  method1 更新的值（同值归零 = 同一次死亡的 overkill 重复），与夹在中间的终态快照
+  无关，否则残骸重入场景的死亡归属被吞。
+- **证据与验证**：合成包流 6 条单测锁定（隐藏段掉血兑现/无变化去重/终态哨兵钳 0/
   无锚点起点/快照分隔同值 method1 保留后条）；13 份仓内样本探针（血量链 vs 重入快照
   逐段比对）基线 1 处脱节 → 修复后 0 处，J20 样本血量链在 t=187.25 出现 348 台阶、
   191.33 归零闭合。
@@ -164,6 +169,18 @@
 
 ### 数据面
 
+- **WotbTools 复刻实施方案（2026-10-27，纯文档）**：新增
+  [wotbtools-research-loadout-plan.md](wotbtools-research-loadout-plan.md)，与上条数据
+  盘点配套：**数据源铁律 = 客户端解析权威、BlitzKit 只作备用源（须过差异白名单校验）
+  与计算公式参照**（用户 2026-10-27 裁定）。内容：`tools/export_research_loadout.py`
+  的 `data/research/` 导出契约（tech_tree/research/modules/devices/consumables/
+  provisions/params/strings/icons + meta 版本锚）与 WotbTools 快照入库分发；计算层
+  规格（BK `tankCharacteristics` 公式逐条 + 两处冲突以客户端为准：迷彩网静止加成
+  ×2.0、berserk 隐藏效果只展示）；**逐屏 UI 交互规格**（科技树 216×96 网格、研发页
+  64×64/104×97 网格 + 节点三态 + 模拟资源池、ResearchDialog 支付算法逐行照抄、装备
+  9 槽三态槽位机、消耗品/补给过滤器与默认表、参数面板 delta 三角/红绿契约、回放
+  装备徽标），10 条已知偏差声明（复刻布局/无账号模拟/图标走 item-catalog 等），
+  P0–P5 分期与 7 项测试门禁。**影响面**：仅文档；落地属后续变更（P0 起另起 PR）。
 - **装甲厚度序列化精度（2026-10-20）**：`tank/{id}.json` 的 plate/track 厚度清洗从
   0.1mm 改为 0.01mm：去掉 f32 尾差（62.4000015 → 62.4）的同时保留 6.35 等真实板值
   （0.1mm 会把它舍成 6.3，HE/判定少 0.05mm）。738 辆 `data/tank_data` 已重生成，

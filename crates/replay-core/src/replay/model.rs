@@ -289,14 +289,23 @@ impl ReplayModel {
             // 稳定排序：同 (clock, 快照先) 内保持收集序（method1 = 包流序）
             evs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap().then_with(|| a.2.cmp(&b.2)));
             let mut series: Vec<(f32, u16)> = Vec::with_capacity(evs.len());
+            // 死亡证据与显示去重**分离**：method1 归零是否立 zero_hit 看**上一条 method1
+            // 更新**的值（同值归零 = 同一次死亡的 overkill 重复，不重复立死），与夹在
+            // 中间的终态快照无关——快照无凶手/死因语义，不得吞掉 method1 独有的死亡
+            // 归属（v0.4.13 缺陷，WotbTools #767 复审 P2-2；回归
+            // hp_series_zero_hit_survives_terminal_snapshot_adjacency）。
+            let mut last_update_hp: Option<u16> = None;
             for (t, hp_v, is_update, source, cause) in evs {
+                if is_update {
+                    if hp_v == 0 && last_update_hp != Some(0) {
+                        zero_hits.entry(eid).or_default().push((t, source, cause));
+                    }
+                    last_update_hp = Some(hp_v);
+                }
                 if series.last().map(|(_, h)| *h) == Some(hp_v) {
-                    continue; // 相邻同值：血量未变化，后到者不立事件
+                    continue; // 相邻同值：显示链不加事件（method1 证据已按上式登记）
                 }
                 series.push((t, hp_v));
-                if is_update && hp_v == 0 {
-                    zero_hits.entry(eid).or_default().push((t, source, cause));
-                }
             }
             hp_series.insert(eid, series);
         }
@@ -913,6 +922,72 @@ mod tests {
             &vec![(1.0, 1000), (5.0, 800), (9.5, 1000), (12.0, 800)],
             "快照分隔的同值 method1 不得被相邻去重吞掉（t=12 后 hpAt 须读 800）"
         );
+    }
+
+    /// 终态快照与 method1 归零相邻：显示链同值不再加点，但 method1 独有的凶手/死因
+    /// 必须登记为 zero_hit（死亡证据与显示去重分离；v0.4.13 缺陷——登记放在显示去重
+    /// 之后，快照 0 先到时 method1 归零被吞，死亡归属退化 0/255 甚至消失。WotbTools
+    /// #767 复审 P2-2）。两个方向都锁：快照在前 + 归零在前。
+    #[test]
+    fn hp_series_zero_hit_survives_terminal_snapshot_adjacency() {
+        // 方向一：终态快照 0xFFFD@9.5 在前，method1 归零@9.6 在后
+        let v = 0x46u32;
+        let model = scan_min(vec![
+            (33, 0.5, mk_aoi(v)),
+            (5, 1.0, mk_mat(v, 1000)),
+            (8, 5.0, mk_hp(v, 800, 7, 0)),
+            (4, 6.0, mk_aoi(v)),           // 隐藏段死亡（无 method1 归零下发）
+            (33, 9.0, mk_aoi(v)),
+            (5, 9.5, mk_mat(v, 0xFFFD)),   // 重入即终态
+            (8, 9.6, mk_hp(v, 0, 9, 1)),   // method1 归零：凶手 9 / cause 1
+            (7, 9.7, mk_death_broadcast(v)),
+        ]);
+        assert_eq!(
+            &model.timeline.hp_series[&v],
+            &vec![(1.0, 1000), (5.0, 800), (9.5, 0)],
+            "显示链：快照 0 已表达死亡，同值 method1 不加显示点"
+        );
+        let d = &model.timeline.deaths[&v];
+        assert!((d.t - 9.7).abs() < 1e-6, "死亡时刻 = prop1 广播");
+        assert_eq!(
+            (d.killer_eid, d.cause),
+            (9, 1),
+            "method1 归零证据不被终态快照去重吞掉"
+        );
+
+        // 方向二：method1 归零@9.5 在前，终态快照 0xFFFE@9.6 在后（v0.4.13 已正确，锁定）
+        let w = 0x47u32;
+        let model = scan_min(vec![
+            (33, 0.5, mk_aoi(w)),
+            (5, 1.0, mk_mat(w, 1000)),
+            (8, 5.0, mk_hp(w, 800, 7, 0)),
+            (8, 9.5, mk_hp(w, 0, 11, 2)), // 在场段被击杀：凶手 11 / cause 2
+            (4, 9.55, mk_aoi(w)),
+            (33, 9.6, mk_aoi(w)),
+            (5, 9.65, mk_mat(w, 0xFFFE)), // 残骸重入：终态快照
+            (7, 9.7, mk_death_broadcast(w)),
+        ]);
+        assert_eq!(
+            &model.timeline.hp_series[&w],
+            &vec![(1.0, 1000), (5.0, 800), (9.5, 0)],
+            "显示链：method1 归零先立点，终态快照同值不重复"
+        );
+        let d = &model.timeline.deaths[&w];
+        assert!((d.t - 9.7).abs() < 1e-6);
+        assert_eq!((d.killer_eid, d.cause), (11, 2), "归零在前的归属不受快照影响");
+
+        // overkill 重复归零仍只立一条死亡（method1 之间的同值去重语义不变）
+        let u = 0x48u32;
+        let model = scan_min(vec![
+            (5, 0.5, mk_anchor(u, 1000)),
+            (8, 10.0, mk_hp(u, 800, 7, 0)),
+            (8, 12.0, mk_hp(u, 0xFFFF, 9, 1)), // overkill -1 → 钳 0
+            (8, 12.05, mk_hp(u, 0xFFFE, 10, 2)), // overkill -2 → 钳 0（同一次死亡重复）
+            (7, 12.1, mk_death_broadcast(u)),
+        ]);
+        let rs = &model.timeline.death_records[&u];
+        assert_eq!(rs.len(), 1, "同一次死亡的重复归零不重复立死");
+        assert_eq!((rs[0].killer_eid, rs[0].cause), (9, 1), "首条归零携带归属");
     }
 
     #[test]
