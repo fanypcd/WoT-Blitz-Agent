@@ -668,17 +668,20 @@ def _load_sprite(game_data: pathlib.Path, bases: list[str], cache: dict) -> "obj
 
 
 def _normalize_icon(image: "object", canvas: int = 96, pad: int = 6,
-                    crop_alpha: bool = True) -> "object":
+                    crop_alpha: bool = True, alpha_threshold: int = 0) -> "object":
     """统一视觉尺寸：按比例缩放后居中放进固定方形画布。
 
     默认裁到 alpha 内容框（物品/模块/弹种图集帧：内容 34~83px 不等）。乘员技能
-    图标例外：客户端技能帧是 **64×64**，部分 packed 文件把该帧放在更大的 atlas
-    画布左上角（其余透明）；此时按 alpha bbox 裁会带上帧外光效并改变作者构图，
-    应传 `crop_alpha=False`，由调用方先裁 64×64 帧。
+    图标用 `alpha_threshold=10`：BlitzKit 的技能图标接口用 `sharp().trim()` 的
+    默认阈值 10 去掉近乎透明的光晕，再按可见内容居中；否则 alpha>0 的帧外光晕会
+    把实心主体拉偏。
     """
     from PIL import Image
     if crop_alpha:
-        bbox = image.getchannel("A").getbbox()
+        alpha = image.getchannel("A")
+        if alpha_threshold:
+            alpha = alpha.point(lambda value: 255 if value > alpha_threshold else 0)
+        bbox = alpha.getbbox()
         if bbox:
             image = image.crop(bbox)
     inner = canvas - 2 * pad
@@ -794,10 +797,10 @@ def export_skills(game_data: pathlib.Path, out_dir: pathlib.Path,
         except FileNotFoundError:
             missing.append({"kind": "skill-icon", "id": skill_id})
             continue
-        # 技能图标帧固定为 64×64；更大的 packed 图只在该帧左上角承载图标，
-        # 帧外像素不属于该 icon（客户端不会显示）。先在语义帧内取 alpha 内容框，
-        # 再居中——既排除帧外光效，也让帧内可见内容真正居中。
-        image = _normalize_icon(image.crop((0, 0, 64, 64)))
+        # 技能 packed 图比逻辑图标大，且边缘有近乎透明的光晕；按 alpha>0 取框会
+        # 把光晕算进去，实心主体偏侧。BlitzKit 的技能接口用 `sharp().trim()` 默认
+        # 阈值 10 trim 后居中；这里用同一可见内容阈值，保持跨站一致。
+        image = _normalize_icon(image, alpha_threshold=10)
         dest = out_dir / "icons" / "skills" / f"{skill_id}.webp"
         dest.parent.mkdir(parents=True, exist_ok=True)
         image.save(dest, "WEBP", lossless=True)
