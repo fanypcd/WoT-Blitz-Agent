@@ -241,11 +241,7 @@ impl ReplayModel {
         let equipment = &shared.vehicle_equipment;
         let loadouts = combat::collect_vehicle_loadout(packets);
 
-        // —— 血量链去重序列 + 死亡列表 + 复活轨道（一次遍历，单死语义与原逐车组装逐位一致） ——
-        let mut hp_series: BTreeMap<u32, Vec<(f32, u16)>> = BTreeMap::new();
-        for (eid, (t0, h0)) in initial_hp.iter() {
-            hp_series.entry(*eid).or_default().push((*t0, *h0));
-        }
+        // —— 血量链去重序列 + 死亡列表 + 复活轨道 ——
         // 死亡的两路证据：prop1 死亡广播（时刻权威；溺死等血量不归零的死亡只有这一路）
         // 与 method1 hp==0 归零事件（凶手/死因权威；血量链去重语义下每次死亡一条）。
         let mut zero_hits: BTreeMap<u32, Vec<(f32, u32, u8)>> = BTreeMap::new();
@@ -253,47 +249,56 @@ impl ReplayModel {
         for (t, eid, _) in ct.death_events() {
             broadcasts.entry(eid).or_default().push(t);
         }
+        // 血量证据**统一收集后最后做一次相邻同值去重**：method1 更新（带凶手/死因）与
+        // 重入 Type5 物化快照按时间合并（同钟快照在前 = 客户端 onEnterAoI 物化先于属性
+        // 更新），种子 = 首次 type=5 满血锚点（同一物化包，按快照参与）。去重必须在全部
+        // 证据并齐之后——快照夹在两条同值 method1 之间时（隐藏段死亡无 method1 归零 +
+        // 复活回满血再受击、值恰同受击前），先去重会吞掉后一条真实受击（v0.4.12 缺陷，
+        // WotbTools #767 复审 P2；回归 hp_series_snapshot_between_equal_method1_values）。
+        //
+        // 快照的血量语义：Type4 隐藏段「零更新」（type=7/8/10 全断），method1 只覆盖在场
+        // 段；重广播 type=5 的 offset51 = 物化时刻当前血量（§2.6，非开局值）。客户端语义 =
+        // 二次点亮物化时 HP 条直接跳到快照值——盲炮/视野外伤害没有 method1 事件（来源不可
+        // 知，fail-closed 不归属凶手），但绝对血量必须兑现，否则重入后血量链停在丢视野前
+        // 旧值（实测 J20 CN_LEVITHAN：重入快照 348 vs 链 1192，缺 844）。哨兵族归一与
+        // method1 显示口径同判（hp_terminal_normalized；死亡面权威仍在 hp_state/prop1，
+        // 不在此扩大）。无锚点实体（首物化短包）以首个带血量快照为链起点（有证据不丢弃）。
+        // 条目 = (clock, hp, is_update, method1 source, method1 cause)；is_update=false
+        // 即快照族（无凶手/死因语义，不参与 zero_hits）。
+        type RawHpEntry = (f32, u16, bool, u32, u8);
+        let mut raw_hp: BTreeMap<u32, Vec<RawHpEntry>> = BTreeMap::new();
+        for (eid, (t0, h0)) in initial_hp.iter() {
+            raw_hp.entry(*eid).or_default().push((*t0, *h0, false, 0, 0));
+        }
         for e in hp_events {
             // overkill 时服务器 HP 略负（int16 语义），按 u16 读出回绕 → 一律钳 0
             let hp_v = if e.hp > 32767 { 0 } else { e.hp };
-            let series = hp_series.entry(e.victim).or_default();
-            if series.last().map(|(_, h)| *h) == Some(hp_v) {
-                continue;
-            }
-            series.push((e.clock, hp_v));
-            if hp_v == 0 {
-                zero_hits
-                    .entry(e.victim)
-                    .or_default()
-                    .push((e.clock, e.source, e.cause));
-            }
+            raw_hp
+                .entry(e.victim)
+                .or_default()
+                .push((e.clock, hp_v, true, e.source, e.cause));
         }
-        // —— 隐藏段掉血兑现：重入 Type5 物化快照血量并入血量链 ——
-        // Type4 隐藏段「零更新」（type=7/8/10 全断），method1 只覆盖在场段；重广播 type=5
-        // 的 offset51 = 物化时刻当前血量（§2.6，非开局值）。客户端语义 = 二次点亮物化时
-        // HP 条直接跳到快照值——盲炮/视野外伤害没有 method1 事件（来源不可知，fail-closed
-        // 不归属凶手），但绝对血量必须在此兑现，否则重入后血量链停在丢视野前旧值、直到
-        // 下一次受击才修正（实测 J20 CN_LEVITHAN：重入快照 348 vs 血量链 1192，缺 844）。
-        // 首段与 initial_hp seed 同包同偏移（同钟同值 → 插入后即被去重还原）；哨兵族归一
-        // 与 method1 显示口径同判（hp_terminal_normalized；死亡面权威仍在 hp_state/prop1，
-        // 不在此扩大）。无锚点实体（首物化短包）以首个带血量快照为链起点——有证据不丢弃。
         for p in &presence {
-            let Some(raw) = p.hp_raw else { continue };
-            let hp_v = hp_terminal_normalized(raw);
-            let Some(series) = hp_series.get_mut(&p.eid) else {
-                hp_series.insert(p.eid, vec![(p.t_in, hp_v)]);
+            let Some(hp_v) = p.hp_raw.map(hp_terminal_normalized) else {
                 continue;
             };
-            // 插在首个 clock ≥ t_in 的既有事件之前（同钟物化先于更新，客户端顺序）
-            let idx = series.partition_point(|(t, _)| *t < p.t_in);
-            let prev_differs = idx == 0 || series[idx - 1].1 != hp_v;
-            if prev_differs {
-                series.insert(idx, (p.t_in, hp_v));
-                // 同值紧随的既有事件（物化/更新同值突发）由物化时刻代表
-                if series.get(idx + 1).map(|(_, h)| *h) == Some(hp_v) {
-                    series.remove(idx + 1);
+            raw_hp.entry(p.eid).or_default().push((p.t_in, hp_v, false, 0, 0));
+        }
+        let mut hp_series: BTreeMap<u32, Vec<(f32, u16)>> = BTreeMap::new();
+        for (eid, mut evs) in raw_hp {
+            // 稳定排序：同 (clock, 快照先) 内保持收集序（method1 = 包流序）
+            evs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap().then_with(|| a.2.cmp(&b.2)));
+            let mut series: Vec<(f32, u16)> = Vec::with_capacity(evs.len());
+            for (t, hp_v, is_update, source, cause) in evs {
+                if series.last().map(|(_, h)| *h) == Some(hp_v) {
+                    continue; // 相邻同值：血量未变化，后到者不立事件
+                }
+                series.push((t, hp_v));
+                if is_update && hp_v == 0 {
+                    zero_hits.entry(eid).or_default().push((t, source, cause));
                 }
             }
+            hp_series.insert(eid, series);
         }
         // 死亡记录 = 广播 × 归零 就近配对（同一次死亡的两路证据；门控 5s 与击杀播报
         // 归属门控同源）。单广播×单归零无条件配对（t 取广播、凶手/死因取归零）——
@@ -885,6 +890,28 @@ mod tests {
             &model.timeline.hp_series[&v],
             &vec![(1.0, 1000), (5.0, 800), (9.5, 650), (12.0, 400)],
             "重入物化血量在 t_in 兑现，链不停在丢视野前旧值"
+        );
+    }
+
+    /// 快照夹在两条同值 method1 之间（隐藏段死亡无 method1 归零 + 复活回满血再受击，
+    /// 值恰同受击前）：统一去重必须在快照并入之后做，否则后一条真实受击被相邻同值
+    /// 吞掉（v0.4.12 缺陷，WotbTools #767 复审 P2 反例）。
+    #[test]
+    fn hp_series_snapshot_between_equal_method1_values_keeps_latter() {
+        let v = 0x45u32;
+        let model = scan_min(vec![
+            (33, 0.5, mk_aoi(v)),
+            (5, 1.0, mk_mat(v, 1000)),
+            (8, 5.0, mk_hp(v, 800, 7, 0)), // 受击 → 800
+            (4, 6.0, mk_aoi(v)),           // 丢视野（隐藏段死亡 + 复活，无 method1）
+            (33, 9.0, mk_aoi(v)),
+            (5, 9.5, mk_mat(v, 1000)),      // 复活后重入：满血 1000
+            (8, 12.0, mk_hp(v, 800, 8, 0)), // 复活后受击 → 又是 800（与 5.0 同值）
+        ]);
+        assert_eq!(
+            &model.timeline.hp_series[&v],
+            &vec![(1.0, 1000), (5.0, 800), (9.5, 1000), (12.0, 800)],
+            "快照分隔的同值 method1 不得被相邻去重吞掉（t=12 后 hpAt 须读 800）"
         );
     }
 

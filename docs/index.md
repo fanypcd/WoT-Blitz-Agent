@@ -37,7 +37,7 @@
 
 ### 版本与发行
 
-- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.12**）。
+- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.13**）。
   该值变更合并到 `main` 后，Release workflow 自动测试、构建、创建 `v<version>` tag
   并发布 `wotb-replay-wasm-v<version>.zip`；发布策略与 Android 同步规则见
   [AGENTS.md](../AGENTS.md)。
@@ -47,7 +47,8 @@
 
 | 版本 | 内容 |
 |---|---|
-| v0.4.12 | **隐藏段（盲炮）掉血在二次点亮兑现（血量链修正）**：重入 Type5 物化快照的当前血量（`AoiPresence.hp_raw`，offset51 重广播语义）并入血量链 `hp_series`——Type4 隐藏段零更新（type=7/8/10 全断）、method1 只覆盖在场段，此前丢视野期间的掉血在二次点亮后链上无体现、直到下一次受击才被动修正（J20 实测 CN_LEVITHAN 在场末 1192 → 重入快照 348，缺 844 点）。现按在场段逐段在 `t_in` 落台阶，与客户端 `onEnterAoI` 物化时 HP 条直接跳到快照值同构；哨兵族钳 0 与 method1 显示口径同判，首段与 seed 同包同值去重还原（无隐藏段变化的既有回放零扰动），无锚点实体以首个带血量快照为链起点；凶手归属 fail-closed 不做（隐藏段无 method1 来源）。**消费方**：`vehicles[].hp` 在有隐藏段掉血的车辆上新增台阶点——WotbTools 伤害飘字由血量链差分推导（`buildTransientSources`），随 pin bump 自动在二次点亮显示该次掉血；切面 v2 形状不变，AI 投影 golden 预期仅 provenance 变化。证据与验证（4 合成单测 + 13 样本探针 1→0）见本文件 2026-10-26 条目与 [wotbtools-cross-reference.md](wotbtools-cross-reference.md) §五。 |
+| v0.4.13 | **血量链合并顺序修正（v0.4.12 的复审缺陷）**：v0.4.12 的实现先对 method1 做相邻同值去重、再把重入快照插回——快照夹在两条同值 method1 之间时（隐藏段死亡无 method1 归零 + 复活回满血再受击、值恰同受击前，复活语义可达），后一条真实受击被吞（`t` 之后 `hpAt` 读到旧值，伤害飘字同源受累）。现改为**全部血量证据（种子 + method1 + 重入快照）统一按时间合并（同钟快照在前 = 客户端物化先于属性更新）、最后做一次相邻同值去重**；`zero_hits` 登记移入最终去重（幸存归零才立死，逐位等价）。**消费方**：普通回放与 v0.4.12 输出逐位一致，仅复活/同值边界修正；切面 v2 形状不变，AI 投影 golden 预期仅 provenance 变化。证据：WotbTools #767 复审 P2 反例 + 回归 `hp_series_snapshot_between_equal_method1_values_keeps_latter`（5 合成单测 + 13 样本探针 0 脱节 + clippy 零警告）。 |
+| v0.4.12 | **隐藏段（盲炮）掉血在二次点亮兑现（血量链修正）**：重入 Type5 物化快照的当前血量（`AoiPresence.hp_raw`，offset51 重广播语义）并入血量链 `hp_series`——Type4 隐藏段零更新（type=7/8/10 全断）、method1 只覆盖在场段，此前丢视野期间的掉血在二次点亮后链上无体现、直到下一次受击才被动修正（J20 实测 CN_LEVITHAN 在场末 1192 → 重入快照 348，缺 844 点）。现按在场段逐段在 `t_in` 落台阶，与客户端 `onEnterAoI` 物化时 HP 条直接跳到快照值同构；哨兵族钳 0 与 method1 显示口径同判，首段与 seed 同包同值去重还原（无隐藏段变化的既有回放零扰动），无锚点实体以首个带血量快照为链起点；凶手归属 fail-closed 不做（隐藏段无 method1 来源）。**消费方**：`vehicles[].hp` 在有隐藏段掉血的车辆上新增台阶点——WotbTools 伤害飘字由血量链差分推导（`buildTransientSources`），随 pin bump 自动在二次点亮显示该次掉血；切面 v2 形状不变，AI 投影 golden 预期仅 provenance 变化。证据与验证（4 合成单测 + 13 样本探针 1→0）见本文件 2026-10-26 条目与 [wotbtools-cross-reference.md](wotbtools-cross-reference.md) §五。合并顺序缺陷由 **v0.4.13** 修正。 |
 | v0.4.10 | **车辆集合判据修正 + 装甲厚度序列化精度**：①`vehicles[]` 入选改为 **Type5 class=2 实体类型 ∧ 结算花名册联表成功 ∧ 有 type=10 位姿**，删除 `st10 ∧ prop2` 双流交集、20 采样阈值与 prop2 退化分支——修复炮塔全程不转的敌方车辆整条丢失（2026-10-19 训练房 SU-130PM 样本，709 条 type=10、0 条 prop2），同时排除相机/区域可破坏物/炮塔残骸与未进结算花名册的观察者/中途离开实体。影响面：`vehicles[]`、`visibility[]`、时间轴 `meta.t_start/samples/duration`、`shots[]` 联表兜底；切面 v2 形状不变，WotbTools 随 pin bump 直接受益。②`tank/{id}.json` 的 plate/track 厚度序列化从 0.1mm 改为 0.01mm，保留 6.35 等真实板值（旧口径生成 6.3，HE/判定少 0.05mm）；738 辆数据重生成、manifest 刷新，8 个字节变化的 tank JSON 已差分同步 COS（730 个按 sha256 跳过）。消费方随 pin bump 重生成 AI 投影 golden：车辆集合修复带来的字段值变化属预期。 |
 | v0.4.9 | **血量终态分类字段（additive）**：`AiReviewFacet` 的 `damage`（method1）与 `health`（prop3）事件新增 `hp_state`（`current`/`zero`/`terminal`，**恒在场**）——血量 u16 的**唯一权威分类**（规则 = `hp_terminal_normalized`，int16 ≤ 0 全域；实测终态族 0xFFFF/0xFFFE/0xFFFD，禁按分布裁剪），消费方判死亡面读它、禁自行解释 `hp_raw`。动因：消费方 canonical 只认 {0x0000, 0xFFFD}，−1/−2 档的弹药架殉爆被判成存活（血量冻在最后正值、3D 装填条继续外播；实例 1910 局 Intotherainy `0xFFFE`）。**消费方适配**：字段 additive、旧产物缺省即旧行为；**要覆盖 −1/−2 档死亡必须消费 `hp_state`**（缺省路径保持 legacy 分类——仅 {0x0000, 0xFFFD} 终态，禁在缺省上放宽）；pin bump 后 AI 投影 golden 预期仅 provenance 变化（新字段不进投影产物）。`PlaybackData` v2 / `AiReviewFacet` v1 形状不变。裁决与迁移清单见 [wotbtools-cross-reference.md](wotbtools-cross-reference.md) §七。 |
 | v0.4.8 | **复活模式生命轨道（additive）+ method8 结算伤害直读 + 伤害归属确定性化 + 争霸残留占领清理**：①`VehicleTrack` 新增 `death_times`（**≥2 死才输出**）与 `resurrection_times`（**非空才输出**）——复活模式（爆燃等）同 eid 死而复生不再被判终态；普通回放 JSON 零扰动，消费方按"字段缺省 = 死亡终态"处理即行为逐位不变。②`shots[]` 伤害改**直读服务器结算值**（method8 直击通知尾部 `[u16 伤害][u8 状态]`；状态 ≠0 才已结算、overkill 已封顶），作者/他人两路径同优先，HP 链降级为无结算值时的兜底；22 场对账仅 3 处变化且全部为修正。③**伤害归属确定性化**：逐事件采样（删除"同钟异值整组丢弃"）+ method8 命中时钟精确配对，配不上 → 0 + `dmg_unattributed`（fail-closed）；22 场仅 5 发变化、全部对账。④已归属基地的占领中断后**清空残留进度**（保留归属；新增合成回归与公开契约）。⑤clippy `-D warnings` 清零（纯机械等价替换）。**消费方注意**：`shots[]` 的数值/归属与 HP 链兜底路径有可见变化（皆 bug 修正），WotbTools 随 pin bump 须重生成 golden 并逐条归因（复活字段则无需适配，缺省即旧行为）。切面 v2 形状未变。**附带（工具/资产面，非 WASM 行为）**：2D 战术底图改 pack `ground.webp` 派生 + COS `map2d/` 免发版通道（索引 schemaVersion 2 带世界框/取向几何契约）+ 客户端 HUD 小地图取景实测记录。 |
@@ -134,7 +135,7 @@
   调查产物可按需清理；WotbTools 本地检出落后 origin/main 31 提交（分支工作已全在 main），
   其本地 `common/fixtures/tournament/csv/{4x2,5x3}.csv` 的未提交改动仅为行尾符差异。
 
-### 回放血量链：隐藏段（盲炮）掉血在二次点亮兑现（2026-10-26，解析器行为修正，v0.4.12）
+### 回放血量链：隐藏段（盲炮）掉血在二次点亮兑现（2026-10-26，解析器行为修正，v0.4.12→v0.4.13）
 
 丢视野期间挨的盲炮/视野外伤害此前**完全脱离回放血量链**：Type4 隐藏段零更新
 （type=7/8/10 全断），method1 事件只覆盖在场段，而重入 Type5 物化快照的当前血量
@@ -143,18 +144,23 @@
 3D 血条看不出隐藏段掉过血（**J20 样本实测：CN_LEVITHAN 在场末 1192 → 重入快照 348，
 隐藏段缺 844 点，链上无任何体现**）。
 
-- **修复**：`ReplayModel::scan` 将每个在场段开段 Type5 物化快照血量并入血量链，在
-  `t_in`（二次点亮时刻）落台阶——与客户端语义同构（`onEnterAoI` 物化时 HP 条直接跳到
-  快照值）。哨兵族按 `hp_terminal_normalized` 钳 0（与 method1 显示口径同判，死亡面
-  权威仍在 `hp_state`/prop1）；首段与 `initial_hp` seed 同包同值（插入即被去重还原）；
-  无锚点实体（首物化短包）以首个带血量快照为链起点。**凶手归属 fail-closed 不做**
-  （隐藏段无 method1 来源，证据链不足不猜）。
-- **证据与验证**：合成包流 4 条单测锁定（隐藏段掉血兑现/无变化去重/终态哨兵钳 0/
-  无锚点起点）；13 份仓内样本探针（血量链 vs 重入快照逐段比对）基线 1 处脱节 →
-  修复后 0 处，J20 样本血量链在 t=187.25 出现 348 台阶、191.33 归零闭合。
+- **修复**：`ReplayModel::scan` 把全部血量证据（`initial_hp` 种子 + method1 事件 +
+  每个在场段开段 Type5 物化快照）**统一按时间合并（同钟快照在前，与客户端
+  `onEnterAoI` 物化先于属性更新同构）、最后做一次相邻同值去重**，快照血量在
+  `t_in`（二次点亮时刻）落台阶。哨兵族按 `hp_terminal_normalized` 钳 0（与 method1
+  显示口径同判，死亡面权威仍在 `hp_state`/prop1）；无锚点实体（首物化短包）以首个
+  带血量快照为链起点。**凶手归属 fail-closed 不做**（隐藏段无 method1 来源，证据链
+  不足不猜）。**合并顺序不变式**（v0.4.13 修正 v0.4.12 的先去重后并入缺陷）：去重必须
+  在全部证据并齐之后——快照夹在两条同值 method1 之间时（隐藏段死亡 + 复活回满血再
+  受击、值恰同受击前），先去重会吞掉后一条真实受击。
+- **证据与验证**：合成包流 5 条单测锁定（隐藏段掉血兑现/无变化去重/终态哨兵钳 0/
+  无锚点起点/快照分隔同值 method1 保留后条）；13 份仓内样本探针（血量链 vs 重入快照
+  逐段比对）基线 1 处脱节 → 修复后 0 处，J20 样本血量链在 t=187.25 出现 348 台阶、
+  191.33 归零闭合。
 - **影响面**：`PlaybackData.vehicles[].hp`（3D 血条曲线）在有隐藏段掉血的车辆上新增
-  台阶点；切面 v2 形状不变；AI 投影 golden 不受影响（投影不走 `hp_series`）。WotbTools
-  随下次 pin bump 生效，3D 血条在二次点亮时出现台阶属预期修正。
+  台阶点（普通回放 v0.4.13 与 v0.4.12 输出逐位一致，仅复活/同值边界修正）；切面 v2
+  形状不变；AI 投影 golden 不受影响（投影不走 `hp_series`）。WotbTools 随 pin bump
+  生效，3D 血条在二次点亮时出现台阶属预期修正。
 
 ### 数据面
 
