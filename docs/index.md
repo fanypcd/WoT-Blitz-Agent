@@ -284,12 +284,12 @@
   图自己作为 `paste` mask，边缘 alpha 被二次相乘后消失，96×96 图标内容框偏到一侧
   （102 张中 32 张四边距差 >1px，最差 11px）；改为 `alpha_composite` 后重新生成
   全部物品/模块/技能/弹种图标，新增 `tools/test_research_icons.py` 几何门禁。乘员
-  技能图标改用客户端 64×64 帧（packed 大图只在帧左上角承载图标），不再按 alpha
-  包围框重构图，避免帧外光效把视觉构图带偏。英文
+  技能图标先在客户端 64×64 帧内取 alpha 内容框再居中（packed 大图只在帧左上角
+  承载图标），排除帧外光效后仍保证可见内容居中。英文
   `agentTanks.pen_far` 的 `"Pen @ far"` 触发 vue-i18n linked-message 编译错误，切到
   English 时右侧参数栏整块消失；改为 `"Far-range pen"` 并新增三语消息全量编译门禁。
-  WotbTools 图标同步至 `common/research/icons`；3.17.9 已 stage 但未 publish，由
-  **3.17.10 / 3017010** 候选取代。
+  WotbTools 图标同步至 `common/research/icons`；3.17.9 / 3.17.10 均已 stage 但未
+  publish，技能帧修复最终由 **3.17.11 / 3017011** 承载。
 - **装甲厚度序列化精度（2026-10-20）**：`tank/{id}.json` 的 plate/track 厚度清洗从
   0.1mm 改为 0.01mm：去掉 f32 尾差（62.4000015 → 62.4）的同时保留 6.35 等真实板值
   （0.1mm 会把它舍成 6.3，HE/判定少 0.05mm）。738 辆 `data/tank_data` 已重生成，
