@@ -894,7 +894,7 @@ def main() -> None:
     skipped_not_in_bridge: dict[str, int] = {}
     tank_counts = {}
     total_tanks = 0
-    preview_by_nation: dict[str, list[tuple[int, str]]] = {}
+    exported_keys: set[tuple[str, str]] = set()
     # 预览增量：bridge 只给新增车 → 只遍历这些国别（缺目录/文件的国别不猜、不写空）。
     nations = NATIONS
     if args.modules_only:
@@ -1008,16 +1008,12 @@ def main() -> None:
                 tank["gameVersion"] = version
             tanks[stem] = tank
             exported_here += 1
+            exported_keys.add((nation, stem))
         skipped_not_in_bridge[nation] = skipped
         tank_counts[nation] = len(tanks)
         total_tanks += len(tanks)
         preview_ids = sorted(
             v["tankId"] for v in tanks.values() if v.get("gameVersion"))
-        preview_entries = sorted(
-            (v["tankId"], v["gameVersion"]) for v in tanks.values()
-            if v.get("gameVersion"))
-        if preview_entries:
-            preview_by_nation[nation] = preview_entries
         if args.modules_only and args.merge and exported_here == 0:
             continue
         file_meta = {"nation": nation, "gameVersion": version, "count": len(tanks)}
@@ -1032,6 +1028,12 @@ def main() -> None:
             json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
     if args.modules_only:
+        # bridge 是这次要导出的权威清单；任何一个条目没落到输出都必须失败，
+        # 不能因为拼错 stem/国别而静默成功。
+        requested = {(v["nation"], v["stem"]) for v in bridge.values()}
+        missing = sorted(requested - exported_keys)
+        if missing:
+            raise RuntimeError(f"bridge entries not exported: {missing}")
         # 预览增量只改 modules/*.json；meta.json 保留主数据集版本，追加预览车清单，
         # 并重算全量文件 sha256（资产包 manifest 的逐文件校验会读它）。
         meta_path = out_root / "meta.json"
@@ -1046,9 +1048,13 @@ def main() -> None:
         counts["tanks"] = sum(by_nation.values())
         counts["tanksByNation"] = by_nation
         preview = []
-        for nation, entries in preview_by_nation.items():
-            for tid, gv in entries:
-                preview.append({"tankId": tid, "nation": nation, "gameVersion": gv})
+        for mp in sorted((out_root / "modules").glob("*.json")):
+            data = json.loads(mp.read_text(encoding="utf-8"))
+            for tank in (data.get("tanks") or {}).values():
+                gv = tank.get("gameVersion")
+                if gv:
+                    preview.append({"tankId": tank["tankId"], "nation": mp.stem,
+                                    "gameVersion": gv})
         meta["preview"] = sorted(preview, key=lambda x: x["tankId"])
         files = {}
         for p in sorted(out_root.rglob("*")):
@@ -1061,8 +1067,8 @@ def main() -> None:
         meta_path.write_text(json.dumps(meta, ensure_ascii=False, separators=(",", ":")),
                              encoding="utf-8")
         print(f"game={version} modules-only preview tanks={len(preview)}")
-        for nation, entries in preview_by_nation.items():
-            print(f"  {nation}: {[tid for tid, _ in entries]}")
+        for item in preview:
+            print(f"  {item['nation']}: {item['tankId']}")
         print(f"out={out_root}")
         return
 
