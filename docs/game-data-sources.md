@@ -229,6 +229,11 @@ fail-closed）；消费方展示层按框缩放定位。图标重导后须重跑
 （alpha 归一化表）；`.tex` 引用在数据面的落点规则 = `<stem>.tex` → `<stem>.dx11.dds.dvpl`
 （与坦克贴图同）。可行性定案与前端消费口径见 [feasibility-track-marks.md](feasibility-track-marks.md)。
 
+逐车配置器模块（`data/research/modules/{nation}.json`，738 辆的车体/炮塔/炮/发动机/履带
+等客户端数值）由 `scripts/export_asset_pack.py` 导出为包内 `research/modules/{nation}.json`；
+WotbTools 经 assetProvider 懒加载。**这是资产包数据，不进入前端 bundle**：后续游戏新增
+坦克/模块时只需重跑研究导出与打包、发布新的资产包 release，WotbTools 无需发版。
+
 ### 2.7 11.22 tier XI 超测预览 ZIP（非现役源）
 
 2026-10-22 核验的公开 CDN 包（BlitzKit Preview 构建的 `CLIENT_SOURCE`）：

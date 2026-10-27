@@ -131,14 +131,17 @@ data/research/
 
 ### 3.2 分发（进 WotbTools）
 
-沿用现有**快照入库模式**（与 `common/tankopedia-tier*.json` 同构）：
+**按数据性质拆分**（2026-10-27 用户裁定：逐车配置随资产包发布，新坦克不必发版）：
 
-1. 本仓导出 → 复制进 WotbTools `common/research/`（同 PR 附 `meta.json`：
-   `game_version` + 逐文件 sha256）；
-2. WotbTools 侧同步脚本（对齐 `sync_tankopedia_snapshot.py` 模式）+ 一致性测试：
-   `meta.game_version` 校验，不一致 fail-closed；
-3. 不走 asset origin（数据小、更新频率 = 客户端版本级，入库快照可被 CI/golden 直接
-   覆盖）；后续体积/频率失控再迁 origin `research/` 前缀。
+1. **全局目录/文案/图标**（devices/consumables/provisions/defaults/params/strings/
+   camouflage/icons）体积小、跟随客户端版本 → 复制进 WotbTools `common/research/`
+   （同 PR 附 `meta.json`：`game_version` + 逐文件 sha256）；
+2. **逐车 `modules/{nation}.json`**（738 辆，tank-specific）→ 由
+   `scripts/export_asset_pack.py` 写入资产包 `research/modules/`，随 Alibaba asset
+   origin 的新 immutable release 发布；WotbTools 经 assetProvider 懒加载，不进前端
+   bundle。后续新增坦克/模块数值只需重跑研究导出 + 打包发布，WotbTools 无需发版；
+3. `meta.json` 保留完整数据集（含 modules）的 sha256，用于核对资产包与全局目录同代；
+   `common/research/` 本身不再保存 modules。
 
 ### 3.3 版本锚与更新链
 
@@ -557,8 +560,8 @@ interface VehicleSetup {
 
 | 层 | 本仓（WoT-Blitz-Agent） | WotbTools |
 |---|---|---|
-| 导出器 | `tools/export_research_loadout.py` → `data/research/`（磁盘 123 文件 3.51 MB；`meta.json` 记版本 + 全部 122 个产物的 sha256） | `common/research/`（同名快照，SSOT 登记见 `common/AGENTS.md`） |
-| 目录/过滤 | — | `frontend/src/utils/researchCatalog.js`（`loadTankModules` 按国别懒加载、`availableItems` 全语义 vehicleFilter、`resolveDeviceIds`、`scriptMap`、图标 URL glob） |
+| 导出器 | `tools/export_research_loadout.py` → `data/research/`（磁盘 123 文件 3.51 MB；`meta.json` 记版本 + 全部 122 个产物的 sha256） | 全局目录/文案/图标进 `common/research/`；**逐车 `modules/{nation}.json` 进资产包 `research/modules/`**（`scripts/export_asset_pack.py` 发布，assetProvider 读取；新坦克不需 WotbTools 发版） |
+| 目录/过滤 | — | `frontend/src/utils/researchCatalog.js`（`loadTankModules` 经 assetProvider 请求 `/research/modules/{nation}.json`、`availableItems` 全语义 vehicleFilter、`resolveDeviceIds`、`scriptMap`、图标 URL glob） |
 | 公式 | — | `frontend/src/replay-local/compute/characteristics.ts`（纯函数；22 条 golden 覆盖 T-34 三套配置 + 乘员曲线 + 迷彩网 + 装甲系数 + 弹速 + 技能/扩圈） |
 | 状态/参数行 | — | `frontend/src/replay-local/compute/tankSetup.ts`（config 对号、装备槽编解码、上次值 delta、装甲表；24 条单测） |
 | UI | — | `TankConfigPanel.vue`（模块 4 行 + 装备 3×3 + 补给/消耗品 + 20 技能图标 + 涂装）、`TankParamPanel.vue`（三分组 + delta + 弹种图标 + `GunArcDiagram`）、`AgentTankopedia.vue` 详情态左配置/右参数整合 |
@@ -599,8 +602,9 @@ interface VehicleSetup {
 10. **战斗内技能不进入装配池**：客户端 `<isAbility/>`（如 `desertPower`，还带 `<geometryFilter>include desert</geometryFilter>`）
     是地图/模式内技能，不是机库补给；导出 `isAbility` 标记，`availableItems` 一律排除。
     不能按“缺本地化文案”判断（desertPower 恰好无 name，但语义标记才是权威）。
-11. **dev 数据刷新**：`common/research/` 在 `frontend/` 之外，Vite 不监听该目录；重新导出后
-    必须重启 `pnpm run dev`，否则页面继续拿旧 JSON（曾导致“过滤已修但页面仍旧”）。
+11. **dev 数据刷新**：全局 `common/research/` 在 `frontend/` 之外，Vite 不监听该目录；重新
+    导出后必须重启 `pnpm run dev`。逐车 `research/modules/` 由资产包服务（`serve_asset_pack.mjs`
+    每次请求读磁盘），替换包内文件后刷新页面即可，无需重启前端。
 
 12. **隐蔽加成改回客户端（2026-10-27）**：迷彩网用 `optional_devices.xml` 的
     `CamouflageNet` script（逐车型 `bonus` + `activateBonusFactor`=2 仅静止生效），
@@ -744,9 +748,10 @@ interface VehicleSetup {
       （装填手/输弹机系数作用于逐发装填、弹间装填加速 ×0.7、钨芯伤害同乘）；
       参数行 `gunEffectiveDamagePerMin` 只在有值时出现；逐发装填少于 2 发时 null。
       现有 autoreloader 例子（14/12/10 s、弹间 2.727 s、160 伤害）→ 887.35。
-    - **产物**：123 文件 3.51 MB（`meta.json` 仍 122 个 sha256 条目），
-      WotbTools `common/research/` 同步；WotbTools PR #772（Android `wotbVersion`
-      3.17.9）已落地。
+    - **产物**：123 文件 3.51 MB（`meta.json` 仍 122 个 sha256 条目）。**分发拆分**：
+      全局目录/文案/图标进 WotbTools `common/research/`；逐车 `modules/{nation}.json`
+      由资产包 `research/modules/` 发布（assetProvider 懒加载），后续新增坦克/模块数值
+      只更新资产包。WotbTools PR #772（Android `wotbVersion` 3.17.9）已落地。
 
 
 ### 12.3 验证与验收
@@ -755,9 +760,9 @@ interface VehicleSetup {
   `optDevicePreset` 都在 9 个预设内；每辆车至少 1 件可用消耗品 / 1 件可用补给（157 辆弹夹/连发车
   按 `clip` 排除 berserk）。
 - WotbTools targeted：`characteristics.test.ts`（32，含履带维修/尺寸/弹匣总伤/初始 pitch/无炮塔转向/有效 DPM 两分支）、`tankSetup.test.ts`（26，含弹种选择/pitchAtBearing/装甲系数/技能/装备计时/转向行切换）、`gunArc.test.ts`（8，径向映射/方位钳制/带路径）、
-  `tankopediaQuery.test.js`（48）、`researchCatalog.test.js`（11，图标/技能/弹种覆盖 + vehicleFilter AND 语义 + isAbility 排除 + 槽位解析）、
-  `AgentTankopedia.test.js`（31，含配置器集成、弹种图标、技能等级/条件联动、维修/尺寸行、101/118 计时、模块矩阵对齐、炮候选置灰、重置清 delta、弹种明细调参、装备 tooltip 格式化、无炮塔转向行）、`locales/messages.test.js`（13，含参数键三语齐全）
-  — 合计 169 全通过；全量 `vitest run` 4827 通过 / 2 跳过（含 Docker 构建上下文契约 29：
+  `tankopediaQuery.test.js`（48）、`researchCatalog.test.js`（11，图标/技能/弹种覆盖 + vehicleFilter AND 语义 + isAbility 排除 + 槽位解析）、`researchCatalogModules.test.js`（2，资产包路径/缓存/失败重试）、
+  `AgentTankopedia.test.js`（31，含配置器集成、弹种图标、技能等级/条件联动、维修/尺寸行、101/118 计时、模块矩阵对齐、炮候选置灰、重置清 delta、弹种明细调参、装备 tooltip 格式化、无炮塔转向行）、`locales/messages.test.js`（13，含参数键三语齐全）、`navigation.test.js`（18，离页 query 清理）
+  — 合计 181 全通过；全量 `vitest run` 由 WotbTools PR CI 执行（含 Docker 构建上下文契约：
   `docker/Dockerfile.frontend` 已 `COPY common/research /common/research`）；`pnpm run typecheck`、
   `pnpm run lint:css` 通过。本仓 Rust：`cargo test --lib wargaming::tank_configs` 5/5
   （新增逐配置口径 = 弹表弹径锚点）。

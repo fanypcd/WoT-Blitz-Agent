@@ -253,9 +253,12 @@
   （客户端车辆 XML `<hull><fakeTurrets>` 元素存在 ⇔ `hasTurret=false`，738/738 辆与
   BI 11.21 逐辆一致，114 辆）参数区用火炮转向速度**替换**炮塔转速行；有炮塔车仍显示
   炮塔转速。数据面：`modules.hasTurret` + gun stats `rotationSpeed` 新导出，
-  `data/research/` 重生成（123 文件 3.51 MB），WotbTools `common/research/` 同步。
+  `data/research/` 重生成（123 文件 3.51 MB）；**全局目录/文案/图标进 WotbTools
+  `common/research/`，逐车 `modules/{nation}.json` 随资产包 `research/modules/` 发布**
+  （新坦克/模块数值只需更新资产包）。
   **影响面**：WotbTools 前端 bundle 变化（WotbTools PR #772 已带 Android `wotbVersion`
-  3.17.9）；资产包/WASM pin 不变。WotbTools 测试 targeted 169 / 全量 4827 通过 / 2 跳过；详见
+  3.17.9）；资产包新增 `research/modules`（需发布新 immutable release）；WASM pin 不变。
+  WotbTools 测试 targeted 181；全量由 PR CI 验证；详见
   [wotbtools-research-loadout-plan.md](wotbtools-research-loadout-plan.md) §5.2、§12.2.21。
 - **装甲厚度序列化精度（2026-10-20）**：`tank/{id}.json` 的 plate/track 厚度清洗从
   0.1mm 改为 0.01mm：去掉 f32 尾差（62.4000015 → 62.4）的同时保留 6.35 等真实板值
