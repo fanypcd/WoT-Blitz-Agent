@@ -269,15 +269,33 @@ WotbTools 经 assetProvider 加载，**不进入前端 bundle**。全局图标�
   覆盖”，不重传全包。线上 `initial-20261019` 与本地基线仅差这 8 个 `tank/{id}.json`
   （6.3→6.35、15.9→15.87），并入后 manifest 逐文件自洽（预检 0 mismatch）。
 - **已上线 `assets.wotbtools.com`**：`current` 已切到
-  `releases/t11-preview-20261027-research-all`（host `ali-sh-asset-01` / 47.101.141.111）。
-  该 release 由 `t11-preview-20261027-research-modules` 硬链接复制 + **11 个全局
-  `research/*.json`** 增量组成（配置器全局目录/物品/技能/params/strings/meta）；
-  manifest **5911 件 / 4430.0 MB、0 mismatch**，`delta.json` 11 件，公网 20 个
-  research 文件逐文件回拉比对 sha256，`deploy/assets/verify.sh` PASS；
-  旧 `t11-preview-20261022-destructibles` / `t11-preview-20261022` / `initial-20261019`
+  `releases/t11-preview-20261027-research-t11`（host `ali-sh-asset-01` / 47.101.141.111）。
+  该 release 由 `t11-preview-20261027-research-all` 硬链接复制 + **3 件 `research/`
+  增量**组成（`meta.json`、`modules/china.json`、`modules/ussr.json`）：
+  BZ-79（15153）与 Object 432U（27905）的逐车模块并入现有国别文件（china 57 /
+  ussr 105，合计 740 辆）；每辆预览车带 `gameVersion`，`research/meta.json` 增
+  `preview` 清单与 `previewGeneratedAt`，文件级 `meta.gameVersion` 仍描述 11.21
+  主数据集。manifest **5911 件 / 4430.0 MB、0 mismatch**，`delta.json` 3 件，公网
+  3 个文件逐文件回拉 sha256 一致，`deploy/assets/verify.sh` PASS；旧
+  `t11-preview-20261027-research-all` / `research-modules` /
+  `t11-preview-20261022-destructibles` / `t11-preview-20261022` / `initial-20261019`
   均保留回滚。WotbTools 端模块经 assetProvider 懒加载（不随 bundle）；本地验收：
-  `node scripts/serve_asset_pack.mjs 8124 release/asset_pack`（或预览包），
-  前端 `?assets=http://127.0.0.1:8124&view=agent-tankopedia&tank=15153`。
+  `node scripts/serve_asset_pack.mjs 8124 release/asset_pack_t11_preview`
+  （或本地重建包），前端
+  `?assets=http://127.0.0.1:8124&view=agent-tankopedia&tank=15153`。
+- **预览车模块导出**：`tools/export_research_loadout.py` 支持预览客户端 Data 根与
+  增量 bridge，只改逐车模块、不重导全局数据：
+  `--game-data <preview Data root> --bridge data/preview_tank_id_bridge.json
+  --modules-only --merge`。`--merge` 保留既有国别文件里的全部车辆，仅覆盖/新增本次
+  导出的车；逐车 `gameVersion` 是数据来源权威，`meta.preview` 汇总预览车清单。
+  预览 ZIP 的 `Strings/*.yaml.dvpl` 对部分新模块只有占位键（值等于键本身），
+  导出器仍按原样保留 `name_*`（前端回退 stem），**不臆造显示名**。
+  预览模式只读 Data 子树：`version.txt`、`Strings/{en,zh-Hans}.yaml.dvpl`、
+  `XML/item_defs/vehicles/{nation}/{list,<stem>}.xml.dvpl` 与
+  `components/{chassis,turrets,guns,engines,radios,fuelTanks,shells}.xml.dvpl`、
+  `3d/Tanks/Parameters/{nation}/<stem>.yaml.dvpl`（从 ZIP 的 `app/Data/` 去前缀
+  落到临时根目录即可；无需整包 19 GiB）。
+
 
 **口径注意**：
 
@@ -383,11 +401,12 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
    回拉比对 sha256，并在 WotbTools 仓跑 `bash deploy/assets/verify.sh https://assets.wotbtools.com`。
 8. 旧 release 保留回滚（至少保留当前 + 上一代）；`delta.json` 随 release 留存。
 
-**当前 release（2026-10-27）**：`t11-preview-20261027-research-all`，基于
-`t11-preview-20261027-research-modules` 硬链接复制 + 11 个全局 `research/*.json`
-增量（配置器目录/物品/技能/params/strings/meta）；manifest **5911 件 /
-4430.0 MB、0 mismatch**，`delta.json` 11 件，公网 20 个 research 文件逐文件回拉
-比对 sha256，`deploy/assets/verify.sh` PASS；旧 `research-modules` /
+**当前 release（2026-10-27）**：`t11-preview-20261027-research-t11`，基于
+`t11-preview-20261027-research-all` 硬链接复制 + 3 件 `research/` 增量
+（`meta.json` + `modules/china.json` + `modules/ussr.json`，两辆 XI 预览车的逐车
+模块）；manifest **5911 件 / 4430.0 MB、0 mismatch**，`delta.json` 3 件，公网
+3 个文件逐文件回拉 sha256，`deploy/assets/verify.sh` PASS；旧
+`t11-preview-20261027-research-all` / `research-modules` /
 `t11-preview-20261022-destructibles` / `t11-preview-20261022` / `initial-20261019`
 保留回滚。
 

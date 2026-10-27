@@ -854,11 +854,24 @@ def main() -> None:
     ap.add_argument("--out", default="data/research")
     ap.add_argument("--langs", default="en,zh-Hans")
     ap.add_argument("--with-research-graph", action="store_true")
+    ap.add_argument("--game-data", default=None,
+                    help="客户端 Data 根目录（默认自动探测；预览客户端可显式指定）")
+    ap.add_argument("--bridge", default=None,
+                    help="tank-id 映射 JSON（默认 data/tank_id_bridge.json；"
+                         "预览增量可给只含新增车的映射）")
+    ap.add_argument("--modules-only", action="store_true",
+                    help="只导出逐车 modules/*.json（预览客户端增量；不改装备/参数/图标）")
+    ap.add_argument("--merge", action="store_true",
+                    help="与 --modules-only 连用：把本次导出的车并入既有 modules/*.json，"
+                         "保留其余车")
     args = ap.parse_args()
+    if args.merge and not args.modules_only:
+        ap.error("--merge 只能与 --modules-only 连用")
     langs = [x.strip() for x in args.langs.split(",") if x.strip()]
     out_root = REPO_ROOT / args.out
     out_root.mkdir(parents=True, exist_ok=True)
-    game_data = default_game_data()
+    game_data = pathlib.Path(args.game_data) if args.game_data else default_game_data()
+    bridge_path = pathlib.Path(args.bridge) if args.bridge else REPO_ROOT / "data/tank_id_bridge.json"
     version = decode_dvpl((game_data / "version.txt.dvpl").read_bytes()).decode("utf-8").strip()
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -876,17 +889,33 @@ def main() -> None:
     # ---------- 逐车模块 ----------
     # 模型碰撞盒 / 炮塔挂点：复用提取链的 Extractor（与 models.pb 同源同语义）。
     ex = Extractor(game_data)
-    bridge = json.loads((REPO_ROOT / "data/tank_id_bridge.json").read_text(encoding="utf-8"))
+    bridge = json.loads(bridge_path.read_text(encoding="utf-8"))
     by_key = {(v["nation"], v["stem"]): int(tid) for tid, v in bridge.items()}
     skipped_not_in_bridge: dict[str, int] = {}
     tank_counts = {}
     total_tanks = 0
-    for nation in NATIONS:
+    preview_by_nation: dict[str, list[tuple[int, str]]] = {}
+    # 预览增量：bridge 只给新增车 → 只遍历这些国别（缺目录/文件的国别不猜、不写空）。
+    nations = NATIONS
+    if args.modules_only:
+        nations = [n for n in NATIONS if any(v["nation"] == n for v in bridge.values())]
+    for nation in nations:
         comp = Components(game_data / f"XML/item_defs/vehicles/{nation}/components")
         radio_ids, radio_shared = load_component(game_data / f"XML/item_defs/vehicles/{nation}/components", "radios")
         fuel_ids, fuel_shared = load_component(game_data / f"XML/item_defs/vehicles/{nation}/components", "fuelTanks")
         list_root = load_dvpl_xml(game_data / f"XML/item_defs/vehicles/{nation}/list.xml.dvpl")
-        tanks = {}
+        existing_meta: dict = {}
+        if args.merge:
+            mp = out_root / "modules" / f"{nation}.json"
+            if mp.exists():
+                existing = json.loads(mp.read_text(encoding="utf-8"))
+                existing_meta = existing.get("meta") or {}
+                tanks = dict(existing.get("tanks") or {})
+            else:
+                tanks = {}
+        else:
+            tanks = {}
+        exported_here = 0
         skipped = 0
         for v in list_root:
             stem = v.tag
@@ -974,14 +1003,68 @@ def main() -> None:
                 else:
                     # 顺序无法对号 = 不着色/不给错盒（fail-closed：尺寸整组隐藏）
                     print(f"   [bbox] {nation}/{stem} 炮塔数不匹配（{len(src_turrets)} vs {len(tank['turrets'])}），尺寸留空")
+            if args.modules_only:
+                # 预览增量数据来源逐车留痕：模块文件的 meta.gameVersion 仍描述主数据集。
+                tank["gameVersion"] = version
             tanks[stem] = tank
+            exported_here += 1
         skipped_not_in_bridge[nation] = skipped
         tank_counts[nation] = len(tanks)
         total_tanks += len(tanks)
-        payload = {"meta": {"nation": nation, "gameVersion": version, "count": len(tanks)}, "tanks": tanks}
+        preview_ids = sorted(
+            v["tankId"] for v in tanks.values() if v.get("gameVersion"))
+        preview_entries = sorted(
+            (v["tankId"], v["gameVersion"]) for v in tanks.values()
+            if v.get("gameVersion"))
+        if preview_entries:
+            preview_by_nation[nation] = preview_entries
+        if args.modules_only and args.merge and exported_here == 0:
+            continue
+        file_meta = {"nation": nation, "gameVersion": version, "count": len(tanks)}
+        if args.merge and existing_meta:
+            file_meta["gameVersion"] = existing_meta.get("gameVersion") or version
+            versions = sorted({v["gameVersion"] for v in tanks.values() if v.get("gameVersion")})
+            if versions:
+                file_meta["preview"] = {"gameVersions": versions, "tanks": preview_ids}
+        payload = {"meta": file_meta, "tanks": tanks}
         (out_root / "modules").mkdir(parents=True, exist_ok=True)
         (out_root / "modules" / f"{nation}.json").write_text(
             json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+
+    if args.modules_only:
+        # 预览增量只改 modules/*.json；meta.json 保留主数据集版本，追加预览车清单，
+        # 并重算全量文件 sha256（资产包 manifest 的逐文件校验会读它）。
+        meta_path = out_root / "meta.json"
+        if args.merge and meta_path.exists():
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            meta["previewGeneratedAt"] = generated_at
+        else:
+            meta = {"gameVersion": version, "generatedAt": generated_at, "langs": langs}
+        counts = meta.setdefault("counts", {})
+        by_nation = dict(counts.get("tanksByNation") or {})
+        by_nation.update(tank_counts)
+        counts["tanks"] = sum(by_nation.values())
+        counts["tanksByNation"] = by_nation
+        preview = []
+        for nation, entries in preview_by_nation.items():
+            for tid, gv in entries:
+                preview.append({"tankId": tid, "nation": nation, "gameVersion": gv})
+        meta["preview"] = sorted(preview, key=lambda x: x["tankId"])
+        files = {}
+        for p in sorted(out_root.rglob("*")):
+            if not p.is_file() or p.name == "meta.json":
+                continue
+            rel = p.relative_to(out_root).as_posix()
+            files[rel] = {"sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
+                          "bytes": p.stat().st_size}
+        meta["files"] = files
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False, separators=(",", ":")),
+                             encoding="utf-8")
+        print(f"game={version} modules-only preview tanks={len(preview)}")
+        for nation, entries in preview_by_nation.items():
+            print(f"  {nation}: {[tid for tid, _ in entries]}")
+        print(f"out={out_root}")
+        return
 
     # ---------- 装备 / 物品 / 默认表 / 参数 ----------
     devices = export_devices(game_data, names_by_lang, tables_by_lang)

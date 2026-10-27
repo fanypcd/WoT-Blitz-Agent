@@ -559,7 +559,7 @@ interface VehicleSetup {
 
 | 层 | 本仓（WoT-Blitz-Agent） | WotbTools |
 |---|---|---|
-| 导出器 | `tools/export_research_loadout.py` → `data/research/`（磁盘 123 文件 3.51 MB；`meta.json` 记版本 + 全部 122 个产物的 sha256） | **全部非图标数据进资产包 `research/**`**（`scripts/export_asset_pack.py` 发布，assetProvider 读取）；`common/research/` 只保留全局图标集；新坦克/物品不需 WotbTools 发版 |
+| 导出器 | `tools/export_research_loadout.py` → `data/research/`（磁盘 123 文件 3.51 MB；`meta.json` 记版本 + 全部 122 个产物的 sha256；预览车用 `--game-data` / `--bridge` / `--modules-only --merge` 增量并入） | **全部非图标数据进资产包 `research/**`**（`scripts/export_asset_pack.py` 发布，assetProvider 读取）；`common/research/` 只保留全局图标集；新坦克/物品不需 WotbTools 发版 |
 | 目录/过滤 | — | `frontend/src/utils/researchCatalog.js`（`loadResearchCatalog` 请求全局 `/research/*.json`、`loadTankModules` 请求 `/research/modules/{nation}.json`、`availableItems` 全语义 vehicleFilter、`resolveDeviceIds`、`scriptMap`、图标 URL glob） |
 | 公式 | — | `frontend/src/replay-local/compute/characteristics.ts`（纯函数；22 条 golden 覆盖 T-34 三套配置 + 乘员曲线 + 迷彩网 + 装甲系数 + 弹速 + 技能/扩圈） |
 | 状态/参数行 | — | `frontend/src/replay-local/compute/tankSetup.ts`（config 对号、装备槽编解码、上次值 delta、装甲表；24 条单测） |
@@ -753,10 +753,29 @@ interface VehicleSetup {
       图标集。后续新增坦克/物品只更新资产包。WotbTools PR #772（Android `wotbVersion`
       3.17.9）已落地。
 
+22. **预览 XI 车逐车模块并入资产包（2026-10-27）**：
+    - 资产包 `tank/`/GLB/`game_data`/悬挂/履带印已含 BZ-79（15153）与 Object 432U
+      （27905），但配置器 `research/modules/{china,ussr}.json` 原先只覆盖 738 辆
+      11.21 客户端车；本轮从 11.22 预览 ZIP 的 `Data/` 增量导出两辆并并入。
+    - 导出器新增 `--game-data <Data 根>`、`--bridge <映射>`、`--modules-only`、
+      `--merge`：只遍历 bridge 中出现的国别，读预览 XML/Parameters/Strings；
+      `--merge` 保留既有国别文件全部车辆，只覆盖/新增本次导出的车。
+      预览 bridge 为 `data/preview_tank_id_bridge.json`（15153 → china/`Ch67_BZ_79`、
+      27905 → ussr/`R230_Object_432U`）。
+    - 数据面：china 57 / ussr 105（合计 740）；每辆预览车带 `gameVersion`；
+      `research/meta.json` 增 `preview` 清单（tankId/nation/gameVersion）与
+      `previewGeneratedAt`，文件级 `meta.gameVersion` 仍是 11.21 主数据集。
+      预览 ZIP 的部分新模块名在 `Strings/*.yaml.dvpl` 只有占位键（值等于键本身），
+      导出器原样保留，前端回退 stem，不臆造名称。
+    - 资产包 release：`t11-preview-20261027-research-t11`（在 `research-all` 上
+      硬链接复制 + 3 件 research 增量；manifest 5911 件 / 4430.0 MB / 0 mismatch，
+      `delta.json` 3 件；公网 sha256 与 `deploy/assets/verify.sh` 均通过）。
+
 
 ### 12.3 验证与验收
 
-- 覆盖率：738/738 辆的 `configs[].turret_local/gun_local` 全部命中模块 localId；738/738 的
+- 覆盖率：738/738 辆（11.21）+ 2/2 辆（11.22 预览 15153/27905）的
+  `configs[].turret_local/gun_local` 全部命中模块 localId；740/740 的
   `optDevicePreset` 都在 9 个预设内；每辆车至少 1 件可用消耗品 / 1 件可用补给（157 辆弹夹/连发车
   按 `clip` 排除 berserk）。
 - WotbTools targeted：`characteristics.test.ts`（32，含履带维修/尺寸/弹匣总伤/初始 pitch/无炮塔转向/有效 DPM 两分支）、`tankSetup.test.ts`（26，含弹种选择/pitchAtBearing/装甲系数/技能/装备计时/转向行切换）、`gunArc.test.ts`（8，径向映射/方位钳制/带路径）、

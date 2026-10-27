@@ -267,6 +267,19 @@
   20 个 research 文件逐文件回拉 sha256 一致，`deploy/assets/verify.sh` PASS；旧
   research-modules / preview / destructibles / initial release 保留回滚。WotbTools 3.17.9
   经 assetProvider 读取全部配置器数据，`common/research/` 仅图标；新增坦克/物品无需前端发版。
+- **资产包发布：预览 XI 车配置器模块（2026-10-27）**：在 Alibaba asset origin 发布新
+  immutable release **`t11-preview-20261027-research-t11`**——基于
+  `t11-preview-20261027-research-all` 硬链接复制 + 3 个 `research/` 增量
+  （`meta.json`、`modules/china.json`、`modules/ussr.json`）。BZ-79（15153）与
+  Object 432U（27905）的逐车模块并入现有国别文件（china 57 / ussr 105，合计 740 辆）；
+  每辆预览车带 `gameVersion`，`research/meta.json` 增 `preview` 清单与
+  `previewGeneratedAt`，文件级 `meta.gameVersion` 仍描述 11.21 主数据集。
+  manifest **5911 件 / 4430.0 MB / 0 mismatch**，`delta.json` 3 件，公网 3 个文件
+  逐文件回拉 sha256 一致，`deploy/assets/verify.sh` PASS；旧
+  `research-all` / `research-modules` / preview / destructibles / initial release
+  保留回滚。导出器新增 `--game-data` / `--bridge` / `--modules-only` / `--merge`
+  （预览 Data 根 + 只含新增车的 bridge，增量并入既有 modules）；WotbTools 配置器
+  无需代码改动即可加载这两辆。
 - **装甲厚度序列化精度（2026-10-20）**：`tank/{id}.json` 的 plate/track 厚度清洗从
   0.1mm 改为 0.01mm：去掉 f32 尾差（62.4000015 → 62.4）的同时保留 6.35 等真实板值
   （0.1mm 会把它舍成 6.3，HE/判定少 0.05mm）。738 辆 `data/tank_data` 已重生成，
@@ -315,8 +328,9 @@
   manifest 逐文件 sha256；含 7 个变体目录）。生产 origin 已迁移到
   **`https://assets.wotbtools.com`**（Alibaba `ali-sh-asset-01`，
   `/srv/wotb-assets/releases/<pack-id>` + `current` 原子软链）；当前线上 release
-  **`t11-preview-20261027-research-all`**（740 辆预览数据 + 可破坏物修复 + 20 个
-  配置器 `research/**` 数据文件，manifest **5911 件 / 4430.0 MB / 0 mismatch**）。
+  **`t11-preview-20261027-research-t11`**（740 辆预览数据 + 可破坏物修复 + 20 个
+  配置器 `research/**` 数据文件，含两辆 XI 车的逐车模块；manifest **5911 件 /
+  4430.0 MB / 0 mismatch**）。
   发布按「新 release 硬链接复制 + 增量覆盖
   （`cp --remove-destination` / `os.replace` 断链）+ 主机重算 manifest + 校验 +
   原子切 `current`」；**不要再走 COS 根目录全量上传**——COS 仅保留旧 APK 与临时回滚，
