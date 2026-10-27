@@ -114,7 +114,11 @@ testing** happen in the WotbTools repository (https://github.com/A158Coke/WotbTo
   data is asset data too: `python tools/export_research_loadout.py --out data/research`
   then `scripts/export_asset_pack.py` copies all non-icon files to `research/**`; global icons
   stay in WotbTools `common/research/icons/`. Publish a new asset release so new tanks/items
-  work without a WotbTools release.
+  work without a WotbTools release. Preview-client tanks absent from the live client use the
+  incremental mode:
+  `python tools/export_research_loadout.py --out data/research --game-data <preview Data root>
+  --bridge data/preview_tank_id_bridge.json --modules-only --merge` (adds/replaces only those
+  tank entries; per-tank `gameVersion` + `meta.preview` record provenance).
   Note `scripts/export_asset_pack.py` **overwrites overhead-baked grounds**, so after an export
   re-run the composite reading the pre-composite bases and the render cache:
   `python tools/composite_overhead.py --pack release/asset_pack --all --write --render-dir release/overhead-bake --base-dir data/cache/maps`
