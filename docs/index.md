@@ -260,6 +260,12 @@
   3.17.9）；资产包新增 `research/modules`（需发布新 immutable release）；WASM pin 不变。
   WotbTools 测试 targeted 181；全量由 PR CI 验证；详见
   [wotbtools-research-loadout-plan.md](wotbtools-research-loadout-plan.md) §5.2、§12.2.21。
+- **资产包发布：配置器逐车模块（2026-10-27）**：在 Alibaba asset origin 发布新 immutable
+  release **`t11-preview-20261027-research-modules`**——基于
+  `t11-preview-20261022-destructibles` 硬链接复制 + 9 个 `research/modules/*.json`
+  增量；manifest **5900 件 / 4429.8 MB / 0 mismatch**，`delta.json` 9 件，公网 9 个模块
+  逐文件回拉 sha256 一致，`deploy/assets/verify.sh` PASS；旧 preview/destructibles/
+  initial release 保留回滚。WotbTools 3.17.9 经 assetProvider 读取，新增坦克无需前端发版。
 - **装甲厚度序列化精度（2026-10-20）**：`tank/{id}.json` 的 plate/track 厚度清洗从
   0.1mm 改为 0.01mm：去掉 f32 尾差（62.4000015 → 62.4）的同时保留 6.35 等真实板值
   （0.1mm 会把它舍成 6.3，HE/判定少 0.05mm）。738 辆 `data/tank_data` 已重生成，
@@ -308,8 +314,9 @@
   manifest 逐文件 sha256；含 7 个变体目录）。生产 origin 已迁移到
   **`https://assets.wotbtools.com`**（Alibaba `ali-sh-asset-01`，
   `/srv/wotb-assets/releases/<pack-id>` + `current` 原子软链）；当前线上 release
-  **`t11-preview-20261022-destructibles`**（740 辆预览数据 + 本次可破坏物修复，
-  manifest **5891 件 / 0 mismatch**）。发布按「新 release 硬链接复制 + 增量覆盖
+  **`t11-preview-20261027-research-modules`**（740 辆预览数据 + 可破坏物修复 + 9 个
+  配置器 `research/modules` 增量，manifest **5900 件 / 4429.8 MB / 0 mismatch**）。
+  发布按「新 release 硬链接复制 + 增量覆盖
   （`cp --remove-destination` / `os.replace` 断链）+ 主机重算 manifest + 校验 +
   原子切 `current`」；**不要再走 COS 根目录全量上传**——COS 仅保留旧 APK 与临时回滚，
   本次未动。发布链、增量发布与运维陷阱见 [data-inventory.md](data-inventory.md) §2.1

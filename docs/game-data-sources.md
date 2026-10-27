@@ -268,14 +268,14 @@ WotbTools 经 assetProvider 懒加载。**这是资产包数据，不进入前�
   覆盖”，不重传全包。线上 `initial-20261019` 与本地基线仅差这 8 个 `tank/{id}.json`
   （6.3→6.35、15.9→15.87），并入后 manifest 逐文件自洽（预检 0 mismatch）。
 - **已上线 `assets.wotbtools.com`**：`current` 已切到
-  `releases/t11-preview-20261022-destructibles`（host `ali-sh-asset-01` / 47.101.141.111）。
-  该 release 由 `t11-preview-20261022`（740 辆预览数据）硬链接复制 + **15 个修正后的
-  `destructibles.json` + `index.json`（7 个变体重映射）** 增量组成（2026-10-22 可破坏物
-  lka 选表修复）；manifest **5891 件 / 4427.2 MB、0 mismatch**，公网 15 个文件哈希逐一
-  核对，`deploy/assets/verify.sh` PASS；旧 `t11-preview-20261022` 与 `initial-20261019`
-  均保留回滚。WotbTools 端无代码改动（tier 标签/过滤数据驱动；destructibles 走每 key
-  目录，index 已指向本变体 key）。本地验收：
-  `node scripts/serve_asset_pack.mjs 8124 release/asset_pack_t11_preview`，
+  `releases/t11-preview-20261027-research-modules`（host `ali-sh-asset-01` / 47.101.141.111）。
+  该 release 由 `t11-preview-20261022-destructibles`（740 辆预览数据 + 2026-10-22
+  可破坏物 lka 选表修复）硬链接复制 + **9 个 `research/modules/*.json`** 增量组成
+  （2026-10-27 配置器逐车数据）；manifest **5900 件 / 4429.8 MB、0 mismatch**，
+  `delta.json` 9 件，公网 9 个模块逐文件回拉比对 sha256，`deploy/assets/verify.sh` PASS；
+  旧 `t11-preview-20261022-destructibles` / `t11-preview-20261022` / `initial-20261019`
+  均保留回滚。WotbTools 端模块经 assetProvider 懒加载（不随 bundle）；本地验收：
+  `node scripts/serve_asset_pack.mjs 8124 release/asset_pack`（或预览包），
   前端 `?assets=http://127.0.0.1:8124&view=agent-tankopedia&tank=15153`。
 
 **口径注意**：
@@ -382,11 +382,12 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
    回拉比对 sha256，并在 WotbTools 仓跑 `bash deploy/assets/verify.sh https://assets.wotbtools.com`。
 8. 旧 release 保留回滚（至少保留当前 + 上一代）；`delta.json` 随 release 留存。
 
-**当前 release（2026-10-22）**：`t11-preview-20261022-destructibles`，基于
-`t11-preview-20261022`（740 辆预览数据）硬链接复制 + 15 个修正后的
-`destructibles.json` + `index.json`（7 个变体重映射）增量；manifest **5891 件 /
-4427.2 MB、0 mismatch**，公网 15 个文件哈希逐一核对，`deploy/assets/verify.sh` PASS；
-旧 `t11-preview-20261022` 与 `initial-20261019` 保留回滚。
+**当前 release（2026-10-27）**：`t11-preview-20261027-research-modules`，基于
+`t11-preview-20261022-destructibles`（740 辆预览数据 + 可破坏物修复）硬链接复制 +
+9 个 `research/modules/*.json` 增量（配置器逐车数据）；manifest **5900 件 /
+4429.8 MB、0 mismatch**，`delta.json` 9 件，公网 9 个模块逐文件回拉比对 sha256，
+`deploy/assets/verify.sh` PASS；旧 `t11-preview-20261022-destructibles` /
+`t11-preview-20261022` / `initial-20261019` 保留回滚。
 
 **历史批次（COS，legacy）**：2026-10-18 的 36 图 SpeedTree scenery 重导曾用
 `--only map/` 局部发布 15 条 / 511.7 MB；2026-10-20 的 8 个 0.01mm 精度 `tank/{id}.json`

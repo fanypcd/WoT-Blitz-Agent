@@ -83,7 +83,7 @@
 | 履带印数据（包 `tread/`） | 客户端逐车 yaml `treadParameters` + 13 张 `*tread*.dds` 贴图（`tools/export_tank_tread.py`） | 不适用 | ✅ 已接线（WotbTools `scene/treadMarks.js` 几何贴花） | 738 json（314 authored + 424 国别主贴图回落）+ 13 贴图 + `textures.json` alpha 归一化表 / 156 KB + 983 KB；见 [feasibility-track-marks.md](feasibility-track-marks.md) |
 | `data/research/`（研发/配置数据面，123 文件 3.51 MB） | **本机客户端解包**：`tools/export_research_loadout.py`（`meta.json` 记 `11.21.0.1235_7376187 release/11.21.0` + 逐文件 sha256） | 不适用（客户端独有；BlitzKit 只作公式/展示参照，不作数据源） | ✅ 数据 100%：738 辆 / 9 国别模块（含 `hasTurret`（客户端 `<hull><fakeTurrets>` 标记）、gun `rotationSpeed`、gun/chassis `dispersionFactors`、chassis `hysteresisHealth`/`healthRegenPerSec`/`hullPosition`/`maxLoad`（kg）、车辆级 chassis/hull 碰撞盒 + 逐炮塔盒 + `turretOrigin`/`initialTurretRotation`；技能效果取 `XML/item_defs/tankmen/avatar.xml`，弹种图标取 `Gfx/Shared/tank-supply/ammunition`；物品名缺基础 Strings 时用运行时本地化覆盖层（zh-Hans）+ 5 条 en 补充名）、24 设备 + 9 预设、64 消耗品（common 13）/ 85 补给（common 34）、20 项乘员技能（客户端 avatar.xml 的 per-level 效果 + class 归属）、9 张弹种图标、20 张技能图标、params `format` 70 键、en + zh-Hans 46 条文案、5 张模块图集 | **逐车 `modules/{nation}.json` 随资产包 `research/modules/` 发布**（WotbTools assetProvider 懒加载；新坦克/模块数值只需更新资产包，不需前端发版）；全局目录/文案/图标分发进 WotbTools `common/research/`；不改 WASM pin。研发图/科技树坐标保留在导出器可选输出、本期不消费；ru 文案回退 en。口径与消费契约见 [wotbtools-research-loadout-plan.md](wotbtools-research-loadout-plan.md) |
 | 解包底座（DVPL/DAVA 容器、DLC `packs/` 覆盖层） | 本机自产代码（Rust `dvpl.rs` + Python `tools/wotbtools/`，fail-closed 两端对齐） | 不适用 | ✅ 100/100 | 本地链硬前提：需本机装客户端（`Data/` + `packs/`），游戏版本更新后整链重跑 |
-| 11.22 tier XI 预览包（`release/asset_pack_t11_preview/`，**独立预览 release**） | 公开 CDN 超测 ZIP `WotBlitz_11.4.0.119_t11b.zip`（`11.22_supertest_tier11_4`）的两辆完整 XI 车 + 现役 11.21 包 | 不适用 | ✅ 已上线（`t11-preview-20261022-destructibles`） | 740 辆（738+2）：`tank/15153` BZ-79、`tank/27905` Object 432U；含 GLB/图标/`game_data`/悬挂/履带印；30 件增量 14.9 MB（含 8 件 0.01mm 精度补差）；图标为预览包占位图（两辆相同）；BZ-79 第二弹种 `<kind>` 与 icon 冲突；`assets.wotbtools.com` 的 `current` 已切到该 release，旧 `t11-preview-20261022` / `initial-20261019` 均保留回滚；Agent 的 11.21 数据面未改；来源与口径见 [game-data-sources.md](game-data-sources.md) §2.7 |
+| 11.22 tier XI 预览包（`release/asset_pack_t11_preview/`，**独立预览 release**） | 公开 CDN 超测 ZIP `WotBlitz_11.4.0.119_t11b.zip`（`11.22_supertest_tier11_4`）的两辆完整 XI 车 + 现役 11.21 包 | 不适用 | ✅ 已上线（`t11-preview-20261027-research-modules`） | 740 辆（738+2）+ 配置器 `research/modules`（9 国别）；`tank/15153` BZ-79、`tank/27905` Object 432U；含 GLB/图标/`game_data`/悬挂/履带印；30 件增量 14.9 MB（含 8 件 0.01mm 精度补差）；图标为预览包占位图（两辆相同）；BZ-79 第二弹种 `<kind>` 与 icon 冲突；`assets.wotbtools.com` 的 `current` 已切到该 release，旧 `t11-preview-20261022` / `initial-20261019` 均保留回滚；Agent 的 11.21 数据面未改；来源与口径见 [game-data-sources.md](game-data-sources.md) §2.7 |
 
 引擎产物（WASM Release，`wotb-replay-wasm-*.zip`）构建自 `crates/replay-core|wasm`，**不含
 任何 pb**；上表三张注入表（车型名 / 俯仰锚定 / 弹种表）是消费方的间接数据面——它们的
@@ -121,8 +121,8 @@
   [game-data-sources.md](game-data-sources.md) §5.2
 
 **当前包内布局**（本地实测；本地 11.21 包 **5877 个文件 / 4415.6 MB**；线上
-`t11-preview-20261022-destructibles` 为 740 辆预览数据 **5891 个文件 / 4427.2 MB**，
-manifest 0 mismatch。`map/` 共 **43 个目录 / 669 件**：36 个基础图 + 7 个映射有差异的
+`t11-preview-20261027-research-modules` 为 740 辆预览数据 + 9 个配置器逐车模块
+**5900 个文件 / 4429.8 MB**，manifest 0 mismatch。`map/` 共 **43 个目录 / 669 件**：36 个基础图 + 7 个映射有差异的
 变体目录（`medvedkovo_03`、`amigosville_03`、`rudniki_01/02/03`、`canal_01`、
 `neptune_02`；共享资产硬链接，`index.json` 按 map_id 指向本 key）。其余 12 个变体
 （desert_train_02/03、erlenberg_01/02、medvedkovo_02、amigosville_02、milbase_02..05、
