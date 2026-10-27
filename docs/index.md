@@ -283,7 +283,9 @@
 - **配置器图标居中 + 英文参数栏修复（2026-10-27）**：`_normalize_icon` 原先把 RGBA
   图自己作为 `paste` mask，边缘 alpha 被二次相乘后消失，96×96 图标内容框偏到一侧
   （102 张中 32 张四边距差 >1px，最差 11px）；改为 `alpha_composite` 后重新生成
-  全部物品/模块/技能/弹种图标，新增 `tools/test_research_icons.py` 几何门禁。英文
+  全部物品/模块/技能/弹种图标，新增 `tools/test_research_icons.py` 几何门禁。乘员
+  技能图标改用客户端 64×64 帧（packed 大图只在帧左上角承载图标），不再按 alpha
+  包围框重构图，避免帧外光效把视觉构图带偏。英文
   `agentTanks.pen_far` 的 `"Pen @ far"` 触发 vue-i18n linked-message 编译错误，切到
   English 时右侧参数栏整块消失；改为 `"Far-range pen"` 并新增三语消息全量编译门禁。
   WotbTools 图标同步至 `common/research/icons`；3.17.9 已 stage 但未 publish，由
