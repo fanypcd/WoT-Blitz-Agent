@@ -131,17 +131,16 @@ data/research/
 
 ### 3.2 分发（进 WotbTools）
 
-**按数据性质拆分**（2026-10-27 用户裁定：逐车配置随资产包发布，新坦克不必发版）：
+**按数据性质拆分**（2026-10-27 用户裁定：所有配置器数据随资产包发布，新坦克不必发版）：
 
-1. **全局目录/文案/图标**（devices/consumables/provisions/defaults/params/strings/
-   camouflage/icons）体积小、跟随客户端版本 → 复制进 WotbTools `common/research/`
-   （同 PR 附 `meta.json`：`game_version` + 逐文件 sha256）；
-2. **逐车 `modules/{nation}.json`**（738 辆，tank-specific）→ 由
-   `scripts/export_asset_pack.py` 写入资产包 `research/modules/`，随 Alibaba asset
-   origin 的新 immutable release 发布；WotbTools 经 assetProvider 懒加载，不进前端
-   bundle。后续新增坦克/模块数值只需重跑研究导出 + 打包发布，WotbTools 无需发版；
-3. `meta.json` 保留完整数据集（含 modules）的 sha256，用于核对资产包与全局目录同代；
-   `common/research/` 本身不再保存 modules。
+1. **全部非图标数据**（devices/consumables/provisions/defaults/skills/params/strings/
+   camouflage/meta + 逐车 `modules/{nation}.json`）→ 由 `scripts/export_asset_pack.py`
+   写入资产包 `research/**`，随 Alibaba asset origin 的新 immutable release 发布；
+   WotbTools 经 assetProvider 加载（全局目录 `loadResearchCatalog`、逐车模块
+   `loadTankModules`），不进前端 bundle；
+2. **全局图标集**（items/modules/skills/shells）留在 WotbTools
+   `common/research/icons/`，构建期打成 URL 表；图标不是配置器数值数据；
+3. 后续新增坦克/物品/模块数值只需重跑研究导出 + 打包发布，WotbTools 无需发版。
 
 ### 3.3 版本锚与更新链
 
@@ -560,8 +559,8 @@ interface VehicleSetup {
 
 | 层 | 本仓（WoT-Blitz-Agent） | WotbTools |
 |---|---|---|
-| 导出器 | `tools/export_research_loadout.py` → `data/research/`（磁盘 123 文件 3.51 MB；`meta.json` 记版本 + 全部 122 个产物的 sha256） | 全局目录/文案/图标进 `common/research/`；**逐车 `modules/{nation}.json` 进资产包 `research/modules/`**（`scripts/export_asset_pack.py` 发布，assetProvider 读取；新坦克不需 WotbTools 发版） |
-| 目录/过滤 | — | `frontend/src/utils/researchCatalog.js`（`loadTankModules` 经 assetProvider 请求 `/research/modules/{nation}.json`、`availableItems` 全语义 vehicleFilter、`resolveDeviceIds`、`scriptMap`、图标 URL glob） |
+| 导出器 | `tools/export_research_loadout.py` → `data/research/`（磁盘 123 文件 3.51 MB；`meta.json` 记版本 + 全部 122 个产物的 sha256） | **全部非图标数据进资产包 `research/**`**（`scripts/export_asset_pack.py` 发布，assetProvider 读取）；`common/research/` 只保留全局图标集；新坦克/物品不需 WotbTools 发版 |
+| 目录/过滤 | — | `frontend/src/utils/researchCatalog.js`（`loadResearchCatalog` 请求全局 `/research/*.json`、`loadTankModules` 请求 `/research/modules/{nation}.json`、`availableItems` 全语义 vehicleFilter、`resolveDeviceIds`、`scriptMap`、图标 URL glob） |
 | 公式 | — | `frontend/src/replay-local/compute/characteristics.ts`（纯函数；22 条 golden 覆盖 T-34 三套配置 + 乘员曲线 + 迷彩网 + 装甲系数 + 弹速 + 技能/扩圈） |
 | 状态/参数行 | — | `frontend/src/replay-local/compute/tankSetup.ts`（config 对号、装备槽编解码、上次值 delta、装甲表；24 条单测） |
 | UI | — | `TankConfigPanel.vue`（模块 4 行 + 装备 3×3 + 补给/消耗品 + 20 技能图标 + 涂装）、`TankParamPanel.vue`（三分组 + delta + 弹种图标 + `GunArcDiagram`）、`AgentTankopedia.vue` 详情态左配置/右参数整合 |
@@ -748,10 +747,11 @@ interface VehicleSetup {
       （装填手/输弹机系数作用于逐发装填、弹间装填加速 ×0.7、钨芯伤害同乘）；
       参数行 `gunEffectiveDamagePerMin` 只在有值时出现；逐发装填少于 2 发时 null。
       现有 autoreloader 例子（14/12/10 s、弹间 2.727 s、160 伤害）→ 887.35。
-    - **产物**：123 文件 3.51 MB（`meta.json` 仍 122 个 sha256 条目）。**分发拆分**：
-      全局目录/文案/图标进 WotbTools `common/research/`；逐车 `modules/{nation}.json`
-      由资产包 `research/modules/` 发布（assetProvider 懒加载），后续新增坦克/模块数值
-      只更新资产包。WotbTools PR #772（Android `wotbVersion` 3.17.9）已落地。
+    - **产物**：123 文件 3.51 MB（`meta.json` 仍 122 个 sha256 条目）。**分发**：全部
+      非图标数据（全局目录/物品/技能/params/strings/camouflage/meta + 逐车 modules）
+      随资产包 `research/**` 发布（assetProvider 加载）；`common/research/` 仅保留全局
+      图标集。后续新增坦克/物品只更新资产包。WotbTools PR #772（Android `wotbVersion`
+      3.17.9）已落地。
 
 
 ### 12.3 验证与验收

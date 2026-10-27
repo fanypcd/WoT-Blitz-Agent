@@ -258,14 +258,15 @@
   （新坦克/模块数值只需更新资产包）。
   **影响面**：WotbTools 前端 bundle 变化（WotbTools PR #772 已带 Android `wotbVersion`
   3.17.9）；资产包新增 `research/modules`（需发布新 immutable release）；WASM pin 不变。
-  WotbTools 测试 targeted 181；全量由 PR CI 验证；详见
+  WotbTools 测试 targeted 183；全量由 PR CI 验证；详见
   [wotbtools-research-loadout-plan.md](wotbtools-research-loadout-plan.md) §5.2、§12.2.21。
-- **资产包发布：配置器逐车模块（2026-10-27）**：在 Alibaba asset origin 发布新 immutable
-  release **`t11-preview-20261027-research-modules`**——基于
-  `t11-preview-20261022-destructibles` 硬链接复制 + 9 个 `research/modules/*.json`
-  增量；manifest **5900 件 / 4429.8 MB / 0 mismatch**，`delta.json` 9 件，公网 9 个模块
-  逐文件回拉 sha256 一致，`deploy/assets/verify.sh` PASS；旧 preview/destructibles/
-  initial release 保留回滚。WotbTools 3.17.9 经 assetProvider 读取，新增坦克无需前端发版。
+- **资产包发布：配置器全量数据（2026-10-27）**：在 Alibaba asset origin 发布新 immutable
+  release **`t11-preview-20261027-research-all`**——基于 research-modules release 硬链接
+  复制 + 11 个全局 `research/*.json` 增量（目录/物品/技能/params/strings/meta + 逐车
+  modules）；manifest **5911 件 / 4430.0 MB / 0 mismatch**，`delta.json` 11 件，公网
+  20 个 research 文件逐文件回拉 sha256 一致，`deploy/assets/verify.sh` PASS；旧
+  research-modules / preview / destructibles / initial release 保留回滚。WotbTools 3.17.9
+  经 assetProvider 读取全部配置器数据，`common/research/` 仅图标；新增坦克/物品无需前端发版。
 - **装甲厚度序列化精度（2026-10-20）**：`tank/{id}.json` 的 plate/track 厚度清洗从
   0.1mm 改为 0.01mm：去掉 f32 尾差（62.4000015 → 62.4）的同时保留 6.35 等真实板值
   （0.1mm 会把它舍成 6.3，HE/判定少 0.05mm）。738 辆 `data/tank_data` 已重生成，
@@ -314,8 +315,8 @@
   manifest 逐文件 sha256；含 7 个变体目录）。生产 origin 已迁移到
   **`https://assets.wotbtools.com`**（Alibaba `ali-sh-asset-01`，
   `/srv/wotb-assets/releases/<pack-id>` + `current` 原子软链）；当前线上 release
-  **`t11-preview-20261027-research-modules`**（740 辆预览数据 + 可破坏物修复 + 9 个
-  配置器 `research/modules` 增量，manifest **5900 件 / 4429.8 MB / 0 mismatch**）。
+  **`t11-preview-20261027-research-all`**（740 辆预览数据 + 可破坏物修复 + 20 个
+  配置器 `research/**` 数据文件，manifest **5911 件 / 4430.0 MB / 0 mismatch**）。
   发布按「新 release 硬链接复制 + 增量覆盖
   （`cp --remove-destination` / `os.replace` 断链）+ 主机重算 manifest + 校验 +
   原子切 `current`」；**不要再走 COS 根目录全量上传**——COS 仅保留旧 APK 与临时回滚，
