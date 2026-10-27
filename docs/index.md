@@ -280,6 +280,14 @@
   保留回滚。导出器新增 `--game-data` / `--bridge` / `--modules-only` / `--merge`
   （预览 Data 根 + 只含新增车的 bridge，增量并入既有 modules）；WotbTools 配置器
   无需代码改动即可加载这两辆。
+- **配置器图标居中 + 英文参数栏修复（2026-10-27）**：`_normalize_icon` 原先把 RGBA
+  图自己作为 `paste` mask，边缘 alpha 被二次相乘后消失，96×96 图标内容框偏到一侧
+  （102 张中 32 张四边距差 >1px，最差 11px）；改为 `alpha_composite` 后重新生成
+  全部物品/模块/技能/弹种图标，新增 `tools/test_research_icons.py` 几何门禁。英文
+  `agentTanks.pen_far` 的 `"Pen @ far"` 触发 vue-i18n linked-message 编译错误，切到
+  English 时右侧参数栏整块消失；改为 `"Far-range pen"` 并新增三语消息全量编译门禁。
+  WotbTools 图标同步至 `common/research/icons`；3.17.9 已 stage 但未 publish，由
+  **3.17.10 / 3017010** 候选取代。
 - **装甲厚度序列化精度（2026-10-20）**：`tank/{id}.json` 的 plate/track 厚度清洗从
   0.1mm 改为 0.01mm：去掉 f32 尾差（62.4000015 → 62.4）的同时保留 6.35 等真实板值
   （0.1mm 会把它舍成 6.3，HE/判定少 0.05mm）。738 辆 `data/tank_data` 已重生成，
