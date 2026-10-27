@@ -761,8 +761,8 @@ interface VehicleSetup {
   按 `clip` 排除 berserk）。
 - WotbTools targeted：`characteristics.test.ts`（32，含履带维修/尺寸/弹匣总伤/初始 pitch/无炮塔转向/有效 DPM 两分支）、`tankSetup.test.ts`（26，含弹种选择/pitchAtBearing/装甲系数/技能/装备计时/转向行切换）、`gunArc.test.ts`（8，径向映射/方位钳制/带路径）、
   `tankopediaQuery.test.js`（48）、`researchCatalog.test.js`（11，图标/技能/弹种覆盖 + vehicleFilter AND 语义 + isAbility 排除 + 槽位解析）、`researchCatalogModules.test.js`（2，资产包路径/缓存/失败重试）、
-  `AgentTankopedia.test.js`（31，含配置器集成、弹种图标、技能等级/条件联动、维修/尺寸行、101/118 计时、模块矩阵对齐、炮候选置灰、重置清 delta、弹种明细调参、装备 tooltip 格式化、无炮塔转向行）、`locales/messages.test.js`（13，含参数键三语齐全）、`navigation.test.js`（18，离页 query 清理）
-  — 合计 181 全通过；全量 `vitest run` 由 WotbTools PR CI 执行（含 Docker 构建上下文契约：
+  `AgentTankopedia.test.js`（32，含配置器集成、弹种图标、技能单位/条件联动、维修/尺寸行、101/118 计时、模块矩阵对齐、炮候选置灰、重置清 delta/弹种、弹种明细调参、装备 tooltip 格式化、无炮塔转向行）、`locales/messages.test.js`（14，含参数键三语齐全与 delta 文案）、`navigation.test.js`（18，离页 query 清理）
+  — 合计 183 全通过；全量 `vitest run` 由 WotbTools PR CI 执行（含 Docker 构建上下文契约：
   `docker/Dockerfile.frontend` 已 `COPY common/research /common/research`）；`pnpm run typecheck`、
   `pnpm run lint:css` 通过。本仓 Rust：`cargo test --lib wargaming::tank_configs` 5/5
   （新增逐配置口径 = 弹表弹径锚点）。
