@@ -683,7 +683,10 @@ def _normalize_icon(image: "object", canvas: int = 96, pad: int = 6) -> "object"
     size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
     resized = image.resize(size, Image.LANCZOS)
     out = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
-    out.paste(resized, ((canvas - size[0]) // 2, (canvas - size[1]) // 2), resized)
+    # 不能把 RGBA 自己当 paste mask：那会把边缘 alpha 再乘一次（alpha²），
+    # 半透明抗锯齿边被吃掉后内容框只剩偏一侧的实心区，视觉上就“没居中”。
+    # alpha_composite 对透明画布做正常 source-over，保留完整 alpha 与居中位置。
+    out.alpha_composite(resized, ((canvas - size[0]) // 2, (canvas - size[1]) // 2))
     return out
 
 
