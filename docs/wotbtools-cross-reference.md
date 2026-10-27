@@ -5,7 +5,7 @@
 > 误采或回退已定案。本地验证工具：`src/bin/verify_p1.rs`（`cargo run --release --bin verify_p1`，
 > 样本 `data/replay_samples/`）。
 >
-> 跨仓协作现状（本仓为上游解析方；WASM 四入口 + 静态资产面；对方契约
+> 跨仓协作现状（本仓为上游解析方；WASM 五入口 + 静态资产面；对方契约
 > `contracts/agent/replay-facets-v2.md`、版本锁定 `deploy/agent/source.json`）见 §五。
 
 ## 一、本地验证裁决（P1 分歧组）

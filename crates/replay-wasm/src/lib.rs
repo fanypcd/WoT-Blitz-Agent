@@ -1,16 +1,20 @@
 //! 浏览器通道解析入口（架构契约第 6 节）：`.wotbreplay` 字节 → 核心库 → 独立能力 JSON。
 //!
-//! 能力边界（契约 v2）：Agent Rust Core 只暴露**结果解释**与**时序解释**两个维度，
-//! 消费方（WotBTools）按需取用——只要结果时不得被迫物化全场时序（~10MB 级），
-//! 时序消费也不依赖结果通道。名人堂（HoF）是消费方产品域：由消费方从结果能力
-//! 自行投影，Agent 公开面不感知。
+//! 能力边界（契约 v2）：Agent Rust Core 暴露**结果解释**、**时序解释**与**轻量证据
+//! probe** 三类独立能力，消费方（WotBTools）按需取用——只要结果时不得被迫物化全场
+//! 时序（~10MB 级），时序消费也不依赖结果通道；初始位姿 probe 只取一个事实，不得
+//! 构建 Playback/时间线。名人堂（HoF）是消费方产品域：由消费方从结果能力自行投影，
+//! Agent 公开面不感知。
 //!
 //! JS 入口（wasm32，`js` 模块）：
 //! - `parseResult(bytes)`    → 结算 JSON（BattleSummary：花名册/胜负/地图/全员统计）；
 //!   只读 meta + battle_results，**不读包流、不建时序模型**，单文件毫秒级；
 //! - `parsePlayback(bytes)`  → PlaybackData JSON（位姿网格/弹道/击杀/阶段/可见性）；
 //! - `parseShotReplays(bytes)` → 全员射击链 JSON（`{shots, author_path, others}`，
-//!   契约 v0.1.9：作者严格路径 fail-visible，不再静默吞空）。
+//!   契约 v0.1.9：作者严格路径 fail-visible，不再静默吞空）；
+//! - `parseAiReview(bytes)`  → AI 事件数据 JSON（DTO 冻结 v1）；
+//! - `parseAuthorInitialPosition(bytes)` → 录像者车辆首条可信 type=10 世界坐标
+//!   JSON，或 `null`（轻量能力：不构建 ReplayModel / PlaybackData / AiReviewFacet）。
 //!
 //! 客户端路径的已知取舍（与服务端路径的差异，均为数据可得性而非实现差异）：
 //! - 无 tank_cache / models.pb：`tank_name` 空串、`gun_pitch` 走车体 pitch 兜底、
@@ -29,7 +33,7 @@ use wotb_replay_core::replay::model::{ReplayModel, ScanInput};
 use wotb_replay_core::replay::parser::ReplayParser;
 use wotb_replay_core::replay::playback::{PlaybackPlayer, PlaybackRenderInput};
 
-/// 包流分帧（三能力共用）：只切出 (type, clock, payload)，不反序列化 payload——
+/// 包流分帧（各入口共用）：只切出 (type, clock, payload)，不反序列化 payload——
 /// 单个包的 pickle 形状偏差（如 type 0 的 bool 字段为整数）不再让整场回放失败。
 fn decode_packets(
     bytes: &[u8],
@@ -91,6 +95,26 @@ pub fn result_json(bytes: &[u8], tank_names_json: Option<&str>) -> anyhow::Resul
     Ok(serde_json::to_string(&summary)?)
 }
 
+/// 轻量初始位姿能力（Author initial position）：字节 → 录像者车辆首条可信
+/// type=10 世界坐标 JSON，或 `null`（证据不足）。
+///
+/// 与 `parsePlayback` 的关键差异：**不构建 ReplayModel / PlaybackData /
+/// AiReviewFacet**。只读 meta + battle_results 解析作者身份，随后定向扫描包流：
+/// 1. 身份 = ARENA_INFO comp blob 的 account_id 精确匹配，未命中退回既有 type=5
+///    昵称解析（与 ReplayModel::scan 同一函数，SSOT）；
+/// 2. 位姿 = 该 eid 的 type=10 采样中 parent==0（世界系）、位置/时钟有限、
+///    载荷可解码的最早 replay clock 采样。
+///
+/// 输出坐标是**原始 replay 世界坐标** [x, y, z]（y 为高程），不做地图坐标转换、
+/// 不输出 NORTH/SOUTH/WEST/EAST 或 spawn 语义——那些属于消费方产品域。
+/// 截断/不完整回放只要已出现作者世界位姿即可返回；无证据（作者未解析 / 无
+/// 可信采样 / 全被跳过）返回 `null`，绝不编造 [0,0,0]。
+pub fn author_initial_position_json(bytes: &[u8]) -> anyhow::Result<String> {
+    // 能力实现全部在核心库（原生/ wasm32 同构）；WASM 只做 JSON 序列化。
+    let position = wotb_replay_core::replay::author::from_replay_bytes(bytes)?;
+    Ok(serde_json::to_string(&position)?)
+}
+
 /// 时序能力（Temporal interpretation）：字节 → PlaybackData JSON。
 /// 单次扫描构建全场时序（与服务端 `/api/playback/data` 同一构建语义）。
 ///
@@ -144,7 +168,7 @@ pub fn playback_json(
     Ok(serde_json::to_string(&playback)?)
 }
 
-/// 智能体评审通道（第 4 个 WASM 入口）：字节 → `AiReviewFacet` JSON
+/// 智能体评审通道（AI 评审入口）：字节 → `AiReviewFacet` JSON
 /// （花名册 + 归一化事件流 spawn/shot/damage/kill/visibility/counter/damage_tick +
 /// 结算锚点 + 战局阶段）。与服务端 `wotb-agent facets --parts ai` 同一构建语义。
 ///
@@ -311,6 +335,17 @@ mod js {
             .map_err(|e| JsValue::from_str(&format!("result parse failed: {e:#}")))
     }
 
+    /// JS 入口（轻量初始位姿）：`parseAuthorInitialPosition(new Uint8Array(fileBuffer))`
+    /// → 录像者车辆首条可信 type=10 世界坐标 JSON，或 `null`（证据不足）。
+    /// 不构建 PlaybackData/时序模型；输出为原始 replay 世界坐标 [x, y, z]，
+    /// **不做**地图坐标转换、不输出 NORTH/SOUTH/WEST/EAST 等产品语义。
+    #[wasm_bindgen(js_name = parseAuthorInitialPosition)]
+    pub fn parse_author_initial_position(bytes: &[u8]) -> Result<String, JsValue> {
+        super::author_initial_position_json(bytes).map_err(|e| {
+            JsValue::from_str(&format!("author initial position parse failed: {e:#}"))
+        })
+    }
+
     /// JS 入口（时序能力）：`parsePlayback(new Uint8Array(fileBuffer), tankNamesJson?)`
     /// → PlaybackData JSON 字符串（位姿网格/弹道/击杀/阶段/可见性）。
     /// `tankNamesJson` 可选：同 `parseResult`——注入后 `vehicles[].tank_name` 为真实车型名。
@@ -322,7 +357,7 @@ mod js {
             .map_err(|e| JsValue::from_str(&format!("playback parse failed: {e:#}")))
     }
 
-    /// JS 入口（AI 事件数据；第 4 个入口）：`parseAiReview(new Uint8Array(fileBuffer))`
+    /// JS 入口（AI 事件数据）：`parseAiReview(new Uint8Array(fileBuffer))`
     /// → `AiReviewFacet` JSON 字符串。与服务端 `wotb-agent facets --parts ai` 逐字段同构
     /// （花名册 + 归一化事件流 + 结算锚点 + 战局阶段），DTO 冻结 v1。
     #[wasm_bindgen(js_name = parseAiReview)]

@@ -17,6 +17,26 @@ pub struct St10Sample {
     pub pos_error: [f32; 3],
 }
 
+/// type=10 状态采样唯一解码器（SSOT）：载荷 ≥48B 时解出位置/姿态/误差盒。
+///
+/// 解码域与《回放与射击逆向总集》§2.1 一致：eid@0、parent@8、pos@12、
+/// pos_error@24、yaw/pitch/roll@36/40/44。**不做** parent==0 世界系过滤——
+/// 调用方按语义选择（渲染索引保留全部流；author 模块只取世界系）。
+pub(crate) fn decode_st10_sample(clock: f32, p: &[u8]) -> Option<St10Sample> {
+    if p.len() < 48 {
+        return None;
+    }
+    let f = |o: usize| f32::from_le_bytes([p[o], p[o + 1], p[o + 2], p[o + 3]]);
+    Some(St10Sample {
+        clock,
+        pos: [f(12), f(16), f(20)],
+        yaw: f(36),
+        pitch: f(40),
+        roll: f(44),
+        pos_error: [f(24), f(28), f(32)],
+    })
+}
+
 /// per-entity type=10 状态采样流（时钟序）
 pub(crate) type St10Index = HashMap<u32, Vec<St10Sample>>;
 /// per-entity prop2 打包角流（(clock, 相对角 rad, frac6)，时钟序）
@@ -31,18 +51,12 @@ pub(crate) fn build_entity_indexes(packets: &[(u32, f32, &[u8])]) -> (St10Index,
     let mut st10: HashMap<u32, Vec<St10Sample>> = HashMap::new();
     let mut prop2: HashMap<u32, Vec<(f32, f32, u16)>> = HashMap::new();
     for (t2, clock, p) in packets {
-        if *t2 == 10 && p.len() >= 48 {
-            let f = |o: usize| f32::from_le_bytes([p[o], p[o + 1], p[o + 2], p[o + 3]]);
-            st10.entry(u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
-                .or_default()
-                .push(St10Sample {
-                    clock: *clock,
-                    pos: [f(12), f(16), f(20)],
-                    yaw: f(36),
-                    pitch: f(40),
-                    roll: f(44),
-                    pos_error: [f(24), f(28), f(32)],
-                });
+        if *t2 == 10 {
+            if let Some(sample) = decode_st10_sample(*clock, p) {
+                st10.entry(u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
+                    .or_default()
+                    .push(sample);
+            }
         }
         if *t2 == 7 && p.len() >= 14 && u32::from_le_bytes([p[4], p[5], p[6], p[7]]) == 2 {
             let v = u16::from_le_bytes([p[12], p[13]]);

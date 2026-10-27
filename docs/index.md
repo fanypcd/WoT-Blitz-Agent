@@ -10,6 +10,7 @@
 | [README.md](../README.md) | 项目总入口：定位、能力总览、与 WotbTools 的关系（分发形态）、仓库结构 |
 | [docs/回放与射击逆向总集.md](回放与射击逆向总集.md) | 射击/回放逆向**唯一权威参考**：第一篇=协议层数据段（字节布局/语义/使用状态/死路清单/消费地图）、第二篇=客户端处理架构、第三篇=客户端弹道与命中表现（含 DecodeShotSegment 权威定义）、第四篇=WI 对照与射击复现实现、第五篇=遗留未定项 |
 | [docs/replay-contract-v2-supremacy-type39.md](replay-contract-v2-supremacy-type39.md) | **回放契约 v2**：争霸基地状态（sparse 重建 + 空闲整播判据）、实时点数、type39 原始帧、独立炮塔与生命轨道等 additive 切面契约、门禁与版本护栏 |
+| [docs/author-initial-position.md](author-initial-position.md) | **录像者初始世界位姿能力**（v0.4.15 additive）：`parseAuthorInitialPosition` 的 JSON 形状、身份/位姿证据规则、`null` 失败边界、坐标轴约定、性能与架构边界、真实夹具回归 |
 | [docs/wotbtools-cross-reference.md](wotbtools-cross-reference.md) | 与 WotbTools 逆向结论的逐条裁决（采纳/驳回/互证），防止误采或回退已定案；附跨仓协作现状 |
 | [docs/tank-suspension-client-re.md](tank-suspension-client-re.md) | **客户端坦克悬挂逆向**：处理链与节点绑定契约、逐车 `suspension:` 数据面（`wheels`/履带折线/`chassis.textureScale`）、负重轮-履带求解公式（反汇编还原）、对齐可行性分级与剩余未定项 |
 | [docs/architecture-debt.md](architecture-debt.md) | 架构债与长期改动方案：已完成项（combat.rs 拆分、双路径合并）与仍留存项 |
@@ -38,7 +39,7 @@
 
 ### 版本与发行
 
-- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.14**）。
+- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.15**）。
   该值变更合并到 `main` 后，Release workflow 自动测试、构建、创建 `v<version>` tag
   并发布 `wotb-replay-wasm-v<version>.zip`；发布策略与 Android 同步规则见
   [AGENTS.md](../AGENTS.md)。
@@ -48,6 +49,7 @@
 
 | 版本 | 内容 |
 |---|---|
+| v0.4.15 | **录像者初始世界位姿轻量能力（additive）**：新增第 5 个独立 WASM 入口 `parseAuthorInitialPosition(bytes)` → `{author_eid, clock, position}` 或 `null`。只读 meta + battle_results 解析作者身份，随后定向扫描 type=10（`eid==author_eid`、`payload>=48B`、`parent==0`、位置/时钟 finite），取 replay clock 最小的世界观测；**不构建 ReplayModel / PlaybackData / AiReviewFacet**，不读地图语义、不物化时间线。身份解析与 `ReplayModel::scan` 共用 comp `account_id` 精确匹配 → Type5 昵称回退（SSOT）；type=10 解码复用共享 `decode_st10_sample`（不新增 decoder）。输出原样 replay 世界坐标（`x/z` 水平、`y` 高程），NORTH/SOUTH/出生侧分类留给消费方。证据：真实夹具 `2.wotbreplay` 锁定 author_eid/clock/坐标并与同场 Type5 战斗车辆物化位姿跨源核对 <0.05m；去掉 battle_results 的副本（meta 昵称回退）仍返回同一位姿；全部夹具 finite 且 <0.1m；WASM shape / `null` / Result 边界 smoke。**兼容面**：`parseResult` 不读包流、输出零变化；Playback 切面全部夹具逐字节不变；AI 切面仅同刻事件顺序（既有 HashMap 顺序非确定）无语义差异。契约见 [author-initial-position.md](author-initial-position.md)。 |
 | v0.4.14 | **血量链死亡证据与显示去重分离（v0.4.13 的复审缺陷）**：v0.4.13 把 `zero_hits`（method1 归零事件的凶手/死因登记）放在显示链相邻同值去重之后——终态快照（0/0xFFFD/0xFFFE/0xFFFF，隐藏段死亡后残骸重入）先到时，随后（或同钟）的 method1 归零被相邻去重吞掉，死亡归属退化 `0/255` 甚至消失（存在 prop1 时）。现改为**归零是否立死看上一条 method1 更新的值**（同值归零 = 同一次死亡的 overkill 重复，不重复立死），与夹在中间的快照无关；显示链行为与 v0.4.13 逐位一致，仅死亡归属修正。**消费方**：`death_t`/`killer_eid`/`cause` 对「隐藏段死亡 + 残骸重入」场景恢复 method1 归属；切面 v2 形状不变，AI 投影 golden 预期仅 provenance 变化。证据：WotbTools #767 复审 P2-2 反例 + 回归 `hp_series_zero_hit_survives_terminal_snapshot_adjacency`（双向 + overkill 重复归零仍单条；6 合成单测 + 13 样本探针 0 脱节 + clippy 零警告）。 |
 | v0.4.13 | **血量链合并顺序修正（v0.4.12 的复审缺陷）**：v0.4.12 的实现先对 method1 做相邻同值去重、再把重入快照插回——快照夹在两条同值 method1 之间时（隐藏段死亡无 method1 归零 + 复活回满血再受击、值恰同受击前，复活语义可达），后一条真实受击被吞（`t` 之后 `hpAt` 读到旧值，伤害飘字同源受累）。现改为**全部血量证据（种子 + method1 + 重入快照）统一按时间合并（同钟快照在前 = 客户端物化先于属性更新）、最后做一次相邻同值去重**；`zero_hits` 登记移入最终去重（幸存归零才立死，逐位等价）。**消费方**：普通回放与 v0.4.12 输出逐位一致，仅复活/同值边界修正；切面 v2 形状不变，AI 投影 golden 预期仅 provenance 变化。证据：WotbTools #767 复审 P2 反例 + 回归 `hp_series_snapshot_between_equal_method1_values_keeps_latter`（5 合成单测 + 13 样本探针 0 脱节 + clippy 零警告）。 |
 | v0.4.12 | **隐藏段（盲炮）掉血在二次点亮兑现（血量链修正）**：重入 Type5 物化快照的当前血量（`AoiPresence.hp_raw`，offset51 重广播语义）并入血量链 `hp_series`——Type4 隐藏段零更新（type=7/8/10 全断）、method1 只覆盖在场段，此前丢视野期间的掉血在二次点亮后链上无体现、直到下一次受击才被动修正（J20 实测 CN_LEVITHAN 在场末 1192 → 重入快照 348，缺 844 点）。现按在场段逐段在 `t_in` 落台阶，与客户端 `onEnterAoI` 物化时 HP 条直接跳到快照值同构；哨兵族钳 0 与 method1 显示口径同判，首段与 seed 同包同值去重还原（无隐藏段变化的既有回放零扰动），无锚点实体以首个带血量快照为链起点；凶手归属 fail-closed 不做（隐藏段无 method1 来源）。**消费方**：`vehicles[].hp` 在有隐藏段掉血的车辆上新增台阶点——WotbTools 伤害飘字由血量链差分推导（`buildTransientSources`），随 pin bump 自动在二次点亮显示该次掉血；切面 v2 形状不变，AI 投影 golden 预期仅 provenance 变化。证据与验证（4 合成单测 + 13 样本探针 1→0）见本文件 2026-10-26 条目与 [wotbtools-cross-reference.md](wotbtools-cross-reference.md) §五。合并顺序缺陷由 **v0.4.13** 修正。 |

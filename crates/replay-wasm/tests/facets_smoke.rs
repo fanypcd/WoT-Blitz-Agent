@@ -49,6 +49,53 @@ fn result_smoke() {
     }
 }
 
+/// 轻量初始位姿能力（契约 v0.4.15）：只读 meta + battle_results + 定向 type=10
+/// 扫描，输出录像者车辆最早可信世界坐标；null = 证据不足。
+/// 同时锁定 Result 通道仍不含该字段（settlement/meta-only 边界不被破坏）。
+#[test]
+fn author_initial_position_smoke() {
+    let Some(path) = largest_sample() else {
+        eprintln!("无回放样本，跳过");
+        return;
+    };
+    let bytes = std::fs::read(&path).unwrap();
+
+    let raw = wotb_replay_wasm::author_initial_position_json(&bytes)
+        .expect("轻量能力构建成功");
+    let v: serde_json::Value = serde_json::from_str(&raw).expect("合法 JSON");
+    assert!(v.is_object(), "样本应产出对象，而非 null：{raw}");
+    assert!(
+        v["author_eid"].as_u64().unwrap_or(0) > 0,
+        "author_eid 必须解析"
+    );
+    assert!(
+        v["clock"].as_f64().is_some_and(|c| c.is_finite() && c >= 0.0),
+        "clock 必须为有限回放时钟：{:?}",
+        v["clock"]
+    );
+    let pos = v["position"].as_array().expect("position 三轴数组");
+    assert_eq!(pos.len(), 3, "position 必须是 [x, y, z]");
+    assert!(
+        pos.iter().all(|x| x.as_f64().is_some_and(f64::is_finite)),
+        "position 三轴必须有限：{pos:?}"
+    );
+    assert_eq!(
+        v.as_object().unwrap().len(),
+        3,
+        "公开面只有 author_eid/clock/position"
+    );
+
+    // Result capability 保持 settlement/meta-only：不得出现本能力字段或时序键。
+    let result: serde_json::Value =
+        serde_json::from_str(&wotb_replay_wasm::result_json(&bytes, None).unwrap()).unwrap();
+    assert!(result.get("author_initial_position").is_none());
+    assert!(result.get("initial_position").is_none());
+    assert!(result.get("author_eid").is_none());
+    for key in ["vehicles", "shots", "kills", "periods", "visibility"] {
+        assert!(result.get(key).is_none(), "Result 不得物化时序键 {key}");
+    }
+}
+
 /// 时序能力：PlaybackData 齐备；体积与结果通道的量级差证明两者独立（非信封捆绑）。
 #[test]
 fn playback_smoke() {
