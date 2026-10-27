@@ -288,6 +288,7 @@ WotbTools 经 assetProvider 加载，**不进入前端 bundle**。全局图标�
   `--game-data <preview Data root> --bridge data/preview_tank_id_bridge.json
   --modules-only --merge`。`--merge` 保留既有国别文件里的全部车辆，仅覆盖/新增本次
   导出的车；逐车 `gameVersion` 是数据来源权威，`meta.preview` 汇总预览车清单。
+  bridge 中任一 `(nation, stem)` 未落到输出（拼错/缺文件）时导出器直接失败，不静默成功。
   预览 ZIP 的 `Strings/*.yaml.dvpl` 对部分新模块只有占位键（值等于键本身），
   导出器仍按原样保留 `name_*`（前端回退 stem），**不臆造显示名**。
   预览模式只读 Data 子树：`version.txt`、`Strings/{en,zh-Hans}.yaml.dvpl`、
