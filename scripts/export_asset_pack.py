@@ -12,7 +12,8 @@
     │                                   #   源 data/cache/tank_icon_crops.json ← export_tank_icons --emit-crops）
     ├── suspension/{tank_id}.json       # 逐车悬挂（tools/export_tank_suspension.py，additive）
     ├── data/{tanks.pb, models.pb, tank_cache.json, data_version.json, shellKinds.json}
-    ├── research/modules/{nation}.json  # 坦克百科配置器逐车模块数据（data/research/modules）
+    ├── research/**                     # 坦克百科配置器数据（data/research 非图标部分：全局目录/
+    │                                   #   物品/技能/params/strings + 逐车 modules；图标留 WotbTools）
     └── map/{key}/
         ├── ground.webp                 # /api/playback/map 的高清底图答案
         │                               # ⚠️ 本脚本会用 client colormap 重写 ground.webp、
@@ -205,16 +206,21 @@ def main() -> None:
         for f in sorted(td.rglob("*.json")):
             cp(f, f"tank/{f.name}")
 
-    # ---- 配置器逐车模块（data/research/modules；tank-specific，随资产包发布） ----
-    # 坦克/模块数值只随资产包更新，新坦克无需 WotbTools 发版；缺目录即拒绝打包，
-    # 避免发布了“配置器不可用”的包（fail-closed）。
+    # ---- 配置器数据面（data/research；图标留在 WotbTools common，其余全部随资产包） ----
+    # 逐车模块与物品/技能/参数/文案都是配置器数据，随资产包更新；新坦克无需 WotbTools
+    # 发版。缺目录即拒绝打包，避免发布“配置器不可用”的包（fail-closed）。
     research_n = 0
-    rd = data / "research" / "modules"
-    if not rd.is_dir():
-        ap.error("缺少 data/research/modules —— 先运行 "
+    rd = data / "research"
+    if not rd.is_dir() or not (rd / "modules").is_dir():
+        ap.error("缺少 data/research —— 先运行 "
                  "`python tools/export_research_loadout.py --out data/research`")
-    for f in sorted(rd.glob("*.json")):
-        if cp(f, f"research/modules/{f.name}"):
+    for f in sorted(rd.rglob("*")):
+        if not f.is_file():
+            continue
+        rel = f.relative_to(rd)
+        if rel.parts and rel.parts[0] == "icons":
+            continue  # 全局图标集留在 WotbTools common/research/icons
+        if cp(f, f"research/{rel.as_posix()}"):
             research_n += 1
 
     # ---- 逐车悬挂参数（tools/export_tank_suspension.py 产物；additive） ----
@@ -442,7 +448,7 @@ def main() -> None:
     mb = sum(f["bytes"] for f in manifest["files"]) / 1e6
     print(f"资产包已导出: {out}")
     print(f"  GLB {glb_n} 个文件 / 封面 {img_n} 张 / 核心数据 {core_n} 个 / 地图 {map_n} 张"
-          f"（含地形 {with_terrain}）/ 悬挂 {sus_n} 辆 / 配置器模块 {research_n} 国别")
+          f"（含地形 {with_terrain}）/ 悬挂 {sus_n} 辆 / 配置器数据 {research_n} 件")
     print(f"  共 {n_files} 文件, {mb:.1f}MB（manifest.json 含逐文件 sha256）")
     if missing_scale:
         print(f"  ⚠ 缺地形尺度（sidecar worldBounds），terrain 未打包: {', '.join(missing_scale)}")
