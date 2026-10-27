@@ -500,7 +500,7 @@ def _pb_model_gun(b: bytes) -> dict:
 # ---------------------------------------------------------------------------
 # diff
 # ---------------------------------------------------------------------------
-SKIP_PATHS = {"dev_name", "hull_traverse"}  # initial_turret_rotation 自 2026-10-10 有客户端源，纳入比对
+SKIP_PATHS = {"dev_name", "hull_traverse", "chassis_bbox"}  # initial_turret_rotation 自 2026-10-10 有客户端源，纳入比对；chassis_bbox 供研究导出尺寸，BK pb 无对应字段
 
 
 def is_emptyish(v) -> bool:

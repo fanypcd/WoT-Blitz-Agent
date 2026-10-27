@@ -64,6 +64,9 @@
      只在覆盖层里——这就是"游戏能正常显示名字、而只读 `Data/` 的解包查不到"的原因。
      覆盖层按客户端语言缓存（实测机为 zh-Hans），但**专名跨语言同形**（Turbo/Magnate/
      Panlong 等 24/24 与 BlitzKit 英文名逐字一致）；提取器把它作**缺失键回退、只接受拉丁值**。
+     **研究导出（物品名）**另外把同一覆盖层按语言匹配用作缺失键回退（zh-Hans 取中文名，
+     如 `#artefacts:tungstentip/name` → 钨心弹）；en 无本机覆盖层，5 个后期标准物品名由
+     导出器补充（`ITEM_NAME_SUPPLEMENT`），ru 按既有约定回退 en。英文数据不会取中文覆盖层值。
      依赖注记：per-user 运行时缓存（需客户端登录同步过；新装/未同步时会缺）
 
 **定位陷阱**：共享弹种定义不在 `vehicles/` 顶层，按文件名搜 `*shell*` 会一无所获；
@@ -207,6 +210,11 @@ fail-closed）；消费方展示层按框缩放定位。图标重导后须重跑
 | 科技树与 tier | `Data/Configs/TechTree/{nation}_tree.yaml.dvpl` |
 | 本地化显示名 | `Data/Strings/{lang}.yaml.dvpl` + 运行时本地化覆盖层（§2.2） |
 | 坦克图标 | `Data/Gfx/UI/BigTankIcons/`、`.../BattleScreenHUD/SmallTankIcons/` |
+| 研发/装备/消耗品/补给定义 | `Data/XML/item_defs/vehicles/common/{devices,consumables,provisions}/list.xml.dvpl` + 逐件 `.xml.dvpl`；`optional_devices.xml.dvpl` / `optional_device_slots.xml.dvpl`（9 槽骨架）/ `consumablesDefault.yaml.dvpl`（按 tier 默认表） |
+| 参数面板分组与格式 | `Data/hangarParamsStructureConfig.yaml.dvpl`（分组树）、`Data/hangarParamsConfig.yaml.dvpl`（keyedArchive：units/digits/biggerIsBetter） |
+| 物品图标（装备/消耗品/补给） | 映射在 `UI/Styles/Lobby/Inventory/{InventoryBigStyles,InventoryNormalStyles}.yaml.dvpl`（`.equipment_item.<icon>` → `bg-sprite`）与 `UI/Screens3/Lobby/Inventory/OptionalDevices/OptionalDevicesItemImage.style.yaml.dvpl`；图像在 `Gfx/UI/InventoryIcons/{Big,Normal}/<cat>/<file>.txt.dvpl`（图集切片描述）+ `texture0.packed.webp.dvpl`，新版补给/装备在 `Gfx/Shared/tank-supply/**`、`Gfx/Lobby/tank-supply/**`（单图 `.packed.webp`） |
+| 模块类型图标 | `Gfx/UI/ModulesTechTree/vehicle{Chassis,Engine,Gun,Hull,Turret}.packed.webp.dvpl`（64×64，客户端模块卡片同款） |
+| 逐车模块与研发边 | `Data/XML/item_defs/vehicles/{nation}/list.xml.dvpl` + `<stem>.xml.dvpl`（`<unlocks>` / `optDevicePreset` / `<crew>` / `<invisibility>`）+ `components/{chassis,turrets,guns,engines,radios,fuelTanks}.xml.dvpl`；**读解包目录**，`Data/XML/item_defs.zip` 是过期快照 |
 | 客户端版本号 | `Data/version.txt.dvpl`（`update-data` 的版本感知依据） |
 
 逐车 yaml 的 `suspension:` 块（逐轮行程数组 + 履带折线 + 弯曲/铺放系数）已由
@@ -220,6 +228,11 @@ fail-closed）；消费方展示层按框缩放定位。图标重导后须重跑
 贴图回落）+ `tread/textures/*.webp`（13 张 DDS 无损转码）+ `tread/textures.json`
 （alpha 归一化表）；`.tex` 引用在数据面的落点规则 = `<stem>.tex` → `<stem>.dx11.dds.dvpl`
 （与坦克贴图同）。可行性定案与前端消费口径见 [feasibility-track-marks.md](feasibility-track-marks.md)。
+
+逐车配置器模块（`data/research/modules/{nation}.json`，738 辆的车体/炮塔/炮/发动机/履带
+等客户端数值）由 `scripts/export_asset_pack.py` 导出为包内 `research/modules/{nation}.json`；
+WotbTools 经 assetProvider 懒加载。**这是资产包数据，不进入前端 bundle**：后续游戏新增
+坦克/模块时只需重跑研究导出与打包、发布新的资产包 release，WotbTools 无需发版。
 
 ### 2.7 11.22 tier XI 超测预览 ZIP（非现役源）
 

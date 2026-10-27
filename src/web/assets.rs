@@ -11,9 +11,7 @@ use serde_json::{json, Value};
 
 use crate::wargaming::heatmap_ready::{mark_session_ready, session_ready};
 use crate::wargaming::penetration::{self, PenetrationRequest};
-use crate::wargaming::tank_configs::{
-    model_cache_path, parse_gun_caliber, set_global_resolver, tank_data_value,
-};
+use crate::wargaming::tank_configs::{model_cache_path, set_global_resolver, tank_data_value};
 use crate::wargaming::tank_resolver::TankResolver;
 
 const GLB_CACHE_DIR: &str = "cache/models";
@@ -322,7 +320,13 @@ pub(crate) async fn shells_handler(
     // 口径/转正角/跳弹角随弹透出（等效厚度判定输入，缺项消费方按 0° 兜底）。
     let result: Value = crate::wargaming::blitzkit::tank_full(tank_id)
         .and_then(|t| t.turrets.last().and_then(|tur| tur.guns.last()).map(|g| {
-            let caliber_mm = parse_gun_caliber(&g.name).map(|c| c.round() as u32).unwrap_or(120);
+            // 口径权威 = 弹表自带弹径（与 configs[].caliber 同源）；无弹径即 null，不按炮名猜。
+            let caliber_mm = g
+                .shells
+                .iter()
+                .map(|s| s.caliber)
+                .find(|c| *c > 0.0)
+                .map(|c| c.round() as u32);
             let shells: Vec<Value> = g.shells.iter().map(|s| json!({
                 "type": s.shell_type,
                 // 全局弹种 id（与回放 shell_id 同域）：射击复现按 shell_id 反查槽位弹种用。
@@ -339,7 +343,7 @@ pub(crate) async fn shells_handler(
             })).collect();
             json!({ "caliber": caliber_mm, "shells": shells })
         }))
-        .unwrap_or(json!({ "caliber": 120, "shells": [] }));
+        .unwrap_or(json!({ "caliber": null, "shells": [] }));
     Json(result)
 }
 

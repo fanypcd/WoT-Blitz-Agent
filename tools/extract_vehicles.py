@@ -819,7 +819,7 @@ class Extractor:
                 tracks_model[str(mid(nation, comp.local_id("chassis", entry.tag) or 0))] = td
 
         # 炮塔初始姿态：车辆 XML `<turretInitialRotation><yaw>/<pitch>/<roll>`（度）。
-        # 2026-10-10 实测：与 BlitzKit models.pb field3 逐值一致（4 辆意系 SPG 非零、其余
+        # 2026-10-10 实测：与 BlitzKit models.pb field3 逐值一致（4 辆意系 AT-SPG 非零、其余
         # 无元素 = BK 的 None）；此前误判为"在 .sc2 节点变换内"——.sc2 的 TransformComponent
         # 全是单位阵，真源就是这一节。
         initial_rot = None
@@ -834,6 +834,7 @@ class Extractor:
             "hull_spaced": hull_spaced,
             "hull_plates": hull_plates,
             "hull_bbox": bbox_of("hull"),
+            "chassis_bbox": bbox_of("chassis"),
             "tracks": tracks_model,
             "turret_origin": turret_origin,
             "initial_turret_rotation": initial_rot,

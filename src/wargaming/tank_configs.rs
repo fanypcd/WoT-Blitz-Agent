@@ -244,14 +244,11 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
         .cloned()
         .unwrap_or_else(|| json!([]));
     // 车级口径 = 顶级炮**弹表自带**的弹径（权威源：判定规则按弹径算三倍/两倍口径）。
-    // 不能用炮名解析（`parse_gun_caliber`）或初始档配置：前者对 189/735 辆与弹径不一致
-    // （多为解析失败落 120 回退、VK 28.01 类车名里另有数字），后者（configs.first()）是
-    // **初始炮**口径——装甲查看器"跨车选射手"路径拿它当弹表口径用（2026-10-10 修正）。
+    // 不从炮名解析（`parse_gun_caliber` 对 189/735 辆与弹径不一致，失败时回退 120——
+    // AT 7 顶级 20-pdr 弹径 83.4 被显示成 120）；无弹径即 null，不猜。
     let caliber = info
         .as_ref()
-        .and_then(|i| i.shells.first())
-        .map(|s| s.caliber)
-        .filter(|c| *c > 0.0)
+        .and_then(|i| i.shells.iter().map(|s| s.caliber).find(|c| *c > 0.0))
         .map(|c| c.round() as u32)
         .or_else(|| {
             configs
@@ -259,8 +256,7 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
                 .and_then(|c| c.get("caliber"))
                 .and_then(|v| v.as_u64())
                 .map(|v| v as u32)
-        })
-        .unwrap_or(120);
+        });
     let m_info = crate::wargaming::blitzkit::model_info(tank_id);
     let hull_spaced = m_info
         .as_ref()
@@ -544,9 +540,14 @@ fn build_configs_uncached(tank_id: u32) -> Vec<Value> {
             } else {
                 gun.name.clone()
             };
-            let caliber = parse_gun_caliber(&name)
-                .map(|c| c.round() as u32)
-                .unwrap_or(120);
+            // 口径权威 = 该炮**弹表自带**的弹径（客户端数据）。炮名解析失败/误解析会给出
+            // 与弹径矛盾的值（AT 7 20-pdr：83.4 → 120），故不再按名称猜；无弹径即 null。
+            let caliber = gun
+                .shells
+                .iter()
+                .map(|s| s.caliber)
+                .find(|c| *c > 0.0)
+                .map(|c| c.round() as u32);
             let aim_time = Some(gun.aim_time);
             let dispersion = Some(gun.dispersion);
             let gr = &gun.reload;
@@ -662,7 +663,7 @@ fn build_configs_uncached(tank_id: u32) -> Vec<Value> {
     }
     if configs.is_empty() {
         configs.push(json!({
-            "id": 0, "label": "Default", "caliber": 120, "shells": [],
+            "id": 0, "label": "Default", "caliber": null, "shells": [],
             "turret_index": 0, "gun_index": 0, "turret_name": "",
         }));
     }
@@ -738,28 +739,6 @@ pub fn resolve_config_index(tank_id: u32, comp: Option<(u16, u16)>) -> Option<(u
         configs[i]["turret_index"].as_u64().unwrap_or(0) as u32,
         configs[i]["gun_index"].as_u64().unwrap_or(0) as u32,
     ))
-}
-
-pub(crate) fn parse_gun_caliber(name: &str) -> Option<f64> {
-    let lower = name.to_lowercase();
-    let (unit_mul, idx) = if let Some(i) = lower.find(" mm") {
-        (1.0, i)
-    } else {
-        let i = lower.find(" cm")?;
-        (10.0, i)
-    };
-    let bytes = lower.as_bytes();
-    let mut start = idx;
-    while start > 0 {
-        let c = bytes[start - 1];
-        if c.is_ascii_digit() || c == b'.' || c == b',' {
-            start -= 1;
-        } else {
-            break;
-        }
-    }
-    let num = &lower[start..idx].replace(',', ".");
-    num.parse::<f64>().ok().map(|v| v * unit_mul)
 }
 
 #[cfg(test)]
@@ -876,5 +855,32 @@ mod synth_tests {
         assert!(configs.iter().all(|c| c.get("gun_plates").is_some()));
         // 顶层 armor_model 仍是顶级炮塔摘要（兼容旧消费方）
         assert_eq!(v["armor_model"]["turret"]["plates"]["11"], 30.0);
+    }
+
+    /// 逐配置口径必须等于该炮**弹表自带**的弹径（客户端权威）。炮名解析曾在失败/歧义时
+    /// 回退 120：AT 7 顶级 20-pdr 弹径 83.4 因此被显示成 120（2026-10-27 11.21 对照发现）。
+    #[test]
+    fn config_caliber_comes_from_shells_not_gun_name() {
+        let v = tank_data_value(10065);
+        let configs = v["configs"].as_array().expect("AT 7 configs");
+        assert!(!configs.is_empty());
+        for c in configs {
+            let from_shell = c["shells"].as_array().and_then(|shells| {
+                shells
+                    .iter()
+                    .find_map(|s| s["caliber"].as_f64().filter(|x| *x > 0.0))
+            });
+            let expected = from_shell.map(|c| c.round() as u64).unwrap_or_default();
+            assert_eq!(
+                c["caliber"].as_u64().unwrap_or_default(),
+                expected,
+                "config {} 口径与弹表弹径不一致",
+                c["label"]
+            );
+        }
+        // 顶级 20-pdr：83.4 → 83（此前炮名解析失败 → 120）
+        let top = configs.last().expect("top config");
+        assert_eq!(top["caliber"], 83);
+        assert_eq!(v["caliber"], 83);
     }
 }
