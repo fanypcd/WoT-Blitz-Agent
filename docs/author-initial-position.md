@@ -88,7 +88,7 @@ clock finite
 | 作者 EID 未解析 | `null` |
 | 作者无 type=10 采样 | `null` |
 | 候选全部为 parent != 0 / NaN / inf / 截断载荷 | `null` |
-| 截断/未结算回放，但已出现合格观测 | 正常返回该观测 |
+| 未结算回放（battle_results 缺失），但已出现合格观测 | 正常返回该观测 |
 | 包流结构性损坏 | capability 级错误（不静默伪造） |
 
 未知永远不是 `[0,0,0]`。回放客户端版本兼容性沿用现有包解析器规则，
@@ -109,7 +109,7 @@ open replay
   -> read meta + battle_results（身份）
   -> frame packets
   -> resolve author vehicle eid
-  -> scan type=10 for that eid, stop at earliest world sample
+  -> scan type=10 for that eid, keep earliest world sample
   -> serialize 3-field JSON
 ```
 
@@ -140,7 +140,8 @@ if (eligibleForCollector(result)) {
 - 真实夹具 `data/replay_samples/2.wotbreplay`：作者 eid、clock 与坐标锁定到既有调查值
   的小容差；并与同场 Type5 战斗车辆物化位姿（独立证据源）交叉核对 < 0.05m；
 - 全部真实夹具：返回值 finite，且与 Type5 物化位姿 < 0.1m（有 Type5 证据时）；
-- WASM smoke：JSON shape、`null` 契约、`parseResult` 不新增字段/时序键。
+- 核心测试：unavailable → JSON `null`（不伪造 `[0,0,0]`）；
+- WASM smoke：JSON shape、`parseResult` 不新增字段/时序键。
 
 ## 8. 版本与回滚
 

@@ -290,6 +290,12 @@ mod tests {
     }
 
     #[test]
+    fn unavailable_serializes_as_json_null() {
+        let none: Option<AuthorInitialPosition> = None;
+        assert_eq!(serde_json::to_string(&none).unwrap(), "null");
+    }
+
+    #[test]
     fn serialized_shape_is_stable() {
         let v = serde_json::to_value(AuthorInitialPosition {
             author_eid: 100,
