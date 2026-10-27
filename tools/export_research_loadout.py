@@ -795,8 +795,9 @@ def export_skills(game_data: pathlib.Path, out_dir: pathlib.Path,
             missing.append({"kind": "skill-icon", "id": skill_id})
             continue
         # 技能图标帧固定为 64×64；更大的 packed 图只在该帧左上角承载图标，
-        # 帧外像素不属于该 icon（客户端不会显示），不能参与居中裁切。
-        image = _normalize_icon(image.crop((0, 0, 64, 64)), crop_alpha=False)
+        # 帧外像素不属于该 icon（客户端不会显示）。先在语义帧内取 alpha 内容框，
+        # 再居中——既排除帧外光效，也让帧内可见内容真正居中。
+        image = _normalize_icon(image.crop((0, 0, 64, 64)))
         dest = out_dir / "icons" / "skills" / f"{skill_id}.webp"
         dest.parent.mkdir(parents=True, exist_ok=True)
         image.save(dest, "WEBP", lossless=True)

@@ -559,7 +559,7 @@ interface VehicleSetup {
 
 | 层 | 本仓（WoT-Blitz-Agent） | WotbTools |
 |---|---|---|
-| 导出器 | `tools/export_research_loadout.py` → `data/research/`（磁盘 123 文件 3.67 MB；`meta.json` 记版本 + 全部 122 个产物的 sha256；预览车用 `--game-data` / `--bridge` / `--modules-only --merge` 增量并入） | **全部非图标数据进资产包 `research/**`**（`scripts/export_asset_pack.py` 发布，assetProvider 读取）；`common/research/` 只保留全局图标集；新坦克/物品不需 WotbTools 发版 |
+| 导出器 | `tools/export_research_loadout.py` → `data/research/`（磁盘 123 文件 3.68 MB；`meta.json` 记版本 + 全部 122 个产物的 sha256；预览车用 `--game-data` / `--bridge` / `--modules-only --merge` 增量并入） | **全部非图标数据进资产包 `research/**`**（`scripts/export_asset_pack.py` 发布，assetProvider 读取）；`common/research/` 只保留全局图标集；新坦克/物品不需 WotbTools 发版 |
 | 目录/过滤 | — | `frontend/src/utils/researchCatalog.js`（`loadResearchCatalog` 请求全局 `/research/*.json`、`loadTankModules` 请求 `/research/modules/{nation}.json`、`availableItems` 全语义 vehicleFilter、`resolveDeviceIds`、`scriptMap`、图标 URL glob） |
 | 公式 | — | `frontend/src/replay-local/compute/characteristics.ts`（纯函数；22 条 golden 覆盖 T-34 三套配置 + 乘员曲线 + 迷彩网 + 装甲系数 + 弹速 + 技能/扩圈） |
 | 状态/参数行 | — | `frontend/src/replay-local/compute/tankSetup.ts`（config 对号、装备槽编解码、上次值 delta、装甲表；24 条单测） |
@@ -775,15 +775,16 @@ interface VehicleSetup {
     - **图标**：`_normalize_icon` 用 `out.paste(resized, pos, resized)` 把 RGBA 图自身
       当 mask，边缘 alpha 被二次相乘（alpha²）后消失，内容框偏侧；102 张 96×96 图标中
       32 张四边距差 >1px（最差 11px）。改用 `alpha_composite`，重新生成 68 物品 +
-      5 模块 + 20 技能 + 9 弹种图标（`data/research` 3.67 MB），同步 WotbTools
+      5 模块 + 20 技能 + 9 弹种图标（`data/research` 3.68 MB），同步 WotbTools
       `common/research/icons`；新增 `tools/test_research_icons.py` 几何门禁。
-      技能图标另按客户端 **64×64 帧**处理（更大的 packed 图只在帧左上角承载图标），
-      保留作者构图，不再按帧外 alpha 包围框重新居中。
+      技能图标先在客户端 **64×64 帧**内取 alpha 内容框再居中（更大的 packed 图只在
+      帧左上角承载图标），排除帧外光效但不改变帧内内容居中。
     - **i18n**：英文 `agentTanks.pen_far` 的 `"Pen @ far"` 中 `@` 是 vue-i18n
       linked-message 语法，切换 English 时编译抛 `SyntaxError`，右侧参数栏整块消失；
       改为 `"Far-range pen"`，并在 `messages.test.js` 中逐条编译三语全部消息。
-    - **发布**：3.17.9 已 stage 但未 publish（同候选中发现上述缺陷），由
-      **3.17.10 / 3017010** 取代；图标与 i18n 都是 bundled frontend 变化，需重新 stage。
+    - **发布**：3.17.9 / 3.17.10 均已 stage 但未 publish（同候选中发现上述缺陷）；
+      技能帧修复最终由 **3.17.11 / 3017011** 承载；图标与 i18n 都是 bundled
+      frontend 变化，需重新 stage。
     - 视觉验收（图标观感/布局）仍由用户执行。
 
 
