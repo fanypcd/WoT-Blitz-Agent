@@ -777,8 +777,8 @@ interface VehicleSetup {
       32 张四边距差 >1px（最差 11px）。改用 `alpha_composite`，重新生成 68 物品 +
       5 模块 + 20 技能 + 9 弹种图标（`data/research` 3.71 MB），同步 WotbTools
       `common/research/icons`；新增 `tools/test_research_icons.py` 几何门禁。
-      技能图标按 BlitzKit `sharp().trim()` 的默认阈值 10 取**可见内容框**再居中；
-      近乎透明的帧外光晕不参与，和 BlitzKit 同一 trim 语义。
+      技能图标改用 alpha>10 的**可见内容框**再居中（近似 BlitzKit 的可见效果；
+      sharp().trim() 合并颜色与 alpha，不是同一算法）。
     - **i18n**：英文 `agentTanks.pen_far` 的 `"Pen @ far"` 中 `@` 是 vue-i18n
       linked-message 语法，切换 English 时编译抛 `SyntaxError`，右侧参数栏整块消失；
       改为 `"Far-range pen"`，并在 `messages.test.js` 中逐条编译三语全部消息。

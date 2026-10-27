@@ -672,9 +672,9 @@ def _normalize_icon(image: "object", canvas: int = 96, pad: int = 6,
     """统一视觉尺寸：按比例缩放后居中放进固定方形画布。
 
     默认裁到 alpha 内容框（物品/模块/弹种图集帧：内容 34~83px 不等）。乘员技能
-    图标用 `alpha_threshold=10`：BlitzKit 的技能图标接口用 `sharp().trim()` 的
-    默认阈值 10 去掉近乎透明的光晕，再按可见内容居中；否则 alpha>0 的帧外光晕会
-    把实心主体拉偏。
+    技能图标用 `alpha_threshold=10`：这是为了贴近 BlitzKit 技能图标的可见内容
+    效果而采用的 alpha 阈值裁切（BlitzKit 的 `sharp().trim()` 合并颜色与 alpha，
+    不是同一算法）；否则 alpha>0 的帧外光晕会把实心主体拉偏。
     """
     from PIL import Image
     if crop_alpha:
@@ -798,8 +798,8 @@ def export_skills(game_data: pathlib.Path, out_dir: pathlib.Path,
             missing.append({"kind": "skill-icon", "id": skill_id})
             continue
         # 技能 packed 图比逻辑图标大，且边缘有近乎透明的光晕；按 alpha>0 取框会
-        # 把光晕算进去，实心主体偏侧。BlitzKit 的技能接口用 `sharp().trim()` 默认
-        # 阈值 10 trim 后居中；这里用同一可见内容阈值，保持跨站一致。
+        # 把光晕算进去，实心主体偏侧。这里用 alpha>10 的可见内容框（近似 BlitzKit
+        # 的可见效果；sharp().trim() 合并颜色与 alpha，二者不是同一算法）。
         image = _normalize_icon(image, alpha_threshold=10)
         dest = out_dir / "icons" / "skills" / f"{skill_id}.webp"
         dest.parent.mkdir(parents=True, exist_ok=True)
