@@ -667,17 +667,20 @@ def _load_sprite(game_data: pathlib.Path, bases: list[str], cache: dict) -> "obj
     raise FileNotFoundError(f"icon sprite not found: {bases}")
 
 
-def _normalize_icon(image: "object", canvas: int = 96, pad: int = 6) -> "object":
-    """统一视觉尺寸：裁到 alpha 内容框，按比例缩放后居中放进固定方形画布。
+def _normalize_icon(image: "object", canvas: int = 96, pad: int = 6,
+                    crop_alpha: bool = True) -> "object":
+    """统一视觉尺寸：按比例缩放后居中放进固定方形画布。
 
-    客户端图集帧是逐图标紧裁的（内容 34~83px 不等），新版 supply 树单图还带大块透明边；
-    直接按原画布 contain 会出现“同一个格子里的图标大小不一”。这是对同类资产的统一变换
-    （不是逐图标判定），保证 68 张物品图与 5 张模块类型图同一光学尺寸。
+    默认裁到 alpha 内容框（物品/模块/弹种图集帧：内容 34~83px 不等）。乘员技能
+    图标例外：客户端技能帧是 **64×64**，部分 packed 文件把该帧放在更大的 atlas
+    画布左上角（其余透明）；此时按 alpha bbox 裁会带上帧外光效并改变作者构图，
+    应传 `crop_alpha=False`，由调用方先裁 64×64 帧。
     """
     from PIL import Image
-    bbox = image.getchannel("A").getbbox()
-    if bbox:
-        image = image.crop(bbox)
+    if crop_alpha:
+        bbox = image.getchannel("A").getbbox()
+        if bbox:
+            image = image.crop(bbox)
     inner = canvas - 2 * pad
     scale = min(inner / image.width, inner / image.height)
     size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
@@ -791,7 +794,9 @@ def export_skills(game_data: pathlib.Path, out_dir: pathlib.Path,
         except FileNotFoundError:
             missing.append({"kind": "skill-icon", "id": skill_id})
             continue
-        image = _normalize_icon(image)
+        # 技能图标帧固定为 64×64；更大的 packed 图只在该帧左上角承载图标，
+        # 帧外像素不属于该 icon（客户端不会显示），不能参与居中裁切。
+        image = _normalize_icon(image.crop((0, 0, 64, 64)), crop_alpha=False)
         dest = out_dir / "icons" / "skills" / f"{skill_id}.webp"
         dest.parent.mkdir(parents=True, exist_ok=True)
         image.save(dest, "WEBP", lossless=True)
