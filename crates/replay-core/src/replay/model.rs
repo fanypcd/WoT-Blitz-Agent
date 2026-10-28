@@ -191,15 +191,14 @@ impl ReplayModel {
         });
         let valid_tanks: Vec<u32> = input.roster.iter().map(|p| p.tank_id).collect();
         let comps = playback::comp_descriptors_from_updates(&arena_updates, &valid_tanks);
-        // 作者实体 = comps 条目 account_id 精确匹配（重名/匿名免疫），退回昵称匹配
-        let author_eid = comps
-            .values()
-            .find(|c| c.account_id != 0 && c.account_id == input.author_account_id as u64)
-            .map(|c| c.eid)
-            .filter(|e| *e != 0)
-            .unwrap_or_else(|| {
-                combat::resolve_author_player_eid_by_nick(packets, &author_nickname)
-            });
+        // 作者实体 = comps 条目 account_id 精确匹配（重名/匿名免疫），退回昵称匹配。
+        // 与轻量能力共用同一身份解析函数（SSOT，见 replay::author）。
+        let author_eid = super::author::resolve_author_vehicle_eid(
+            &comps,
+            packets,
+            input.author_account_id,
+            &author_nickname,
+        );
 
         // —— 共享扫描（契约"包流只扫一遍"）：位姿/炮塔/血量/名字/配件/发射等
         // 全部索引只建一份，弹道两路提取（collect_all_shots）与实体档案并表均从此取数。

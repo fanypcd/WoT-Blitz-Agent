@@ -2,7 +2,9 @@
 // 客户端位置滤波器移植（filter，渲染层锚点，逆向文档 §七）、玩家开局配置与弹种映射（loadout）、
 // 全场实时回放时间线（playback，0.1s 网格位姿/炮塔/弹道/血量）、
 // 内部领域模型（model，一次包扫描的权威产物，切面从这里投影）、
-// 区域可破坏物事件流（destructibles，AreaDestructibles 短广播，逆向文档 §5.4）。
+// 区域可破坏物事件流（destructibles，AreaDestructibles 短广播，逆向文档 §5.4）、
+// 轻量录像者初始位姿能力（author，身份 + 首条可信 type=10 世界坐标，不建模型）。
+pub mod author;
 pub mod combat;
 pub mod destructibles;
 pub mod detached_turrets;

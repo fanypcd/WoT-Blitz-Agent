@@ -1,6 +1,7 @@
 //! 消费方数据切面（架构契约 v2）：Rust 内部模型 ≠ 对外 DTO。
 //!
-//! 能力边界：Agent 只暴露**结果解释**与**时序解释**两个维度，都是纯投影，
+//! 能力边界：facets 层仍是**结果解释**与**时序解释**两个维度，都是纯投影；
+//! 轻量录像者初始位姿能力不在此层（见 `replay::author`，不建模型、不建时序）；
 //! 依赖方向恒为 投影 → 模型（`replay::model`）：
 //! - **结果能力（Result interpretation）** = `models::battle::BattleSummary`，
 //!   由 `ReplayParser` 直接产出（毫秒级，不读包流）；
