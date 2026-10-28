@@ -114,7 +114,7 @@
 | `turrets[].yaw_limits` | turret `<yawLimits>`（`-180 180` 时 pb 省略） | 945/945；**客户端 742/742 全有 vs pb 仅 241 个配置** |
 | `guns[].gun_module_id` / `model_node` | `guns.xml <ids>` / `Gun_NN.model` 的 N（`gun_%02d`） | 1554/1554 |
 | `guns[].thickness` | gun `<armor><gun>N</gun>` | 1440/1440（1439 直接 + 0 省略） |
-| `guns[].mask` | yaml `maskSlice.gun_NN.planePosition[1]`（**+Y 分量**） | 478/478；`enabled:false` ⇒ pb 省略（1039/1039）；完整记录（position xyz / normal / axis / 两个 slice mode / 锥台参数）另导出 sidecar `data/gun_mask_slices.json`（pb 字段只有标量，装不下这些）；该记录属炮管视觉/特效切片，不作装甲判定边界 |
+| `guns[].mask` | yaml `maskSlice.gun_NN.planePosition[1]`（**+Y 分量**） | 478/478；`enabled:false` ⇒ pb 省略（1039/1039）；完整记录（position xyz / normal / axis / 两个 slice mode / 锥台参数）另导出 sidecar `data/gun_mask_slices.json`（pb 字段只有标量，装不下这些）；该记录属炮管视觉/特效切片，不作装甲判定边界（viewer 裁切仍用 pb 标量 + 原点链） |
 | `guns[].gun_spaced`/`gun_plates` | gun `<armor_N>` + `<vehicleDamageFactor>` | 逐板相等 |
 | `guns[].pitch.min/max` | 炮 `<pitchLimits>`（缺则 `guns.xml`），**首值=min、次值=max，不取负** | 1554/1554 |
 | `guns[].pitch.front/back` | `<extraPitchLimits><front>/<back>` | 83/83、785/785 |
