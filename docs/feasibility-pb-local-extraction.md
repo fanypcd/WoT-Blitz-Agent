@@ -114,7 +114,7 @@
 | `turrets[].yaw_limits` | turret `<yawLimits>`（`-180 180` 时 pb 省略） | 945/945；**客户端 742/742 全有 vs pb 仅 241 个配置** |
 | `guns[].gun_module_id` / `model_node` | `guns.xml <ids>` / `Gun_NN.model` 的 N（`gun_%02d`） | 1554/1554 |
 | `guns[].thickness` | gun `<armor><gun>N</gun>` | 1440/1440（1439 直接 + 0 省略） |
-| `guns[].mask` | yaml `maskSlice.gun_NN.planePosition[1]`（**+Y 分量**） | 478/478；`enabled:false` ⇒ pb 省略（1039/1039） |
+| `guns[].mask` | yaml `maskSlice.gun_NN.planePosition[1]`（**+Y 分量**） | 478/478；`enabled:false` ⇒ pb 省略（1039/1039）；完整记录（position xyz / normal / axis / 两个 slice mode / 锥台参数）另导出 sidecar `data/gun_mask_slices.json`（pb 字段只有标量，装不下这些） |
 | `guns[].gun_spaced`/`gun_plates` | gun `<armor_N>` + `<vehicleDamageFactor>` | 逐板相等 |
 | `guns[].pitch.min/max` | 炮 `<pitchLimits>`（缺则 `guns.xml`），**首值=min、次值=max，不取负** | 1554/1554 |
 | `guns[].pitch.front/back` | `<extraPitchLimits><front>/<back>` | 83/83、785/785 |
@@ -124,7 +124,10 @@
 
 1. **`mask` 不是"沿 `planeNormal` 投影"**，而是取 `planePosition` 的 **+Y 分量**。
    按"投影"理解只有 476/478——2 个反例（`Pz35t`、`T7_Combat_Car`）的 `planeNormal` 非轴对齐
-   （如 `(0,1,-0.142858)`）。
+   （如 `(0,1,-0.142858)`）。**消费方要完整平面时不能用标量 + 原点链重建**（BlitzKit 口径
+   会把平面推到炮管中段）：`planePosition`/`planeNormal` 定义在 **gun 节点局部系**，应经
+   该节点 world 矩阵变换；完整记录见 sidecar `data/gun_mask_slices.json`（`planeSliceMode`
+   为 0 时客户端不做平面切割，`frustumConeSliceMode` 全量语料为 0）。
 2. **`transition` 可能有两个**（`G85_Auf_Panther` 的 front 后有 1、back 后有 3），必须取**最后一个**。
 
 ## 4. 实现铁律（违反任一条都会静默出错）

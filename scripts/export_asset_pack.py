@@ -11,7 +11,8 @@
     ├── tank_images/crops.json          # 逐车封面图内容框（展示层缩放定位；与 tank_images/ 1:1，
     │                                   #   源 data/cache/tank_icon_crops.json ← export_tank_icons --emit-crops）
     ├── suspension/{tank_id}.json       # 逐车悬挂（tools/export_tank_suspension.py，additive）
-    ├── data/{tanks.pb, models.pb, tank_cache.json, data_version.json, shellKinds.json}
+    ├── data/{tanks.pb, models.pb, tank_cache.json, data_version.json, shellKinds.json,
+    │         gunMaskSlices.json}
     ├── research/**                     # 坦克百科配置器数据（data/research 非图标部分：全局目录/
     │                                   #   物品/技能/params/strings + 逐车 modules；图标留 WotbTools）
     └── map/{key}/
@@ -283,6 +284,17 @@ def main() -> None:
                  "（须与打包所用的 tanks.pb 同一次刷新产出）")
     shutil.copyfile(sk, out / "data" / "shellKinds.json")
     files.append(out / "data" / "shellKinds.json")
+    core_n += 1
+
+    # 客户端 maskSlice 完整记录（emit_vehicle_pb 产物）：逐车逐炮位的裁切平面原值，
+    # 装甲查看器按客户端 position/normal/planeSliceMode 重建炮管裁切面。缺源即拒绝
+    # 打包——静默缺表会让 viewer 回退到旧的“标量 + 轴对齐”近似（与客户端不一致且无人察觉）。
+    gm = data / "gun_mask_slices.json"
+    if not gm.is_file():
+        ap.error(f"缺少 {gm} —— 先运行 `python tools/emit_vehicle_pb.py`"
+                 "（从客户端 maskSlice 生成，须与 models.pb 同批刷新）")
+    shutil.copyfile(gm, out / "data" / "gunMaskSlices.json")
+    files.append(out / "data" / "gunMaskSlices.json")
     core_n += 1
 
     # ---- 地图（按注册表逐张物化；对齐四个端点的文件选择语义） ----

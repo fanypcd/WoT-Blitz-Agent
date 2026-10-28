@@ -403,6 +403,47 @@ def load_supplement(path: pathlib.Path) -> dict:
     return sup
 
 
+def emit_mask_slices(models: list[dict], out_path: pathlib.Path) -> int:
+    """客户端 maskSlice 完整记录 → 资产面 sidecar（viewer 按原值重建裁切面）。
+
+    键 = `<tank_id>:<turret_local>:<gun_local>`：maskSlice 是**逐车逐炮位**的数据——
+    同一门炮装在不同炮塔上节点号/平面位置都不同（如 T-34 的 gun_01 0.8415 与 gun_07
+    0.8743 共用主炮模块），不能按 module id 归并。
+    """
+    records: dict[str, dict] = {}
+    conflicts: list[str] = []
+    for tank in models:
+        tid = int(tank.get("tank_id"))
+        for tur in tank.get("turrets") or []:
+            tlocal = int(tur.get("module_id") or 0) >> 8
+            for g in tur.get("guns") or []:
+                rec = g.get("mask_slice")
+                if not rec:
+                    continue
+                glocal = int(g.get("gun_module_id") or 0) >> 8
+                key = f"{tid}:{tlocal}:{glocal}"
+                if key in records and records[key] != rec:
+                    conflicts.append(key)
+                    continue
+                records[key] = rec
+    if conflicts:
+        # fail-closed：同键不同值说明键口径错了，不静默取其一
+        print(f"!! mask_slice 键冲突（同车同炮位不同值）：{conflicts[:5]}", file=sys.stderr)
+        sys.exit(2)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "$comment": "客户端 Data/3d/Tanks/Parameters/<nation>/<stem>.yaml.dvpl 的 "
+                    "maskSlice.<gun_NN> 原值（position/normal/axis + slice modes + 锥台参数）；"
+                    "键 = tank_id:turret_local:gun_local。viewer 裁切面按此重建。",
+        "version": 1,
+        "records": dict(sorted(records.items())),
+    }
+    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=1, sort_keys=False),
+                        encoding="utf-8")
+    print(f"gun_mask_slices.json ← 客户端 maskSlice：{len(records)} 条 → {out_path}")
+    return len(records)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--local-dir", type=pathlib.Path,
@@ -410,6 +451,9 @@ def main() -> int:
     ap.add_argument("--supplement", type=pathlib.Path,
                     default=REPO_ROOT / "data" / "local_pb_supplement.json")
     ap.add_argument("--out-dir", type=pathlib.Path, default=REPO_ROOT / "data")
+    ap.add_argument("--mask-slices-out", type=pathlib.Path,
+                    default=REPO_ROOT / "data" / "gun_mask_slices.json",
+                    help="客户端 maskSlice 完整记录 sidecar（资产面 data/gunMaskSlices.json）")
     ap.add_argument("--emit-supplement", action="store_true",
                     help="从现有 pb + local_pb 生成补充表（换源前跑一次）")
     ap.add_argument("--tanks-only", action="store_true")
@@ -432,6 +476,7 @@ def main() -> int:
         blob = encode_models(models, tanks, sup)
         (args.out_dir / "models.pb").write_bytes(blob)
         print(f"models.pb ← 客户端解包编码：{len(models)} 辆 / {len(blob)} 字节")
+        emit_mask_slices(models, args.mask_slices_out)
     return 0
 
 

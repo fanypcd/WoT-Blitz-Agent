@@ -1,0 +1,10522 @@
+{
+ "$comment": "客户端 Data/3d/Tanks/Parameters/<nation>/<stem>.yaml.dvpl 的 maskSlice.<gun_NN> 原值（position/normal/axis + slice modes + 锥台参数）；键 = tank_id:turret_local:gun_local。viewer 裁切面按此重建。",
+ "version": 1,
+ "records": {
+  "10001:75:3": {
+   "node": 4,
+   "position": [
+    0.012056,
+    1.303395,
+    -0.033669
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10001:76:23": {
+   "node": 6,
+   "position": [
+    0.008948,
+    0.53333,
+    -0.015188
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10001:76:3": {
+   "node": 4,
+   "position": [
+    0.012056,
+    1.303395,
+    -0.033669
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10001:76:5": {
+   "node": 5,
+   "position": [
+    0.010952,
+    0.930471,
+    -0.018923
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10017:69:1007": {
+   "node": 5,
+   "position": [
+    -0.002664,
+    1.563469,
+    -0.083591
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10049:54:42": {
+   "node": 1,
+   "position": [
+    -0.000824,
+    1.591056,
+    0.056764
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10049:54:43": {
+   "node": 3,
+   "position": [
+    9.7e-05,
+    1.570766,
+    0.041106
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10065:72:1029": {
+   "node": 4,
+   "position": [
+    0.004215,
+    1.698957,
+    7.4e-05
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10065:72:47": {
+   "node": 3,
+   "position": [
+    0.006789,
+    1.505241,
+    7.4e-05
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10065:72:48": {
+   "node": 5,
+   "position": [
+    0.004215,
+    1.988004,
+    7.4e-05
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10065:72:51": {
+   "node": 1,
+   "position": [
+    0.0068,
+    0.736196,
+    -0.000981
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10241:73:111": {
+   "node": 2,
+   "position": [
+    0.004312,
+    0.69333,
+    -0.021966
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10241:73:83": {
+   "node": 1,
+   "position": [
+    0.004666,
+    0.719997,
+    -0.024076
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10241:73:84": {
+   "node": 3,
+   "position": [
+    -0.000609,
+    0.666663,
+    -0.023933
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1025:10:1013": {
+   "node": 9,
+   "position": [
+    -0.044687,
+    0.61333,
+    0.086956
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1025:10:16": {
+   "node": 8,
+   "position": [
+    -0.055175,
+    0.537904,
+    0.022168
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1025:9:16": {
+   "node": 4,
+   "position": [
+    -0.055189,
+    0.549708,
+    0.022405
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10273:71:60": {
+   "node": 2,
+   "position": [
+    0.001627,
+    1.126294,
+    -0.000866
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10273:72:37": {
+   "node": 7,
+   "position": [
+    0.038619,
+    1.188091,
+    -0.014061
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10273:72:60": {
+   "node": 5,
+   "position": [
+    0.040359,
+    0.970009,
+    -0.013475
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1041:7:18": {
+   "node": 4,
+   "position": [
+    -0.008485,
+    1.549951,
+    0.023329
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1041:7:19": {
+   "node": 6,
+   "position": [
+    -0.008485,
+    2.198404,
+    0.02072
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10529:74:1006": {
+   "node": 4,
+   "position": [
+    0.000446,
+    1.467008,
+    -0.052321
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1057:8:0": {
+   "node": 1,
+   "position": [
+    -0.001617,
+    1.011542,
+    -0.01836
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1057:9:0": {
+   "node": 4,
+   "position": [
+    -0.00753,
+    0.954067,
+    0.011938
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1057:9:8": {
+   "node": 5,
+   "position": [
+    -0.007978,
+    0.69333,
+    0.01266
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1073:4:3": {
+   "node": 1,
+   "position": [
+    0.000434,
+    1.585085,
+    -0.010815
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1073:4:4": {
+   "node": 2,
+   "position": [
+    -0.000669,
+    1.542461,
+    -0.009122
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1073:5:3": {
+   "node": 3,
+   "position": [
+    -0.000226,
+    1.561896,
+    -0.024582
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1073:5:4": {
+   "node": 4,
+   "position": [
+    0.000776,
+    1.542462,
+    -0.024374
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1073:5:5": {
+   "node": 5,
+   "position": [
+    0.000776,
+    0.586663,
+    -0.024374
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 1.930656
+  },
+  "10817:57:43": {
+   "node": 1,
+   "position": [
+    0.089882,
+    1.17333,
+    -0.009784
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10817:57:44": {
+   "node": 2,
+   "position": [
+    0.089951,
+    1.199997,
+    -0.010512
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "10817:57:45": {
+   "node": 3,
+   "position": [
+    0.0901,
+    3.03109,
+    -0.009445
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1089:6:74": {
+   "node": 3,
+   "position": [
+    0.026755,
+    0.524648,
+    -0.010646
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1089:7:72": {
+   "node": 7,
+   "position": [
+    -0.049907,
+    0.775455,
+    -0.028754
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1089:7:74": {
+   "node": 6,
+   "position": [
+    0.089239,
+    0.523481,
+    -0.021571
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11025:85:59": {
+   "node": 3,
+   "position": [
+    -0.003151,
+    1.599997,
+    0.007983
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11025:85:88": {
+   "node": 2,
+   "position": [
+    -0.003002,
+    1.41333,
+    -0.00024
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11041:76:1056": {
+   "node": 3,
+   "position": [
+    -0.000271,
+    0.61333,
+    0.004166
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11041:77:1056": {
+   "node": 3,
+   "position": [
+    -0.000271,
+    0.61333,
+    0.004166
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11041:77:1057": {
+   "node": 7,
+   "position": [
+    -0.000246,
+    2.564746,
+    0.002508
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1105:12:14": {
+   "node": 1,
+   "position": [
+    0.117488,
+    1.039997,
+    -0.010066
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.101522,
+   "cone_angle_deg": 5.0
+  },
+  "1105:12:15": {
+   "node": 2,
+   "position": [
+    0.117575,
+    0.266663,
+    -0.012241
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.106598,
+   "cone_angle_deg": 5.0
+  },
+  "1105:13:14": {
+   "node": 1,
+   "position": [
+    0.117488,
+    1.039997,
+    -0.010066
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.101522,
+   "cone_angle_deg": 5.0
+  },
+  "1105:13:15": {
+   "node": 2,
+   "position": [
+    0.117575,
+    0.266663,
+    -0.012241
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.106598,
+   "cone_angle_deg": 5.0
+  },
+  "1105:13:38": {
+   "node": 9,
+   "position": [
+    0.13058,
+    0.239997,
+    -0.006528
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.09137,
+   "cone_angle_deg": 5.0
+  },
+  "1121:7:16": {
+   "node": 1,
+   "position": [
+    0.004322,
+    0.719997,
+    0.014424
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1121:7:17": {
+   "node": 1,
+   "position": [
+    0.004322,
+    0.719997,
+    0.014424
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1121:8:16": {
+   "node": 3,
+   "position": [
+    0.011544,
+    0.85333,
+    -0.022777
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1121:8:17": {
+   "node": 3,
+   "position": [
+    0.011544,
+    0.85333,
+    -0.022777
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1121:8:18": {
+   "node": 5,
+   "position": [
+    0.011544,
+    0.85333,
+    -0.022777
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11265:85:82": {
+   "node": 11,
+   "position": [
+    0.001311,
+    0.639997,
+    0.004881
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1137:14:14": {
+   "node": 1,
+   "position": [
+    0.24655,
+    1.6393,
+    0.001
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "113:11:10": {
+   "node": 1,
+   "position": [
+    3e-05,
+    1.039997,
+    0.076568
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.456852,
+   "cone_angle_deg": 5.0
+  },
+  "1153:6:6": {
+   "node": 1,
+   "position": [
+    0.000426,
+    0.959997,
+    0.009081
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1153:7:4": {
+   "node": 3,
+   "position": [
+    -0.000213,
+    1.199997,
+    -0.015012
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1153:7:6": {
+   "node": 2,
+   "position": [
+    0.00021,
+    1.17333,
+    -0.003375
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11585:60:41": {
+   "node": 2,
+   "position": [
+    2.2e-05,
+    1.184913,
+    -0.031262
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11585:60:43": {
+   "node": 4,
+   "position": [
+    -0.001156,
+    1.589744,
+    -0.02412
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11585:60:48": {
+   "node": 3,
+   "position": [
+    0.00076,
+    0.559997,
+    -0.002854
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11793:88:19": {
+   "node": 2,
+   "position": [
+    -0.001314,
+    1.279997,
+    -0.016354
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.131979,
+   "cone_angle_deg": 1.336597
+  },
+  "11793:88:20": {
+   "node": 1,
+   "position": [
+    -0.001117,
+    1.306664,
+    -0.01683
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.121827,
+   "cone_angle_deg": 1.930656
+  },
+  "11793:88:29": {
+   "node": 3,
+   "position": [
+    -0.000899,
+    1.039997,
+    -0.014055
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.121827,
+   "cone_angle_deg": 1.039568
+  },
+  "11809:81:1001": {
+   "node": 1,
+   "position": [
+    -0.004653,
+    1.495188,
+    -0.008129
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11889:157:110": {
+   "node": 1,
+   "position": [
+    -0.000337,
+    1.125332,
+    -0.000394
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11889:157:111": {
+   "node": 1,
+   "position": [
+    -0.000337,
+    1.125332,
+    -0.000394
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11889:158:110": {
+   "node": 1,
+   "position": [
+    -0.000337,
+    1.125332,
+    -0.000394
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11889:158:111": {
+   "node": 1,
+   "position": [
+    -0.000337,
+    1.125332,
+    -0.000394
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11889:158:112": {
+   "node": 1,
+   "position": [
+    -0.000337,
+    1.125332,
+    -0.000394
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11889:159:110": {
+   "node": 1,
+   "position": [
+    -0.000337,
+    1.125332,
+    -0.000394
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11889:159:111": {
+   "node": 1,
+   "position": [
+    -0.000337,
+    1.125332,
+    -0.000394
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11889:159:112": {
+   "node": 1,
+   "position": [
+    -0.000337,
+    1.125332,
+    -0.000394
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11889:160:110": {
+   "node": 3,
+   "position": [
+    -0.000332,
+    1.018665,
+    0.000412
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11889:160:111": {
+   "node": 3,
+   "position": [
+    -0.000332,
+    1.018665,
+    0.000412
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11889:160:112": {
+   "node": 3,
+   "position": [
+    -0.000332,
+    1.018665,
+    0.000412
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "11889:160:113": {
+   "node": 4,
+   "position": [
+    -0.000332,
+    2.64,
+    0.00042
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "12065:83:18": {
+   "node": 1,
+   "position": [
+    -0.001564,
+    0.666663,
+    0.013883
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "12321:84:26": {
+   "node": 5,
+   "position": [
+    0.000434,
+    0.727895,
+    0.020391
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1297:8:4": {
+   "node": 3,
+   "position": [
+    -0.000566,
+    0.45333,
+    -0.013324
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1297:9:4": {
+   "node": 4,
+   "position": [
+    0.000589,
+    0.799997,
+    0.000175
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1297:9:46": {
+   "node": 10,
+   "position": [
+    -9.3e-05,
+    3.451446,
+    -0.001189
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1297:9:8": {
+   "node": 6,
+   "position": [
+    0.000589,
+    2.12642,
+    0.000175
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "13073:108:1012": {
+   "node": 5,
+   "position": [
+    -0.001363,
+    0.29333,
+    -0.00013
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1313:10:8": {
+   "node": 2,
+   "position": [
+    0.01841,
+    1.489035,
+    0.013025
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1313:11:8": {
+   "node": 4,
+   "position": [
+    0.019626,
+    1.48619,
+    0.01042
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1313:11:9": {
+   "node": 5,
+   "position": [
+    0.019694,
+    1.487107,
+    0.011415
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "13329:110:1010": {
+   "node": 5,
+   "position": [
+    -0.070731,
+    1.417443,
+    0.008953
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1361:3:7": {
+   "node": 1,
+   "position": [
+    0.013018,
+    0.399997,
+    0.013782
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.111675,
+   "cone_angle_deg": 5.0
+  },
+  "1377:10:14": {
+   "node": 4,
+   "position": [
+    0.007033,
+    1.129408,
+    -0.034328
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1377:10:16": {
+   "node": 7,
+   "position": [
+    0.007167,
+    1.774781,
+    0.110439
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1377:9:14": {
+   "node": 1,
+   "position": [
+    0.041233,
+    1.035619,
+    -0.016375
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1393:3:3": {
+   "node": 1,
+   "position": [
+    0.00101,
+    1.469811,
+    -0.005641
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "14097:116:3": {
+   "node": 1,
+   "position": [
+    0.005471,
+    1.662997,
+    -0.025808
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "14097:117:3": {
+   "node": 2,
+   "position": [
+    -0.000206,
+    1.629405,
+    -0.070923
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "14097:117:4": {
+   "node": 3,
+   "position": [
+    0.001017,
+    0.77333,
+    -0.057788
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1409:8:7": {
+   "node": 1,
+   "position": [
+    -1e-06,
+    0.266663,
+    9.9e-05
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1409:9:6": {
+   "node": 3,
+   "position": [
+    -1e-06,
+    0.85333,
+    0.0001
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1409:9:7": {
+   "node": 2,
+   "position": [
+    -1e-06,
+    0.37333,
+    0.0001
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "14145:73:17": {
+   "node": 1,
+   "position": [
+    -0.000272,
+    0.93333,
+    0.0
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "14145:73:35": {
+   "node": 2,
+   "position": [
+    -0.000259,
+    1.273446,
+    -0.000647
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1537:8:1007": {
+   "node": 5,
+   "position": [
+    0.0,
+    0.676469,
+    0.019569
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "15441:109:83": {
+   "node": 1,
+   "position": [
+    -0.000498,
+    0.959997,
+    -0.005294
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1553:11:18": {
+   "node": 1,
+   "position": [
+    0.003923,
+    1.576587,
+    -0.042418
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1553:11:19": {
+   "node": 3,
+   "position": [
+    0.003923,
+    1.989776,
+    -0.042418
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1553:11:20": {
+   "node": 4,
+   "position": [
+    0.003923,
+    1.33333,
+    -0.042418
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "15649:101:78": {
+   "node": 2,
+   "position": [
+    0.000137,
+    2.52806,
+    0.009218
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "15649:101:9": {
+   "node": 1,
+   "position": [
+    0.000229,
+    2.114831,
+    0.008419
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1569:12:9": {
+   "node": 2,
+   "position": [
+    0.00332,
+    1.634673,
+    -0.005884
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1569:13:10": {
+   "node": 6,
+   "position": [
+    0.130492,
+    1.902744,
+    0.002791
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1569:13:9": {
+   "node": 4,
+   "position": [
+    0.129249,
+    1.619388,
+    0.004555
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "15889:128:1007": {
+   "node": 4,
+   "position": [
+    -9.7e-05,
+    0.61333,
+    0.009575
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "15953:1005:36": {
+   "node": 1,
+   "position": [
+    -0.021044,
+    0.45333,
+    0.029108
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1601:11:69": {
+   "node": 7,
+   "position": [
+    -0.001425,
+    0.666663,
+    -0.01037
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "16145:130:87": {
+   "node": 3,
+   "position": [
+    0.002601,
+    4.29333,
+    0.108862
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1617:8:1012": {
+   "node": 1,
+   "position": [
+    -0.012179,
+    1.047229,
+    0.021456
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.101522,
+   "cone_angle_deg": 5.0
+  },
+  "16193:92:67": {
+   "node": 1,
+   "position": [
+    0.008321,
+    0.69333,
+    -0.024666
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1633:11:25": {
+   "node": 1,
+   "position": [
+    -8e-06,
+    0.773947,
+    -0.00182
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1633:12:13": {
+   "node": 5,
+   "position": [
+    -0.077963,
+    0.504752,
+    0.005339
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1633:12:14": {
+   "node": 8,
+   "position": [
+    -0.077963,
+    0.999325,
+    0.005304
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1633:12:25": {
+   "node": 4,
+   "position": [
+    -0.027258,
+    0.742185,
+    0.126345
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "16641:122:5": {
+   "node": 1,
+   "position": [
+    -0.000751,
+    1.630241,
+    0.105006
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "16641:123:1001": {
+   "node": 5,
+   "position": [
+    -0.00022,
+    0.559997,
+    0.037865
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "16641:123:121": {
+   "node": 4,
+   "position": [
+    -0.00022,
+    0.559997,
+    0.037865
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "16641:123:5": {
+   "node": 2,
+   "position": [
+    -0.00068,
+    1.632827,
+    0.12403
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "16641:123:6": {
+   "node": 3,
+   "position": [
+    -0.003221,
+    1.764961,
+    0.12338
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1665:10:8": {
+   "node": 2,
+   "position": [
+    -0.0011,
+    0.426663,
+    -0.006619
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1665:11:17": {
+   "node": 6,
+   "position": [
+    -0.037042,
+    0.596818,
+    0.022855
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1665:11:8": {
+   "node": 5,
+   "position": [
+    -0.036909,
+    1.053837,
+    0.025281
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "16673:111:57": {
+   "node": 1,
+   "position": [
+    -8e-05,
+    0.69333,
+    0.000605
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "16673:111:58": {
+   "node": 2,
+   "position": [
+    -8.1e-05,
+    0.69333,
+    0.009137
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "16673:112:57": {
+   "node": 3,
+   "position": [
+    -0.002463,
+    0.77333,
+    -0.014126
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "16673:112:58": {
+   "node": 4,
+   "position": [
+    -8.1e-05,
+    0.639997,
+    -0.015275
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "16673:112:97": {
+   "node": 5,
+   "position": [
+    -8.1e-05,
+    0.666663,
+    -0.018445
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "16673:112:98": {
+   "node": 4,
+   "position": [
+    -8.1e-05,
+    0.639997,
+    -0.015275
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "16705:9:10": {
+   "node": 1,
+   "position": [
+    -2.9e-05,
+    0.93333,
+    0.00491
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "17169:136:83": {
+   "node": 6,
+   "position": [
+    -0.053555,
+    0.986663,
+    0.006878
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.071065,
+   "cone_angle_deg": 5.0
+  },
+  "17425:137:0": {
+   "node": 3,
+   "position": [
+    -0.053337,
+    1.146663,
+    0.020673
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.081218,
+   "cone_angle_deg": 5.0
+  },
+  "17425:138:0": {
+   "node": 6,
+   "position": [
+    0.0,
+    1.066664,
+    0.000571
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.060913,
+   "cone_angle_deg": 1.336597
+  },
+  "17425:138:2": {
+   "node": 7,
+   "position": [
+    4e-06,
+    1.377295,
+    -0.013722
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "17:0:2": {
+   "node": 3,
+   "position": [
+    0.000472,
+    1.066664,
+    -0.003204
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.106598,
+   "cone_angle_deg": 5.0
+  },
+  "17:1:2": {
+   "node": 3,
+   "position": [
+    0.000472,
+    1.066664,
+    -0.003204
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.106598,
+   "cone_angle_deg": 5.0
+  },
+  "17:1:3": {
+   "node": 4,
+   "position": [
+    0.000472,
+    1.496568,
+    -0.022079
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1809:10:17": {
+   "node": 3,
+   "position": [
+    -6e-06,
+    1.213201,
+    -0.011377
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1809:10:18": {
+   "node": 4,
+   "position": [
+    -6e-06,
+    1.246495,
+    -0.011377
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "18257:1014:1029": {
+   "node": 2,
+   "position": [
+    -1e-06,
+    0.21333,
+    -0.005201
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.086294,
+   "cone_angle_deg": 5.0
+  },
+  "18257:1015:1018": {
+   "node": 6,
+   "position": [
+    0.004477,
+    0.186663,
+    -0.006601
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.09137,
+   "cone_angle_deg": 5.0
+  },
+  "18257:1015:1029": {
+   "node": 4,
+   "position": [
+    0.004476,
+    0.21333,
+    -0.006233
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.09137,
+   "cone_angle_deg": 5.0
+  },
+  "18689:1001:1003": {
+   "node": 1,
+   "position": [
+    -0.325933,
+    0.639997,
+    0.043461
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "18769:1017:1022": {
+   "node": 1,
+   "position": [
+    -0.004068,
+    0.426663,
+    0.042
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1889:13:16": {
+   "node": 2,
+   "position": [
+    -0.055774,
+    0.799997,
+    -0.00121
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1889:13:17": {
+   "node": 2,
+   "position": [
+    -0.055774,
+    0.799997,
+    -0.00121
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1889:14:16": {
+   "node": 5,
+   "position": [
+    -0.006857,
+    0.826663,
+    0.005574
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1889:14:17": {
+   "node": 5,
+   "position": [
+    -0.006857,
+    0.826663,
+    0.005574
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "18961:162:104": {
+   "node": 1,
+   "position": [
+    -0.0,
+    1.326991,
+    -0.040752
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "18961:163:104": {
+   "node": 2,
+   "position": [
+    -0.0,
+    1.337676,
+    -0.015072
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "18961:163:105": {
+   "node": 3,
+   "position": [
+    1e-06,
+    1.153995,
+    -0.009962
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "18961:163:106": {
+   "node": 3,
+   "position": [
+    1e-06,
+    1.153995,
+    -0.009962
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1921:12:9": {
+   "node": 2,
+   "position": [
+    -0.006788,
+    0.906663,
+    -0.005772
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1921:13:10": {
+   "node": 6,
+   "position": [
+    -0.007829,
+    0.719997,
+    0.01351
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1921:13:9": {
+   "node": 4,
+   "position": [
+    -0.00783,
+    0.61333,
+    0.011604
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "19233:1004:1005": {
+   "node": 1,
+   "position": [
+    0.0,
+    0.53333,
+    -0.023252
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.263959,
+   "cone_angle_deg": 5.0
+  },
+  "19473:1004:43": {
+   "node": 1,
+   "position": [
+    -0.0821,
+    1.349041,
+    -0.006099
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "19713:1005:1008": {
+   "node": 1,
+   "position": [
+    -0.004123,
+    0.586663,
+    0.005537
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "19729:1005:1005": {
+   "node": 1,
+   "position": [
+    -0.009656,
+    1.913149,
+    -0.015894
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "19745:1006:1011": {
+   "node": 1,
+   "position": [
+    -2.3e-05,
+    0.53333,
+    -0.00277
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "19793:1021:1026": {
+   "node": 2,
+   "position": [
+    -0.003777,
+    0.69333,
+    0.002572
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "19793:1021:32": {
+   "node": 1,
+   "position": [
+    -0.003777,
+    0.37333,
+    0.002572
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.152284,
+   "cone_angle_deg": 5.0
+  },
+  "1:0:0": {
+   "node": 1,
+   "position": [
+    -0.005205,
+    0.841537,
+    -0.050007
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1:0:2": {
+   "node": 5,
+   "position": [
+    0.012988,
+    1.178975,
+    0.079706
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1:0:5": {
+   "node": 6,
+   "position": [
+    0.012988,
+    0.85333,
+    0.079826
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1:1:0": {
+   "node": 7,
+   "position": [
+    -0.003309,
+    0.874341,
+    -0.035228
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1:1:2": {
+   "node": 11,
+   "position": [
+    0.016834,
+    0.799997,
+    0.095594
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1:1:5": {
+   "node": 12,
+   "position": [
+    0.015389,
+    0.85333,
+    0.098694
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "1:1:6": {
+   "node": 13,
+   "position": [
+    0.015389,
+    0.799997,
+    0.089594
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "20481:1007:1012": {
+   "node": 1,
+   "position": [
+    -0.001752,
+    0.69333,
+    -0.0001
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2049:14:1015": {
+   "node": 10,
+   "position": [
+    -0.002726,
+    0.426663,
+    0.020342
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2049:15:1015": {
+   "node": 10,
+   "position": [
+    -0.002726,
+    0.426663,
+    0.020342
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2049:15:1016": {
+   "node": 9,
+   "position": [
+    -0.008602,
+    0.840711,
+    -0.094849
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "21009:1011:1009": {
+   "node": 1,
+   "position": [
+    -0.0,
+    1.039997,
+    0.037199
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "21025:1012:1019": {
+   "node": 1,
+   "position": [
+    -2.3e-05,
+    0.559997,
+    -0.002766
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "21249:1010:1020": {
+   "node": 1,
+   "position": [
+    0.0041,
+    0.61333,
+    -0.029387
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2129:19:14": {
+   "node": 1,
+   "position": [
+    -0.00181,
+    0.346663,
+    -0.019322
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.131979,
+   "cone_angle_deg": 5.0
+  },
+  "2129:20:14": {
+   "node": 3,
+   "position": [
+    0.061469,
+    0.346663,
+    -0.077112
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.121827,
+   "cone_angle_deg": 5.0
+  },
+  "2129:20:15": {
+   "node": 6,
+   "position": [
+    0.061045,
+    0.29333,
+    -0.079157
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.096446,
+   "cone_angle_deg": 5.0
+  },
+  "2145:15:12": {
+   "node": 3,
+   "position": [
+    -0.012159,
+    0.465864,
+    -0.0159
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2145:16:10": {
+   "node": 7,
+   "position": [
+    0.07642,
+    0.786677,
+    0.041767
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2145:16:12": {
+   "node": 6,
+   "position": [
+    0.075134,
+    0.37333,
+    0.041917
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.111675,
+   "cone_angle_deg": 5.0
+  },
+  "2161:7:7": {
+   "node": 1,
+   "position": [
+    -0.009656,
+    0.479997,
+    -0.03636
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2177:14:11": {
+   "node": 1,
+   "position": [
+    -0.041835,
+    0.826663,
+    -0.036421
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2177:15:11": {
+   "node": 3,
+   "position": [
+    -0.039962,
+    0.826663,
+    -0.036421
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2177:15:12": {
+   "node": 2,
+   "position": [
+    -0.043085,
+    0.666663,
+    -0.0414
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2305:16:31": {
+   "node": 4,
+   "position": [
+    0.0,
+    1.17333,
+    -0.010514
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2305:16:32": {
+   "node": 3,
+   "position": [
+    0.0,
+    1.17333,
+    0.007917
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2305:16:34": {
+   "node": 6,
+   "position": [
+    0.0,
+    0.826663,
+    -0.014397
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2369:14:12": {
+   "node": 1,
+   "position": [
+    -0.0,
+    1.396398,
+    0.010916
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2385:22:1008": {
+   "node": 2,
+   "position": [
+    -0.000155,
+    0.921191,
+    0.087264
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2401:18:1006": {
+   "node": 6,
+   "position": [
+    -0.000431,
+    0.266663,
+    0.014314
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.055837,
+   "cone_angle_deg": -1.03964
+  },
+  "2433:16:13": {
+   "node": 1,
+   "position": [
+    0.000332,
+    0.37333,
+    0.004251
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.045685,
+   "cone_angle_deg": 5.0
+  },
+  "2433:16:14": {
+   "node": 2,
+   "position": [
+    0.000231,
+    0.159997,
+    0.002099
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.055837,
+   "cone_angle_deg": 5.0
+  },
+  "2561:17:35": {
+   "node": 3,
+   "position": [
+    0.01857,
+    0.639997,
+    -0.037182
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2561:17:6": {
+   "node": 1,
+   "position": [
+    -0.001734,
+    0.639997,
+    0.068511
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2561:18:1042": {
+   "node": 9,
+   "position": [
+    0.000233,
+    0.506663,
+    -0.037507
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2561:18:35": {
+   "node": 7,
+   "position": [
+    0.018964,
+    0.586663,
+    -0.03761
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2561:18:6": {
+   "node": 5,
+   "position": [
+    0.0,
+    0.559997,
+    0.067775
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2577:17:1007": {
+   "node": 11,
+   "position": [
+    -0.008385,
+    0.506663,
+    0.022085
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "257:2:7": {
+   "node": 2,
+   "position": [
+    0.000748,
+    0.69333,
+    -0.062747
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "257:2:9": {
+   "node": 3,
+   "position": [
+    0.0,
+    0.586663,
+    -0.062747
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2625:15:14": {
+   "node": 2,
+   "position": [
+    -0.000571,
+    1.571095,
+    0.035995
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2625:16:14": {
+   "node": 4,
+   "position": [
+    -0.001971,
+    0.45333,
+    0.035995
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2625:16:16": {
+   "node": 6,
+   "position": [
+    0.0,
+    0.426663,
+    0.035268
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2625:16:97": {
+   "node": 7,
+   "position": [
+    0.0,
+    0.266663,
+    0.034406
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2625:16:98": {
+   "node": 5,
+   "position": [
+    -0.002073,
+    0.29333,
+    0.042686
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2881:18:70": {
+   "node": 5,
+   "position": [
+    0.0,
+    1.25333,
+    0.248205
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2897:25:1024": {
+   "node": 1,
+   "position": [
+    0.012406,
+    0.346663,
+    -0.017748
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "2897:26:1024": {
+   "node": 8,
+   "position": [
+    0.119667,
+    0.346663,
+    0.000604
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.111675,
+   "cone_angle_deg": 5.0
+  },
+  "2897:26:15": {
+   "node": 7,
+   "position": [
+    0.119667,
+    0.266663,
+    0.000604
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.116751,
+   "cone_angle_deg": 5.0
+  },
+  "2897:26:38": {
+   "node": 11,
+   "position": [
+    0.11709,
+    0.45333,
+    0.02444
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.137055,
+   "cone_angle_deg": 5.0
+  },
+  "289:1:1012": {
+   "node": 2,
+   "position": [
+    -0.000218,
+    0.37333,
+    -0.008556
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.076142,
+   "cone_angle_deg": 5.0
+  },
+  "289:2:1012": {
+   "node": 4,
+   "position": [
+    0.000611,
+    0.346663,
+    -0.005629
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.086294,
+   "cone_angle_deg": 5.0
+  },
+  "289:2:3": {
+   "node": 5,
+   "position": [
+    0.000965,
+    0.45333,
+    0.00385
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.081218,
+   "cone_angle_deg": 5.0
+  },
+  "2913:21:1005": {
+   "node": 4,
+   "position": [
+    0.101117,
+    1.052159,
+    -0.081043
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3073:22:1011": {
+   "node": 5,
+   "position": [
+    0.013581,
+    1.466663,
+    0.025602
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3105:37:30": {
+   "node": 6,
+   "position": [
+    0.00929,
+    0.639997,
+    0.012727
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3121:19:19": {
+   "node": 2,
+   "position": [
+    0.004464,
+    0.559997,
+    0.001347
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3121:20:19": {
+   "node": 5,
+   "position": [
+    0.008694,
+    0.426663,
+    -0.008497
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.071065,
+   "cone_angle_deg": 5.0
+  },
+  "3121:20:47": {
+   "node": 6,
+   "position": [
+    0.008694,
+    0.893102,
+    -0.007418
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "321:1:71": {
+   "node": 2,
+   "position": [
+    0.136339,
+    0.50832,
+    -0.048098
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "321:2:5": {
+   "node": 7,
+   "position": [
+    0.059585,
+    0.749076,
+    -0.038952
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "321:2:71": {
+   "node": 5,
+   "position": [
+    0.199831,
+    0.496329,
+    -0.031744
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3345:22:15": {
+   "node": 5,
+   "position": [
+    -0.001095,
+    0.906663,
+    0.052701
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3361:25:7": {
+   "node": 2,
+   "position": [
+    0.45562,
+    1.494419,
+    -0.014614
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3361:26:7": {
+   "node": 6,
+   "position": [
+    0.471486,
+    1.480838,
+    0.000965
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3361:26:8": {
+   "node": 8,
+   "position": [
+    0.468717,
+    1.664866,
+    -0.001147
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "337:7:1008": {
+   "node": 6,
+   "position": [
+    -0.000381,
+    0.92591,
+    0.061608
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "33:0:30": {
+   "node": 1,
+   "position": [
+    -0.01584,
+    1.023249,
+    0.007538
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "353:2:24": {
+   "node": 4,
+   "position": [
+    0.075008,
+    0.106663,
+    0.01993
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.045685,
+   "cone_angle_deg": 0.742538
+  },
+  "353:2:3": {
+   "node": 2,
+   "position": [
+    0.075049,
+    0.826663,
+    0.020427
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3601:23:27": {
+   "node": 3,
+   "position": [
+    -0.006065,
+    0.266663,
+    0.073087
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 0,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.111675,
+   "cone_angle_deg": 0.148479
+  },
+  "3633:23:5": {
+   "node": 1,
+   "position": [
+    0.001016,
+    0.53333,
+    0.015716
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3633:23:9": {
+   "node": 2,
+   "position": [
+    3.3e-05,
+    0.719997,
+    0.024377
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3633:24:5": {
+   "node": 4,
+   "position": [
+    -0.031729,
+    0.45333,
+    0.013476
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3633:24:9": {
+   "node": 5,
+   "position": [
+    -0.031728,
+    0.639997,
+    0.013476
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3697:13:12": {
+   "node": 1,
+   "position": [
+    0.000374,
+    2.216057,
+    -0.033226
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.023255
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.172588,
+   "cone_angle_deg": 0.445508
+  },
+  "3713:22:22": {
+   "node": 2,
+   "position": [
+    -0.012195,
+    0.77333,
+    -0.002572
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.187817,
+   "cone_angle_deg": 5.197983
+  },
+  "3713:23:22": {
+   "node": 5,
+   "position": [
+    -0.012195,
+    0.799997,
+    -0.002572
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3713:23:23": {
+   "node": 6,
+   "position": [
+    -0.015099,
+    0.799997,
+    -0.002572
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3857:24:19": {
+   "node": 2,
+   "position": [
+    0.0012,
+    2.14255,
+    0.0071
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3857:24:20": {
+   "node": 4,
+   "position": [
+    0.0012,
+    1.626663,
+    0.0105
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3857:24:28": {
+   "node": 3,
+   "position": [
+    0.0012,
+    1.25333,
+    0.0058
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3857:24:29": {
+   "node": 1,
+   "position": [
+    0.0012,
+    1.09333,
+    0.0068
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3873:28:10": {
+   "node": 2,
+   "position": [
+    -0.002051,
+    1.912692,
+    3e-06
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3873:28:17": {
+   "node": 3,
+   "position": [
+    -0.004696,
+    0.77333,
+    3e-06
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3873:29:10": {
+   "node": 2,
+   "position": [
+    -0.002051,
+    1.912692,
+    3e-06
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3873:29:17": {
+   "node": 6,
+   "position": [
+    -0.002162,
+    0.746663,
+    3e-06
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "3969:24:23": {
+   "node": 3,
+   "position": [
+    0.0,
+    0.45,
+    0.006648
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.111,
+   "cone_angle_deg": 3.415806
+  },
+  "3969:25:23": {
+   "node": 3,
+   "position": [
+    0.0,
+    0.45,
+    0.006648
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.111,
+   "cone_angle_deg": 3.415806
+  },
+  "3969:25:24": {
+   "node": 2,
+   "position": [
+    -3e-06,
+    0.45333,
+    -0.006648
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.121827,
+   "cone_angle_deg": 3.712835
+  },
+  "4113:25:4": {
+   "node": 2,
+   "position": [
+    0.001186,
+    0.959997,
+    -0.051131
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4113:26:4": {
+   "node": 4,
+   "position": [
+    -0.000371,
+    2.388727,
+    -0.045559
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4113:26:8": {
+   "node": 6,
+   "position": [
+    0.001076,
+    1.839997,
+    0.011004
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4225:26:20": {
+   "node": 1,
+   "position": [
+    0.0,
+    1.97333,
+    0.233231
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4225:26:25": {
+   "node": 2,
+   "position": [
+    0.0,
+    1.57333,
+    0.233231
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4369:27:31": {
+   "node": 3,
+   "position": [
+    -0.024301,
+    1.066664,
+    1e-06
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4369:28:1": {
+   "node": 9,
+   "position": [
+    -0.053508,
+    1.01333,
+    -0.023303
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4369:28:31": {
+   "node": 3,
+   "position": [
+    -0.024301,
+    1.066664,
+    1e-06
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4401:28:46": {
+   "node": 2,
+   "position": [
+    -0.043487,
+    0.68063,
+    -0.006613
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4401:29:20": {
+   "node": 5,
+   "position": [
+    0.07642,
+    0.75873,
+    0.041764
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4401:29:46": {
+   "node": 4,
+   "position": [
+    0.077467,
+    0.479997,
+    0.042785
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4449:30:29": {
+   "node": 1,
+   "position": [
+    -0.031728,
+    0.559997,
+    -0.009621
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4465:116:69": {
+   "node": 1,
+   "position": [
+    0.005291,
+    1.57333,
+    0.084782
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4481:27:26": {
+   "node": 1,
+   "position": [
+    0.0,
+    1.519997,
+    0.233229
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4657:30:28": {
+   "node": 1,
+   "position": [
+    0.01371,
+    1.098236,
+    0.089239
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4657:31:28": {
+   "node": 2,
+   "position": [
+    0.01371,
+    1.102582,
+    0.091123
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4657:31:29": {
+   "node": 3,
+   "position": [
+    0.01371,
+    1.470065,
+    0.091236
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4689:39:15": {
+   "node": 1,
+   "position": [
+    0.023203,
+    0.346663,
+    0.000829
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.096446,
+   "cone_angle_deg": 5.0
+  },
+  "4689:39:38": {
+   "node": 9,
+   "position": [
+    0.033811,
+    0.399997,
+    0.010377
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.106598,
+   "cone_angle_deg": 5.0
+  },
+  "4689:40:15": {
+   "node": 5,
+   "position": [
+    0.034655,
+    0.239997,
+    -0.005444
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.106598,
+   "cone_angle_deg": 2.524715
+  },
+  "4689:40:30": {
+   "node": 8,
+   "position": [
+    0.018716,
+    0.319997,
+    -0.023872
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.101522,
+   "cone_angle_deg": 5.0
+  },
+  "4689:40:38": {
+   "node": 10,
+   "position": [
+    0.01835,
+    0.266663,
+    -0.024384
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.096446,
+   "cone_angle_deg": 1.633627
+  },
+  "4705:31:30": {
+   "node": 1,
+   "position": [
+    0.0,
+    0.506663,
+    -0.014174
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4721:117:70": {
+   "node": 1,
+   "position": [
+    0.001315,
+    2.254981,
+    0.007068
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4881:31:1013": {
+   "node": 7,
+   "position": [
+    -0.024901,
+    1.01333,
+    0.021323
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4897:35:51": {
+   "node": 4,
+   "position": [
+    0.00026,
+    0.93333,
+    0.035089
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4945:42:3": {
+   "node": 5,
+   "position": [
+    -0.000107,
+    0.45333,
+    -0.009964
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "4977:118:71": {
+   "node": 1,
+   "position": [
+    0.000977,
+    1.546664,
+    0.18048
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.096446,
+   "cone_angle_deg": 5.0
+  },
+  "4977:118:72": {
+   "node": 2,
+   "position": [
+    0.000977,
+    1.337701,
+    0.18048
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.101522,
+   "cone_angle_deg": 3.712835
+  },
+  "4993:29:28": {
+   "node": 1,
+   "position": [
+    0.000426,
+    0.799997,
+    0.009081
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "51201:44:74": {
+   "node": 1,
+   "position": [
+    0.000188,
+    1.171314,
+    0.139336
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5121:33:1009": {
+   "node": 5,
+   "position": [
+    -0.010818,
+    0.719997,
+    0.067419
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "51457:45:65": {
+   "node": 1,
+   "position": [
+    -0.020099,
+    1.077507,
+    0.071306
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "51473:40:43": {
+   "node": 1,
+   "position": [
+    0.0,
+    1.119997,
+    -0.020785
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "51489:5:27": {
+   "node": 1,
+   "position": [
+    0.000394,
+    1.25333,
+    0.005452
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5153:38:1013": {
+   "node": 2,
+   "position": [
+    -0.020047,
+    0.319997,
+    0.038763
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.101522,
+   "cone_angle_deg": 5.0
+  },
+  "5153:39:1002": {
+   "node": 3,
+   "position": [
+    0.0059,
+    0.346663,
+    0.002927
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.055837,
+   "cone_angle_deg": 5.0
+  },
+  "5153:39:1013": {
+   "node": 2,
+   "position": [
+    -0.020047,
+    0.319997,
+    0.038763
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.101522,
+   "cone_angle_deg": 5.0
+  },
+  "5169:34:3": {
+   "node": 1,
+   "position": [
+    0.018076,
+    1.717844,
+    -0.037939
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5169:35:3": {
+   "node": 2,
+   "position": [
+    0.017724,
+    0.746663,
+    -0.038044
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5169:35:4": {
+   "node": 3,
+   "position": [
+    0.019089,
+    0.639997,
+    -0.038267
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "51713:48:1002": {
+   "node": 2,
+   "position": [
+    0.115394,
+    0.999013,
+    0.051371
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "51713:48:69": {
+   "node": 1,
+   "position": [
+    0.120349,
+    0.186663,
+    1.5e-05
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.101522,
+   "cone_angle_deg": 5.0
+  },
+  "51729:41:44": {
+   "node": 1,
+   "position": [
+    -0.251848,
+    0.497382,
+    -0.004974
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "51745:19:29": {
+   "node": 1,
+   "position": [
+    -0.000301,
+    0.21333,
+    0.0
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.137055,
+   "cone_angle_deg": 5.0
+  },
+  "51809:1:5": {
+   "node": 1,
+   "position": [
+    1.2e-05,
+    0.29333,
+    -0.000156
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.060913,
+   "cone_angle_deg": 5.0
+  },
+  "5185:0:1": {
+   "node": 2,
+   "position": [
+    0.0,
+    2.071118,
+    0.176201
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5185:0:30": {
+   "node": 1,
+   "position": [
+    0.0,
+    1.070965,
+    0.173582
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "51985:46:1014": {
+   "node": 1,
+   "position": [
+    0.0,
+    0.529505,
+    0.0
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5201:45:1007": {
+   "node": 2,
+   "position": [
+    0.085877,
+    1.199997,
+    -0.019338
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "52065:27:23": {
+   "node": 4,
+   "position": [
+    -6e-06,
+    1.246495,
+    -0.011377
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5217:33:31": {
+   "node": 2,
+   "position": [
+    0.0,
+    0.61333,
+    0.04984
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5217:33:33": {
+   "node": 1,
+   "position": [
+    -0.0,
+    0.506663,
+    0.011404
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "52225:51:72": {
+   "node": 1,
+   "position": [
+    -0.002941,
+    0.720518,
+    -0.003637
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "52241:47:38": {
+   "node": 1,
+   "position": [
+    0.000237,
+    0.539172,
+    -1e-06
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "52257:51:30": {
+   "node": 1,
+   "position": [
+    0.00016,
+    0.992828,
+    0.012125
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "52481:52:1017": {
+   "node": 1,
+   "position": [
+    -0.008209,
+    0.53333,
+    -5e-06
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "52497:52:39": {
+   "node": 1,
+   "position": [
+    -2.1e-05,
+    0.906663,
+    0.05742
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "52737:54:73": {
+   "node": 1,
+   "position": [
+    0.000883,
+    0.346663,
+    -0.009326
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.076142,
+   "cone_angle_deg": 5.0
+  },
+  "52769:61:51": {
+   "node": 1,
+   "position": [
+    0.000968,
+    0.45333,
+    0.013266
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.09137,
+   "cone_angle_deg": 5.0
+  },
+  "52993:55:75": {
+   "node": 1,
+   "position": [
+    -0.009064,
+    0.594434,
+    -0.093416
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "53249:63:255": {
+   "node": 1,
+   "position": [
+    2.3e-05,
+    0.61333,
+    0.068497
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "53249:63:82": {
+   "node": 1,
+   "position": [
+    2.3e-05,
+    0.61333,
+    0.068497
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "53505:64:72": {
+   "node": 1,
+   "position": [
+    0.0,
+    0.506663,
+    0.024606
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "53537:92:71": {
+   "node": 1,
+   "position": [
+    1.1e-05,
+    0.399997,
+    0.02642
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.045685,
+   "cone_angle_deg": -0.44558
+  },
+  "53585:43:3": {
+   "node": 1,
+   "position": [
+    0.161556,
+    0.239997,
+    -0.040934
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.101522,
+   "cone_angle_deg": 5.0
+  },
+  "53761:72:85": {
+   "node": 1,
+   "position": [
+    -0.096874,
+    0.826663,
+    -0.05327
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "53841:60:36": {
+   "node": 1,
+   "position": [
+    0.0,
+    0.586663,
+    4e-06
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "54097:63:37": {
+   "node": 1,
+   "position": [
+    0.000417,
+    0.37333,
+    1e-06
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5409:40:14": {
+   "node": 2,
+   "position": [
+    0.005035,
+    0.45333,
+    0.073635
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.09137,
+   "cone_angle_deg": 5.0
+  },
+  "5409:41:0": {
+   "node": 6,
+   "position": [
+    -0.005357,
+    0.506663,
+    -0.000758
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5409:41:14": {
+   "node": 2,
+   "position": [
+    0.005035,
+    0.45333,
+    0.073635
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.09137,
+   "cone_angle_deg": 5.0
+  },
+  "5425:37:35": {
+   "node": 1,
+   "position": [
+    0.0,
+    0.559997,
+    0.012298
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "54273:77:87": {
+   "node": 1,
+   "position": [
+    0.13385,
+    0.799997,
+    0.0
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "54353:73:59": {
+   "node": 5,
+   "position": [
+    0.049139,
+    0.37333,
+    -0.005422
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.096446,
+   "cone_angle_deg": 5.0
+  },
+  "54529:81:89": {
+   "node": 1,
+   "position": [
+    0.0,
+    0.319997,
+    -0.000237
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.096446,
+   "cone_angle_deg": 5.0
+  },
+  "54545:69:53": {
+   "node": 1,
+   "position": [
+    -4.6e-05,
+    1.457162,
+    -0.025988
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "54785:97:101": {
+   "node": 1,
+   "position": [
+    -0.001024,
+    1.33333,
+    1.6e-05
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "54801:70:54": {
+   "node": 1,
+   "position": [
+    0.0,
+    0.319997,
+    -0.040913
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "54865:87:68": {
+   "node": 1,
+   "position": [
+    0.074905,
+    0.678812,
+    0.004659
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.071065,
+   "cone_angle_deg": 5.0
+  },
+  "5489:120:74": {
+   "node": 1,
+   "position": [
+    -0.021785,
+    1.160266,
+    0.093233
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "55057:83:43": {
+   "node": 1,
+   "position": [
+    -0.000189,
+    1.583292,
+    -0.019597
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "55073:109:92": {
+   "node": 1,
+   "position": [
+    -1e-06,
+    0.239997,
+    -0.000133
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    -0.66113
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "55297:103:109": {
+   "node": 1,
+   "position": [
+    0.000471,
+    0.61333,
+    0.004602
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "55313:84:58": {
+   "node": 1,
+   "position": [
+    0.002417,
+    0.93333,
+    -0.06887
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "55313:84:62": {
+   "node": 2,
+   "position": [
+    0.002417,
+    2.9499,
+    -0.06887
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "55889:104:78": {
+   "node": 1,
+   "position": [
+    0.123344,
+    0.879997,
+    0.011358
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.121827,
+   "cone_angle_deg": 5.0
+  },
+  "56097:103:253": {
+   "node": 1,
+   "position": [
+    0.019694,
+    0.53333,
+    0.011416
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "56577:124:72": {
+   "node": 1,
+   "position": [
+    -0.002041,
+    0.506663,
+    0.010344
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "56609:128:106": {
+   "node": 1,
+   "position": [
+    0.0,
+    0.37333,
+    0.013084
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5665:43:1003": {
+   "node": 6,
+   "position": [
+    3.7e-05,
+    0.719997,
+    0.023288
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "57105:96:69": {
+   "node": 3,
+   "position": [
+    -0.000346,
+    1.25333,
+    -2e-06
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "57361:97:73": {
+   "node": 1,
+   "position": [
+    -0.064671,
+    0.639997,
+    0.027338
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5745:121:75": {
+   "node": 1,
+   "position": [
+    -0.001592,
+    1.541553,
+    -0.039228
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5889:37:10": {
+   "node": 4,
+   "position": [
+    -0.000371,
+    0.53333,
+    0.002586
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5889:38:10": {
+   "node": 8,
+   "position": [
+    0.009202,
+    0.61333,
+    0.079539
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5889:38:13": {
+   "node": 7,
+   "position": [
+    0.011557,
+    0.879997,
+    0.079539
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5889:38:14": {
+   "node": 9,
+   "position": [
+    0.009385,
+    0.61333,
+    0.074916
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5889:38:15": {
+   "node": 10,
+   "position": [
+    0.009385,
+    0.61333,
+    0.074916
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "59137:146:134": {
+   "node": 1,
+   "position": [
+    -0.001033,
+    0.586663,
+    -0.003564
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5953:34:3": {
+   "node": 8,
+   "position": [
+    -0.05106,
+    0.568155,
+    -0.020122
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "5953:34:73": {
+   "node": 1,
+   "position": [
+    -0.050339,
+    0.77333,
+    0.0014
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "59649:148:136": {
+   "node": 1,
+   "position": [
+    0.013346,
+    0.506663,
+    0.002397
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "59665:141:83": {
+   "node": 1,
+   "position": [
+    0.006717,
+    0.906663,
+    0.018093
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.081218,
+   "cone_angle_deg": 5.0
+  },
+  "59905:149:137": {
+   "node": 1,
+   "position": [
+    1e-06,
+    0.639997,
+    5.4e-05
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6001:122:76": {
+   "node": 1,
+   "position": [
+    -6.7e-05,
+    1.327436,
+    0.001647
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "60161:155:141": {
+   "node": 1,
+   "position": [
+    -0.003129,
+    0.319997,
+    0.026107
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "60929:154:140": {
+   "node": 1,
+   "position": [
+    -0.000465,
+    0.479997,
+    0.081624
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.076142,
+   "cone_angle_deg": 5.0
+  },
+  "6161:39:1012": {
+   "node": 12,
+   "position": [
+    -0.000359,
+    1.17333,
+    -0.047097
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6177:46:52": {
+   "node": 3,
+   "position": [
+    -0.001065,
+    0.782259,
+    0.078076
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.050761,
+   "cone_angle_deg": 5.0
+  },
+  "6257:123:77": {
+   "node": 1,
+   "position": [
+    0.001397,
+    2.051044,
+    0.336394
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "625:1:1": {
+   "node": 1,
+   "position": [
+    -5e-05,
+    1.359997,
+    0.365862
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "62737:175:114": {
+   "node": 1,
+   "position": [
+    0.0,
+    1.593717,
+    0.003465
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "62977:91:256": {
+   "node": 1,
+   "position": [
+    -5.3e-05,
+    0.666663,
+    0.001893
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "62993:170:96": {
+   "node": 1,
+   "position": [
+    0.000155,
+    2.457899,
+    0.004073
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "63553:90:64": {
+   "node": 1,
+   "position": [
+    0.0,
+    1.199997,
+    0.005462
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "63585:1003:1004": {
+   "node": 5,
+   "position": [
+    -0.009656,
+    2.030498,
+    0.004107
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "63841:1002:1003": {
+   "node": 7,
+   "position": [
+    0.000126,
+    1.7289,
+    0.005723
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "64001:1000:1000": {
+   "node": 3,
+   "position": [
+    0.034899,
+    0.586663,
+    -0.034165
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "64017:1001:1001": {
+   "node": 1,
+   "position": [
+    -0.017341,
+    0.826663,
+    0.004977
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6401:41:1006": {
+   "node": 3,
+   "position": [
+    -0.000697,
+    1.546664,
+    0.159906
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "64065:74:60": {
+   "node": 1,
+   "position": [
+    -0.001153,
+    1.386663,
+    -0.003211
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6417:43:43": {
+   "node": 8,
+   "position": [
+    -0.011672,
+    1.282248,
+    -0.032691
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "641:3:2": {
+   "node": 4,
+   "position": [
+    0.001449,
+    0.639997,
+    -0.010566
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "641:3:3": {
+   "node": 3,
+   "position": [
+    0.001449,
+    0.61333,
+    -0.010566
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "64257:251:253": {
+   "node": 7,
+   "position": [
+    0.018964,
+    0.639997,
+    -0.03761
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "64273:249:58": {
+   "node": 1,
+   "position": [
+    0.002417,
+    1.09333,
+    -0.06887
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "64273:249:62": {
+   "node": 2,
+   "position": [
+    0.002417,
+    2.9499,
+    -0.06887
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "64337:1002:1003": {
+   "node": 1,
+   "position": [
+    -0.000291,
+    0.586663,
+    -0.011357
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.106598,
+   "cone_angle_deg": 5.0
+  },
+  "6433:47:33": {
+   "node": 1,
+   "position": [
+    0.07513,
+    1.359997,
+    0.011332
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "64529:90:63": {
+   "node": 1,
+   "position": [
+    -0.000149,
+    1.756544,
+    -0.022059
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "64561:39:2": {
+   "node": 1,
+   "position": [
+    -0.062198,
+    0.53333,
+    -0.016589
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "64593:1001:1001": {
+   "node": 2,
+   "position": [
+    0.0,
+    0.319997,
+    0.012112
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.116751,
+   "cone_angle_deg": 5.0
+  },
+  "6465:37:1": {
+   "node": 2,
+   "position": [
+    0.0,
+    1.634616,
+    0.115413
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6465:37:30": {
+   "node": 1,
+   "position": [
+    0.0,
+    1.184485,
+    0.115413
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6481:54:1011": {
+   "node": 7,
+   "position": [
+    -0.003089,
+    1.038957,
+    0.004766
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "64849:1000:1000": {
+   "node": 1,
+   "position": [
+    -0.000291,
+    0.69333,
+    0.038361
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.126903,
+   "cone_angle_deg": 5.0
+  },
+  "65377:0:0": {
+   "node": 1,
+   "position": [
+    -0.054726,
+    1.595144,
+    0.001551
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6657:42:35": {
+   "node": 3,
+   "position": [
+    0.029836,
+    0.69333,
+    0.005405
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6657:43:12": {
+   "node": 9,
+   "position": [
+    0.030374,
+    0.61333,
+    -0.002689
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6657:43:35": {
+   "node": 7,
+   "position": [
+    0.031328,
+    0.77333,
+    -0.00126
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6673:44:36": {
+   "node": 2,
+   "position": [
+    -0.006079,
+    1.630257,
+    -0.053144
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6689:48:107": {
+   "node": 5,
+   "position": [
+    0.0,
+    1.119997,
+    -0.009449
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6705:43:37": {
+   "node": 8,
+   "position": [
+    -0.004778,
+    0.399997,
+    -0.032697
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.09137,
+   "cone_angle_deg": 5.0
+  },
+  "6705:44:37": {
+   "node": 3,
+   "position": [
+    0.003699,
+    0.399997,
+    -0.026804
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.106598,
+   "cone_angle_deg": 5.0
+  },
+  "6705:44:38": {
+   "node": 5,
+   "position": [
+    0.003698,
+    0.959997,
+    -0.024598
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6721:38:25": {
+   "node": 2,
+   "position": [
+    -2.6e-05,
+    1.320348,
+    -0.065198
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6721:39:14": {
+   "node": 5,
+   "position": [
+    0.000292,
+    1.536771,
+    -0.024738
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6721:39:25": {
+   "node": 4,
+   "position": [
+    3e-05,
+    1.226522,
+    -0.025225
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6913:46:62": {
+   "node": 3,
+   "position": [
+    -0.000698,
+    1.556998,
+    0.100403
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6913:46:68": {
+   "node": 5,
+   "position": [
+    1.4e-05,
+    1.787127,
+    0.100011
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6945:49:37": {
+   "node": 1,
+   "position": [
+    0.00016,
+    1.355372,
+    -0.013319
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6945:50:37": {
+   "node": 1,
+   "position": [
+    0.00016,
+    1.355372,
+    -0.013319
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "6945:50:39": {
+   "node": 3,
+   "position": [
+    0.00016,
+    1.598095,
+    0.003551
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7025:126:79": {
+   "node": 1,
+   "position": [
+    0.001997,
+    1.146663,
+    0.002013
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.152284,
+   "cone_angle_deg": 5.0
+  },
+  "7185:48:3": {
+   "node": 2,
+   "position": [
+    0.089974,
+    1.321638,
+    -0.00229
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7185:48:8": {
+   "node": 8,
+   "position": [
+    0.08971,
+    1.900627,
+    -0.015037
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7185:49:3": {
+   "node": 4,
+   "position": [
+    -0.005625,
+    1.373585,
+    -0.010217
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7185:49:4": {
+   "node": 5,
+   "position": [
+    -0.005659,
+    2.076082,
+    -0.015676
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7185:49:8": {
+   "node": 7,
+   "position": [
+    -0.006789,
+    1.679997,
+    -0.01422
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7201:52:39": {
+   "node": 2,
+   "position": [
+    7e-06,
+    1.632919,
+    4.9e-05
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7201:52:41": {
+   "node": 3,
+   "position": [
+    0.000183,
+    1.689531,
+    0.000585
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7201:53:39": {
+   "node": 2,
+   "position": [
+    7e-06,
+    1.632919,
+    4.9e-05
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7201:53:41": {
+   "node": 6,
+   "position": [
+    -0.000499,
+    1.916152,
+    0.000585
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7217:46:2": {
+   "node": 1,
+   "position": [
+    -0.0006,
+    0.666663,
+    -0.0357
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7473:47:41": {
+   "node": 2,
+   "position": [
+    -0.005253,
+    2.099473,
+    -0.015525
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7473:47:42": {
+   "node": 3,
+   "position": [
+    0.000894,
+    0.69333,
+    -0.015525
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7505:58:1020": {
+   "node": 2,
+   "position": [
+    -0.048625,
+    1.199997,
+    -0.02753
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.09137,
+   "cone_angle_deg": 5.0
+  },
+  "7505:59:1020": {
+   "node": 4,
+   "position": [
+    -0.000455,
+    1.119997,
+    -0.006781
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7505:59:35": {
+   "node": 5,
+   "position": [
+    0.002012,
+    0.346663,
+    -0.007715
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.106598,
+   "cone_angle_deg": 5.0
+  },
+  "7537:128:81": {
+   "node": 1,
+   "position": [
+    -0.008485,
+    1.439997,
+    -0.005458
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "769:5:1014": {
+   "node": 8,
+   "position": [
+    0.0,
+    0.559997,
+    0.038386
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "769:6:1014": {
+   "node": 7,
+   "position": [
+    0.0,
+    0.740124,
+    0.031673
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "769:6:3": {
+   "node": 9,
+   "position": [
+    0.0,
+    0.586663,
+    0.032579
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7713:55:1006": {
+   "node": 5,
+   "position": [
+    -0.002752,
+    1.811453,
+    -0.006461
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7729:48:40": {
+   "node": 2,
+   "position": [
+    0.002292,
+    0.479997,
+    -0.026373
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7729:48:43": {
+   "node": 1,
+   "position": [
+    0.002292,
+    1.685751,
+    -0.030916
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7745:45:28": {
+   "node": 3,
+   "position": [
+    -0.0,
+    0.859495,
+    0.153952
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7761:61:12": {
+   "node": 2,
+   "position": [
+    0.05186,
+    0.29333,
+    -0.017207
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.096446,
+   "cone_angle_deg": 5.0
+  },
+  "7761:62:1019": {
+   "node": 5,
+   "position": [
+    0.051442,
+    1.066664,
+    -0.01129
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7761:62:12": {
+   "node": 2,
+   "position": [
+    0.05186,
+    0.29333,
+    -0.017207
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.096446,
+   "cone_angle_deg": 5.0
+  },
+  "785:5:11": {
+   "node": 2,
+   "position": [
+    0.0006,
+    0.37333,
+    -0.059804
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    -0.142858
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.050761,
+   "cone_angle_deg": 1.633627
+  },
+  "785:6:11": {
+   "node": 2,
+   "position": [
+    0.0006,
+    0.37333,
+    -0.059804
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    -0.142858
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.050761,
+   "cone_angle_deg": 1.633627
+  },
+  "785:6:12": {
+   "node": 4,
+   "position": [
+    0.0006,
+    0.37333,
+    -0.000712
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7985:49:44": {
+   "node": 1,
+   "position": [
+    -0.003585,
+    0.666663,
+    -0.004296
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "7985:49:45": {
+   "node": 4,
+   "position": [
+    -0.003584,
+    1.89333,
+    -0.004296
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "8001:75:60": {
+   "node": 2,
+   "position": [
+    0.009709,
+    3.224529,
+    -0.00315
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "8017:64:1010": {
+   "node": 4,
+   "position": [
+    -0.0,
+    1.226663,
+    0.006938
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.045685,
+   "cone_angle_deg": 5.0
+  },
+  "801:6:7": {
+   "node": 2,
+   "position": [
+    0.000584,
+    1.482076,
+    1e-06
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "801:6:8": {
+   "node": 4,
+   "position": [
+    -0.002228,
+    1.66185,
+    -0.00096
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "801:6:9": {
+   "node": 8,
+   "position": [
+    -0.00039,
+    1.659792,
+    2e-06
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "801:7:10": {
+   "node": 10,
+   "position": [
+    0.004911,
+    1.847307,
+    -0.001398
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "801:7:7": {
+   "node": 2,
+   "position": [
+    0.000584,
+    1.482076,
+    1e-06
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "801:7:8": {
+   "node": 4,
+   "position": [
+    -0.002228,
+    1.66185,
+    -0.00096
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "801:7:9": {
+   "node": 8,
+   "position": [
+    -0.00039,
+    1.659792,
+    2e-06
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "817:3:2": {
+   "node": 4,
+   "position": [
+    0.0,
+    0.719997,
+    -0.01863
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "8209:62:1011": {
+   "node": 12,
+   "position": [
+    0.0,
+    0.999828,
+    -0.050687
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "8257:47:29": {
+   "node": 2,
+   "position": [
+    0.000239,
+    1.240906,
+    -0.032044
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "8273:65:1009": {
+   "node": 3,
+   "position": [
+    2.6e-05,
+    0.506663,
+    0.031668
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.096446,
+   "cone_angle_deg": 5.0
+  },
+  "849:10:40": {
+   "node": 1,
+   "position": [
+    -0.000117,
+    0.506663,
+    -0.008618
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.096446,
+   "cone_angle_deg": 5.0
+  },
+  "849:11:39": {
+   "node": 7,
+   "position": [
+    -0.000254,
+    0.746663,
+    -0.007945
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.111675,
+   "cone_angle_deg": 5.0
+  },
+  "849:11:40": {
+   "node": 2,
+   "position": [
+    -0.000342,
+    0.794651,
+    -0.008844
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "8785:67:50": {
+   "node": 1,
+   "position": [
+    0.001365,
+    0.609655,
+    0.001742
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.111675,
+   "cone_angle_deg": 5.0
+  },
+  "8785:67:51": {
+   "node": 2,
+   "position": [
+    0.000961,
+    0.759655,
+    -0.054113
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.101522,
+   "cone_angle_deg": 5.0
+  },
+  "881:2:2": {
+   "node": 1,
+   "position": [
+    -0.0008,
+    1.718914,
+    -0.452567
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "8961:62:1010": {
+   "node": 6,
+   "position": [
+    1e-06,
+    0.559997,
+    0.018072
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "9041:68:53": {
+   "node": 1,
+   "position": [
+    -0.000165,
+    0.827385,
+    0.021096
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.076142,
+   "cone_angle_deg": 5.0
+  },
+  "9041:68:55": {
+   "node": 4,
+   "position": [
+    0.0,
+    1.17333,
+    0.033924
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.081218,
+   "cone_angle_deg": 0.742538
+  },
+  "9249:64:41": {
+   "node": 3,
+   "position": [
+    0.006713,
+    1.955884,
+    0.152306
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "9249:64:44": {
+   "node": 2,
+   "position": [
+    0.001763,
+    2.665408,
+    0.152611
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "9249:64:45": {
+   "node": 1,
+   "position": [
+    0.001763,
+    2.848817,
+    0.150475
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "9553:70:1029": {
+   "node": 3,
+   "position": [
+    -0.000832,
+    1.746044,
+    1e-06
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "9553:70:47": {
+   "node": 2,
+   "position": [
+    -0.000132,
+    1.566191,
+    -0.00023
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "9553:70:51": {
+   "node": 1,
+   "position": [
+    0.002806,
+    0.876611,
+    0.00707
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "9761:67:57": {
+   "node": 1,
+   "position": [
+    0.0,
+    1.022059,
+    0.012023
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "9761:68:57": {
+   "node": 2,
+   "position": [
+    0.0,
+    1.022059,
+    0.014076
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "9761:68:58": {
+   "node": 3,
+   "position": [
+    0.0,
+    1.046373,
+    0.014076
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "9793:53:40": {
+   "node": 1,
+   "position": [
+    -0.001889,
+    1.066664,
+    0.009837
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "9793:53:41": {
+   "node": 2,
+   "position": [
+    -0.0014,
+    1.119997,
+    0.009881
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  },
+  "9809:71:1013": {
+   "node": 3,
+   "position": [
+    0.0,
+    0.666663,
+    0.0
+   ],
+   "normal": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "plane_slice_mode": 1,
+   "frustum_cone_slice_mode": 0,
+   "cone_base_radius": 0.2,
+   "cone_angle_deg": 5.0
+  }
+ }
+}

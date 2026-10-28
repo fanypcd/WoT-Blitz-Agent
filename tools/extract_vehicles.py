@@ -26,6 +26,8 @@ tank_id 桥：`--emit-bridge` 从 `data/tanks.pb` 一次性导出
   4. 弹夹/弹鼓判定**只认车辆内联** `<clip>`/`<pumpGunMode>`（共享定义里的 clip 不算，
      否则 6 辆车假弹夹）；`<burst>` 是表现参数，禁止用来判 is_burst；
   5. `mask` = yaml `maskSlice.<node>.planePosition[1]`（+Y 分量），`enabled:false` ⇒ 省略；
+     同一项的完整记录（position/normal/axis/两个 slice mode/锥台参数）另存在每个 gun 的
+     `mask_slice`（models.json → `data/gun_mask_slices.json`，viewer 按客户端原值建裁切面）；
   6. `pitchLimits` 首值=min 次值=max（不取负）；`extraPitchLimits` 的 front/back 为
      `min max range` 三值；`<transition>` 重复时 last-wins；
   7. `-180 180` 的 yawLimits ⇒ pb 省略（输出 null）；
@@ -783,10 +785,28 @@ class Extractor:
                             thickness = None  # 0 厚度省略
                         ms = mask_slice.get(f"gun_{gnode:02d}")
                         mask = None
+                        mask_slice_rec = None
                         if isinstance(ms, dict) and ms.get("enabled"):
                             pp = ms.get("planePosition")
                             if isinstance(pp, list) and len(pp) >= 2:
                                 mask = float(pp[1])
+                            # 完整客户端 maskSlice（viewer 裁切面按原值重建）：position/normal
+                            # 必须完整，缺任一即不生成记录（fail-closed，不猜）。
+                            pn = ms.get("planeNormal")
+                            pa = ms.get("planeAxis")
+                            if (isinstance(pp, list) and len(pp) >= 3
+                                    and isinstance(pn, list) and len(pn) >= 3
+                                    and isinstance(pa, list) and len(pa) >= 3):
+                                mask_slice_rec = {
+                                    "node": gnode,
+                                    "position": [float(pp[0]), float(pp[1]), float(pp[2])],
+                                    "normal": [float(pn[0]), float(pn[1]), float(pn[2])],
+                                    "axis": [float(pa[0]), float(pa[1]), float(pa[2])],
+                                    "plane_slice_mode": int(ms.get("planeSliceMode", 0)),
+                                    "frustum_cone_slice_mode": int(ms.get("frustumConeSliceMode", 0)),
+                                    "cone_base_radius": float(ms.get("frustumConeBaseRadius", 0.0)),
+                                    "cone_angle_deg": float(ms.get("frustumConeAngleDegrees", 0.0)),
+                                }
                         yl_text = tr.text("yawLimits")
                         yaw = None
                         if yl_text:
@@ -800,6 +820,7 @@ class Extractor:
                             "model_node": gnode,
                             "thickness": thickness,
                             "mask": mask,
+                            "mask_slice": mask_slice_rec,
                             "gun_spaced": gspaced,
                             "gun_plates": gplates,
                             "pitch_limits": parse_pitch(gr),
