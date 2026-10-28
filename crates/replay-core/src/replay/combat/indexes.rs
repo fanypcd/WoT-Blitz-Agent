@@ -71,6 +71,27 @@ pub(crate) fn build_entity_indexes(packets: &[(u32, f32, &[u8])]) -> (St10Index,
                 .or_default()
                 .push((*clock, rel, v & 63));
         }
+        // type=5 class=2 车辆实体创建 / 重入物化快照：前缀属性 blob 的 id2（u16 @48）
+        // 是物化时刻的 prop2 **当前值**（《回放与射击逆向总集》§2.6：初始属性 blob 含
+        // prop2 初值；全样本探针：重入快照与紧随的 type=7 采样同域，coarse 差中位 0、
+        // 多数 ≤2 级）。炮塔全程不转的车没有 type=7 prop2 流，缺这条种子会让严格路径
+        // 误判「目标炮塔朝向缺失」而整场 fail（2026-10-28 训练房样本）。
+        // 布局护栏（fail-closed）：class=2、id1@45=1、id2@47=2、id3@50=3；任一不满足
+        // 即不采信（不猜偏移）。
+        if *t2 == 5
+            && p.len() >= 60
+            && u16::from_le_bytes([p[4], p[5]]) == 2
+            && p[45] == 1
+            && p[47] == 2
+            && p[50] == 3
+        {
+            let v = u16::from_le_bytes([p[48], p[49]]);
+            let (rel, frac) = decode_prop2_u16(v);
+            prop2
+                .entry(u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
+                .or_default()
+                .push((*clock, rel, frac as u16));
+        }
     }
     (st10, prop2)
 }
@@ -213,5 +234,70 @@ pub(crate) fn prop2_frac_frozen(series: Option<&Vec<(f32, f32, u16)>>, t: f32) -
     match list.partition_point(|(c, _, _)| *c <= t) {
         0 => false,
         idx => t - list[idx - 1].0 > 2.0,
+    }
+}
+
+#[cfg(test)]
+mod prop2_seed_tests {
+    use super::*;
+
+    /// type=5 class=2 车辆实体包（前缀属性 blob：id1@45、id2=prop2@47..50、id3@50..53）。
+    fn type5_vehicle(eid: u32, blob: u16) -> Vec<u8> {
+        let mut p = vec![0u8; 60];
+        p[0..4].copy_from_slice(&eid.to_le_bytes());
+        p[4..6].copy_from_slice(&2u16.to_le_bytes());
+        p[45] = 1;
+        p[46] = 1;
+        p[47] = 2;
+        p[48..50].copy_from_slice(&blob.to_le_bytes());
+        p[50] = 3;
+        p[51..53].copy_from_slice(&2573u16.to_le_bytes());
+        p[53] = 4;
+        p[56] = 5;
+        p[57] = 0; // 昵称长度 0：种子不依赖昵称域
+        p
+    }
+
+    #[test]
+    fn type5_create_seeds_prop2_initial_value() {
+        // 目标全程不转炮塔 → 没有任何 type=7 prop2；创建包 blob 的 id2 是唯一初值证据
+        let pkt = type5_vehicle(0x14cc6d, 0x7ef5);
+        let refs: Vec<(u32, f32, &[u8])> = vec![(5, 44.19, pkt.as_slice())];
+        let (_, prop2) = build_entity_indexes(&refs);
+        let series = prop2.get(&0x14cc6d).expect("创建包应种下 prop2");
+        assert_eq!(series.len(), 1);
+        assert!((series[0].0 - 44.19).abs() < 1e-6);
+        let (rel, frac) = decode_prop2_u16(0x7ef5);
+        assert!((series[0].1 - rel).abs() < 1e-6);
+        assert_eq!(series[0].2, frac as u16);
+        assert!((rel - (-0.0307)).abs() < 1e-3, "rel={rel}");
+        assert_eq!(frac as u16, 53);
+    }
+
+    #[test]
+    fn type5_seed_requires_vehicle_layout() {
+        // class 非 2（区域实体）：不采信
+        let mut pkt = type5_vehicle(7, 0x7ef5);
+        pkt[4..6].copy_from_slice(&3u16.to_le_bytes());
+        let refs: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, pkt.as_slice())];
+        assert!(build_entity_indexes(&refs).1.is_empty());
+
+        // 属性表 id 标记不符（布局变化）：不猜偏移
+        let mut pkt = type5_vehicle(8, 0x7ef5);
+        pkt[47] = 9;
+        let refs: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, pkt.as_slice())];
+        assert!(build_entity_indexes(&refs).1.is_empty());
+    }
+
+    #[test]
+    fn type7_prop2_still_indexed() {
+        let mut pkt = vec![0u8; 14];
+        pkt[0..4].copy_from_slice(&9u32.to_le_bytes());
+        pkt[4..8].copy_from_slice(&2u32.to_le_bytes());
+        pkt[12..14].copy_from_slice(&0x8000u16.to_le_bytes());
+        let refs: Vec<(u32, f32, &[u8])> = vec![(7, 12.0, pkt.as_slice())];
+        let (_, prop2) = build_entity_indexes(&refs);
+        assert_eq!(prop2.get(&9).map(Vec::len), Some(1));
+        assert!(prop2[&9][0].1.abs() < 1e-6, "0x8000 = 相对 0°");
     }
 }
