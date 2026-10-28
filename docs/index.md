@@ -171,26 +171,25 @@
 
 ### 数据面
 
-- **客户端 maskSlice 原值进入资产面（2026-10-28）**：装甲查看器的炮管裁切面此前按
-  **标量近似**重建（`gun_mask` = 客户端 `maskSlice.<gun_NN>.planePosition[1]`，再叠加
-  hull/turret/gun 原点链沿模型前向求平面——BlitzKit 的读法）。客户端数据本身比这个标量
-  完整：同一项还有 `planeNormal`/`planeAxis`（3D）、`planePosition` 的 x/z、两个 slice
-  mode 与锥台参数；且平面定义在 **gun 节点局部系**（随炮塔/炮管姿态变换）。用户实测
-  游戏里露出的炮管有装甲等效判定，而标量近似把平面推到炮管中段（T-34 旧平面 z≈-2.09，
-  客户端原值 z≈-0.842、可见炮管 z -0.86..-2.96 全在保留侧），误裁约 1.2m。落地：
-  `tools/extract_vehicles.py` 在 gun 上保留完整 `maskSlice` 记录（position/normal 必须
-  完整，缺则 fail-closed 不生成），`tools/emit_vehicle_pb.py` 导出 sidecar
+- **客户端 maskSlice 原值导出 + 装甲判定不复用（2026-10-28）**：`maskSlice` 是客户端
+  炮管**视觉/特效切片**参数（与同车 yaml 的 `gunRecoil`/`gunMarks`/`markerPosition` 同组：
+  `planePosition`(3D)/`planeNormal`/`planeAxis`/`planeSliceMode`/`frustumCone*`），**不是
+  装甲外部模块的边界**。装甲查看器此前用标量近似（`gun_mask` = `planePosition[1]` + 原点链）
+  当炮管裁切面；改用完整原值后仍不一致：全库 477 条 `planeSliceMode=1` 记录中，287 条平面
+  落在炮管网格之外（中位切割比例 0），15 条会切掉 >60% 炮管（Pz.Sfl. IVc gun_03：平面
+  y=4.29、炮管网格 y -2.06..5.38，按面裁只剩炮口段），且 2 条非轴对齐 normal；按平面裁
+  的结果忽多忽少，与游戏内“露出的炮管整段参与判定”不符。**裁定**：装甲判定只用 `gun_NN`
+  炮管本体（炮盾 `gun_NN_mask` 不进外部模块；视觉模型仍完整），裁切面恒 null。数据面仍
+  导出完整记录：`tools/extract_vehicles.py` 保留每门炮的 `maskSlice`（position/normal
+  必须完整，缺则 fail-closed 不生成），`tools/emit_vehicle_pb.py` 写 sidecar
   **`data/gun_mask_slices.json`**（键 = `tank_id:turret_local:gun_local`——同一门炮装在
-  不同炮塔上节点/平面不同，如 T-34 gun_01 0.8415 vs gun_07 0.8743 共用主炮模块），
-  打包器复制为包内 `data/gunMaskSlices.json`（缺源拒绝打包）。**数据事实**：478 条记录；
-  `planeSliceMode` 477×1 + 1×0（PanzerJager I gun_03：enabled 但客户端不做平面切割，
-  viewer 不裁）；`frustumConeSliceMode` 全 0（锥台切片未启用，参数只透传）；normal
-  476×(0,1,0) + 2 条非轴对齐（Pz35t、T7_Combat_Car，按原值变换后自动正确）。
-  `data/tanks.pb`/`models.pb` **字节不变**（重跑提取/编码 sha256 相同）。**影响面**：
-  资产包新增 1 个文件/包（5907、5921 件，manifest 已重算）；WotbTools 装甲查看器按原值
-  建面（平面随姿态、`planeSliceMode=0` 不裁；判定只用炮管 `gun_NN`，炮盾 `gun_NN_mask`
-  仅在有可用平面时并入并由平面裁掉炮根；视觉模型仍渲染完整炮管），旧包缺 sidecar
-  时回退标量重建；WASM pin、回放切面、地图资产不动。
+  不同炮塔上节点/平面不同，如 T-34 gun_01 0.8415 vs gun_07 0.8743 共用主炮模块），打包器
+  复制为包内 `data/gunMaskSlices.json`（缺源拒绝打包，供后续视觉/特效切片使用）。
+  **数据事实**：478 条记录；`planeSliceMode` 477×1 + 1×0；`frustumConeSliceMode` 全 0；
+  normal 476×(0,1,0) + 2 条非轴对齐（Pz35t、T7_Combat_Car）。`data/tanks.pb`/`models.pb`
+  **字节不变**（重跑提取/编码 sha256 相同）。**影响面**：资产包新增 1 个文件/包（5907、
+  5921 件，manifest 已重算）；WotbTools 装甲查看器只做炮管本体判定、不读 sidecar；
+  WASM pin、回放切面、地图资产不动。
 - **射击分析「目标炮塔朝向缺失」整场 fail 修复（2026-10-28）**：训练房静止靶（全程不转
   炮塔）零 `type=7 prop2` 变化流，作者严格射击路径按「命中弹必须有目标炮塔朝向」直接
   `Err`，WASM `parseShotReplays` 返回 `author_path="error"` + 0 发 → 前端射击分析显示
