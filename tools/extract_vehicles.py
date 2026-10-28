@@ -635,6 +635,18 @@ class Extractor:
         inline_clip = gr.inline_elem("clip")
         inline_pump = gr.inline_elem("pumpGunMode")
         reload_time = gr.floats("reloadTime")
+        # 连发组（PomPom）：`<burst count rate>` 是**时序**参数（组内弹间 60/rate），
+        # 不是弹夹分类依据（铁律 4 不变：分类只看 clip/pumpGunMode）。与 BK 的
+        # `GunDefinition.burst {count, interval}` 同义，供 DPM 的整匣循环公式使用。
+        burst_el = gr.inline_elem("burst")
+        if burst_el is None and gr.shared is not None:
+            burst_el = last_child(gr.shared, "burst")
+        burst_count = int(round(ffloat(burst_el, "count"))) if burst_el is not None else 0
+        burst_rate = ffloat(burst_el, "rate") if burst_el is not None else 0.0
+        burst_group = {
+            "burst_group_count": burst_count if burst_count > 1 else 0,
+            "burst_group_interval": (60.0 / burst_rate) if burst_count > 1 and burst_rate else 0.0,
+        }
         if inline_pump is not None:
             times = [float(x) for x in (gr.text("pumpGunReloadTimes") or "").split()]
             clip = gr.inline_elem("clip")
@@ -645,6 +657,7 @@ class Extractor:
                 "burst_size": ffloat(clip, "count") if clip is not None else 0.0,
                 "burst_interval": (60.0 / rate) if rate else 0.0,
                 "burst_reloads": times,
+                **burst_group,
             }
         elif inline_clip is not None:
             count = ffloat(inline_clip, "count")
@@ -655,10 +668,12 @@ class Extractor:
                 "burst_size": count,
                 "burst_interval": (60.0 / rate) if rate else 0.0,
                 "burst_reloads": [],
+                **burst_group,
             }
         else:
             reload = {"reload": reload_time, "is_burst": False, "is_drum": False,
-                      "burst_size": 0.0, "burst_interval": 0.0, "burst_reloads": []}
+                      "burst_size": 0.0, "burst_interval": 0.0, "burst_reloads": [],
+                      **burst_group}
 
         shells: list[dict] = []
         # shots 的两处来源：**共享 gun 定义**的条目带弹道参数（speed/piercingPower/...），

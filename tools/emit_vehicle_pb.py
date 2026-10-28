@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """本机客户端解包 → `data/tanks.pb` / `data/models.pb`（保持 pb 格式，运行期零代码改动）。
 
-⚠️ **未接线（2026-10-09 试接后回退）**：现役 `data/*.pb` 是 BlitzKit 版本；本地解包版本
-验证完成前**不得**用本工具产物替换它们。试接批的差异与待验证项见
-`docs/game-data-sources.md` §5.2b。
+现役 `data/tanks.pb` / `models.pb` 即本工具产物（2026-10-26 换源转正，见
+`docs/data-inventory.md` §源头表）；BlitzKit CDN 降为对照校验源（`fetch-blitzkit`）。
+换源批的差异与验证记录见 `docs/game-data-sources.md` §5.2b。
 
 数据源：`data/cache/local_pb/{tanks,models}.json`（`tools/extract_vehicles.py` 产物，客户端
 XML / `.sc2`/`.scg` 解包），只编码 `src/wargaming/blitzkit.rs` 运行期实际读取的字段
@@ -171,7 +171,14 @@ def shell_msg(s: dict, name: str) -> bytes:
 
 
 def gun_msg(g: dict, sup: dict) -> bytes:
-    out = reload_msg(g.get("reload") or {})
+    r = g.get("reload") or {}
+    out = reload_msg(r)
+    # gun.burst（proto 字段 20）：连发组 {count=1 uint32, interval=2 f32}。
+    # Rust 只读时序（组内弹间 + 每组发数），不参与 is_burst 判定。
+    burst_count = int(r.get("burst_group_count") or 0)
+    if burst_count > 1:
+        out += f_bytes(20, f_varint(1, burst_count)
+                       + f_f32(2, r.get("burst_group_interval") or 0.0))
     out += f_varint(4, int(g["module_id"]))
     out += f_f32(5, g.get("caliber_factor") or 0.0)  # 运行期 gun 有效性门槛（saw_rotation）
     gname = sup["gun_name"].get(str(g["module_id"])) or g.get("name") or ""

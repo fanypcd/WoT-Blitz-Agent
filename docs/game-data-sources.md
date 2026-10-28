@@ -291,6 +291,22 @@ WotbTools 经 assetProvider 加载，**不进入前端 bundle**。全局图标�
   bridge 中任一 `(nation, stem)` 未落到输出（拼错/缺文件）时导出器直接失败，不静默成功。
   预览 ZIP 的 `Strings/*.yaml.dvpl` 对部分新模块只有占位键（值等于键本身），
   导出器仍按原样保留 `name_*`（前端回退 stem），**不臆造显示名**。
+- **科技树 XI 节点（2026-10-27）**：预览客户端的 `Configs/TechTree/{nation}_tree.yaml`
+  含 8 个 XI 新登记位（BZ-79 `[11,3]`、Object 432U `[11,8]` 已实装；`R228_KR_1`/
+  `A183_XM69_Hacker`/`G189_Hirschkafer`/`G187_Taschenratte`/`J77_Ho_Ri_4`/
+  `F135_AS_XX_40_t` 只登记、无车辆定义）。`tools/fetch_t11_techtree.py` 对该 ZIP 做
+  **ZIP64 central directory + HTTP Range 按需提取**（不下载 20.67 GB；实测 ~7 MB）：
+  默认产出 `data/research_t11_preview/tech_tree_extra.json`（9 国树坐标 + 中/苏
+  list.xml 的 XI 车事实 + preview bridge 对号的 tankId）供
+  `export_research_loadout.py --with-research-graph --tech-tree-extra` 合并；
+  `--data-root <dir>` 额外物化**最小预览 Data 根**（version + 两国 Strings + 两车的
+  XML/components/Parameters，23 文件）——20 GB 解包删除后 `--modules-only --merge`
+  仍可复现。导出合并规则：主数据集（11.21）坐标优先，预览树只**新增** stem；定义车
+  进 `nodes`（`preview: true`），未定义的 6 个进 `pending`（只有坐标，不造名称/价格）。
+  注意：全量重导 `--with-research-graph` 会把 china/ussr modules 冲回 11.21 集合
+  （740→738）——导出器现对已含 `preview` 合并的输出目录直接报错；正确工序：
+  临时目录全量导出 → 复制 `tech_tree/` → 重跑 `--modules-only --merge`（见
+  data-inventory §配置器数据）。
   预览模式只读 Data 子树：`version.txt`、`Strings/{en,zh-Hans}.yaml.dvpl`、
   `XML/item_defs/vehicles/{nation}/{list,<stem>}.xml.dvpl` 与
   `components/{chassis,turrets,guns,engines,radios,fuelTanks,shells}.xml.dvpl`、

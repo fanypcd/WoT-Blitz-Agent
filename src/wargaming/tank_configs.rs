@@ -646,6 +646,10 @@ fn build_configs_uncached(tank_id: u32) -> Vec<Value> {
                 "burst_size": burst_size,
                 "burst_interval": burst_interval,
                 "burst_reloads": burst_reloads,
+                // 连发组（PomPom 类）：整夹 = burst_size 发，一次扳机组内连发
+                // burst_group_count 发（组内 burst_group_interval 秒），组间 intra-clip。
+                "burst_group_count": gr.burst_group_count,
+                "burst_group_interval": gr.burst_group_interval,
                 "turret_weight": turret_weight,
                 "turret_traverse_speed": turret_traverse,
                 "view_range": view_range,

@@ -26,9 +26,14 @@ Names/Components/DefResolver/Extractor 设施）。fail-closed：缺文件/解�
     icons/items/**              物品图标（客户端 UI 样式表 bg-sprite → 图集裁剪/整图，统一 96×96）
     icons/modules/*.webp        模块类型图标 5 张（ModulesTechTree，统一 96×96）
 
-可选（--with-research-graph，本期消费面不用，供日后科技树展示）：
-    tech_tree/{nation}.json     position 坐标 + premium_rows
-    research/{nation}.json      <unlocks> 边 + 成本
+可选（--with-research-graph，科技树/研发界面消费面）：
+    tech_tree/{nation}.json     nodes（stem/tankId/tier/x/y/price/tags；x=列 y=行，列≠tier）
+                                + pending（科技树已登记但未实装的 XI 展示位，仅坐标）
+                                + edges（`<unlocks><vehicle>` 整车研发边，from/to/cost/
+                                costRaw/sourceModule/sourceKind）
+    --tech-tree-extra           XI 预览增量（tools/fetch_t11_techtree.py 产物）：
+                                合并 11.22 超测树的 XI 节点（BZ-79 / Object 432U 为
+                                preview 节点，其余 6 个登记位进 pending）
 """
 
 from __future__ import annotations
@@ -861,11 +866,197 @@ def export_shell_icons(game_data: pathlib.Path, out_dir: pathlib.Path) -> dict:
     return {"shells": manifest, "missing": missing}
 
 
+def collect_vehicle_edges(nation: str, stem: str, root: ET.Element, comp: Components,
+                          radio_shared: dict[str, ET.Element] | None,
+                          fuel_shared: dict[str, ET.Element] | None) -> list[dict]:
+    """整车研发边投影：本车模块 `<unlocks><vehicle>` → 研发图的车辆边。
+
+    与 modules/*.json 同一物化口径（内联模块 + Components 共享解析），来源模块 kind
+    取容器语义（chassis/turret/gun/engine/radio/fuelTank），与研发图统计
+    （client-research-tech-tree-loadout.md §3.2）同构；`cost`/`costRaw` 均保留原值。
+    """
+    edges: list[dict] = []
+
+    def scan(module_el: ET.Element, shared: ET.Element | None, src_kind: str, module_stem: str) -> None:
+        u = module_el.find("unlocks")
+        if u is None:
+            return
+        for target in u:
+            if not isinstance(target.tag, str) or target.tag != "vehicle":
+                continue
+            cost_raw = (target.findtext("cost") or "").strip()
+            edges.append({
+                "from": stem,
+                "to": (target.text or "").strip(),
+                "cost": parse_cost(cost_raw),
+                "costRaw": cost_raw,
+                "sourceModule": module_stem,
+                "sourceKind": src_kind,
+            })
+
+    # turrets 容器标签是字面 "turrets0"（与 export_module_kind 同一事实）；
+    # radios/fuelTanks 的共享定义不在 Components 内，由调用方传入。
+    containers = (("chassis", "chassis", None, None), ("turrets", "turrets0", None, None),
+                  ("engines", "engines", None, None),
+                  ("radios", "radios", "radios", radio_shared),
+                  ("fuelTanks", "fuelTanks", "fuelTanks", fuel_shared))
+    for comp_kind, container_tag, map_kind, shared_map in containers:
+        container = last_child(root, container_tag)
+        if container is None:
+            continue
+        for entry in container:
+            if not isinstance(entry.tag, str):
+                continue
+            shared = shared_map.get(entry.tag) if shared_map is not None else comp.shared_def(comp_kind, entry.tag)
+            scan(entry, shared, comp_kind.rstrip("s") if comp_kind != "chassis" else "chassis", entry.tag)
+            if comp_kind == "turrets":
+                guns_el = entry.find("guns")
+                if guns_el is not None:
+                    for g in guns_el:
+                        if isinstance(g.tag, str):
+                            scan(g, comp.shared_def("guns", g.tag), "gun", g.tag)
+    return edges
+
+
+def parse_list_facts(list_root: ET.Element) -> dict[str, dict]:
+    """list.xml 条目 → 科技树节点事实（id/level/price/tags）。"""
+    facts = {}
+    for v in list_root:
+        price_raw = (v.findtext("price") or "").strip()
+        facts[v.tag] = {
+            "listId": int(v.findtext("id")),
+            "tier": int(v.findtext("level") or 0),
+            "price": int(price_raw) if price_raw.isdigit() else 0,
+            "priceRaw": price_raw,
+            "tags": (v.findtext("tags") or "").split(),
+        }
+    return facts
+
+
+def export_tech_tree(game_data: pathlib.Path, write, version: str, by_key: dict,
+                     extra: dict | None, langs_unused: None = None) -> dict:
+    """科技树布局 + 车辆研发边（--with-research-graph）。
+
+    数据源（每国）：
+    - `Configs/TechTree/{nation}_tree.yaml`：`tanks[stem].position = [列, 行]`（列≠tier，
+      other 树列 1..7 而 tier 4..10；tier 一律读 list.xml `<level>`）+ `premium_rows`；
+    - `XML/item_defs/vehicles/{nation}/list.xml`：tankId（bridge 对号）/tier/price/tags；
+    - 逐车 XML `<unlocks><vehicle>`：整车研发边（collect_vehicle_edges）。
+
+    `--tech-tree-extra`（11.22 XI 预览，tools/fetch_t11_techtree.py 产物）：为预览 yaml
+    新增的 XI 节点补 position；其中 list 命中（BZ-79 / Object 432U）的为 preview 节点
+    （tankId 来自 preview bridge），未实装的 6 个登记位进 `pending`（只有 stem + 坐标，
+    不造名称/价格）。fail-closed：主树节点缺 list.xml 或 bridge 条目、研发边目标无法
+    解析为车辆时直接报错。
+
+    输出 `tech_tree/{nation}.json`：{meta, nodes, pending, edges}。
+    """
+    import yaml as _yaml
+
+    extra_trees = (extra or {}).get("trees") or {}
+    extra_lists = (extra or {}).get("list") or {}
+    extra_version = (extra or {}).get("meta", {}).get("gameVersion")
+    totals = {"nations": 0, "nodes": 0, "pending": 0, "edges": 0}
+    list_facts_all: dict[str, dict] = {}
+    cross_targets: set[str] = set()
+
+    for nation in NATIONS:
+        tree_p = game_data / f"Configs/TechTree/{nation}_tree.yaml.dvpl"
+        tree = _yaml.safe_load(decode_dvpl(tree_p.read_bytes()).decode("utf-8")) or {}
+        positions: dict[str, list[int]] = {}
+        for stem, v in (tree.get("tanks") or {}).items():
+            position = v.get("position") if isinstance(v, dict) else None
+            if not position:
+                raise RuntimeError(f"{nation}_tree.yaml entry without position: {stem}")
+            positions[str(stem)] = [int(position[0]), int(position[1])]
+        premium_rows = tree.get("premium_rows")
+
+        list_root = load_dvpl_xml(game_data / f"XML/item_defs/vehicles/{nation}/list.xml.dvpl")
+        facts = parse_list_facts(list_root)
+        list_facts_all[nation] = facts
+
+        nodes: list[dict] = []
+        pending: list[dict] = []
+        preview_stems: list[str] = []
+        for stem, (x, y) in sorted(positions.items()):
+            f = facts.get(stem)
+            if f is None:
+                raise RuntimeError(f"{nation}: tree node without list.xml entry: {stem}")
+            tank_id = by_key.get((nation, stem))
+            if tank_id is None:
+                raise RuntimeError(f"{nation}: tree node not in tank bridge: {stem}")
+            nodes.append({"stem": stem, "tankId": tank_id, **f, "x": x, "y": y})
+        # XI 预览增量：主 yaml 没有的 stem 才来自预览树（主数据集坐标优先，预览不改写）。
+        extra_tree = extra_trees.get(nation) or {}
+        extra_list = extra_lists.get(nation) or {}
+        for stem, v in sorted((extra_tree.get("tanks") or {}).items()):
+            x, y = v["position"]
+            if stem in positions:
+                if positions[stem] != [x, y]:
+                    print(f"   [tech-tree] {nation}/{stem}: preview position {[x, y]} differs "
+                          f"from main {positions[stem]}（主数据集优先）")
+                continue
+            f = extra_list.get(stem)
+            if f is not None:
+                nodes.append({"stem": stem, "tankId": f["tankId"], "listId": f["listId"],
+                              "tier": f["level"], "price": f["price"], "priceRaw": f["priceRaw"],
+                              "tags": f["tags"], "x": x, "y": y, "preview": True})
+                preview_stems.append(stem)
+            else:
+                # 科技树已登记但无车辆定义（超测展示位）：只有坐标，不猜名称/价格。
+                pending.append({"stem": stem, "x": x, "y": y})
+
+        # 整车研发边：全量 list 车辆（含 bridge 外的收藏/活动车，其 <unlocks> 一并覆盖）。
+        comp = Components(game_data / f"XML/item_defs/vehicles/{nation}/components")
+        _radio_ids, radio_shared = load_component(game_data / f"XML/item_defs/vehicles/{nation}/components", "radios")
+        _fuel_ids, fuel_shared = load_component(game_data / f"XML/item_defs/vehicles/{nation}/components", "fuelTanks")
+        edges: list[dict] = []
+        for v in list_root:
+            stem = v.tag
+            p = game_data / f"XML/item_defs/vehicles/{nation}/{stem}.xml.dvpl"
+            if not p.exists():
+                continue
+            edges.extend(collect_vehicle_edges(nation, stem, load_dvpl_xml(p), comp,
+                                               radio_shared, fuel_shared))
+        for edge in edges:
+            if ":" in edge["to"]:
+                cross_targets.add(edge["to"])
+            elif edge["to"] not in facts:
+                raise RuntimeError(f"{nation}: vehicle unlock target not in list.xml: "
+                                   f"{edge['from']} -> {edge['to']}")
+
+        file_meta = {"nation": nation, "gameVersion": version, "count": len(nodes),
+                     "premiumRows": premium_rows, "edges": len(edges)}
+        if pending:
+            file_meta["pendingCount"] = len(pending)
+        if preview_stems:
+            file_meta["preview"] = {"gameVersion": extra_version, "tanks": sorted(preview_stems)}
+        payload = {"meta": file_meta, "nodes": nodes, "pending": pending, "edges": edges}
+        write(f"tech_tree/{nation}.json", payload)
+        totals["nations"] += 1
+        totals["nodes"] += len(nodes)
+        totals["pending"] += len(pending)
+        totals["edges"] += len(edges)
+        print(f"   [tech-tree] {nation}: nodes={len(nodes)} pending={len(pending)} "
+              f"edges={len(edges)} premium_rows={premium_rows}")
+
+    # 跨国籍目标（`nation:stem`，导出规则：保留全名）：目标国 list.xml 可解析才放行。
+    for target in sorted(cross_targets):
+        t_nation, t_stem = target.split(":", 1)
+        if t_stem not in list_facts_all.get(t_nation, {}):
+            raise RuntimeError(f"cross-nation unlock target not in list.xml: {target}")
+    return totals
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="data/research")
     ap.add_argument("--langs", default="en,zh-Hans")
-    ap.add_argument("--with-research-graph", action="store_true")
+    ap.add_argument("--with-research-graph", action="store_true",
+                    help="同时导出 tech_tree/{nation}.json（科技树坐标 + 整车研发边）")
+    ap.add_argument("--tech-tree-extra", default=None,
+                    help="XI 预览增量 JSON（tools/fetch_t11_techtree.py 产物），与 "
+                         "--with-research-graph 连用合并 XI 节点")
     ap.add_argument("--game-data", default=None,
                     help="客户端 Data 根目录（默认自动探测；预览客户端可显式指定）")
     ap.add_argument("--bridge", default=None,
@@ -881,11 +1072,29 @@ def main() -> None:
         ap.error("--merge 只能与 --modules-only 连用")
     langs = [x.strip() for x in args.langs.split(",") if x.strip()]
     out_root = REPO_ROOT / args.out
+    if not args.modules_only:
+        # 防回退门禁：data/research 是 SSOT 快照，XI 预览合并（--modules-only --merge）
+        # 的成果不能被一次 11.21 全量导出静默冲掉（真实事故：740 → 738）。
+        prev_meta_p = out_root / "meta.json"
+        if prev_meta_p.exists():
+            prev_preview = (json.loads(prev_meta_p.read_text(encoding="utf-8"))
+                            .get("preview") or [])
+            if prev_preview:
+                raise RuntimeError(
+                    f"{prev_meta_p} 已含 XI 预览合并（{len(prev_preview)} 辆）；全量导出会丢失它们。"
+                    f"正确顺序：python tools/fetch_t11_techtree.py --data-root <root> 重建最小预览根 → "
+                    f"全量导出到新目录后复制 tech_tree/ 增量 → 重跑 --modules-only --merge"
+                    f"（docs/game-data-sources.md §2.7）。")
     out_root.mkdir(parents=True, exist_ok=True)
     game_data = pathlib.Path(args.game_data) if args.game_data else default_game_data()
     bridge_path = pathlib.Path(args.bridge) if args.bridge else REPO_ROOT / "data/tank_id_bridge.json"
     version = decode_dvpl((game_data / "version.txt.dvpl").read_bytes()).decode("utf-8").strip()
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if args.tech_tree_extra and not args.with_research_graph:
+        ap.error("--tech-tree-extra 只能与 --with-research-graph 连用")
+    if args.with_research_graph and args.modules_only:
+        ap.error("--with-research-graph 需要全量导出（不与 --modules-only 连用）")
 
     names_by_lang = {lang: Names(game_data, lang=lang) for lang in langs}
     en_names = names_by_lang[langs[0]]
@@ -1059,6 +1268,15 @@ def main() -> None:
         by_nation.update(tank_counts)
         counts["tanks"] = sum(by_nation.values())
         counts["tanksByNation"] = by_nation
+        if (out_root / "tech_tree").exists():
+            tech = {"nations": 0, "nodes": 0, "pending": 0, "edges": 0}
+            for tp in sorted((out_root / "tech_tree").glob("*.json")):
+                d = json.loads(tp.read_text(encoding="utf-8"))
+                tech["nations"] += 1
+                tech["nodes"] += len(d.get("nodes") or [])
+                tech["pending"] += len(d.get("pending") or [])
+                tech["edges"] += len(d.get("edges") or [])
+            counts["techTree"] = tech
         preview = []
         for mp in sorted((out_root / "modules").glob("*.json")):
             data = json.loads(mp.read_text(encoding="utf-8"))
@@ -1120,8 +1338,12 @@ def main() -> None:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(obj, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
+    tech_tree_totals = None
     if args.with_research_graph:
-        raise RuntimeError("--with-research-graph 尚未接常驻输出（本期消费面不用）；如需科技树数据先跑 tmp_analysis/scan_research.py 原型")
+        extra = None
+        if args.tech_tree_extra:
+            extra = json.loads((REPO_ROOT / args.tech_tree_extra).read_text(encoding="utf-8"))
+        tech_tree_totals = export_tech_tree(game_data, write, version, by_key, extra)
 
     write("devices.json", {"meta": {"gameVersion": version, "count": len(devices["devices"]),
                                     "presets": len(devices["presets"])}, **devices})
@@ -1146,22 +1368,25 @@ def main() -> None:
         rel = p.relative_to(out_root).as_posix()
         files[rel] = {"sha256": hashlib.sha256(p.read_bytes()).hexdigest(), "bytes": p.stat().st_size}
 
+    counts = {
+        "tanks": total_tanks,
+        "tanksByNation": tank_counts,
+        "devices": len(devices["devices"]),
+        "devicePresets": len(devices["presets"]),
+        "consumables": len(consumables),
+        "provisions": len(provisions),
+        "consumablesCommon": sum(1 for x in consumables if x["mode"] == "common"),
+        "provisionsCommon": sum(1 for x in provisions if x["mode"] == "common"),
+        "skills": len(skill_icons["skills"]),
+        "shellIcons": len(shell_icons["shells"]),
+    }
+    if tech_tree_totals is not None:
+        counts["techTree"] = tech_tree_totals
     write("meta.json", {
         "gameVersion": version,
         "generatedAt": generated_at,
         "langs": langs,
-        "counts": {
-            "tanks": total_tanks,
-            "tanksByNation": tank_counts,
-            "devices": len(devices["devices"]),
-            "devicePresets": len(devices["presets"]),
-            "consumables": len(consumables),
-            "provisions": len(provisions),
-            "consumablesCommon": sum(1 for x in consumables if x["mode"] == "common"),
-            "provisionsCommon": sum(1 for x in provisions if x["mode"] == "common"),
-            "skills": len(skill_icons["skills"]),
-            "shellIcons": len(shell_icons["shells"]),
-        },
+        "counts": counts,
         "files": files,
     })
     print(f"game={version}")

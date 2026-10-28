@@ -169,6 +169,7 @@ european=129`。
 |---|---|---|
 | `hp = hull.maxHealth + max(炮塔.maxHealth)` | 738/738（`TankResolver::from_blitzkit` 与 `configs[]` 同源）+ 回放残差独立校验 | 这是 `tank_cache`/`tank_data` 的总 HP 口径（取血量最高的炮塔）；装 stock 炮塔时 = hull + 该炮塔。`tanks.pb` field10 本身只是**车体 HP**（IS-7 = 2040），不要直接当总血量 |
 | `dpm = standard_damage * 60 / reload_time` | 定义式（`tank_configs.rs` 计算；1308/1308 只是自洽） | 单发炮；`standard_damage` 取 AP/首个非金币弹；弹夹为 `None`。**不是客户端验证值**，客户端 UI 可能按当前弹种显示 |
+| `DPM（弹夹/连发）= damage × 整夹 × 60 / (reload + (组数−1)×intraClip + 组数×(每组−1)×组内间隔)` | BK `resolveDpm` 同式（`gun.burst` 分支）；无连发组 = `reload + (整夹−1)×intraClip` | 组数 = 整夹 / `burst_group_count`；`burst_group_interval` = 客户端 `<burst rate>` 的 `60/rate`（AC Atlas V2：13 + 3 + 1）。pb gun **field 20** = `Burst{count, interval}`；非弹夹炮的同名字段不参与计算 |
 
 > 回放侧独立校验（2026-10-26，`wotb-agent loadout` 87 条玩家记录）：`hp_initial` 相对
 > 上述基础 HP 的残差只出现 0 / 5% / 6% / 9% / 11%，与装备/补给的 HP 加成吻合；若基础
@@ -347,6 +348,35 @@ tanks:
 
 ---
 
+## 4.4 客户端模型接口（`wotblitz.exe` 逆向，2026-10-27）
+
+> 目标：`D:/SteamLibrary/steamapps/common/World of Tanks Blitz/wotblitz.exe`
+> （PE32 x86，73,841,664 B，sha256 `5030ee4b9f6ec7db1c06efa2b92f9dd7243574be5d8d9578c118119318bc9608`）。
+> 方法：PE 节表 + 原始字节扫描定位反射属性名，再定位注册代码；**未运行目标**。
+
+- 类名表（`.rdata` 0x3a2df60 起）：`ModuleNodeModel`、`TankModulesTreeModel`、
+  `ModulesTreeNodeModel`、`VehicleNodeModel`——与 Screens3 yaml 的绑定名一致，
+  说明网格坐标确由 **`TankModulesTreeModel` 在运行时计算**，不在任何 `Configs/` 数据里。
+- `TankModulesTreeModel` 属性（注册字符串，`.rdata` 0x39efd28 起）：`modulesNodes`、
+  `currentVehicle`、`prevNodes`、`selectedNode`、`progressingNode`、`currentAction`、
+  `actionLockReason`、`canAffordResearch`、**`horizontalSize`/`verticalSize`**、
+  `selectedCompactDescr`、`prevTankDescr`、`upgradeToTopPrice`、
+  `tempPremiumizationPrice`/`permPremiumizationPrice`、`isPremiumizationAvailable`、
+  `isCommonTank`/`isSeasonTank`/`isSeasonActive`、`isBlitzKitInfoAvailable`、
+  `eResearchDialogType`。
+- `ModulesTreeNodeModel` 的连线方向只有 6 个布尔属性：**`hasArrowLeftUp`、
+  `hasArrowLeftDown`、`hasArrowUp`、`hasArrowDown`、`hasArrowLeft`、`hasArrowRight`**
+  （按属性序号 0x28..0x2d 顺序注册，注册点 0x28fac4b 起）——即每个节点**最多 6 个方向、
+  每个方向一个箭头**，与「每个节点只有一条上级连线、子节点可上/下偏置」的树形布局一致，
+  不支持「一条边一条独立箭头」的任意 DAG 画法。
+- `eModuleNodeContentType` 注册（0x290b1b3）同时挂 `MODULE`(=2) 与
+  `eVehicleNodeStatus` 枚举值，模块/车辆节点共用同一网格模型。
+- `Configs/TechTree/modules_shared.yaml`（`start/step/offset` 31/100,104/26,40）在全量
+  3473 个 UI 定义中零引用（census §5.3 旧结论仍成立），不是布局来源。
+
+**待完成**：`TankModulesTreeModel` 的节点坐标算法（列/行分配与 6 向箭头判定）需要
+Ghidra 反编译该模型更新函数；73 MB x86 的自动分析耗时较长，尚未取到函数体。
+
 ## 5. UI 交互契约（Screens3）
 
 > 客户端 UI 是数据驱动 YAML：`UIDataParamsComponent.params` 声明输入模型，
@@ -449,11 +479,21 @@ tanks:
 
 **连线不是动态画线**：`linesMask` 选 28 个手写图案之一（`Lines15`、`Lines128` … `Lines10880`）。
 图案由 `ArrowLine/Line` + `Arrow/Arrow` 子控件组成，命名如 `VL`、`RightHLine`、
-`BottomVLine`、`BottomArrow`、`LeftHLine`、`LeftCenterArrow`。复刻有两种口径：
+`BottomVLine`、`BottomArrow`、`LeftHLine`、`LeftCenterArrow`。
 
-1. **图案等价**：按 `linesMask` 编号复用同构几何（需要客户端模型给出 mask，数据里没有）；
-2. **拓扑等价**：直接按「父模块 → 子车」的研发边画中心到中心的线/箭头，不追求像素级
-   图案一致（推荐先做这个，视觉验收归用户）。
+**（2026-10-27 修正 + 补充提取）**：图案文件本身**是客户端包内数据**
+（`UI/Screens3/Lobby/TanksTechTree/Lines{N}.yaml.dvpl`，11.21 与 11.22 预览包均在；
+预览包在 `TanksTechTree/` 直接层，现役包在 `TanksTechTree/Lines/` 子目录）——数据里
+没有的只是**每个格子的 mask 编号**（模型计算）。图案几何可完整提取（单位=格内 px，
+cell 216×96）：`LeftHLine` 左缘 -0.5 起 13.5px（入线）；`LeftCenterArrow` @13px vCenter
+（入线箭头）；`RightHLine` 右缘 0.5 起 19.5px（出线）；`VL`/`VL0`/`VR`/`VR0` 左/右缘
+±0.5 的 50%/100% 垂直干线（骑列边界，跨行连接按格分解）；`BottomVLine`/`BottomArrow`
+底部中心（同列向下）；`TopArrow` 顶部中心；`LeftHLine1` 第二条入线（bottomAnchor
+31.5，双入线场景）。mask 名为位掩码，但位语义未定（28 个观测值无法唯一反解位表）——
+复刻按**拓扑路由 + 提取几何**：对每条整车边画「源格右侧 20px → 列边界干线 → 目标格内
+13px + 箭头」，与客户端分段分解视觉等价，不依赖 mask 反解。等级条（`LevelCell`）为
+216×24、`roman(level)` 罗马数字、可见窗口 `minLevel..maxLevel`；XI 版仅把
+`levels` 从 `[1..10]` 扩到 `[1..11]`（预览包 TanksTechTree.yaml diff 唯一实质变化）。
 
 > `Configs/TechTree/tree_shared.yaml`（start/step 15,16 / 200,90）与
 > `modules_shared.yaml`（start 30,36 / step 100,104 / offset 26,40）是**遗留常量**：

@@ -122,6 +122,14 @@ pub struct GunReload {
     pub burst_interval: f64,
     /// 弹鼓各发装填时间列表（秒）；弹夹/单发为空。
     pub burst_reloads: Vec<f64>,
+    /// 连发组（proto `GunDefinition.burst`）：每组发数；0/1 = 无连发组。
+    /// 与 `burst_size`（整夹发数）不同：PomPom 类炮一次扳机打 `burst_group_count` 发，
+    /// 组内按 `burst_group_interval` 连发，组与组之间按 `burst_interval` 间隔。
+    #[serde(default)]
+    pub burst_group_count: u32,
+    /// 连发组内弹间秒（`Burst.interval`）；无连发组为 0。
+    #[serde(default)]
+    pub burst_group_interval: f64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -653,6 +661,8 @@ fn parse_gun(gb: &[u8]) -> Result<Option<GunData>> {
             burst_size: 0.0,
             burst_interval: 0.0,
             burst_reloads: Vec::new(),
+            burst_group_count: 0,
+            burst_group_interval: 0.0,
         },
     };
     let mut saw_rotation = false;
@@ -703,6 +713,24 @@ fn parse_gun(gb: &[u8]) -> Result<Option<GunData>> {
                 gun.reload.burst_interval = interval;
                 gun.reload.burst_size = size;
                 gun.reload.burst_reloads = Vec::new();
+            }
+            // gun.burst（proto 字段 20）：连发组。只看时序语义（组内弹间秒 + 每组发数），
+            // 不用它判 is_burst（铁律：is_burst 只认车辆内联 <clip>/<pumpGunMode>）。
+            (20, 2) => {
+                let ilen = gr.varint()? as usize;
+                let inner = gr.bytes(ilen)?;
+                let mut ir = Reader { buf: inner, pos: 0 };
+                while let Some(res6) = ir.tag() {
+                    let (f6, w6) = res6?;
+                    if f6 == 1 && w6 == 0 {
+                        gun.reload.burst_group_count = ir.varint()? as u32;
+                    } else if f6 == 2 && w6 == 5 {
+                        gun.reload.burst_group_interval =
+                            f32::from_le_bytes(ir.bytes(4)?.try_into().unwrap()) as f64;
+                    } else {
+                        ir.skip_field(w6)?;
+                    }
+                }
             }
             (3, 2) => {
                 let ilen = gr.varint()? as usize;
@@ -1527,6 +1555,19 @@ mod parse_tests {
         assert_eq!(ap.penetration as i64, 251);
         assert_eq!(ap.damage as i64, 460);
         assert_eq!(ap.module_damage as i64, 180);
+
+        // 连发组（PomPom 类）：AC Atlas 的 130mm PomPom 炮一次扳机 3 发、组内 0.25s。
+        // 这是 DPM 的时序输入（与 is_burst 分类无关）。
+        let atlas = tanks.iter().find(|t| t.tank_id == 19825).expect("AC Atlas");
+        let pompom = atlas
+            .turrets
+            .iter()
+            .flat_map(|t| &t.guns)
+            .find(|g| g.module_id >> 8 == 199)
+            .expect("PomPom gun");
+        assert!(pompom.reload.is_burst);
+        assert_eq!(pompom.reload.burst_group_count, 3);
+        assert!((pompom.reload.burst_group_interval - 0.25).abs() < 1e-6);
         assert!(
             (gun.reload.reload - 12.4).abs() < 0.5,
             "reload {}",

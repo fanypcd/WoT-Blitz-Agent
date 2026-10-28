@@ -300,7 +300,7 @@ interface VehicleSetup {
 | 改进型悬挂 | 通过性 ×(1+20/15/30%)（阻力 /(1+b)） | BlitzInfo Type 71：91→109 / 83→96 / 64→84 |
 | 装甲表 | 板值 × `(1 + armorHomogenizationFactor/100)`（multiLayerArmor 110，未装 = 1） | 客户端 script +4%；BI Main Armor 显示裸板值，配置器按用户要求联动（2026-10-27） |
 | `shellVelocity` | `base × (1 + 0.35 supercharger + 0.35 gunpowder)` | 两处均为客户端 script 的 +35%；弹种明细速度同乘 |
-| DPM | `resolveDpm`：regular / autoloader（弹夹+burst）/ autoreloader（最优弹） | ×60 |
+| DPM | `resolveDpm`：regular / autoloader / autoreloader（最优弹）；弹夹炮的整匣循环 = `reload + (n−1)×intraClip`，**连发组（PomPom）** = `reload + (n/每组−1)×intraClip + (n/每组)×(每组−1)×组内间隔` | ×60；连发组字段 `config.burst_group_count/burst_group_interval`（pb gun field 20），无组时退化 |
 | 有效 DPM（自动装填炮） | BK `dpmEffective` 的 60 s 窗口：`damage / (首发或末发×reloadCoeff + intraClip) × (60 − (n−2)×intraClip) + damage×(n−1)`；`reloads[0] > reloads[1] + intraClip` 时取末发，否则取首发 | 只有 `autoreloader` 且逐发装填 ≥2 时有值；参数行 `gunEffectiveDamagePerMin`（`gunCommonDamagePerMin` 之后）。少于两发 → null（fail-closed） |
 | 尺寸（BI Dimensions） | 底盘 + 车体 + **所选炮塔**碰撞盒并集，不含炮管；包围盒坐标 `[x 宽, y 长, z 高]`；挂点 `[x, 上, 前]` 换序后叠加（炮塔挂点 = 车体挂点 + 炮塔相对挂点） | BI 11.21 逐值对拍：T-34 顶级炮塔 5.72×2.94×2.63 m、116-F3 7.63×3.49×2.70 m；空盒/缺挂点 → 整组隐藏（fail-closed） |
 | 俯仰/朝向 | `applyPitchYawLimits`：yaw 夹取；有效仰角 = `abs(pitch.min) − initialPitch`、有效俯角 = `pitch.max + initialPitch`（4 辆意系 AT-SPG），再 ±稳定器（+4°上/+3°下）；front/back 扇区按 yaw 切换，过渡带（默认 20°）线性插值 | 3D 场景用；BI 11.21 对拍 Minotauro 18/7+pitch3→15/10、Ciclope 20/7+6.5→13.5/13.5 |
@@ -710,6 +710,26 @@ interface VehicleSetup {
       `piercingPenaltyFactor500m = -60`（远距衰减量 ×0.4）都进弹种明细；火药补给的弹速
       +35% 也进明细。修复了“选超负荷/火药看不到弹速变化、选校准弹远距穿深不变”的漏接。
     - **术语**：中文 `normalization` 由“正化角”改为“转正角”。
+
+21. **连发组（PomPom）DPM 修复（2026-10-28，用户报告 AC Atlas DPM 偏小）**：客户端
+    `<burst count rate>`（一次扳机连发 N 发、组内 60/rate 秒）此前完全没进数据面，弹夹
+    公式把整夹每一发都按扳机间隔计，组内弹间被重复放大。按 BK `resolveDpm` 的 `gun.burst`
+    分支修正：
+    - **数据**：`extract_vehicles.py` 从内联/共享 `<burst>` 导出 `burst_group_count` /
+      `burst_group_interval`（不改 is_burst 分类铁律）；`emit_vehicle_pb.py` 写 pb gun
+      field 20（`Burst{count, interval}`）；`blitzkit.rs::parse_gun` 解码、`tank_configs.rs`
+      写 `configs[].burst_group_*`。35 辆 / 39 个配置受影响（另 4 个非弹夹炮带字段但
+      `is_burst=false`，计算不受影响）。
+    - **计算**：`gunCycleOf` 透传两字段；autoloader DPM 用整匣循环 + 组内/组间拆分。
+      AC Atlas V2（整夹 6、组间 3s、每组 3、组内 0.25s、装填 13s、单发 120）：旧 1573 →
+      2623（本仓默认乘员系数）；无连发组时公式不变。
+    - **显示**：火力组补客户端同名连发行 `gunClipBurstCount`（连发组数）/
+      `gunBurstShellCount`（每组发数）/`gunClipBurstReloadTime`（组内连发间隔），
+      非连发组炮不出现；整夹只有一组连发（Annihilator/Cerberus）时**不显示弹间装填**
+      （不存在组间扳机间隔，唯一间隔是组内值）。
+    - **资产包**：两包 `tank/*.json` 共 70 件替换 + manifest 重算（0 mismatch）。
+    - **测试**：characteristics 新增 PomPom 用例（2618–2628 / 每分钟 21.8–21.9 发）；
+      tankSetup 覆盖组字段与「缺字段/count=1 视为无组」。
     - **前后对比**：改为 BK `useDelta` 同逻辑——delta = 当前值 − **上一次渲染值**（初次
       加载无 delta；改变选择后显示本次变化，直到下一次变化），渲染顺序为绝对差值 + ▲/▼
       再跟主值，颜色按 `biggerIsBetter`。不再用固定“初始配置”基准。**重置**会把 previous
@@ -801,8 +821,20 @@ interface VehicleSetup {
   `docker/Dockerfile.frontend` 已 `COPY common/research /common/research`）；`pnpm run typecheck`、
   `pnpm run lint:css` 通过。本仓 Rust：`cargo test --lib wargaming::tank_configs` 5/5
   （新增逐配置口径 = 弹表弹径锚点）。
-- 未做：P4 回放装配徽标（`shooter_equipment` → 配置器反解）、研发图/科技树消费。
-  视觉验收（图标密度/布局、模式切换）由用户执行。
+- **P4 回放装配徽标 + 科技树/研发界面（2026-10-27 同日落地，随用户指令解除范围裁定）**：
+  前端（WotbTools `agent-techtree` 视图 + `TankResearchPanel` + `EquipmentBadges` +
+  `ArmorLoadout`）：科技树按 `tech_tree/{nation}.json` 原始 x/y 网格渲染（band 不划分——
+  §4.1 census 的「premium 带」解读与数据不符，见 docs/index.md 数据面条目），研发连线
+  拓扑等价；单车研发图布局为确定性推导（列=最长入边深度、行=模块族），UI 标注
+  「布局为复刻推导」；装甲查看器「实际搭载」区（百科 URL 交接 `dev/cons/prov`）与
+  回放装备徽标（`shooter_equipment.raw`/`vehicles[].equipment` → devices.json 图标，
+  未知 id 走通用未知文案）；车辆卡「在配置器中打开」= `?tank=&eq=` →
+  `devicesFromEquipmentIds` 反解（歧义 fail-closed 留空）。配置器手机（<768px）模块
+  矩阵折 2 列。§9.3 状态机维持「不做账号态」裁定：科技树/研发页只展示成本与当前搭载。
+  数据面（本仓）：`--with-research-graph` 落地 + `tools/fetch_t11_techtree.py`
+  （ZIP64+Range 部分提取，`--data-root` 物化最小预览根）+ 预览合并防回退门禁；
+  `tools/test_research_techtree.py` 护栏（306 节点/6 pending/310 边/XI 事实）。
+  视觉验收（科技树观感/连线密度、移动端排版、研发图布局）由用户执行。
 
 ### 12.4 已知偏差增量（并入 §7）
 

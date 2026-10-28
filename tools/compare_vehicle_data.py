@@ -306,7 +306,8 @@ def _pb_gun(b: bytes) -> dict | None:
     g = {"module_id": 0, "name": "", "caliber_factor": 0.0, "shell_count": 0,
          "dispersion": 0.0, "aim_time": 0.0, "shells": [],
          "reload": {"reload": 0.0, "is_burst": False, "is_drum": False,
-                    "burst_size": 0.0, "burst_interval": 0.0, "burst_reloads": []}}
+                    "burst_size": 0.0, "burst_interval": 0.0, "burst_reloads": [],
+                    "burst_group_count": 0, "burst_group_interval": 0.0}}
     saw_caliber = False
     name_b = b""
     for f, w, v in fields(b):
@@ -331,6 +332,12 @@ def _pb_gun(b: bytes) -> dict | None:
                                     "burst_interval": round(float(vals[-2]), 8),
                                     "burst_size": float(vals[-1]),
                                     "burst_reloads": [round(float(x), 8) for x in vals[:-2]]})
+        elif (f, w) == (20, 2):   # gun.burst {count=1 uint32, interval=2 f32}（连发组）
+            for f2, w2, v2 in fields(v):
+                if (f2, w2) == (1, 0):
+                    g["reload"]["burst_group_count"] = v2
+                elif (f2, w2) == (2, 5):
+                    g["reload"]["burst_group_interval"] = round(float(v2), 8)
         elif (f, w) == (4, 0):
             g["module_id"] = v
         elif (f, w) == (5, 5):

@@ -171,6 +171,57 @@
 
 ### 数据面
 
+- **连发组（PomPom）DPM 修复（2026-10-28）**：`AC Atlas` / `ATAC` 等车的“一次扳机连发 N 发”炮
+  （客户端 `<burst count rate>`）此前被当成普通弹夹——整夹每一发都按扳机间隔计，DPM 明显偏低
+  （AC Atlas V2：旧式 1573 → 2623，本仓默认乘员系数口径）。修复链全程用客户端语义而不是
+  数值猜测：`tools/extract_vehicles.py` 从车辆内联/共享 `<burst>` 导出
+  `burst_group_count` / `burst_group_interval`（**只作时序，不参与 is_burst 分类**——
+  分类仍只看内联 `clip`/`pumpGunMode`）；`tools/emit_vehicle_pb.py` 写 pb gun **field 20**
+  （`Burst{count=1 uint32, interval=2 float}`，与 BlitzKit `GunDefinition.burst` 同义）；
+  Rust `blitzkit.rs::parse_gun` 解码、`tank_configs.rs` 落 `configs[].burst_group_*`；
+  WotbTools `gunCycleOf` + `characteristics.ts` 按 BK `resolveDpm` 的整匣循环
+  `reload + (整夹/每组−1)×弹间 + (整夹/每组)×(每组−1)×组内间隔`（无连发组时退化为原式）。
+  数据面：**35 辆车 / 39 个配置**新增字段（其余车辆 `data/tanks.pb` 字节不变；PB 重新编码
+  自本机客户端 11.21.0.1235，`models.pb` 未动）；4 个非弹夹炮（如 MS-1 mod. 1 的 20 mm TNSh）
+  也带 `<burst>`，字段照存但 `is_burst=false` → 计算走 regular，不受影响。**影响面**：资产包
+  `tank/*.json`（35 件/包，两包均已更新并重算 manifest）；WotbTools 前端 bundle 变化
+  （Android `wotbVersion` 同 PR）；WASM pin 不变。
+- **科技树/研发图导出 + XI 预览合并（2026-10-27，随用户指令解除「不做科技树页」裁定）**：
+  `tools/export_research_loadout.py` 落地 `--with-research-graph`（原为报错 stub）：新增
+  `data/research/tech_tree/{nation}.json`（9 国）——`nodes`（stem/tankId/listId/tier/
+  price/priceRaw/tags + 客户端 `Configs/TechTree/{nation}_tree.yaml` 原始 `position`
+  x=列 y=行；**列≠tier**（other 树列 1..7 而 tier 4..10），tier 仍读 list.xml `<level>`）
+  + `premiumRows`（数据字段原样；**位置语义已由数据证实**：premium/collector 车放在
+  最小 y 行——ussr y=2、germany y=1-2、usa y=1、uk y=2，即客户端把金币车带画在树
+  **顶部**；带高按「自最小 y 起连续含金币车的行数」取，`premiumRows` 只作保留行数
+  参考，UI 不重排格子）+ `pending`（科技树已登记但未实装的 XI 展示位，只有 stem/x/y，不造名称）
+  + `edges`（整车研发边：`<unlocks><vehicle>` 的 from=车/to=车/cost/costRaw/sourceModule/
+  sourceKind，与 modules/*.json 同一共享组件物化口径）。模块级解锁边（276/208/457/351）
+  仍在 `modules/{nation}.json` 的 `unlocks`，tech_tree 只投影整车边。**11.22 XI 预览**：
+  新工具 `tools/fetch_t11_techtree.py` 对公开 CDN 的 20.67 GB 预览 ZIP 做 ZIP64 central
+  directory + Range 按需提取（实测 7.7 MB），产出 `data/research_t11_preview/
+  tech_tree_extra.json`（9 国树坐标 + china/ussr list 的 XI 车事实 + preview bridge
+  tankId 对号），`--tech-tree-extra` 并入：8 个 XI 新 stem（2 定义车 + 6 pending），
+  与 game-data-sources §2.7 口径一致；`--data-root` 模式可物化最小预览 Data 根
+  （version/Strings/两车 XML+components+Parameters，23 文件），使
+  `--modules-only --merge` 可复现（不再依赖已删除的 20 GB 解包）。**防回退门禁**：
+  全量导出发现目标 meta 已含 `preview` 合并时直接报错（真实事故：全量重导把
+  china/ussr modules 冲回 738，靠门禁 + 文档固化工序「临时目录全量导出 → 复制
+  tech_tree → 重跑 merge」）。校验：`tools/test_research_techtree.py`（306 节点 =
+  304+2 预览、6 pending、310 整车边、列↔tier 唯一性、预览车 tankId/tier/x=11、
+  每节点能对号 modules 联表）通过；meta.json 逐文件 sha256 0 mismatch，counts 740 辆
+  （预览合并保留）。**客户端 UI 契约补充提取（2026-10-27，本机 11.21 + 预览包 UI
+  yaml 全套比对）**：XI 对科技树屏的唯一实质改动 = `levels=[1..10]→[1..11]`
+  （ModulesTree 屏逐字节等价）；`Lines{linesMask}` 28 个连线图案文件是**包内数据**
+  （几何已提取：入线 13.5px + 左中箭头 @13px、出线 19.5px、VL/VR 列边界干线 ±0.5px、
+  Bottom/TopArrow 中心垂直），仅每格 mask 编号由模型计算（位语义未定，禁猜）；
+  `LevelCell` 216×24 罗马数字、可见窗口 minLevel..maxLevel；XI 车每族模块唯一、
+  零 `<unlocks>` 边、零成本 = **无研发链**。详见 census §5.3 修正。**消费面**：
+  WotbTools 新增 `agent-techtree` 视图（科技树 + 单车研发界面，连线/等级条/premium
+  带按上述客户端几何复刻）与装甲查看器/回放的装备 UI 接入（见 WotbTools 侧 PR）；
+  资产包 `research/tech_tree/**` 随下一次 immutable release 发布。影响面：
+  `data/research/` 新增 tech_tree（其余文件逐字节不变）；WASM pin、回放切面、地图资产
+  均不变。
 - **WotbTools 复刻实施方案与同日落地（2026-10-27；范围按用户裁定重定）**：新增
   [wotbtools-research-loadout-plan.md](wotbtools-research-loadout-plan.md)，与下条数据
   盘点配套。**范围裁定（用户 2026-10-27）**：不做研发/购买/解锁机制、不做科技树页、
@@ -336,7 +387,7 @@
   目录。已发布 `assets.wotbtools.com` 新 release **`t11-preview-20261022-destructibles`**
   （manifest **5891 件 / 0 mismatch**、`deploy/assets/verify.sh` PASS；旧 release 保留
   回滚），WotbTools 无代码改动。
-- **资产包与资产 origin**：本地 11.21 包 **5877 件 / 4415.6 MB**（`release/asset_pack/`，
+- **资产包与资产 origin**：本地 11.21 包 **5906 件 / 4418.5 MB**（`release/asset_pack/`，
   manifest 逐文件 sha256；含 7 个变体目录）。生产 origin 已迁移到
   **`https://assets.wotbtools.com`**（Alibaba `ali-sh-asset-01`，
   `/srv/wotb-assets/releases/<pack-id>` + `current` 原子软链）；当前线上 release
