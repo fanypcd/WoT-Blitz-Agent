@@ -39,7 +39,7 @@
 
 ### 版本与发行
 
-- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.15**）。
+- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.16**）。
   该值变更合并到 `main` 后，Release workflow 自动测试、构建、创建 `v<version>` tag
   并发布 `wotb-replay-wasm-v<version>.zip`；发布策略与 Android 同步规则见
   [AGENTS.md](../AGENTS.md)。
@@ -49,6 +49,7 @@
 
 | 版本 | 内容 |
 |---|---|
+| v0.4.16 | **命中通知归属：时钟容差 → 弹着区间顺序（解析器行为修正）**：method8 / type=32 都没有 shotId（P2 探针 0/457、0/2729），改用**同射手 `[本发弹着, 下一发弹着)` 区间**归属（`notice_windows`，零时钟容差）——旧 `|t−end_time|≤0.05s` 窗小于 10Hz 包钟量子（≈81ms），一次 tick 抖动就把命中通知判成“未转发”（20261029 HE 样本 +0.0811s：`hit_token/segment/game_hit_result` 全丢 → 前端退回弹道弦，82.12°/73.0mm 判穿；服务器段 83.76°/92.0mm 不穿 → 287 溅射，判定结论相反）。哈希令牌降级为 method8↔type=32 的同事件连接；段包未转发/履带命中不发族包时由 method8 兜底，不再整发 fail。**additive**：`shots[].hits[]`（一发多 victim / 多次装甲交互全保留，主目标在首位；额外受击者须与主事件同服务器批次）与 `shot_replays_json.unattached_hits[]`（对应射击未录入的命中事件：射手/受击者/时刻/伤害/结果/cmpIndex/令牌 + segment/shell_id/armor_group/hit_triangle + 受击者位姿与炮塔角——射击复现所需最小集，射击方姿态非必要）。证据：14 场语料 573 发逐发对拍，27 发语义变化全部为增益（26 发他人射击由无目标→服务器真值，受击者距终点 ≤13m；1 发作者同 bug），8 条 unattached 显式输出，0 解析失败；5 条新单测。**消费方**：additive 缺省即旧行为；`hit_token/game_hit_result` 覆盖上升 → WotbTools pin bump 后重生成 AI 投影 golden。详见本页 §命中通知归属（2026-10-29）。 |
 | v0.4.15 | **录像者初始世界位姿轻量能力（additive）**：新增第 5 个独立 WASM 入口 `parseAuthorInitialPosition(bytes)` → `{author_eid, clock, position}` 或 `null`。只读 meta + battle_results 解析作者身份，随后定向扫描 type=10（`eid==author_eid`、`payload>=48B`、`parent==0`、位置/时钟 finite），取 replay clock 最小的世界观测；**不构建 ReplayModel / PlaybackData / AiReviewFacet**，不读地图语义、不物化时间线。身份解析与 `ReplayModel::scan` 共用 comp `account_id` 精确匹配 → Type5 昵称回退（SSOT）；type=10 解码复用共享 `decode_st10_sample`（不新增 decoder）。输出原样 replay 世界坐标（`x/z` 水平、`y` 高程），NORTH/SOUTH/出生侧分类留给消费方。证据：真实夹具 `2.wotbreplay` 锁定 author_eid/clock/坐标并与同场 Type5 战斗车辆物化位姿跨源核对 <0.05m；去掉 battle_results 的副本（meta 昵称回退）仍返回同一位姿；全部夹具 finite 且 <0.1m；WASM shape / `null` / Result 边界 smoke。**兼容面**：`parseResult` 不读包流、输出零变化；Playback 切面全部夹具逐字节不变；AI 切面仅同刻事件顺序（既有 HashMap 顺序非确定）无语义差异。契约见 [author-initial-position.md](author-initial-position.md)。 |
 | v0.4.14 | **血量链死亡证据与显示去重分离（v0.4.13 的复审缺陷）**：v0.4.13 把 `zero_hits`（method1 归零事件的凶手/死因登记）放在显示链相邻同值去重之后——终态快照（0/0xFFFD/0xFFFE/0xFFFF，隐藏段死亡后残骸重入）先到时，随后（或同钟）的 method1 归零被相邻去重吞掉，死亡归属退化 `0/255` 甚至消失（存在 prop1 时）。现改为**归零是否立死看上一条 method1 更新的值**（同值归零 = 同一次死亡的 overkill 重复，不重复立死），与夹在中间的快照无关；显示链行为与 v0.4.13 逐位一致，仅死亡归属修正。**消费方**：`death_t`/`killer_eid`/`cause` 对「隐藏段死亡 + 残骸重入」场景恢复 method1 归属；切面 v2 形状不变，AI 投影 golden 预期仅 provenance 变化。证据：WotbTools #767 复审 P2-2 反例 + 回归 `hp_series_zero_hit_survives_terminal_snapshot_adjacency`（双向 + overkill 重复归零仍单条；6 合成单测 + 13 样本探针 0 脱节 + clippy 零警告）。 |
 | v0.4.13 | **血量链合并顺序修正（v0.4.12 的复审缺陷）**：v0.4.12 的实现先对 method1 做相邻同值去重、再把重入快照插回——快照夹在两条同值 method1 之间时（隐藏段死亡无 method1 归零 + 复活回满血再受击、值恰同受击前，复活语义可达），后一条真实受击被吞（`t` 之后 `hpAt` 读到旧值，伤害飘字同源受累）。现改为**全部血量证据（种子 + method1 + 重入快照）统一按时间合并（同钟快照在前 = 客户端物化先于属性更新）、最后做一次相邻同值去重**；`zero_hits` 登记移入最终去重（幸存归零才立死，逐位等价）。**消费方**：普通回放与 v0.4.12 输出逐位一致，仅复活/同值边界修正；切面 v2 形状不变，AI 投影 golden 预期仅 provenance 变化。证据：WotbTools #767 复审 P2 反例 + 回归 `hp_series_snapshot_between_equal_method1_values_keeps_latter`（5 合成单测 + 13 样本探针 0 脱节 + clippy 零警告）。 |
@@ -76,6 +77,52 @@
 | v0.3.6 | prop3 血量属性广播（录像者自身血量的唯一来源，与 method1 非镜像）。 |
 | v0.3.5 | 原始 HP 证据 `Damage.hp_raw`（未钳制 u16，区分零血与终态未知）与 AoI 开段物化 HP；method8 原始命中通知（全变体、不分类）。 |
 | v0.3.4 | 包流自行分帧（不再依赖 crate 对 payload 的反序列化——单个 pickle 形状偏差不再让整场失败）。 |
+
+### 命中通知归属：时钟容差 → 弹着区间顺序（2026-10-29，解析器行为修正，v0.4.16）
+
+- **动因（真实样本）**：20261029 样本 HE 一发（shotId 30958325，182.03s，目标 Grille 15，
+  服务器结算 287）本地射击复现与服务器判定不一致。根因 = 该发 method8/type=32 命中通知
+  比 method20 终点包**晚 +0.0811s**（一个 10Hz tick），落在旧配对窗 `|t−end_time| ≤ 0.05s`
+  之外 → `hit_token/segment/armor_group/game_hit_result` 全部置空（255/null），前端退回
+  弹道弦判定；弦在 10mm 前甲板上入射 82.12°（等效 73.0mm，HE 75/校准 80.25mm 判穿），
+  服务器自己编码的 P1→P2 段是 83.76°（等效 92.0mm，不穿 → 287 溅射）。服务器 segment B7=5
+  与本机 raycast 板号一致，证明板对、角度差才是否决点。
+- **修正**：命中通知（method8 / type=32）不再用时钟窗，改用**同一射手 `[本发弹着, 下一发
+  弹着)` 区间**归属（`ShotScanShared::notice_windows`；弹着时刻 = `shot_impact_time`，
+  有续段取首段接触）。纯顺序语义、零容差；通知不再可能"因为晚一个 tick 被判成服务器未转发"。
+- **令牌职责收窄**：hash6 只做 method8 ↔ type=32 的**同事件令牌**（事件内唯一；同刻重发按
+  hash6 合并、保留 settled）；配对不再依赖时间。type=32 未转发 / cmpIndex=0（不发本族包）
+  → 由 method8 兜底（**不**把区间内别的 segment 当歧义）。
+- **多 target 保留（一发多 victim）**：`ShotReplayData` additive `hits[]`（`ShotHit`：
+  `target_eid/target_name/damage/game_hit_result/is_primary/armor_group/hit_token/
+  server_part_index/crit_modules/destroyed_modules`）。HE 溅射同时命中多辆、或一发在同一
+  受击者上多次装甲交互（hash6 不同）都各成一条；主目标（= 顶层 `target_*` 字段）排在首位
+  并继承顶层伤害/结果。他人路径原先把"不在发射射线上"的溅射第二目标**排除**，现保留。
+  **额外受击者必须与主事件同一服务器批次（同一包钟）**——晚于主事件的通知属于未录入的
+  另一发（AoI），贪心收进会错绑（语料实测 4 例，被误收的"第二目标"距终点 60~440m）；
+  该门用批次时间而非距离阈值。
+- **不可归属事件不丢**：`shot_replays_json` 新增 additive `unattached_hits[]`
+  （`UnattachedHit`：`shooter_eid`/`shooter_name`/victim/昵称/时刻/结算伤害/结果枚举/
+  cmpIndex/令牌 + 同事件 type=32 的 `segment`/`shell_id`/`armor_group`/`hit_triangle` +
+  受击者事件时刻位姿 `victim_pos`/`victim_ang`/`victim_turret_yaw`/`victim_prop2`；
+  `reason="no_shot_interval"`）——通知落在该射手所有区间之外 = 对应射击不在录像里
+  （AoI 截断），显式输出而非丢弃；消费方按"未知归属"呈现，不得反推成某一发。
+  **射击复现所需的最小集已齐**：受击者位姿（含炮塔角）+ hash6 命中段 + 弹种 → 可直接跑
+  segRay 判定/渲染；缺的只有发射点/速度/开火时刻/shotId（弹道线与交战距离），按 2026-10-29
+  用户裁定：表现受击方姿态与命中位置即可，射击方姿态不是必要条件。
+- **多交互主段选择**：区间内多条 method8/type=32（一次开火多次装甲交互）按「已结算 →
+  伤害大 → 时刻早」确定主交互（与 `shotResultClass` 的伤害仲裁同义），不再整发 fail-fast。
+- **证据（14 场语料全量回归，作者+他人 573 发逐发对拍）**：作者路径 54 发有目标 → 52 发区间内
+  找到通知、2 发无通知（脱靶，正常）、0 错配；全语料 457 条 method8（同刻重发合并后 442 条）
+  中 434 条按区间归属，8 条无对应射击（`unattached_hits` / `no_shot_interval`）。相对旧实现
+  **27 发语义变化，全部为增益**：26 发他人射击由"无目标/0 伤/255"变为服务器真值（新绑受击者
+  到终点距离 ≤13m，其中 20 发 ≤5m，几何互证），1 发作者（J39 shot 7223366：255/null →
+  token/segment/result，同一 bug 的第二例）；无解析失败、无新增错配。`hits[]` 覆盖 425 发；
+  语料无"同批次多目标"真实样本（4 例贪心误收已由批次门排除）。Rust 侧新增 5 条合成单测
+  （区间序、晚一个 tick 绑定、同批次多 victim、晚到外部通知不误绑、同刻重发合并）。
+- **消费方**：`hits[]` / `unattached_hits` additive（缺省 = 旧行为）；`hit_token`/`game_hit_result`
+  覆盖上升（同一发的值可能从 255 变为服务器真值）→ WotbTools 随 pin bump 重生成 AI 投影
+  golden 并逐条归因。切面 v2 形状不变。
 
 ### 射击复现匹配与配件解析（2026-10-23）
 
