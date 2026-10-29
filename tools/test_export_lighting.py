@@ -2,7 +2,7 @@
 
 覆盖 extract_lighting 的太阳方向约定与缺件 fail-soft：
   - 方向 = R(quaternion) · (0,−1,0)（光源**局部 −Y** = 阳光传播方向，2026-10-09 全树
-    实测 36 图自洽，见 feasibility-map-lighting.md §七 #1）；
+    实测 36 图自洽；未定项收编于 docs/map-render-align-audit.md §五）；
   - direction_scene = qFrame 映射 (−x, z, y)，与 WotbTools playbackScene 同式；
   - 缺件只记 warnings、不臆造默认值（消费端据此回落兜底灯光）。
 """

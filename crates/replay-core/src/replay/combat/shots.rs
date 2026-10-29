@@ -84,6 +84,35 @@ fn victim_dead_before(hp_events: &[HpEvent], eid: u32, t: f32) -> bool {
         .unwrap_or(false)
 }
 
+/// 一次射击事件命中的**单个受击者**（一发多 victim：HE 溅射可同时命中多辆；一发在同一
+/// 受击者上的多次装甲交互也各成一条）。顶层 `target_*` 字段 = `is_primary=true` 的那条。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShotHit {
+    pub target_eid: u32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub target_name: String,
+    /// 该受击者的服务器结算伤害（method8 尾部 settled 值；未结算 = 0）
+    pub damage: u32,
+    /// 命中结果枚举（method8 同域；255 = 未获取）
+    pub game_hit_result: u8,
+    /// 主目标（与顶层 target_eid/target_name/damage 同源）
+    pub is_primary: bool,
+    /// 装甲组/段（同事件 type=32 的 segment，按 hash6 令牌配对；未转发 = 缺省）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub armor_group: Option<u8>,
+    /// 命中事件令牌（hash6 hex；method8 ↔ type=32 同源）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hit_token: Option<String>,
+    /// 服务器下发的受击部件索引（method8 cmpIndex）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_part_index: Option<u8>,
+    /// 本次命中受损/摧毁模块位图（作者 method38 逐受击者；他人不可得）——不参与判定
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crit_modules: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destroyed_modules: Option<u32>,
+}
+
 /// 一次射击事件的"复现数据"：双方位置/朝向（type=10 实体状态包解码），供 3D 查看器复现热力图视角。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShotReplayData {
@@ -96,6 +125,10 @@ pub struct ShotReplayData {
     /// 名字缺失不作为提取失败条件（fail-soft）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_eid: Option<u32>,
+    /// 本发命中的**全部**受击者（一发多 victim / 多次装甲交互都保留；主目标在首位）。
+    /// 空 = 无额外命中（缺省不序列化，旧消费方行为不变）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hits: Vec<ShotHit>,
     /// 受击方**弹着时刻**的 armorsStates 状态号（Vehicle propID 16，additive，skip-when-none）。
     /// None = 受击车无状态流或弹着早于首个样本（首样本 = 入视野 create 快照；更早区间
     /// 按声明文件 `data/armor_states.json` 里 `<default/>` 态兜底，不猜）。仅动态装甲车
@@ -426,6 +459,13 @@ pub(crate) struct ShotScanShared {
     pub short_args: HashMap<u32, usize>,
     /// method20 弹道终点（shotId 配对，含 miss 的空地终点）
     pub endpoints: HashMap<u32, (f32, [f32; 3])>,
+    /// **命中通知归属区间**（shotId → `[本发弹着时刻, 同射手下一发弹着时刻)`；末发上界 +∞）。
+    /// 弹着时刻 = [`shot_impact_time`]（有续段 = 首个接触时刻）。method8 / type=32 都不带
+    /// shotId（P2 探针 0/457、0/2729），服务器自己的终点包是唯一可用的结构锚：一条命中
+    /// 通知不可能早于本发弹着，也不会晚到同射手下一发弹着之后。**纯顺序语义、无时钟容差**，
+    /// 取代此前的 ±0.05s 窗——该窗小于 10Hz 包钟量子（≈81ms），一跳 tick 即判“未转发”
+    /// （2026-10-29 287 伤害 HE 样本：通知晚 +0.0811s）。
+    pub notice_windows: HashMap<u32, (f32, f32)>,
     /// method8 直击通知（全局广播；按时钟排序）
     pub direct_hits8: Vec<DirectHit8>,
     /// type=32 命中通知（AoI 广播含他人；保持包序——hash6 令牌配对与顺序无关）
@@ -676,10 +716,19 @@ pub(crate) fn build_shot_scan_shared(
         }
     }
 
+    let (launch_is_cont_all, segments_all) = shot_segments(&launches);
+    let notice_windows = build_notice_windows(
+        &launches,
+        &launch_is_cont_all,
+        &segments_all,
+        &endpoints,
+    );
+
     ShotScanShared {
         launches,
         short_args,
         endpoints,
+        notice_windows,
         direct_hits8,
         warnings32,
         terrain_impacts,
@@ -703,9 +752,97 @@ pub(crate) fn build_shot_scan_shared(
     }
 }
 
+/// serde skip 助手：0 不序列化（未解析的弹种 id）
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
+}
+
 /// hash6 令牌的 hex 串形式（method8 ↔ type=32 配对日志与 quality 标注共用）。
 fn hash6_hex(hash6: &[u8; 6]) -> String {
     hash6.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// 本发区间内**全部**命中事件的统一列表（[`ShotReplayData::hits`]）：
+/// - 一发多 victim（HE 溅射同时命中多辆）与一发多次装甲交互（hash6 不同）都各成一条；
+/// - 同一事件的重发（同刻同 hash6：未结算 + 已结算）合并，保留 settled；
+/// - 主目标（= 顶层 target_eid）排首位，其余按「已结算 → 伤害大 → 时刻早」。
+///
+/// 段/装甲组按 hash6 令牌在 type=32 里配（全局，无时间窗）；未转发则缺省。
+#[allow(clippy::too_many_arguments)]
+fn collect_shot_hits(
+    shooter: u32,
+    win_lo: f32,
+    win_hi: f32,
+    primary_victim: Option<u32>,
+    primary_damage: u32,
+    primary_result: u8,
+    direct_hits8: &[DirectHit8],
+    warnings32: &[ArenaWarning32],
+    hit_results38: &[HitFeedback],
+    names: &HashMap<u32, String>,
+) -> Vec<ShotHit> {
+    let mut evs: Vec<&DirectHit8> = direct_hits8
+        .iter()
+        .filter(|d| d.shooter == shooter && d.t >= win_lo && d.t < win_hi)
+        .collect();
+    // 同事件重发合并（同刻、同 hash6）——保留 settled 的那条
+    evs.sort_by(|a, b| a.t.total_cmp(&b.t).then(a.hash6.cmp(&b.hash6)));
+    evs.dedup_by(|a, b| a.hash6 == b.hash6 && (a.t - b.t).abs() < 1e-6);
+    // **额外受击者必须与主事件同一服务器批次（同一包钟）**：一次开火的多目标命中（HE 溅射 /
+    // 穿透后击中后车）由服务器在同一批结算；晚于主事件的通知属于**别的射击**（其发射/终点
+    // 未录入 = AoI），贪心收进本发会错绑（语料实测 4 例：被收进来的"第二目标"距终点
+    // 60~440m）。主事件缺失（无 method8）时不猜多目标，只用顶层字段。
+    let primary_t = evs
+        .iter()
+        .find(|d| Some(d.victim) == primary_victim)
+        .map(|d| d.t);
+    if let Some(pt) = primary_t {
+        evs.retain(|d| Some(d.victim) == primary_victim || (d.t - pt).abs() < 1e-6);
+    } else {
+        evs.clear();
+    }
+    // 主目标优先 → 已结算 → 伤害大 → 时刻早（确定性排序）
+    evs.sort_by(|a, b| {
+        let pa = (Some(a.victim) == primary_victim) as u8;
+        let pb = (Some(b.victim) == primary_victim) as u8;
+        pb.cmp(&pa)
+            .then((b.settled as u8).cmp(&(a.settled as u8)))
+            .then(b.damage.cmp(&a.damage))
+            .then(a.t.total_cmp(&b.t))
+    });
+    let mut primary_taken = false;
+    evs.into_iter()
+        .map(|d| {
+            let is_primary = !primary_taken && Some(d.victim) == primary_victim;
+            if is_primary {
+                primary_taken = true;
+            }
+            let warn = warnings32.iter().find(|w| w.hash6 == d.hash6);
+            let m38 = hit_results38
+                .iter()
+                .filter(|h| h.victim == d.victim && (h.t - win_lo).abs() <= 0.6)
+                .min_by(|a, b| (a.t - win_lo).abs().total_cmp(&(b.t - win_lo).abs()));
+            ShotHit {
+                target_eid: d.victim,
+                target_name: names.get(&d.victim).cloned().unwrap_or_default(),
+                // 主目标的伤害/结果与顶层同源（HP 链兜底值），额外目标用 method8 结算值
+                damage: if is_primary {
+                    primary_damage
+                } else if d.settled {
+                    u32::from(d.damage)
+                } else {
+                    0
+                },
+                game_hit_result: if is_primary { primary_result } else { d.result },
+                is_primary,
+                armor_group: warn.map(|w| decode_segment(w.segment).1),
+                hit_token: Some(hash6_hex(&d.hash6)),
+                server_part_index: d.component_index,
+                crit_modules: m38.map(|h| h.crit_modules),
+                destroyed_modules: m38.map(|h| h.destroyed_modules),
+            }
+        })
+        .collect()
 }
 
 /// type=32 segment 布局解码：`[result][shell_global_id u24 LE（=(局部 id<<8)|国家基数）][00][X][Y][Z=armor_group]`。
@@ -715,6 +852,39 @@ fn decode_segment(segment: u64) -> (u32, u8, u16) {
     let shell_id = (sb[1] as u32) | ((sb[2] as u32) << 8) | ((sb[3] as u32) << 16);
     let hit_triangle = u16::from_be_bytes([sb[5], sb[6]]);
     (shell_id, sb[7], hit_triangle)
+}
+
+/// 命中通知归属区间（[`ShotScanShared::notice_windows`] 的构建）：
+/// 每射手按**弹着时刻**排序，区间 = `[本发弹着, 同射手下一发弹着)`，末发上界 +∞。
+/// 同刻并列（语料 0 例）退化为 1ms 窗并留给调用方按质量标记处理——不猜。
+fn build_notice_windows(
+    launches: &[LaunchEntry],
+    launch_is_cont: &[bool],
+    segments: &ShotSegments,
+    endpoints: &HashMap<u32, (f32, [f32; 3])>,
+) -> HashMap<u32, (f32, f32)> {
+    let mut per_shooter: HashMap<u32, Vec<(f32, u32)>> = HashMap::new();
+    for (i, l) in launches.iter().enumerate() {
+        if launch_is_cont.get(i).copied().unwrap_or(false) {
+            continue;
+        }
+        let Some(&(end_t, _)) = endpoints.get(&l.shot_id) else { continue };
+        let impact = shot_impact_time(segments.get(&(l.shooter, l.shot_id)), end_t);
+        per_shooter.entry(l.shooter).or_default().push((impact, l.shot_id));
+    }
+    let mut out: HashMap<u32, (f32, f32)> = HashMap::new();
+    for list in per_shooter.values_mut() {
+        list.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        list.dedup_by_key(|x| x.1);
+        for i in 0..list.len() {
+            let lo = list[i].0;
+            let hi = list.get(i + 1).map(|x| x.0).unwrap_or(f32::INFINITY);
+            // 同刻并列：区间退化时给 1ms 尾窗（不把后续通知吞进本发）
+            let hi = if hi > lo { hi } else { lo + 1e-3 };
+            out.insert(list[i].1, (lo, hi));
+        }
+    }
+    out
 }
 
 /// 弹的"抵达时刻"：有续段（跳弹/穿透）时取首个续段时刻（与 method8 同刻），否则取终点
@@ -751,52 +921,173 @@ fn aim_point_rels(
     }
 }
 
-/// 作者路径 type=32 选择：method38 先确定 victim；同一 victim/命中时钟可能合法出现
-/// 多个不同 segment（一次 Shot 的多次装甲交互）。method8 与 type=32 的 hash6 是同事件
-/// 确定性令牌，因此有唯一 method8 token 时先按 token 收窄；重复 method8 广播按 hash6 去重。
-/// token 缺失/不唯一/无法命中 type=32 时退回原 victim+time 严格判定，不猜选。
+/// 命中通知里**不属于任何可归属射击事件**的那些（该发的发射/终点未录入 = AoI 截断）。
+/// 这类事件仍有服务器证据（受击者/伤害/结果/令牌），不能因为"找不到对应 shot"就丢掉：
+/// 由 `shot_replays_json` 以独立 `unattached_hits` 输出，消费方按"未知归属"呈现。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnattachedHit {
+    pub shooter_eid: u32,
+    /// 射手昵称（type=5 名册；method8 自带 shooter eid，名字与目标同域）
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub shooter_name: String,
+    pub victim_eid: u32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub victim_name: String,
+    pub t: f32,
+    /// 服务器结算伤害（settled；未结算 = 0）
+    pub damage: u32,
+    pub game_hit_result: u8,
+    /// 命中事件令牌（hash6 hex；与 method8/type=32 同源，可单独解码 P1/P2 两点）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hit_token: Option<String>,
+    /// 服务器下发的受击部件索引（method8 cmpIndex：0=底盘/履带 1=车体 2=炮塔 3=炮管）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_part_index: Option<u8>,
+    /// 同事件 type=32 的 segment（`[result][shell_global_id u24][00][X][Y][Z=plate]`）；
+    /// 未转发（cmpIndex=0 不发本族包 / 服务器只转发部分命中）则缺省。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segment: Option<u64>,
+    /// 段包里解出的全局弹种 id（0 = 未知）；配合 shellKinds 表可还原弹种
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub shell_id: u32,
+    /// 段包 B7 = 命中装甲板 plateId
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub armor_group: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hit_triangle: Option<u16>,
+    /// 事件时刻受击者的 type=10 位姿（渲染命中标记/局部判定可独立于射手使用）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub victim_pos: Option<[f32; 3]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub victim_ang: Option<[f32; 3]>,
+    /// 受击者炮塔绝对偏航（rad，与 `victim_ang[0]` 同参考系；prop2 高 10 位 + 车体偏航）——
+    /// 受击者姿态的一部分：装甲判定/渲染必须转到命中时刻的炮塔角
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub victim_turret_yaw: Option<f32>,
+    /// prop2 原始 u16（高 10 位炮塔相对角 / 低 6 位炮管俯仰 frac）——俯仰需车型极限，
+    /// 核心层不持有，原样透传给有 asset 的消费方自行解码
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub victim_prop2: Option<u16>,
+    /// 该事件未落进任何区间的原因：`no_shot_interval`（录像中无该发）
+    pub reason: String,
+}
+
+/// 收集无法归属到任何 shot 的命中通知（直接吃原始包：内部重建一次共享扫描）。
+/// 语义：同射手的所有 `[弹着, 下一发弹着)` 区间都不包含它 = 对应的射击不存在于录像。
+/// 同事件重发（同刻同 hash6）合并，保留 settled。
+pub fn collect_unattached_hits(packets: &[(u32, f32, &[u8])]) -> Vec<UnattachedHit> {
+    let shared = build_shot_scan_shared(packets, 0);
+    let mut per_shooter: HashMap<u32, Vec<(f32, f32)>> = HashMap::new();
+    for (i, l) in shared.launches.iter().enumerate() {
+        let _ = i;
+        if let Some(w) = shared.notice_windows.get(&l.shot_id) {
+            per_shooter.entry(l.shooter).or_default().push(*w);
+        }
+    }
+    let mut evs: Vec<&DirectHit8> = shared
+        .direct_hits8
+        .iter()
+        .filter(|d| {
+            !per_shooter
+                .get(&d.shooter)
+                .map(|ws| ws.iter().any(|(lo, hi)| d.t >= *lo && d.t < *hi))
+                .unwrap_or(false)
+        })
+        .collect();
+    evs.sort_by(|a, b| a.t.total_cmp(&b.t).then(a.hash6.cmp(&b.hash6)));
+    evs.dedup_by(|a, b| a.hash6 == b.hash6 && (a.t - b.t).abs() < 1e-6);
+    evs.into_iter()
+        .map(|d| {
+            // 段包：同 hash6 的 type=32（同事件令牌；与时间无关）
+            let warn = shared.warnings32.iter().find(|w| w.hash6 == d.hash6);
+            let (shell_id, armor_group, hit_triangle) = match warn {
+                Some(w) => {
+                    let (sh, ag, ht) = decode_segment(w.segment);
+                    (sh, Some(ag), Some(ht))
+                }
+                None => (0, None, None),
+            };
+            UnattachedHit {
+                shooter_eid: d.shooter,
+                shooter_name: shared.names.get(&d.shooter).cloned().unwrap_or_default(),
+                victim_eid: d.victim,
+                victim_name: shared.names.get(&d.victim).cloned().unwrap_or_default(),
+                t: d.t,
+                damage: if d.settled { u32::from(d.damage) } else { 0 },
+                game_hit_result: d.result,
+                hit_token: Some(hash6_hex(&d.hash6)),
+                server_part_index: d.component_index,
+                segment: warn.map(|w| w.segment),
+                shell_id,
+                armor_group,
+                hit_triangle,
+                victim_pos: d.victim_state.map(|(p, _, _)| p),
+                victim_ang: d.victim_state.map(|(_, a, _)| a),
+                victim_turret_yaw: d.victim_state.and_then(|(_, ang, _)| {
+                    d.victim_prop2.map(|(_, raw)| {
+                        let yaw = decode_prop2_u16(raw).0 + ang[0];
+                        (yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+                            - std::f32::consts::PI
+                    })
+                }),
+                victim_prop2: d.victim_prop2.map(|(_, raw)| raw),
+                reason: "no_shot_interval".into(),
+            }
+        })
+        .collect()
+}
+
+/// 作者路径 type=32 选择：method38 先确定 victim；一发可在同一 victim 上产生**多次装甲交互**
+/// （method8/type=32 各多条，hash6 互不相同）。区间内按**主交互**取段：优先
+/// 已结算且伤害最大的 method8 的 hash6，其次任一 hash6 命中的 type=32；无 hash 可用时
+/// 仅当区间内 segment 全同才采信，否则 fail-closed（不猜选）。
 fn select_author_warning32<'a>(
     warnings32: &'a [ArenaWarning32],
     direct_hits8: &[DirectHit8],
     author_player_eid: u32,
     victim_eid: u32,
-    end_time: f32,
+    win_lo: f32,
+    win_hi: f32,
 ) -> Result<Option<&'a ArenaWarning32>, usize> {
     let window: Vec<&ArenaWarning32> = warnings32
         .iter()
-        .filter(|w| w.eid == victim_eid && (w.t - end_time).abs() <= 0.05)
+        .filter(|w| w.eid == victim_eid && w.t >= win_lo && w.t < win_hi)
         .collect();
     if window.is_empty() {
         return Ok(None);
     }
 
-    let mut hashes: Vec<[u8; 6]> = Vec::new();
-    for d in direct_hits8.iter().filter(|d| {
-        d.shooter == author_player_eid && d.victim == victim_eid && (d.t - end_time).abs() <= 0.05
-    }) {
-        if !hashes.contains(&d.hash6) {
-            hashes.push(d.hash6);
+    // 主交互排序：已结算优先 → 伤害大者优先 → 时刻早者优先（确定性，无阈值）
+    let mut hashes: Vec<&DirectHit8> = direct_hits8
+        .iter()
+        .filter(|d| {
+            d.shooter == author_player_eid
+                && d.victim == victim_eid
+                && d.t >= win_lo
+                && d.t < win_hi
+        })
+        .collect();
+    hashes.sort_by(|a, b| {
+        (b.settled as u8, b.damage)
+            .cmp(&(a.settled as u8, a.damage))
+            .then(a.t.total_cmp(&b.t))
+    });
+    for d in &hashes {
+        if let Some(w) = window.iter().copied().find(|w| w.hash6 == d.hash6) {
+            return Ok(Some(w));
         }
     }
+    // 有 method8（本发真值）但窗口内没有任何同 token 的 type=32 = 段包未转发
+    // （cmpIndex=0 履带命中不发本族包；服务器只转发部分命中）→ 由 method8 兜底，
+    // **不能**把窗口里别的（更晚事件/别的射手命中同一受击者）segment 当成歧义。
+    if !hashes.is_empty() {
+        return Ok(None);
+    }
 
-    let candidates: Vec<&ArenaWarning32> = if hashes.len() == 1 {
-        let matched: Vec<&ArenaWarning32> = window
-            .iter()
-            .copied()
-            .filter(|w| w.hash6 == hashes[0])
-            .collect();
-        if matched.is_empty() {
-            window
-        } else {
-            matched
-        }
-    } else {
-        window
-    };
-
-    let first = candidates[0];
-    if candidates.iter().any(|w| w.segment != first.segment) {
-        return Err(candidates.len());
+    // method8 也未转发：区间内 segment 全同（同一事件重发）才采信，否则 fail-closed
+    let first = window[0];
+    if window.iter().any(|w| w.segment != first.segment) {
+        return Err(window.len());
     }
     Ok(Some(first))
 }
@@ -1211,6 +1502,19 @@ pub(crate) fn extract_shot_replays_from_shared(
         // `end_time` 语义 = **炮弹抵达目标/落点的时刻**：有续段（跳弹/穿透）时取首个续段时刻
         // （与 method8 同刻），否则取终点时刻。命中归属、受击方状态快照、prop2 取样窗都以此为基准。
         let end_time = shot_impact_time(chain, end_time);
+        // 命中通知（method8/type=32）归属区间：`[本发弹着, 同射手下一发弹着)`。
+        // 无 shotId 的通知族只能靠这条顺序语义绑定（零时钟容差）；窗口缺失 = 该发无终点
+        // （作者路径上面已 bail），此处仅作防御性退化并留质量标记。
+        let (mut win_lo, mut win_hi) = shared
+            .notice_windows
+            .get(&shot_id)
+            .copied()
+            .unwrap_or((end_time, end_time + 0.05));
+        if !(win_lo <= end_time && win_hi > win_lo) {
+            win_lo = end_time;
+            win_hi = end_time + 0.05;
+        }
+        let in_notice_window = |t: f32| t >= win_lo && t < win_hi;
         let (via, leg_secs) = shot_legs(l.point, l.vel, chain, ball_b);
         let fire_tick = tick_at_anchored(tick_timeline, session_tick, fire_time);
 
@@ -1305,7 +1609,8 @@ pub(crate) fn extract_shot_replays_from_shared(
                 direct_hits8,
                 author_player_eid,
                 teid,
-                end_time,
+                win_lo,
+                win_hi,
             ) {
                 Ok(Some(first)) => {
                     segment = first.segment;
@@ -1317,24 +1622,23 @@ pub(crate) fn extract_shot_replays_from_shared(
                     (shell_id, armor_group, hit_triangle) = decode_segment(segment);
                 }
                 Ok(None) => {
-                    // type=32 未转发：direct_hits8 已按 t 排序且 filter 保序，r8 天然有序
-                    let r8: Vec<&DirectHit8> = direct_hits8
+                    // type=32 未转发：区间内的 method8 可能有多条（一发多次装甲交互）。取
+                    // **主交互**（已结算优先 → 伤害大者 → 时刻早者）作为本发的 result/token；
+                    // 与 `shotResultClass` 的“伤害仲裁优先”同义，不因多交互而整发失败。
+                    let mut r8: Vec<&DirectHit8> = direct_hits8
                         .iter()
                         .filter(|d| {
                             d.shooter == author_player_eid
                                 && d.victim == teid
-                                && (d.t - end_time).abs() <= 0.05
+                                && in_notice_window(d.t)
                         })
                         .collect();
-                    if !r8.is_empty() {
-                        let first = r8[0];
-                        if r8.iter().any(|d| d.result != first.result) {
-                            anyhow::bail!(
-                                "{}: method8 结果枚举歧义——窗口内 {} 条互不一致",
-                                ctx(),
-                                r8.len()
-                            );
-                        }
+                    r8.sort_by(|a, b| {
+                        (b.settled as u8, b.damage)
+                            .cmp(&(a.settled as u8, a.damage))
+                            .then(a.t.total_cmp(&b.t))
+                    });
+                    if let Some(first) = r8.first() {
                         game_hit_result = first.result;
                         hit_token = Some(hash6_hex(&first.hash6));
                     }
@@ -1483,7 +1787,7 @@ pub(crate) fn extract_shot_replays_from_shared(
                 .find(|d| {
                     d.shooter == author_player_eid
                         && d.victim == teid
-                        && (d.t - end_time).abs() <= 0.05
+                        && in_notice_window(d.t)
                         && d.victim_state.is_some()
                 })
                 .and_then(|d| d.victim_state);
@@ -1541,7 +1845,7 @@ pub(crate) fn extract_shot_replays_from_shared(
                 .find(|d| {
                     d.shooter == author_player_eid
                         && d.victim == teid
-                        && (d.t - end_time).abs() <= 0.05
+                        && in_notice_window(d.t)
                 })
                 .and_then(|d| d.component_index)
         } else {
@@ -1577,7 +1881,7 @@ pub(crate) fn extract_shot_replays_from_shared(
                 .find(|d| {
                     d.shooter == author_player_eid
                         && d.victim == teid
-                        && (d.t - end_time).abs() <= 0.05
+                        && in_notice_window(d.t)
                 })
                 .and_then(|d| d.victim_prop2)
         } else {
@@ -1684,12 +1988,26 @@ pub(crate) fn extract_shot_replays_from_shared(
             shooter_render.as_ref(),
         );
 
+        let hits = collect_shot_hits(
+            author_player_eid,
+            win_lo,
+            win_hi,
+            target_eid,
+            damage,
+            game_hit_result,
+            direct_hits8,
+            &warnings32,
+            &hit_results,
+            names,
+        );
+
         out.push(ShotReplayData {
             index: i + 1,
             time_s: fire_time,
             damage,
             target_name,
             target_eid,
+            hits,
             target_armor_state: None, // 原始包证据：attach_shot_armor_states 持 packets 回填
             is_kill,
             shooter_eid: author_player_eid,
@@ -2169,9 +2487,15 @@ pub(crate) fn extract_other_shot_replays_from_shared(
                 // 命中归属窗口基准 = 首个续段时刻（装甲接触），无续段则终点时刻
                 let end_time =
                     shot_impact_time(segments.get(&(l.shooter, l.shot_id)), end_time);
+                // 与目标绑定同一区间（`[本发弹着, 下一发弹着)`）——两条链不允许各用一套规则
+                let (win_lo, win_hi) = shared
+                    .notice_windows
+                    .get(&l.shot_id)
+                    .copied()
+                    .unwrap_or((end_time, end_time + 0.05));
                 let cands: Vec<&DirectHit8> = direct_hits8
                     .iter()
-                    .filter(|d| d.shooter == l.shooter && (d.t - end_time).abs() <= 0.05)
+                    .filter(|d| d.shooter == l.shooter && d.t >= win_lo && d.t < win_hi)
                     .collect();
                 // 同刻双包（未结算 + 已结算）优先已结算；否则取最接近 end_time 者（身份判定语义不变）
                 let d = cands
@@ -2234,6 +2558,17 @@ pub(crate) fn extract_other_shot_replays_from_shared(
         let chain = segments.get(&(l.shooter, l.shot_id));
         // `end_time` 语义 = 抵达时刻（有续段时取首续段时刻，与 method8 同刻），与作者路径同构
         let end_time = shot_impact_time(chain, end_time);
+        // 命中通知归属区间（与作者路径同构）：`[本发弹着, 同射手下一发弹着)`，零时钟容差
+        let (mut win_lo, mut win_hi) = shared
+            .notice_windows
+            .get(&l.shot_id)
+            .copied()
+            .unwrap_or((end_time, end_time + 0.05));
+        if !(win_lo <= end_time && win_hi > win_lo) {
+            win_lo = end_time;
+            win_hi = end_time + 0.05;
+        }
+        let in_notice_window = |t: f32| t >= win_lo && t < win_hi;
         let (via, leg_secs) = shot_legs(l.point, l.vel, chain, ball_b);
         // 射手状态快照；AoI 裁剪缺失时用炮口坐标兜底（ball_a = method29 服务器权威发射位置），朝向从速度向量推算，不整发跳过
         let (sp, sa, sp_dt, sp_src, pos_from_muzzle) = match anchor_at(l.shooter, l.t) {
@@ -2258,13 +2593,13 @@ pub(crate) fn extract_other_shot_replays_from_shared(
         };
         let fire_tick = tick_at_anchored(tick_timeline, session_tick, l.t);
 
-        // 目标 = method8（同射手 ±0.05s 命中窗）：唯一候选直接绑定（语料 98%+，绑定
-        // 唯一即精确）；多候选先按几何判别（来向角自洽门 + 弹道射线门，见
-        // [`select_dhit_by_inc_yaw`]——溅射第二目标不在发射射线上即被排除），判别
-        // 不出 → 回退时间最近保完整性并计数（旧实现无差别静默就近，可错配无痕迹）
+        // 目标 = method8（本发通知区间 `[弹着, 下一发弹着)`）：区间内**全部**通知都是本发
+        // 的证据（HE 溅射可同时命中多辆——多 victim 保留，主目标取弹道自洽者）；主目标
+        // 唯一时直接绑定，多候选先按几何判别（来向角自洽门 + 弹道射线门，见
+        // [`select_dhit_by_inc_yaw`]），判别不出 → 回退时间最近保完整性并计数。
         let cand_dhits: Vec<&DirectHit8> = direct_hits8
             .iter()
-            .filter(|d| d.shooter == l.shooter && (d.t - end_time).abs() <= 0.05)
+            .filter(|d| d.shooter == l.shooter && in_notice_window(d.t))
             .collect();
         let dhit = match cand_dhits.len() {
             0 => None,
@@ -2531,12 +2866,26 @@ pub(crate) fn extract_other_shot_replays_from_shared(
             shooter_render.as_ref(),
         );
 
+        let hits = collect_shot_hits(
+            l.shooter,
+            win_lo,
+            win_hi,
+            target_eid,
+            damage,
+            game_hit_result,
+            direct_hits8,
+            warnings32,
+            &shared.hit_results38,
+            names,
+        );
+
         out.push(ShotReplayData {
             index: 0, // 合并后由调用方按 time_s 全局重编号
             time_s: l.t,
             damage,
             target_name,
             target_eid,
+            hits,
             target_armor_state: None, // 原始包证据：attach_shot_armor_states 持 packets 回填
             is_kill,
             shooter_eid: l.shooter,
@@ -2690,7 +3039,7 @@ mod author_warning32_pairing_tests {
             direct(110.35225, 7, 42, a, 0),
         ];
 
-        let picked = select_author_warning32(&warnings, &hits, 7, 42, 110.35225)
+        let picked = select_author_warning32(&warnings, &hits, 7, 42, 110.30225, 110.40225)
             .expect("唯一 method8 hash6 应消除 type32 窗口歧义")
             .expect("应选出命中段");
         assert_eq!(picked.hash6, a);
@@ -2698,21 +3047,29 @@ mod author_warning32_pairing_tests {
     }
 
     #[test]
-    fn conflicting_type32_without_unique_method8_hash_remains_fail_fast() {
+    fn conflicting_type32_without_any_method8_hash_remains_fail_fast() {
+        // 无 method8 token 可对、且两段互不一致 → 不猜（fail-closed）
         let a = [1, 2, 3, 4, 5, 6];
         let b = [6, 5, 4, 3, 2, 1];
         let warnings = vec![warning(20.0, 42, a, 0x10), warning(20.0, 42, b, 0x20)];
-
         assert!(matches!(
-            select_author_warning32(&warnings, &[], 7, 42, 20.0),
+            select_author_warning32(&warnings, &[], 7, 42, 19.95, 20.05),
             Err(2)
         ));
+    }
 
+    #[test]
+    fn multi_interaction_picks_primary_by_settled_damage() {
+        // 一发多次装甲交互（两个不同 hash6/两条 method8）：不再整发 fail，取主交互
+        // （已结算 → 伤害大者）。这里是两条未结算，按插入序稳定取第一条。
+        let a = [1, 2, 3, 4, 5, 6];
+        let b = [6, 5, 4, 3, 2, 1];
+        let warnings = vec![warning(20.0, 42, a, 0x10), warning(20.0, 42, b, 0x20)];
         let hits = vec![direct(20.0, 7, 42, a, 0), direct(20.0, 7, 42, b, 1)];
-        assert!(matches!(
-            select_author_warning32(&warnings, &hits, 7, 42, 20.0),
-            Err(2)
-        ));
+        let picked = select_author_warning32(&warnings, &hits, 7, 42, 19.95, 20.05)
+            .expect("多交互不应整发失败")
+            .expect("应选出主交互段");
+        assert_eq!(picked.hash6, a);
     }
 
     #[test]
@@ -2724,7 +3081,7 @@ mod author_warning32_pairing_tests {
         ];
         let hits = vec![direct(30.0, 7, 42, hash, 0)];
 
-        let picked = select_author_warning32(&warnings, &hits, 7, 42, 30.0)
+        let picked = select_author_warning32(&warnings, &hits, 7, 42, 29.95, 30.05)
             .expect("相同 token + 相同 segment 的重复通知应去重语义")
             .expect("应选出命中段");
         assert_eq!(picked.segment, 0x1234);
@@ -2945,5 +3302,176 @@ mod dead_target_tests {
     fn negative_hp_sentinel_is_terminal() {
         let events = vec![hp(91.2, 7, 0xFFFD)];
         assert!(victim_dead_before(&events, 7, 91.616));
+    }
+}
+
+#[cfg(test)]
+mod notice_window_tests {
+    use super::*;
+
+    const SHOOTER: u32 = 0xA000_0001;
+    const VICTIM_A: u32 = 0xB000_0001;
+    const VICTIM_B: u32 = 0xB000_0002;
+
+    fn m8(t: f32, victim: u32, hash: [u8; 6], settled: bool, damage: u16) -> DirectHit8 {
+        DirectHit8 {
+            t,
+            shooter: SHOOTER,
+            victim,
+            result: 3,
+            component_index: Some(1),
+            hash6: hash,
+            damage,
+            settled,
+            victim_state: None,
+            victim_prop2: None,
+        }
+    }
+
+    fn w32(t: f32, victim: u32, hash: [u8; 6], segment: u64) -> ArenaWarning32 {
+        ArenaWarning32 {
+            t,
+            eid: victim,
+            result: 3,
+            segment,
+            hash6: hash,
+            inc_yaw: 0.0,
+            inc_pitch: 0.0,
+        }
+    }
+
+    fn names() -> HashMap<u32, String> {
+        HashMap::new()
+    }
+
+    /// 区间 = [本发弹着, 同射手下一发弹着)，末发上界 +∞；顺序纯由终点时刻决定。
+    #[test]
+    fn windows_are_ordered_endpoint_intervals() {
+        let launches = vec![
+            LaunchEntry {
+                t: 10.0,
+                shooter: SHOOTER,
+                shot_id: 1,
+                point: [0.0; 3],
+                vel: [0.0; 3],
+                shell_code: 0,
+                shooter_prop2: None,
+            },
+            LaunchEntry {
+                t: 20.0,
+                shooter: SHOOTER,
+                shot_id: 2,
+                point: [0.0; 3],
+                vel: [0.0; 3],
+                shell_code: 0,
+                shooter_prop2: None,
+            },
+        ];
+        let mut endpoints = HashMap::new();
+        endpoints.insert(1u32, (10.0f32, [0.0f32; 3]));
+        endpoints.insert(2u32, (20.0f32, [0.0f32; 3]));
+        let w = build_notice_windows(&launches, &[false, false], &HashMap::new(), &endpoints);
+        assert_eq!(w.get(&1).copied(), Some((10.0, 20.0)));
+        assert_eq!(w.get(&2).map(|x| x.0), Some(20.0));
+        assert!(w.get(&2).unwrap().1.is_infinite());
+    }
+
+    /// 287 伤害样本的形态：命中通知晚一个 tick（+0.0811s）仍按区间绑定，且按 hash6
+    /// 找到对应的 type=32 segment（旧 ±0.05 窗会判成“未转发”）。
+    #[test]
+    fn late_notification_binds_by_interval() {
+        let hash = [0x14, 0xf6, 0xc7, 0x48, 0xf3, 0xa2];
+        let d8 = vec![m8(182.108, VICTIM_A, hash, true, 287)];
+        let warnings = vec![w32(182.108, VICTIM_A, hash, 0x0554_5a00_009c_1a03)];
+        let got = select_author_warning32(
+            &warnings, &d8, SHOOTER, VICTIM_A, /* lo */ 182.026, /* hi */ 195.910,
+        )
+        .unwrap()
+        .expect("通知在区间内 → 必须绑定");
+        assert_eq!(decode_segment(got.segment).1, 5, "armor_group = hull plate 5");
+        // 旧窗口（±0.05）会落空——这是本次修复的回归锚
+        let legacy = select_author_warning32(&warnings, &d8, SHOOTER, VICTIM_A, 182.026 - 0.05, 182.026 + 0.05)
+            .unwrap();
+        assert!(legacy.is_none());
+    }
+
+    /// 一发多 victim：区间内两条不同受击者的 method8 都保留，主目标在首位并继承顶层
+    /// 伤害/结果；额外目标用服务器结算值。
+    #[test]
+    fn multi_victim_is_kept() {
+        let hash_a = [1, 2, 3, 4, 5, 6];
+        let hash_b = [7, 8, 9, 10, 11, 12];
+        // 同一服务器批次（同一包钟）= 一次开火的多目标命中
+        let d8 = vec![
+            m8(30.05, VICTIM_A, hash_a, true, 500),
+            m8(30.05, VICTIM_B, hash_b, true, 120),
+        ];
+        let hits = collect_shot_hits(
+            SHOOTER,
+            30.0,
+            40.0,
+            Some(VICTIM_B),
+            120,
+            3,
+            &d8,
+            &[],
+            &[],
+            &names(),
+        );
+        assert_eq!(hits.len(), 2, "两个受击者都必须保留");
+        assert!(hits[0].is_primary);
+        assert_eq!(hits[0].target_eid, VICTIM_B);
+        assert_eq!(hits[0].damage, 120);
+        assert_eq!(hits[1].target_eid, VICTIM_A);
+        assert_eq!(hits[1].damage, 500);
+    }
+
+    /// 晚于主事件的同射手通知**不得**收成本发的第二目标（它属于未录入的另一发 = AoI）。
+    #[test]
+    fn late_foreign_notification_is_not_a_second_victim() {
+        let hash_a = [1, 1, 1, 1, 1, 1];
+        let hash_b = [2, 2, 2, 2, 2, 2];
+        let d8 = vec![
+            m8(30.05, VICTIM_A, hash_a, true, 500),
+            m8(35.00, VICTIM_B, hash_b, true, 120), // 5s 后：属于别的射击
+        ];
+        let hits = collect_shot_hits(
+            SHOOTER,
+            30.0,
+            40.0,
+            Some(VICTIM_A),
+            500,
+            3,
+            &d8,
+            &[],
+            &[],
+            &names(),
+        );
+        assert_eq!(hits.len(), 1, "晚到的外部通知不能错绑成本发的第二目标");
+        assert_eq!(hits[0].target_eid, VICTIM_A);
+    }
+
+    /// 同事件重发（同刻同 hash6：未结算 + 已结算）合并成一条，保留结算值。
+    #[test]
+    fn duplicate_event_is_merged() {
+        let hash = [9, 9, 9, 9, 9, 9];
+        let d8 = vec![
+            m8(50.0, VICTIM_A, hash, false, 0),
+            m8(50.0, VICTIM_A, hash, true, 440),
+        ];
+        let hits = collect_shot_hits(
+            SHOOTER,
+            49.0,
+            60.0,
+            Some(VICTIM_A),
+            440,
+            3,
+            &d8,
+            &[],
+            &[],
+            &names(),
+        );
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].damage, 440);
     }
 }

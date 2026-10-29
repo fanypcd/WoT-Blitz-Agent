@@ -228,7 +228,8 @@ fail-closed）；消费方展示层按框缩放定位。图标重导后须重跑
 已由 `tools/export_tank_tread.py` 导出为包内 `tread/`（**738/738 辆**：authored + 国别主
 贴图回落）+ `tread/textures/*.webp`（13 张 DDS 无损转码）+ `tread/textures.json`
 （alpha 归一化表）；`.tex` 引用在数据面的落点规则 = `<stem>.tex` → `<stem>.dx11.dds.dvpl`
-（与坦克贴图同）。可行性定案与前端消费口径见 [feasibility-track-marks.md](feasibility-track-marks.md)。
+（与坦克贴图同）。定案口径见 [data-inventory.md](data-inventory.md) 履带印行；前端消费 =
+WotbTools `scene/treadMarks.js` 几何贴花。
 
 配置器数据（`data/research/` 的非图标部分：装备/物品/技能/参数/文案/涂装/meta +
 逐车 `modules/{nation}.json`）由 `scripts/export_asset_pack.py` 导出为包内 `research/**`；

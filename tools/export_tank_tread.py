@@ -7,8 +7,8 @@
 - 贴图本体：`3d/Tanks/Common/images/<stem>.dx11.dds.dvpl`（DDS BC1/2/3/5，256²），
   经 export_tank_glb.decode_dds 解码后转 webp（**无损**，保客户端像素）。
 - 本导出器**只搬数据不做语义推断**：force*=false 时客户端如何派生宽度/间距未逆向，
-  照原样透出 flag + authored 值；无 treadParameters 块的车**不产文件**（前端回落策略
-  见 docs/feasibility-track-marks.md，fail-closed）。
+  照原样透出 flag + authored 值；无 treadParameters 块的车**不产文件**（数据面口径见
+  docs/data-inventory.md 履带印行，fail-closed）。
 
 贴图导出与逐车参数解耦：对 `3d/Tanks/Common/images/*tread*.dx11.dds.dvpl` 全量解码
 （含未被任何 yaml 引用的 `Tread`/`Japan_01` 等回落候选），幂等可重跑。

@@ -15,22 +15,22 @@
 | [docs/tank-suspension-client-re.md](tank-suspension-client-re.md) | **客户端坦克悬挂逆向**：处理链与节点绑定契约、逐车 `suspension:` 数据面（`wheels`/履带折线/`chassis.textureScale`）、负重轮-履带求解公式（反汇编还原）、对齐可行性分级与剩余未定项 |
 | [docs/architecture-debt.md](architecture-debt.md) | 架构债与长期改动方案：已完成项（combat.rs 拆分、双路径合并）与仍留存项 |
 | [docs/game-data-sources.md](game-data-sources.md) | **数据来源权威表**：每份数据取自 BlitzKit / 本机客户端 / WG API / 自产；本地提取链、间隙甲 spaced 规则、DVPL 校验契约、DLC 覆盖层、资产 origin 发布流程（Alibaba；COS legacy）与运维陷阱、俯视合成朝向契约 |
- | [docs/data-inventory.md](data-inventory.md) | **数据面清单 / 运行所需数据总账**：运行期 11+1 项核心数据的"目前来源 / 可替代来源 / 替代完成度"+ 派生/注入数据 + 非数据类外部依赖；分发渠道与包内布局；工具索引 |
+| [docs/data-inventory.md](data-inventory.md) | **数据面清单 / 运行所需数据总账**：运行期 11+1 项核心数据的"目前来源 / 可替代来源 / 替代完成度"+ 派生/注入数据 + 非数据类外部依赖；分发渠道与包内布局；工具索引 |
+| [docs/client-research-tech-tree-loadout.md](client-research-tech-tree-loadout.md) | **客户端研发 / 科技树 / 装备-消耗品系统事实总集**（WotbTools 复刻证据基线）：数据源地图、模块 schema、`<unlocks>` 研发图全量、科技树坐标、Screens3 UI 数据契约、9 槽装备骨架与 24 件全表、消耗品/补给过滤器与效果、参数键与已证公式；含 fail-closed 边界与未决项 |
 | [docs/wotbtools-research-loadout-plan.md](wotbtools-research-loadout-plan.md) | **WotbTools 复刻实施方案与落地记录**（2026-10-27 裁定后范围）：单一整合配置界面（模块/装备/消耗品补给选择，BlitzKit 布局同构），与装甲查看器模型及百科数值联动；**不做**研发/购买/科技树/分入口；数据源铁律（客户端解析权威 / BlitzKit 备用+公式参照，隐蔽加成按客户端）、`data/research/` 导出契约、计算层规格、联动契约（configIndex/delta/URL）、已知偏差表、P0–P4 分期与测试门禁；§12 实现状态与实现期口径 |
- | [docs/decoupling-status.md](decoupling-status.md) | 解耦现状（BlitzKit → 本机客户端自产，已全量完成）：已定案差异清单、封面图与命名域细节、对外沟通材料 |
+| [docs/decoupling-status.md](decoupling-status.md) | 解耦现状（BlitzKit → 本机客户端自产，已全量完成）：已定案差异清单、封面图与命名域细节、对外沟通材料 |
 | [docs/local-model-export.md](local-model-export.md) | 坦克模型本机自产管线：实现铁律（违反会静默出错）、贴图语义口径与通道搬迁、与 BlitzKit 的逐维度对照结论 |
+| [docs/map-render-align-audit.md](map-render-align-audit.md) | 地图渲染 × 客户端**差异总账**（36 图普查 33 条逐项现役状态）；**未落地项以此文为准**；光照可行性报告删档后的未定项收编于其 §五 |
 
 ## 档案（已执行完毕 / 报告留档）
 
 | 文档 | 状态 |
 |---|---|
-| [docs/feasibility-pb-local-extraction.md](feasibility-pb-local-extraction.md) | ✅ 已实施：本机解包替代 `tanks.pb`/`models.pb`（提取器 + 同格式编码器已接线转正，见 decoupling-status §1） |
-| [docs/feasibility-glb-local-export.md](feasibility-glb-local-export.md) | ✅ 已实施（结果与修正以 [local-model-export.md](local-model-export.md) 为准） |
-| [docs/feasibility-map-lighting.md](feasibility-map-lighting.md) | ✅ 已实施：逐图光照 / 烘焙光照图 / IBL / 天空（数据面与消费端均已落地，逐项状态见 map-render-align-audit） |
-| [docs/feasibility-track-marks.md](feasibility-track-marks.md) | ✅ 数据面已落地（包内 `tread/`）；3D 呈现归 WotbTools 前端 |
-| [docs/map-render-align-audit.md](map-render-align-audit.md) | 地图渲染 × 客户端**差异总账**（36 图普查的 23 条清单与逐项状态）；未落地项以此文为准 |
 | [docs/map-lighting-plan.md](map-lighting-plan.md) | 光照实施设计：期 0–2 主体已落地（逐图光照/光照图/IBL）；剩余项见该文与 map-render-align-audit |
-| [docs/vue-migration-plan.md](vue-migration-plan.md) | ✅ 已完成（2026-09-28）留档：前端切流 Vue 3 SPA 后本仓前端已冻结；文中 `scripts/package.ps1` 等打包链已删除 |
+
+> 早期可行性报告（pb 本地提取、GLB 本地导出、地图光照、履带印）与 vue-migration-plan
+> 已于 2026-10-29 删档：结论均已并入上列活文档（data-inventory / game-data-sources /
+> local-model-export / map-render-align-audit），原文见 git 历史。
 
 > `docs/mobile_plan.md` 及移动端（`mobile/` Tauri 壳、`mobile_assets/` 随包资产）已随
 > Android 分发形态一同移除（详见 [README §与 WotbTools 的关系](../README.md)）。
@@ -39,7 +39,7 @@
 
 ### 版本与发行
 
-- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.15**）。
+- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.16**）。
   该值变更合并到 `main` 后，Release workflow 自动测试、构建、创建 `v<version>` tag
   并发布 `wotb-replay-wasm-v<version>.zip`；发布策略与 Android 同步规则见
   [AGENTS.md](../AGENTS.md)。
@@ -49,6 +49,7 @@
 
 | 版本 | 内容 |
 |---|---|
+| v0.4.16 | **命中通知归属：时钟容差 → 弹着区间顺序（解析器行为修正）**：method8 / type=32 都没有 shotId（P2 探针 0/457、0/2729），改用**同射手 `[本发弹着, 下一发弹着)` 区间**归属（`notice_windows`，零时钟容差）——旧 `|t−end_time|≤0.05s` 窗小于 10Hz 包钟量子（≈81ms），一次 tick 抖动就把命中通知判成“未转发”（20261029 HE 样本 +0.0811s：`hit_token/segment/game_hit_result` 全丢 → 前端退回弹道弦，82.12°/73.0mm 判穿；服务器段 83.76°/92.0mm 不穿 → 287 溅射，判定结论相反）。哈希令牌降级为 method8↔type=32 的同事件连接；段包未转发/履带命中不发族包时由 method8 兜底，不再整发 fail。**additive**：`shots[].hits[]`（一发多 victim / 多次装甲交互全保留，主目标在首位；额外受击者须与主事件同服务器批次）与 `shot_replays_json.unattached_hits[]`（对应射击未录入的命中事件：射手/受击者/时刻/伤害/结果/cmpIndex/令牌 + segment/shell_id/armor_group/hit_triangle + 受击者位姿与炮塔角——射击复现所需最小集，射击方姿态非必要）。证据：14 场语料 573 发逐发对拍，27 发语义变化全部为增益（26 发他人射击由无目标→服务器真值，受击者距终点 ≤13m；1 发作者同 bug），8 条 unattached 显式输出，0 解析失败；5 条新单测。**消费方**：additive 缺省即旧行为；`hit_token/game_hit_result` 覆盖上升 → WotbTools pin bump 后重生成 AI 投影 golden。详见本页 §命中通知归属（2026-10-29）。 |
 | v0.4.15 | **录像者初始世界位姿轻量能力（additive）**：新增第 5 个独立 WASM 入口 `parseAuthorInitialPosition(bytes)` → `{author_eid, clock, position}` 或 `null`。只读 meta + battle_results 解析作者身份，随后定向扫描 type=10（`eid==author_eid`、`payload>=48B`、`parent==0`、位置/时钟 finite），取 replay clock 最小的世界观测；**不构建 ReplayModel / PlaybackData / AiReviewFacet**，不读地图语义、不物化时间线。身份解析与 `ReplayModel::scan` 共用 comp `account_id` 精确匹配 → Type5 昵称回退（SSOT）；type=10 解码复用共享 `decode_st10_sample`（不新增 decoder）。输出原样 replay 世界坐标（`x/z` 水平、`y` 高程），NORTH/SOUTH/出生侧分类留给消费方。证据：真实夹具 `2.wotbreplay` 锁定 author_eid/clock/坐标并与同场 Type5 战斗车辆物化位姿跨源核对 <0.05m；去掉 battle_results 的副本（meta 昵称回退）仍返回同一位姿；全部夹具 finite 且 <0.1m；WASM shape / `null` / Result 边界 smoke。**兼容面**：`parseResult` 不读包流、输出零变化；Playback 切面全部夹具逐字节不变；AI 切面仅同刻事件顺序（既有 HashMap 顺序非确定）无语义差异。契约见 [author-initial-position.md](author-initial-position.md)。 |
 | v0.4.14 | **血量链死亡证据与显示去重分离（v0.4.13 的复审缺陷）**：v0.4.13 把 `zero_hits`（method1 归零事件的凶手/死因登记）放在显示链相邻同值去重之后——终态快照（0/0xFFFD/0xFFFE/0xFFFF，隐藏段死亡后残骸重入）先到时，随后（或同钟）的 method1 归零被相邻去重吞掉，死亡归属退化 `0/255` 甚至消失（存在 prop1 时）。现改为**归零是否立死看上一条 method1 更新的值**（同值归零 = 同一次死亡的 overkill 重复，不重复立死），与夹在中间的快照无关；显示链行为与 v0.4.13 逐位一致，仅死亡归属修正。**消费方**：`death_t`/`killer_eid`/`cause` 对「隐藏段死亡 + 残骸重入」场景恢复 method1 归属；切面 v2 形状不变，AI 投影 golden 预期仅 provenance 变化。证据：WotbTools #767 复审 P2-2 反例 + 回归 `hp_series_zero_hit_survives_terminal_snapshot_adjacency`（双向 + overkill 重复归零仍单条；6 合成单测 + 13 样本探针 0 脱节 + clippy 零警告）。 |
 | v0.4.13 | **血量链合并顺序修正（v0.4.12 的复审缺陷）**：v0.4.12 的实现先对 method1 做相邻同值去重、再把重入快照插回——快照夹在两条同值 method1 之间时（隐藏段死亡无 method1 归零 + 复活回满血再受击、值恰同受击前，复活语义可达），后一条真实受击被吞（`t` 之后 `hpAt` 读到旧值，伤害飘字同源受累）。现改为**全部血量证据（种子 + method1 + 重入快照）统一按时间合并（同钟快照在前 = 客户端物化先于属性更新）、最后做一次相邻同值去重**；`zero_hits` 登记移入最终去重（幸存归零才立死，逐位等价）。**消费方**：普通回放与 v0.4.12 输出逐位一致，仅复活/同值边界修正；切面 v2 形状不变，AI 投影 golden 预期仅 provenance 变化。证据：WotbTools #767 复审 P2 反例 + 回归 `hp_series_snapshot_between_equal_method1_values_keeps_latter`（5 合成单测 + 13 样本探针 0 脱节 + clippy 零警告）。 |
@@ -76,6 +77,52 @@
 | v0.3.6 | prop3 血量属性广播（录像者自身血量的唯一来源，与 method1 非镜像）。 |
 | v0.3.5 | 原始 HP 证据 `Damage.hp_raw`（未钳制 u16，区分零血与终态未知）与 AoI 开段物化 HP；method8 原始命中通知（全变体、不分类）。 |
 | v0.3.4 | 包流自行分帧（不再依赖 crate 对 payload 的反序列化——单个 pickle 形状偏差不再让整场失败）。 |
+
+### 命中通知归属：时钟容差 → 弹着区间顺序（2026-10-29，解析器行为修正，v0.4.16）
+
+- **动因（真实样本）**：20261029 样本 HE 一发（shotId 30958325，182.03s，目标 Grille 15，
+  服务器结算 287）本地射击复现与服务器判定不一致。根因 = 该发 method8/type=32 命中通知
+  比 method20 终点包**晚 +0.0811s**（一个 10Hz tick），落在旧配对窗 `|t−end_time| ≤ 0.05s`
+  之外 → `hit_token/segment/armor_group/game_hit_result` 全部置空（255/null），前端退回
+  弹道弦判定；弦在 10mm 前甲板上入射 82.12°（等效 73.0mm，HE 75/校准 80.25mm 判穿），
+  服务器自己编码的 P1→P2 段是 83.76°（等效 92.0mm，不穿 → 287 溅射）。服务器 segment B7=5
+  与本机 raycast 板号一致，证明板对、角度差才是否决点。
+- **修正**：命中通知（method8 / type=32）不再用时钟窗，改用**同一射手 `[本发弹着, 下一发
+  弹着)` 区间**归属（`ShotScanShared::notice_windows`；弹着时刻 = `shot_impact_time`，
+  有续段取首段接触）。纯顺序语义、零容差；通知不再可能"因为晚一个 tick 被判成服务器未转发"。
+- **令牌职责收窄**：hash6 只做 method8 ↔ type=32 的**同事件令牌**（事件内唯一；同刻重发按
+  hash6 合并、保留 settled）；配对不再依赖时间。type=32 未转发 / cmpIndex=0（不发本族包）
+  → 由 method8 兜底（**不**把区间内别的 segment 当歧义）。
+- **多 target 保留（一发多 victim）**：`ShotReplayData` additive `hits[]`（`ShotHit`：
+  `target_eid/target_name/damage/game_hit_result/is_primary/armor_group/hit_token/
+  server_part_index/crit_modules/destroyed_modules`）。HE 溅射同时命中多辆、或一发在同一
+  受击者上多次装甲交互（hash6 不同）都各成一条；主目标（= 顶层 `target_*` 字段）排在首位
+  并继承顶层伤害/结果。他人路径原先把"不在发射射线上"的溅射第二目标**排除**，现保留。
+  **额外受击者必须与主事件同一服务器批次（同一包钟）**——晚于主事件的通知属于未录入的
+  另一发（AoI），贪心收进会错绑（语料实测 4 例，被误收的"第二目标"距终点 60~440m）；
+  该门用批次时间而非距离阈值。
+- **不可归属事件不丢**：`shot_replays_json` 新增 additive `unattached_hits[]`
+  （`UnattachedHit`：`shooter_eid`/`shooter_name`/victim/昵称/时刻/结算伤害/结果枚举/
+  cmpIndex/令牌 + 同事件 type=32 的 `segment`/`shell_id`/`armor_group`/`hit_triangle` +
+  受击者事件时刻位姿 `victim_pos`/`victim_ang`/`victim_turret_yaw`/`victim_prop2`；
+  `reason="no_shot_interval"`）——通知落在该射手所有区间之外 = 对应射击不在录像里
+  （AoI 截断），显式输出而非丢弃；消费方按"未知归属"呈现，不得反推成某一发。
+  **射击复现所需的最小集已齐**：受击者位姿（含炮塔角）+ hash6 命中段 + 弹种 → 可直接跑
+  segRay 判定/渲染；缺的只有发射点/速度/开火时刻/shotId（弹道线与交战距离），按 2026-10-29
+  用户裁定：表现受击方姿态与命中位置即可，射击方姿态不是必要条件。
+- **多交互主段选择**：区间内多条 method8/type=32（一次开火多次装甲交互）按「已结算 →
+  伤害大 → 时刻早」确定主交互（与 `shotResultClass` 的伤害仲裁同义），不再整发 fail-fast。
+- **证据（14 场语料全量回归，作者+他人 573 发逐发对拍）**：作者路径 54 发有目标 → 52 发区间内
+  找到通知、2 发无通知（脱靶，正常）、0 错配；全语料 457 条 method8（同刻重发合并后 442 条）
+  中 434 条按区间归属，8 条无对应射击（`unattached_hits` / `no_shot_interval`）。相对旧实现
+  **27 发语义变化，全部为增益**：26 发他人射击由"无目标/0 伤/255"变为服务器真值（新绑受击者
+  到终点距离 ≤13m，其中 20 发 ≤5m，几何互证），1 发作者（J39 shot 7223366：255/null →
+  token/segment/result，同一 bug 的第二例）；无解析失败、无新增错配。`hits[]` 覆盖 425 发；
+  语料无"同批次多目标"真实样本（4 例贪心误收已由批次门排除）。Rust 侧新增 5 条合成单测
+  （区间序、晚一个 tick 绑定、同批次多 victim、晚到外部通知不误绑、同刻重发合并）。
+- **消费方**：`hits[]` / `unattached_hits` additive（缺省 = 旧行为）；`hit_token`/`game_hit_result`
+  覆盖上升（同一发的值可能从 255 变为服务器真值）→ WotbTools 随 pin bump 重生成 AI 投影
+  golden 并逐条归因。切面 v2 形状不变。
 
 ### 射击复现匹配与配件解析（2026-10-23）
 
@@ -135,9 +182,12 @@
   零死代码块、无违规归档目录，其 pin `deploy/agent/source.json` 已是 v0.4.11 无需 bump。
 - **.gitignore**：补 `tmp_wi_probe/`、`tmp_pw/`（`tmp_*` 通配只覆盖 txt/json，两个探针目录
   此前以未跟踪状态挂在 git status 里）。
-- **遗留提示**：本地 `tmp_analysis/`(5.4G)+`tmp_pw/`(499M)+`tmp_wi_probe/`(155M) 共约 6G
-  调查产物可按需清理；WotbTools 本地检出落后 origin/main 31 提交（分支工作已全在 main），
-  其本地 `common/fixtures/tournament/csv/{4x2,5x3}.csv` 的未提交改动仅为行尾符差异。
+- **遗留提示（2026-10-24 记；2026-10-29 本地清理后更新）**：本地调查产物 `tmp_analysis/`
+  与 `investigation/` 按仓规不入库、可按需清理。2026-10-29 已清理调试类残留约 **360 MB**
+  （facets 对比基线 113M、`re/shaders/` 贴图提取副产品 139M、`map_dbg_*`/`map_reexport_*`
+  88M、`verify_*`/`pb_trial`/`screenshots` 约 10M、`host_delta` staging 8M、`.git` 垃圾
+  临时包）；研究类工作台（RE 反汇编转储、客户端 shader 源码、`client_dump/`、研究扫描
+  输出）按"研究内容不删"保留，`tmp_analysis/` 现 31M、`investigation/` 41M 原样保留。
 
 ### 回放血量链：隐藏段（盲炮）掉血在二次点亮兑现（2026-10-26，解析器行为修正，v0.4.12→v0.4.14）
 
@@ -214,162 +264,87 @@
   `tank/*.json`（35 件/包，两包均已更新并重算 manifest）；WotbTools 前端 bundle 变化
   （Android `wotbVersion` 同 PR）；WASM pin 不变。
 - **科技树/研发图导出 + XI 预览合并（2026-10-27，随用户指令解除「不做科技树页」裁定）**：
-  `tools/export_research_loadout.py` 落地 `--with-research-graph`（原为报错 stub）：新增
-  `data/research/tech_tree/{nation}.json`（9 国）——`nodes`（stem/tankId/listId/tier/
-  price/priceRaw/tags + 客户端 `Configs/TechTree/{nation}_tree.yaml` 原始 `position`
-  x=列 y=行；**列≠tier**（other 树列 1..7 而 tier 4..10），tier 仍读 list.xml `<level>`）
-  + `premiumRows`（数据字段原样；**位置语义已由数据证实**：premium/collector 车放在
-  最小 y 行——ussr y=2、germany y=1-2、usa y=1、uk y=2，即客户端把金币车带画在树
-  **顶部**；带高按「自最小 y 起连续含金币车的行数」取，`premiumRows` 只作保留行数
-  参考，UI 不重排格子）+ `pending`（科技树已登记但未实装的 XI 展示位，只有 stem/x/y，不造名称）
-  + `edges`（整车研发边：`<unlocks><vehicle>` 的 from=车/to=车/cost/costRaw/sourceModule/
-  sourceKind，与 modules/*.json 同一共享组件物化口径）。模块级解锁边（276/208/457/351）
-  仍在 `modules/{nation}.json` 的 `unlocks`，tech_tree 只投影整车边。**11.22 XI 预览**：
-  新工具 `tools/fetch_t11_techtree.py` 对公开 CDN 的 20.67 GB 预览 ZIP 做 ZIP64 central
-  directory + Range 按需提取（实测 7.7 MB），产出 `data/research_t11_preview/
-  tech_tree_extra.json`（9 国树坐标 + china/ussr list 的 XI 车事实 + preview bridge
-  tankId 对号），`--tech-tree-extra` 并入：8 个 XI 新 stem（2 定义车 + 6 pending），
-  与 game-data-sources §2.7 口径一致；`--data-root` 模式可物化最小预览 Data 根
-  （version/Strings/两车 XML+components+Parameters，23 文件），使
-  `--modules-only --merge` 可复现（不再依赖已删除的 20 GB 解包）。**防回退门禁**：
-  全量导出发现目标 meta 已含 `preview` 合并时直接报错（真实事故：全量重导把
-  china/ussr modules 冲回 738，靠门禁 + 文档固化工序「临时目录全量导出 → 复制
-  tech_tree → 重跑 merge」）。校验：`tools/test_research_techtree.py`（306 节点 =
-  304+2 预览、6 pending、310 整车边、列↔tier 唯一性、预览车 tankId/tier/x=11、
-  每节点能对号 modules 联表）通过；meta.json 逐文件 sha256 0 mismatch，counts 740 辆
-  （预览合并保留）。**客户端 UI 契约补充提取（2026-10-27，本机 11.21 + 预览包 UI
-  yaml 全套比对）**：XI 对科技树屏的唯一实质改动 = `levels=[1..10]→[1..11]`
-  （ModulesTree 屏逐字节等价）；`Lines{linesMask}` 28 个连线图案文件是**包内数据**
-  （几何已提取：入线 13.5px + 左中箭头 @13px、出线 19.5px、VL/VR 列边界干线 ±0.5px、
-  Bottom/TopArrow 中心垂直），仅每格 mask 编号由模型计算（位语义未定，禁猜）；
-  `LevelCell` 216×24 罗马数字、可见窗口 minLevel..maxLevel；XI 车每族模块唯一、
-  零 `<unlocks>` 边、零成本 = **无研发链**。详见 census §5.3 修正。**消费面**：
-  WotbTools 新增 `agent-techtree` 视图（科技树 + 单车研发界面，连线/等级条/premium
-  带按上述客户端几何复刻）与装甲查看器/回放的装备 UI 接入（见 WotbTools 侧 PR）；
-  资产包 `research/tech_tree/**` 随下一次 immutable release 发布。影响面：
-  `data/research/` 新增 tech_tree（其余文件逐字节不变）；WASM pin、回放切面、地图资产
-  均不变。
+  `tools/export_research_loadout.py --with-research-graph` 落地 `data/research/tech_tree/{nation}.json`
+  （9 国）：`nodes`（stem/tankId/tier/price/tags + 客户端科技树 yaml 原始 `position`——**列≠tier**，
+  tier 读 list.xml）+ `premiumRows`（**位置语义已由数据证实**：金币车带画在树顶部，UI 不重排格子）
+  + `pending`（未实装 XI 登记位，不造名称）+ `edges`（310 条整车研发边；模块级解锁边
+  276/208/457/351 仍在 `modules/{nation}.json`）。**11.22 XI 预览**：新工具
+  `tools/fetch_t11_techtree.py` 对公开 CDN 20.67 GB 预览 ZIP 做 ZIP64 + Range 按需提取
+  （实测 7.7 MB），`--tech-tree-extra` 并入 8 个 XI 新 stem（2 定义车 + 6 pending）；
+  `--data-root` 可物化最小预览 Data 根使 `--modules-only --merge` 可复现。**防回退门禁**：
+  输出已含 `preview` 合并时全量重导直接报错（真实事故：全量重导曾把 china/ussr modules
+  冲回 738）。校验：`tools/test_research_techtree.py` 通过；meta 逐文件 sha256 0 mismatch、
+  740 辆。**客户端 UI 契约补充（11.21 + 预览包 UI yaml 全套比对）**：XI 对科技树屏唯一实质
+  改动 = `levels=[1..10]→[1..11]`；`Lines{linesMask}` 28 个连线图案是包内数据（几何已提取），
+  仅每格 mask 编号由模型计算（位语义未定，禁猜）；XI 车零 `<unlocks>` 边 = 无研发链。
+  **消费面**：WotbTools 新增 `agent-techtree` 视图；`research/tech_tree/**` 随下次 immutable
+  release 发布。全量 schema/统计/证据见 [client-research-tech-tree-loadout.md](client-research-tech-tree-loadout.md)。
 - **WotbTools 复刻实施方案与同日落地（2026-10-27；范围按用户裁定重定）**：新增
-  [wotbtools-research-loadout-plan.md](wotbtools-research-loadout-plan.md)，与下条数据
-  盘点配套。**范围裁定（用户 2026-10-27）**：不做研发/购买/解锁机制、不做科技树页、
-  不做分入口——只做**单一整合配置界面**（模块炮塔/炮/发动机/履带选择 + 装备 9 槽
-  3×3 + 补给/消耗品 chips + 涂装开关，BlitzKit Tankopedia 布局同构，全部已解锁直接
-  选择），与**装甲查看器模型**（configIndex 联动）和**百科数值**（详情统计改为计算
-  引擎输出 + 上次值 delta（2026-10-27 改为 BK useDelta 同逻辑））联动。**数据源铁律**：客户端解析权威、BlitzKit 只作
-  备用源（差异白名单校验）与计算公式参照；**隐蔽加成（迷彩网/涂装）按客户端数据**
-  （用户裁定：迷彩网 script 逐车型 bonus、静止 ×2；涂装 camouflages.xml 类别表；**按百分点绝对值相加**）。内容：`tools/export_research_loadout.py` 的
-  `data/research/` 导出契约（modules/devices/consumables/provisions/defaults/params/
-  strings/icons + meta 版本锚；研发图/科技树坐标降为可选输出）与 WotbTools 快照入库
-  分发；计算层规格（BK `tankCharacteristics` 公式逐条）；联动契约（configIndex /
-  delta 渲染（BK useDelta） / URL 序列化 / 回放装备反解）；10 条已知偏差声明；P0–P4 分期与
-  7 项测试门禁。**同日落地（跨仓，2026-10-27）**：导出器已实现（`tools/export_research_loadout.py` →
-  `data/research/`，123 文件 3.51 MB：738 辆 / 9 国别模块（含扩圈系数）、24 设备 + 9 预设、64 消耗品/85 补给、20 项乘员技能（客户端 avatar.xml 数值）、
-  params format 70 键、en + zh-Hans 46 条文案、涂装隐蔽类别表、68 张物品图标 + 5 张模块类型图 + 20 张技能图标 + 9 张弹种图标（客户端原图、统一 96×96）；`meta.json` 锚 `11.21.0.1235_7376187`
-  + 逐文件 sha256），并作为快照分发进 WotbTools `common/research/`，由坦克百科整合配置器消费：
-  模块（炮塔/炮/发动机/履带，图标格）+ 装备 3×3（客户端物品图标）+ 补给/消耗品图标格 + 涂装 →
-  引擎参数区（相对初始配置的 delta）；
-  炮塔/炮经 `config.turret_local/gun_local` 对号写 `?config=` 并交给装甲查看器，百科数值与弹种穿深
-  同步为引擎输出。计算层为 BK 公式 + 客户端数据（隐蔽加成按用户裁定用客户端 script/camouflages.xml），WotbTools 侧
-  `characteristics`(20 golden) + `tankSetup`(17) + 图标/过滤(10) + 详情页集成(22) 全通过（合计 129），`typecheck`/`lint:css` 通过。
-  **实现期口径**：`vehicleFilter` 的 include 块内条件为 **AND**（ration = 6-10 级且苏联；修正早期 OR 导致各国食物全车可见），`<isAbility/>` 战斗内技能不进装配池；`clip` 由 `is_drum/is_burst` 语义标记补出、`ids` 规则用模块条目键补 `stem`（tank JSON 无 tags/stem）；
-  百分数参数 1 位小数；装备槽默认空；delta 初次无、之后为上一次渲染值（2026-10-27 改为 BK useDelta，原“config 0 + 首档发动机/履带”固定基准已移除）；不嵌入 3D 宿主；
-  物品 ru 回退 en；图标按客户端 UI 样式表 bg-sprite 映射裁图（`stereoscope` 无图回退文字）；参数区按 BlitzInfo 对齐补齐概览条/火炮类型/弹夹与自动装填行/DPM/弹种明细/射界/消耗品冷却（有持续时间的另显左上角生效时间徽标，duration/cooldown 双徽标）/初始-顶级快捷，新增 BlitzInfo Gun arcs 同构的交互式火炮射界图（config pitch_limits 的 front/back + transition 采样成俯仰带，悬停/拖动显示 Bearing/Up/Down/Barrel；弹种图标选择并入火力卡（客户端 9 类图标，`?shell=`），概览/伤害/穿透/弹速/DPM 随选中弹重算；乘员技能按 `avatar.xml` 20 项图标分组、1–7 级切换（`?skills=id:level`，效果全局，技能值只读客户端 per-level，不采用 BlitzKit 数值）；条件技能按 BI 触发效果联动炮塔转速/引擎功率/装填/视野/瞄准；强化装甲 110 的 +4% 联动装甲表；工作台改为左配置/右参数的 BlitzKit 式两栏；参数组为 280px 自动分栏的紧凑卡片列，标签/数值不跨整栏），装甲表随所选炮塔（每炮塔 primaryArmor 导出）；机制对照 BlitzInfo 修正钨芯 +15%、炮弹装填加速弹间 ×0.7、引擎增压车体 +5%、火药弹速 +35%、悬挂通过性 +20/15/30%，默认消耗品改为空（中性基线）；P4 回放装配徽标未做。
-  **影响面**：资产包与 WASM pin 不变；WotbTools 前端 bundle 变化（Android `wotbVersion` 需在
-  同一发布 PR 递增，本次未改，避免与并行的装甲沉浸态任务冲突）；文档侧同步
-  [data-inventory.md](data-inventory.md) / [game-data-sources.md](game-data-sources.md) 的数据面登记。
+  [wotbtools-research-loadout-plan.md](wotbtools-research-loadout-plan.md)（与上条数据盘点配套）。
+  **范围**：单一整合配置界面（模块炮塔/炮/发动机/履带 + 装备 9 槽 3×3 + 补给/消耗品
+  chips + 涂装，BlitzKit Tankopedia 布局同构，全部已解锁直接选择），与**装甲查看器模型**
+  （configIndex 联动）和**百科数值**（计算引擎输出 + BK useDelta 同逻辑 delta）联动；
+  **不做**研发/购买/解锁机制、不做科技树页、不做分入口。**数据源铁律**：客户端解析权威、
+  BlitzKit 备用 + 公式参照；**隐蔽加成按客户端数据、按百分点绝对值相加**（用户裁定）。
+  **同日落地（跨仓）**：`data/research/` 导出（123 文件 3.51 MB：738 辆 / 9 国别模块 /
+  24 设备 + 9 预设 / 64 消耗品 + 85 补给 / 20 项乘员技能 / params 70 键 / en+zh-Hans 46 条
+  文案 / 102 张客户端图标；`meta.json` 锚 `11.21.0.1235_7376187` + 逐文件 sha256）快照
+  分发进 WotbTools `common/research/`；WotbTools 侧测试合计 129 全过。实现期口径与逐项
+  UI 契约（射界图/技能联动/装备 tooltip/隐蔽五状态/术语/4 列矩阵布局等）见该文 §12。
+  **影响面**：资产包与 WASM pin 不变；WotbTools 前端 bundle 变化（Android `wotbVersion`
+  同 PR 递增）；数据面登记见 [data-inventory.md](data-inventory.md) / [game-data-sources.md](game-data-sources.md)。
 - **坦克配置器 × BlitzInfo 11.21 跨车型复核（2026-10-27）**：以 11.21 渲染页 DOM +
-  `data/wg/11.21/tanks.json` 对照 10 辆不同车型（弹夹/自动装填/无炮塔 TD/LT/MT/HT），修正：
-  乘员角色兜底（无该角色不再 ×1.05）、俯仰符号（客户端存 `-up down`，此前上下颠倒）、
-  车体转向（当前/初始发动机功率比 × 初始/当前**整车**重量；重量补电台/油箱）、无炮塔 TD
-  隐藏炮塔装甲列。对拍：整车重量与车体转向 725/732 辆一致（余 7 辆是 BI 默认顶配选炮不同，
-  非公式差）。**数据面同批修正**：`tank/{id}.json` 逐配置 `caliber` 改取该炮**弹表自带弹径**
-  （删除炮名解析 + 120 回退；全车 421 个配置此前与自身弹径矛盾，AT 7 顶级 20-pdr 83.4
-  被显示成 120）；738 份 `data/tank_data` 重生成，本地包 `tank/` 与 manifest 已刷新。
-  **影响面**：WotbTools 参数值 + 装甲查看器火炮口径显示；资产包 `tank/` 变化（发布到
-  Alibaba 新 release 后消费方可见），WASM pin 不变；测试 targeted 129 / 全量 4784，
-  Rust `tank_configs` 5/5。详见
-  [wotbtools-research-loadout-plan.md](wotbtools-research-loadout-plan.md) §12.2.16。
+  `data/wg/11.21/tanks.json` 对照 10 辆不同车型，修正：乘员角色兜底（无该角色不再 ×1.05）、
+  俯仰符号（客户端存 `-up down`，此前上下颠倒）、车体转向（当前/初始发动机功率比 ×
+  初始/当前**整车**重量；重量补电台/油箱）、无炮塔 TD 隐藏炮塔装甲列。对拍：整车重量与
+  车体转向 725/732 辆一致（余 7 辆是 BI 默认顶配选炮不同，非公式差）。**数据面同批修正**：
+  `tank/{id}.json` 逐配置 `caliber` 改取该炮**弹表自带弹径**（全车 421 个配置此前与自身
+  弹径矛盾），738 份重生成，本地包 `tank/` 与 manifest 已刷新。**影响面**：WotbTools 参数值
+  + 装甲查看器火炮口径显示；资产包 `tank/` 变化（发布新 release 后可见），WASM pin 不变。
+  详见 [wotbtools-research-loadout-plan.md](wotbtools-research-loadout-plan.md) §12.2.16。
 - **坦克配置器 × BlitzKit 数值对照补齐（2026-10-27）**：用户改口「BlitzKit 只是隐蔽
   系数算得不太准，其它的可以参考」。逐项对照 `tankCharacteristics.ts` 后新增：**履带
-  维修时间**（客户端 `hysteresisHealth / healthRegenPerSec`，工具箱/防护套件/Repair
-  技能加速；BI 11.21 T-34 与 116-F3 均为 6.86 s）、**车体尺寸**（底盘+车体+所选炮塔
-  碰撞盒并集、不含炮管；BI T-34 顶级 5.72×2.94×2.63 m、116-F3 7.63×3.49×2.70 m
-  逐值一致）、**弹匣总伤**、**初始炮塔 pitch 计入有效俯仰**（4 辆意系 AT-SPG）；肾上腺素改按客户端 filter 的 `clip` 排除
-  （与 BK 的 regular-only 一致）。**仍不照抄 BK 的四处**：无角色兜底 1.05（BI 实测
-  1.0）、火药补给 +30%（客户端 script 35%）、整车重量漏电台/油箱（BI 对拍含）、
-  124 号装备（11.21 客户端 24 件 100–123，不存在）。隐蔽继续用客户端。
-  **装备联动**：101 高端消耗品（持续 +33%）与 118 配送系统（冷却速度 +17%）联动
-  消耗品计时徽标；108/120/112 只影响模块/履带耐久、109/121 只影响模块/乘员被击中
-  概率（界面无对应数值行，BK 同样未建模）；119 望远镜不在 11.21 任何预设内。
-  **隐蔽五状态**：在静止/移动/静止开火之外补 移动开火 与 起火（客户端系数，BK 口径）。
-  **布局**：配置栏保持原先左栏（模型入口 + 配置，右参数区）排布；只把坦克模块区改成
-  4 列矩阵——首行 4 个类型**纯文字**标签（图标只在选项瓦片），之后按选项序号逐行展开
-  （炮塔1|火炮1|发动机1|履带1，下一行炮塔2|火炮2…），列严格对齐、向下延伸。
-  **火力去重/精简**：弹种明细已含穿深/伤害/弹速，删除参数行 `baseShellAvg*` 三行、
-  射速行（DPM 已表达）与窥探 DPM（整体移除，不再是引擎输出）。**术语**：中文 `normalization` 改为“转正角”。
-  **前后对比**：改为 BK `useDelta` 同逻辑——当前值减上一次渲染值（初次无 delta，
-  改变选择后显示本次变化），先显示绝对差值 + ▲/▼ 再显示主值，颜色按 `biggerIsBetter`；
-  不再用固定初始配置基准；**重置**把 previous 对齐到重置目标，残余对比值清零。
-  **炮候选**：全车炮全集（跨炮塔去重），当前塔不可直接装配的炮置灰禁用而不隐藏。
-  **隐藏属性装备**：108/109/112/120/121 的 tooltip 明确标注不进入参数表（模块耐久/被击中概率）。
-  **装备 tooltip**：占位符按当前车型/百分比格式化（script percent 权威、类别对象取当前车型、补 %/符号），不再出现裸数字/[object Object]；
-  **弹种明细**：校准弹同时改近/远穿深；超负荷的弹速 +35% 与远距衰减量 ×0.4、火药弹速 +35% 都进明细（修复漏接）。
-  **射界图**：径向映射内外翻转——内圈俯角、外圈仰角（半径锚点取 BI 数值镜像）。
-  **i18n**：修正 `crew_count`/`shell_range`/`shell_capacity`/
-  `explosion_radius` 的键路径；补 5 个缺失的标准物品名（zh 取运行时覆盖层，en 用
-  补充名，ru 回退 en）。
-  **数据面**：导出器复用 `Extractor.extract_model` 产出车辆级 chassis/hull 碰撞盒 +
-  逐炮塔盒 + `turretOrigin`/`initialTurretRotation`，chassis stats 增
-  `hysteresisHealth`/`hullPosition`；`data/research/` 重生成（123 文件 3.51 MB，
-  `meta.json` 同批 sha256），WotbTools `common/research/` 快照同步。**影响面**：
-  WotbTools 前端 bundle 变化（Android `wotbVersion` 需在同一发布 PR 递增）；资产包/
-  WASM pin 不变。测试 targeted 164 / 全量 4822 通过 / 2 跳过；详见
+  维修时间**（客户端 `hysteresisHealth / healthRegenPerSec`）、**车体尺寸**（底盘+车体+所选
+  炮塔碰撞盒并集、不含炮管）、**弹匣总伤**、**初始炮塔 pitch 计入有效俯仰**（4 辆意系
+  AT-SPG）；肾上腺素改按客户端 filter 的 `clip` 排除。**仍不照抄 BK 的四处**：无角色兜底
+  1.05（BI 实测 1.0）、火药补给 +30%（客户端 script 35%）、整车重量漏电台/油箱（BI 对拍
+  含）、124 号装备（11.21 客户端 24 件 100–123，不存在）。**隐蔽五状态**：静止/移动/
+  静止开火之外补 移动开火 与 起火。**装备联动与 UI 逐项**（101/118 消耗品计时徽标、
+  隐藏属性装备标注、tooltip 占位符格式化、弹种明细补穿深衰减/弹速加成、射界图径向翻转、
+  `normalization` 改"转正角"、前后对比 BK useDelta 同逻辑、炮候选全集置灰、4 列矩阵模块区、
+  火力行去重、i18n 键路径修正）见
   [wotbtools-research-loadout-plan.md](wotbtools-research-loadout-plan.md) §5.2、§7 #12、
-  §12.2.20。
+  §12.2.20。**数据面**：导出器补车辆级 chassis/hull 碰撞盒 + 逐炮塔盒 +
+  `turretOrigin`/`initialTurretRotation`，chassis stats 增 `hysteresisHealth`/`hullPosition`；
+  `data/research/` 重生成，WotbTools 快照同步。**影响面**：WotbTools 前端 bundle 变化；
+  资产包/WASM pin 不变。测试 targeted 164 / 全量 4822 通过 / 2 跳过。
 - **坦克配置器：自动装填有效 DPM + 火炮转向速度（2026-10-27）**：新增 BK
-  `dpmEffective` 的 60 s 窗口模型（只对 autoreloader；参数行
-  `gunEffectiveDamagePerMin`，逐发装填 <2 发时 fail-closed 留空），以及
-  `gunTraverseSpeed`（火炮 XML `<rotationSpeed>` × 燃料/炮手系数）。**无炮塔车**
-  （客户端车辆 XML `<hull><fakeTurrets>` 元素存在 ⇔ `hasTurret=false`，738/738 辆与
-  BI 11.21 逐辆一致，114 辆）参数区用火炮转向速度**替换**炮塔转速行；有炮塔车仍显示
-  炮塔转速。数据面：`modules.hasTurret` + gun stats `rotationSpeed` 新导出，
-  `data/research/` 重生成（123 文件 3.51 MB）；**全局目录/文案/图标进 WotbTools
-  `common/research/`，逐车 `modules/{nation}.json` 随资产包 `research/modules/` 发布**
-  （新坦克/模块数值只需更新资产包）。
-  **影响面**：WotbTools 前端 bundle 变化（WotbTools PR #772 已带 Android `wotbVersion`
-  3.17.9）；资产包新增 `research/modules`（需发布新 immutable release）；WASM pin 不变。
-  WotbTools 测试 targeted 183；全量由 PR CI 验证；详见
+  `dpmEffective` 的 60 s 窗口模型（只对 autoreloader；参数行 `gunEffectiveDamagePerMin`，
+  逐发装填 <2 发时 fail-closed 留空）与 `gunTraverseSpeed`（`<rotationSpeed>` × 燃料/炮手
+  系数）。**无炮塔车**（客户端 `<hull><fakeTurrets>` 存在 ⇔ `hasTurret=false`，738/738 辆
+  与 BI 逐辆一致，114 辆）参数区用火炮转向速度**替换**炮塔转速行。数据面：
+  `modules.hasTurret` + gun stats `rotationSpeed` 新导出；**逐车 `modules/{nation}.json`
+  随资产包 `research/modules/` 发布**（新坦克/模块数值只需更新资产包）。WotbTools PR #772
+  已带 Android `wotbVersion` 3.17.9。详见
   [wotbtools-research-loadout-plan.md](wotbtools-research-loadout-plan.md) §5.2、§12.2.21。
-- **资产包发布：配置器全量数据（2026-10-27）**：在 Alibaba asset origin 发布新 immutable
-  release **`t11-preview-20261027-research-all`**——基于 research-modules release 硬链接
-  复制 + 11 个全局 `research/*.json` 增量（目录/物品/技能/params/strings/meta + 逐车
-  modules）；manifest **5911 件 / 4430.0 MB / 0 mismatch**，`delta.json` 11 件，公网
-  20 个 research 文件逐文件回拉 sha256 一致，`deploy/assets/verify.sh` PASS；旧
-  research-modules / preview / destructibles / initial release 保留回滚。WotbTools 3.17.9
-  经 assetProvider 读取全部配置器数据，`common/research/` 仅图标；新增坦克/物品无需前端发版。
-- **资产包发布：预览 XI 车配置器模块（2026-10-27）**：在 Alibaba asset origin 发布新
-  immutable release **`t11-preview-20261027-research-t11`**——基于
-  `t11-preview-20261027-research-all` 硬链接复制 + 3 个 `research/` 增量
-  （`meta.json`、`modules/china.json`、`modules/ussr.json`）。BZ-79（15153）与
-  Object 432U（27905）的逐车模块并入现有国别文件（china 57 / ussr 105，合计 740 辆）；
-  每辆预览车带 `gameVersion`，`research/meta.json` 增 `preview` 清单与
-  `previewGeneratedAt`，文件级 `meta.gameVersion` 仍描述 11.21 主数据集。
-  manifest **5911 件 / 4430.0 MB / 0 mismatch**，`delta.json` 3 件，公网 3 个文件
-  逐文件回拉 sha256 一致，`deploy/assets/verify.sh` PASS；旧
-  `research-all` / `research-modules` / preview / destructibles / initial release
-  保留回滚。导出器新增 `--game-data` / `--bridge` / `--modules-only` / `--merge`
-  （预览 Data 根 + 只含新增车的 bridge，增量并入既有 modules）；WotbTools 配置器
-  无需代码改动即可加载这两辆。
-- **配置器图标居中 + 英文参数栏修复（2026-10-27）**：`_normalize_icon` 原先把 RGBA
-  图自己作为 `paste` mask，边缘 alpha 被二次相乘后消失，96×96 图标内容框偏到一侧
-  （102 张中 32 张四边距差 >1px，最差 11px）；改为 `alpha_composite` 后重新生成
-  全部物品/模块/技能/弹种图标，新增 `tools/test_research_icons.py` 几何门禁。乘员
-  技能图标改用 alpha>10 的可见内容框裁切再居中（近似 BlitzKit 的可见效果，
-  其 sharp().trim() 是颜色+alpha 合并算法，并非同一实现）；英文
-  `agentTanks.pen_far` 的 `"Pen @ far"` 触发 vue-i18n linked-message 编译错误，切到
-  English 时右侧参数栏整块消失；改为 `"Far-range pen"` 并新增三语消息全量编译门禁。
-  WotbTools 图标同步至 `common/research/icons`；3.17.9 / 3.17.10 均已 stage 但未
-  publish，技能帧修复最终由 **3.17.11 / 3017011** 承载。
+- **资产包发布：配置器全量数据（2026-10-27）**：Alibaba origin 新 immutable release
+  **`t11-preview-20261027-research-all`**——research-modules 基座硬链接复制 + 11 个全局
+  `research/*.json` 增量；manifest **5911 件 / 4430.0 MB / 0 mismatch**，公网回拉 sha256
+  一致、`deploy/assets/verify.sh` PASS。WotbTools 3.17.9 经 assetProvider 读取全部配置器
+  数据，`common/research/` 仅图标；新增坦克/物品无需前端发版。
+- **资产包发布：预览 XI 车配置器模块（2026-10-27）**：新 release
+  **`t11-preview-20261027-research-t11`**——3 件 `research/` 增量（`meta.json` +
+  `modules/china.json` + `modules/ussr.json`）；BZ-79（15153）与 Object 432U（27905）
+  并入国别文件（合计 740 辆），逐辆预览车带 `gameVersion`、`meta.preview` 记来源；
+  manifest 0 mismatch、回拉/verify PASS，`current` 已切至该 release，旧 release 保留回滚。
+  导出器新增 `--game-data` / `--bridge` / `--modules-only` / `--merge`（预览增量并入，
+  不依赖已删除的 20 GB 解包）；WotbTools 无代码改动即可加载两辆。
+- **配置器图标居中 + 英文参数栏修复（2026-10-27）**：`_normalize_icon` 原先把 RGBA 图
+  自身作为 `paste` mask（边缘 alpha 二次相乘消失，32/102 张内容框偏移），改
+  `alpha_composite` 后重新生成全部图标，新增 `tools/test_research_icons.py` 几何门禁；
+  乘员技能图标改 alpha>10 可见内容框裁切再居中。英文 `agentTanks.pen_far` 的
+  `"Pen @ far"` 触发 vue-i18n linked-message 编译错误（切 English 参数栏整块消失），改写
+  并新增三语消息全量编译门禁。技能帧修复最终由 WotbTools **3.17.11 / 3017011** 承载。
 - **装甲厚度序列化精度（2026-10-20）**：`tank/{id}.json` 的 plate/track 厚度清洗从
   0.1mm 改为 0.01mm：去掉 f32 尾差（62.4000015 → 62.4）的同时保留 6.35 等真实板值
   （0.1mm 会把它舍成 6.3，HE/判定少 0.05mm）。738 辆 `data/tank_data` 已重生成，
@@ -388,32 +363,23 @@
   [data-inventory.md](data-inventory.md) §一、§五；解耦口径见 [decoupling-status.md](decoupling-status.md)。
 - **11.22 tier XI 超测预览包（2026-10-22，非现役数据面）**：公开 CDN 的
   `WotBlitz_11.4.0.119_t11b.zip`（`version.txt` = `11.22_supertest_tier11_4`，20.67 GB，
-  支持 Range）完整实装了两辆 XI 车：中国 **BZ-79**（15153）与苏联 **Object 432U**
-  （27905）；科技树另登记 6 个 XI 节点，但无车辆定义/主模型。已构建独立预览包
-  `release/asset_pack_t11_preview/`（11.21 的 738 辆 + 2 = 740，含 `tank/`、GLB、图标、
-  `game_data/`、悬挂/履带印），并生成 **30 件增量** `release/asset_pack_t11_preview_delta/`
-  （14.9 MB；其中 8 件是线上 `initial-20261019` 缺失的 0.01mm 精度补差）。WotbTools 端无需改代码（tier 过滤/标签数据驱动）；**已作为
-  `releases/t11-preview-20261022` 上传 Alibaba origin**（公网 740 辆、
-  `deploy/assets/verify.sh` PASS；旧 `initial-20261019` 保留回滚）。2026-10-22 的
-  可破坏物修复已在其上发布 `t11-preview-20261022-destructibles`（见下），
-  `t11-preview-20261022` 仍保留回滚；本地验收仍可走
-  `?assets=http://127.0.0.1:8124`。来源、口径与
-  注意事项（超测属性、图标占位、BZ-79 弹种 `<kind>` 冲突）见
+  支持 Range）完整实装两辆 XI 车：中国 **BZ-79**（15153）与苏联 **Object 432U**（27905）；
+  科技树另登记 6 个 XI 节点，但无车辆定义/主模型。独立预览包 740 辆（11.21 的 738 + 2，
+  含 `tank/`、GLB、图标、`game_data/`、悬挂/履带印）+ 30 件增量已发布为
+  `releases/t11-preview-20261022`，其后由 `-destructibles` 与 research 系列取代
+  （旧 release 均保留回滚；本地验收仍可走 `?assets=http://127.0.0.1:8124`）。
+  来源、口径与注意事项（超测属性、图标占位、BZ-79 弹种 `<kind>` 冲突）见
   [game-data-sources.md](game-data-sources.md) §2.7；预览包不进入 11.21 运行期数据面。
 - **游戏版本**：`release/11.21.0`，车辆 **738**（`data_version.json` 为准）。随版刷新链
   （pb / tank_cache / game_data / 图标 / GLB / 悬挂 / 履带印 / shellKinds）与新增
   collector 车清单见 [data-inventory.md](data-inventory.md) §一。
 - **可破坏物 `(cell,slot)` 联表修复（2026-10-22，资产管线）**：`parse_lka` 只认
-  `er*` 分段表，黄沙荒漠（`dt1/dt2/dt3`）等 8 个多变体 space 回退到改版前遗留主表；
-  主表实体 id 被复用，同一 `(cell,slot)` 错联到别的物体（desert_train 178 棵树中 27 棵
-  指向非树物体、11 棵是 `bld_desert_house_*`，即「树倒演成房屋倒下」）。改为**通用前缀
-  发现 + 按 map_id 序数选本变体分段表**，并加结构自检（分段表每个 key 必须在场景、
-  格子码必须等于实体位置；不满足 fail-closed）。全库 9 个 space 复核：分段表
-  100% 可解析且格子码一致；主表 desert_train 47% 悬空。7 个映射确有差异的变体在包内
-  物化独立 `map/<key>/`（共享资产硬链接，index 指向本 key），其余 12 个变体共用基础
-  目录。已发布 `assets.wotbtools.com` 新 release **`t11-preview-20261022-destructibles`**
-  （manifest **5891 件 / 0 mismatch**、`deploy/assets/verify.sh` PASS；旧 release 保留
-  回滚），WotbTools 无代码改动。
+  `er*` 分段表，8 个多变体 space 回退遗留主表、实体 id 复用错联（desert_train 178 棵树
+  中 27 棵指向非树物体）。改为**通用前缀发现 + 按 map_id 序数选本变体分段表**，加结构
+  自检（不满足 fail-closed）。7 个映射确有差异的变体物化独立 `map/<key>/`（共享资产
+  硬链接），其余 12 个变体共用基础目录。已发布新 release
+  **`t11-preview-20261022-destructibles`**（manifest 0 mismatch、verify PASS），WotbTools
+  无代码改动。
 - **资产包与资产 origin**：本地 11.21 包 **5906 件 / 4418.5 MB**（`release/asset_pack/`，
   manifest 逐文件 sha256；含 7 个变体目录）。生产 origin 已迁移到
   **`https://assets.wotbtools.com`**（Alibaba `ali-sh-asset-01`，
@@ -431,53 +397,35 @@
   [game-data-sources.md](game-data-sources.md) §5.5。
 - **2D 战术底图换源（2026-10-16）**：29 张底图（web 与 Android 共用的 canonical）改由包内
   `ground.webp` 派生，冻结配方 + 取向由契约确定（无需翻转），工具 `tools/export_2d_basemaps.py`
-  （`--verify` 全量重算；与用户验收版逐字节一致）。总量 21.50 MiB；WotbTools 侧 Android 派生
-  **Web 与 APK 共用同一份字节**（不再派生缩小副本，2026-10-16 决定）且随包版本号已递增。色阶宽度差为逐图属性，按仓规不做逐图配平。
-  同时产出 **COS 免发版通道**：包内 `map2d/<code>.webp` + `map2d/index.json`（逐图 sha256 判据），
-  App 侧"包内兜底 + 在线校验 + 离线可用"（下载字节 sha256 校验、失败回落包内、索引比包内旧不降级）。
-  链条、次序陷阱与纪律见 [game-data-sources.md](game-data-sources.md) §5.6。
+  （`--verify` 全量重算；与用户验收版逐字节一致），合计 21.50 MiB；**Web 与 APK 共用
+  同一份字节**（不再派生缩小副本）。同时产出**资产 origin 免发版通道**：包内
+  `map2d/<code>.webp` + `map2d/index.json`（逐图 sha256 判据），App 侧"包内兜底 + 在线
+  校验 + 离线可用"。链条、次序陷阱与纪律见 [game-data-sources.md](game-data-sources.md) §5.6。
 - **坦克 GLB：`hide_elements` 非激活形态保留在备用 scene、默认不显示（2026-10-17）**：
-  10625 CC1 Mk.2 的 `turret_01_nc_skin` 是**传奇涂装的部分组件**（不是完整独立形态）；脚本
-  `ScenarioSkinSwitch_turret_01` 在涂装状态激活时对**主体** `turret_01_nc` 施加 `-6.5°` /
-  `(0,-0.16,0.146)`。默认 scene 只挂激活态；非激活形态保留在 glTF 备用 scene
-  **`wotb_inactive_states`**（scene index 1，节点 `extras.wotb.defaultVisible=false`），
-  标准查看器只加载 `gltf.scene` ⇒ **默认不显示、数据不丢**。**92 辆**（173 个多状态容器）
-  重导，643 辆 model.glb + 735 辆 collision.glb 未命中车零变化；模型批后本地包 5766 件 /
-  4200.4 MB（旧包 4200.3，+0.1 MB；随后逐炮塔/逐主炮 tank 数据补丁 +0.6 MB，整包 **4201.0 MB**），
-  manifest 已重算，**COS 已同步**（partial publish 92 条 glb，远端 10625 `1031e5ad…`，
-  与本地 0 hash diff）。口径、脚本与受影响集见
-  [local-model-export.md](local-model-export.md) §5.1。
+  10625 CC1 Mk.2 的 `turret_01_nc_skin` 是**传奇涂装的部分组件**（不是完整独立形态）。
+  默认 scene 只挂激活态；非激活形态保留在 glTF 备用 scene **`wotb_inactive_states`**
+  （scene index 1，节点 `extras.wotb.defaultVisible=false`）——**默认不显示、数据不丢**。
+  **92 辆**（173 个多状态容器）重导，包 4201.0 MB、manifest 重算并发布。口径、脚本与
+  受影响集见 [local-model-export.md](local-model-export.md) §5.1。
 - **装甲查看器：逐炮塔/逐主炮 plates 透出（2026-10-17）**：10625 CC1 Mk.2 的 stock
-  `turret_01` plate 11 = **130 mm 主装甲**（`turret_spaced=[]`）；top `turret_02` plate 11 =
-  **30 mm 间隙甲**（`turret_spaced=[11]`）。`tank/{id}.json` 的 `configs[]` 新增 additive
-  `turret_plates`/`turret_spaced`（逐炮塔）与 `gun_plates`/`gun_spaced`（逐主炮，
-  均来自 models.pb；`gun_thickness` 已有）；顶层 `armor_model` 仅保留为 tank 详情卡的
-  顶级摘要。738 份 `tank/{id}.json` 重生成并上传 COS（partial publish 738 条，0 hash diff；
-  整包 4201.0 MB）。WotbTools `frontend/src/scene/tankViewer.js::getPlateThickness` 对
-  turret/gun 只读当前 config 的 plates，`gunBarrel` 只读 `config.gun_thickness`；字段缺失
-  按 0/空 **fail-closed，不回退 `armor_model`**；切 config 时
-  `refreshConfigArmorThickness` 重算 turret/gun 的 `armorThickness`。数据字段 additive；
-  尚未部署的新查看器代码仍走旧的 `armor_model` 摘要路径，部署后消失。
+  `turret_01` plate 11 = **130 mm 主装甲**；top `turret_02` plate 11 = **30 mm 间隙甲**。
+  `tank/{id}.json` 的 `configs[]` 新增 additive `turret_plates`/`turret_spaced`（逐炮塔）与
+  `gun_plates`/`gun_spaced`（逐主炮，均来自 models.pb）；顶层 `armor_model` 仅保留为
+  tank 详情卡的顶级摘要。738 份重生成并发布。WotbTools `tankViewer.js::getPlateThickness`
+  对 turret/gun 只读当前 config 的 plates，字段缺失按 0/空 **fail-closed，不回退
+  `armor_model`**；切 config 时 `refreshConfigArmorThickness` 重算。数据字段 additive。
 - **SpeedTree 静态叶过亮修复（2026-10-18，导出器 + WotbTools 前端）**：客户端
   `speedtree-materials-vp.sl:236-285` 的 SPHERICAL_LIT 净染色 =
-  `0.282094 × SH(L0) × vertexOcclusion × shOcclusionMult`，其中
-  `vertexOcclusion = aoContrast × (COLOR_0.r − 0.5) + 0.5 + aoBrightness`。旧导出把
-  `st_tint` 写成 SH 字面值（√π = 1.7725），且只给叶卡/混合批刚体子集写 COLOR_0；
-  纯静态组（`pivot.w=0` 固定叶，如 DesertSands 棕榈 `palm1_dt`/`palm2_dt`）整批丢遮挡
-  ⇒ 消费端 `vOcc=1`，叶净值 1.7725 vs 客户端 COLOR_0（叶均值 0.722–0.733），约 **2.4×
-  过曝**（旧口径下 **57.8% 可见叶像素在回放侧近白**，客户端不白）。修复：`st_tint = 0.282094×SH×shOcclusionMult`
-  （√π 且 aoMult=2 → 1.0；每树彩色 SH 逐通道同式）、**所有 ST 组静态网格随导 COLOR_0**
-  并按客户端 AO 对比度/亮度烘焙；legacy 分支染色式不变（SH 不参与）。36 图 scenery 全量
-  重导（其中 15 图字节变化），本地包 5766 件 / 4201.1 MB、manifest 已重算；**COS 已局部
-  发布**（`--only map/` 15 条变更 scenery，511.7 MB；远端 `files` 与本地 0 hash diff，root
-  仍 `58a891e`）。WotbTools 同步改 `sceneryMaterials.js::makeBillboardMaterial`：
-  `occMean=1`（新包哨兵）时 COLOR_0 已是 `vertexOcclusion`，去掉 1.25 亮部上限；旧包路径
-  不变。数据级实测 DesertSands 棕榈叶 viewer/client 净值逐通道一致（0.722/0.733），
-  旧口径的 57.8% 近白差异归零；全库 1284 个 ST 网格均带 COLOR_0。影响面：36 图所有 SpeedTree 几何
-  （全库 28,411 个 speedtree 批次）及消费该包的 WotbTools/Android；WotbTools 侧属
-  scene-runtime，PR 需按 Android version rule 同步 `wotbVersion`。回归：
-  `tools/test_export_speedtree_ao.py` 6 项、既有导出器单测；WotbTools
-  `sceneryMaterials` 78 项 + `test:shader-check` 24 程序 0 失败。
+  `0.282094 × SH(L0) × vertexOcclusion × shOcclusionMult`。旧导出把 `st_tint` 写成 SH
+  字面值（√π = 1.7725），且静态组（`pivot.w=0` 固定叶）整批丢遮挡 ⇒ 消费端 `vOcc=1`，
+  叶净值 1.7725 vs 客户端 COLOR_0（叶均值 0.722–0.733），约 **2.4× 过曝**（**57.8% 可见
+  叶像素近白**）。修复：`st_tint = 0.282094×SH×shOcclusionMult` + **所有 ST 组静态网格随导
+  COLOR_0** 并按客户端 AO 烘焙。36 图全量重导（15 图字节变化，`--only map/` 511.7 MB
+  局部发布）；WotbTools `makeBillboardMaterial` 以 `occMean=1` 哨兵识别新包、去掉 1.25
+  亮部上限；旧包路径不变。全库 1284 个 ST 网格均带 COLOR_0，DesertSands 棕榈叶
+  viewer/client 净值逐通道一致。影响面：全部 speedtree 批次（28,411）及消费方；WotbTools
+  侧属 scene-runtime，PR 需按 Android version rule 同步 `wotbVersion`。回归：
+  `tools/test_export_speedtree_ao.py` 6 项 + WotbTools `sceneryMaterials` 78 项。
 
 ### 回放切面（`PlaybackData` v2 / `AiReviewFacet` v1）
 

@@ -9,9 +9,10 @@
 两者都是 DDS 立方图（`caps2 & 0x200`，面序 +X,−X,+Y,−Y,+Z,−Z；参考实现同序）。
 
 取 **specular 的 mip0** 作环境源：它是预滤链里最锐的一级（≈粗糙度 0），喂给 three 的
-PMREM 后由引擎生成粗糙度链，观感最接近客户端的 `MipFromRoughness`（客户端口径见
-docs/feasibility-map-lighting.md §1.3；精确复刻属期 3）。`ibl.environmentMultiplier` 由
-消费端经 `scene.environmentIntensity` 施加（该值逐图 0.8–4.0）。
+PMREM 后由引擎生成粗糙度链，观感最接近客户端的 `MipFromRoughness`（精确复刻属期 3）。
+`ibl.environmentMultiplier` 由
+消费端经 `scene.environmentIntensity` 施加（该值逐图 0.8–4.0；作用点未定项见
+docs/map-render-align-audit.md §五）。
 
 立方图 → 等距柱状投影的坐标约定（**待视觉校准项**）：采用 **OpenGL/three 右手法**
 （+Y 上、−Z 前），即与 three 的 `EquirectangularReflectionMapping` 一致；DDS 侧为 D3D

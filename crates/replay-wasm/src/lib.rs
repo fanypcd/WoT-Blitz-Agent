@@ -308,6 +308,14 @@ pub fn shot_replays_json(
         outcome.insert("author_error".into(), serde_json::Value::String(err));
     }
     outcome.insert("author_eid".into(), serde_json::json!(author_eid));
+    // 有证据但无法归属到任何 shot 的命中通知（对应射击不在录像里 = AoI 截断）。
+    // 独立输出而不是丢弃：这些事件带受击者/伤害/结果/令牌，消费方按“未知归属”呈现。
+    outcome.insert(
+        "unattached_hits".into(),
+        serde_json::to_value(wotb_replay_core::replay::combat::collect_unattached_hits(
+            &packets,
+        ))?,
+    );
     outcome.insert(
         "others".into(),
         serde_json::json!({

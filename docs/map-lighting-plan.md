@@ -4,7 +4,8 @@
 > 逐实例 `aLm`）、逐图 IBL（`scene.environment`）、动画混合层、环境反射遮罩与天空均已接线；
 > 出屏已按客户端口径切 `LinearToneMapping`（**自动曝光未实现**，如实记为缺口）。未落地项以
 > [map-render-align-audit.md](map-render-align-audit.md) 为准。本文为实施设计留档。
-> 依据：[feasibility-map-lighting.md](feasibility-map-lighting.md)（可行性实测报告，含 36 图参数表）。
+> 依据：光照可行性实测报告（已删档，见 git 历史；36 图参数表可经 `tools/export_map_lighting.py`
+> 从客户端重导，未定项已收编于 [map-render-align-audit.md](map-render-align-audit.md) §五）。
 > 所有权边界见 [AGENTS.md](../AGENTS.md)：**期 1 在本仓，期 2/3 在 WotbTools**。
 
 ---
@@ -73,12 +74,12 @@
 
 ## 三、期 0：标定（0.5–1 人日，先做，不做完不进期 1 的写盘）
 
-目的：把可行性报告 §七 的 8 项未定项收敛到"可写代码"的程度。**优先级最高的是 #1（太阳方向约定）与 #5（曝光）**。
+目的：把光照未定项（8 项；已收编于 [map-render-align-audit.md](map-render-align-audit.md) §五）收敛到"可写代码"的程度。**优先级最高的是太阳方向约定与曝光**。
 
 1. **自证式校验（本仓，无需用户）**：取 2–3 张晴空图（`02_desert_train_dt` / `21_mountain_mnt` / `41_iceworld_ic`），在天空贴图里找最亮斑（太阳），用天穹网格的 UV↔世界几何反投影出该斑的世界方向，与 `−Y` 约定解出的太阳方向比对——一致即闭环；不一致则回头审约定。
 2. **IBL/天空方向与 sRGB 校验**：解出的立方图/天空图各出一张 PNG 缩略对照（朝 +X/+Y/+Z 三个面与客户端观感比对）。
 3. **A/B 对照（需用户提供客户端截图）**：`himmelsdorf`（城市/阴影硬）、`karelia`（冷调低饱和）、`32_faust_fa_night`（夜战）各一张，机位尽量已知（俯视或平视均可）。工具：WotbTools 侧 headless Chrome + three.js（仿 `frontend/scripts/bake-ground-overhead.mjs`，读本仓 `release/asset_pack`，**是验证工具不是产品 UI**）。
-4. **输出**：一份标定记录（追加到 [feasibility-map-lighting.md](feasibility-map-lighting.md) §七，逐项改判"已定/仍待定"），以及三个数值：太阳方向约定、exposure 初值、`×2` 是否保留。
+4. **输出**：一份标定记录（追加到 [map-render-align-audit.md](map-render-align-audit.md) §五，逐项改判"已定/仍待定"），以及三个数值：太阳方向约定、exposure 初值、`×2` 是否保留。
 
 **若用户暂不提供截图**：期 1 全部可做（纯数据搬运，不依赖标定）；期 2 先按 `−Y` + exposure 1.0 + 保留 `×2` 上场，用 WotbTools 本地调试页由用户现场判。
 
@@ -153,7 +154,7 @@ sky.webp  sky.flow.webp
 
 ## 六、期 3：精修（按需）
 
-`SHADOW_RECEIVER` 批次的动态阴影 × 烘焙光照图混合（`LMGateFactor` / `landscapeLMGateFactor`）；`GLOBAL_TINT`/`FLATCOLOR` 逐材质；水面（`water-fp.sl` + 逐图 cubemap）；植被风动（`WindComponent`）；`40_moon_mn` 天空实体定位（未定项 #7）；`StandardLightmapAllQualities` 族（02/03/13/15 图）抽验（#8）；坦克 IBL 精确 mip（`MipFromRoughness`）。
+`SHADOW_RECEIVER` 批次的动态阴影 × 烘焙光照图混合（`LMGateFactor` / `landscapeLMGateFactor`）；`GLOBAL_TINT`/`FLATCOLOR` 逐材质；水面（`water-fp.sl` + 逐图 cubemap）；植被风动（`WindComponent`）；`40_moon_mn` 天空实体定位（audit §五 #7）；`StandardLightmapAllQualities` 族（02/03/13/15 图）抽验；坦克 IBL 精确 mip（`MipFromRoughness`）。
 
 ---
 

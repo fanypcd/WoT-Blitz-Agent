@@ -2,8 +2,7 @@
 
 > 坦克模型本机自产管线的实现记录与两来源对照。**现役口径**：`data/cache/models/`
 > 整体为本地导出（与 `local_models/` 逐辆逐字节一致），包随 Alibaba asset origin 发布——现状与接线
-> 见 [data-inventory.md](data-inventory.md) §一 #8 与 §三。可行性依据见
-> [feasibility-glb-local-export.md](feasibility-glb-local-export.md)（报告 B）。
+> 见 [data-inventory.md](data-inventory.md) §一 #8 与 §三。可行性论证（报告 B）已删档，见 git 历史。
 
 ## 0. 结论
 
