@@ -270,15 +270,19 @@ WotbTools 经 assetProvider 加载，**不进入前端 bundle**。全局图标�
   0.01mm 精度补差），**14.9 MB**；用于在 Alibaba host 的现役 release 上做“硬链接复制 +
   覆盖”，不重传全包。线上 `initial-20261019` 与本地基线仅差这 8 个 `tank/{id}.json`
   （6.3→6.35、15.9→15.87），并入后 manifest 逐文件自洽（预检 0 mismatch）。
-- **已上线 `assets.wotbtools.com`**：`current` 已切到
-  `releases/t11-preview-20261027-research-t11`（host `ali-sh-asset-01` / 47.101.141.111）。
-  该 release 由 `t11-preview-20261027-research-all` 硬链接复制 + **3 件 `research/`
+- **已上线 `assets.wotbtools.com`**：`current` = `releases/t11-preview-20261029-techtree`
+  （host `ali-sh-asset-01` / 47.101.141.111）。该 release 由
+  `t11-preview-20261027-research-t11` 硬链接复制 + **9 件 `research/tech_tree/*.json`**
+  组成（9 国科技树坐标 + 整车研发边，含 11.22 XI 预览节点）；manifest **5920 件 /
+  4430.1 MB、0 mismatch**，`delta.json` 9 件，公网 9 个文件逐文件回拉 sha256 一致，
+  `deploy/assets/verify.sh` PASS。
+- **上一代 `releases/t11-preview-20261027-research-t11`（保留回滚）**：由
+  `t11-preview-20261027-research-all` 硬链接复制 + **3 件 `research/`
   增量**组成（`meta.json`、`modules/china.json`、`modules/ussr.json`）：
   BZ-79（15153）与 Object 432U（27905）的逐车模块并入现有国别文件（china 57 /
   ussr 105，合计 740 辆）；每辆预览车带 `gameVersion`，`research/meta.json` 增
   `preview` 清单与 `previewGeneratedAt`，文件级 `meta.gameVersion` 仍描述 11.21
-  主数据集。manifest **5911 件 / 4430.0 MB、0 mismatch**，`delta.json` 3 件，公网
-  3 个文件逐文件回拉 sha256 一致，`deploy/assets/verify.sh` PASS；旧
+  主数据集。manifest **5911 件 / 4430.0 MB、0 mismatch**，`delta.json` 3 件；旧
   `t11-preview-20261027-research-all` / `research-modules` /
   `t11-preview-20261022-destructibles` / `t11-preview-20261022` / `initial-20261019`
   均保留回滚。WotbTools 端模块经 assetProvider 懒加载（不随 bundle）；本地验收：
@@ -420,12 +424,12 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
    回拉比对 sha256，并在 WotbTools 仓跑 `bash deploy/assets/verify.sh https://assets.wotbtools.com`。
 8. 旧 release 保留回滚（至少保留当前 + 上一代）；`delta.json` 随 release 留存。
 
-**当前 release（2026-10-27）**：`t11-preview-20261027-research-t11`，基于
-`t11-preview-20261027-research-all` 硬链接复制 + 3 件 `research/` 增量
-（`meta.json` + `modules/china.json` + `modules/ussr.json`，两辆 XI 预览车的逐车
-模块）；manifest **5911 件 / 4430.0 MB、0 mismatch**，`delta.json` 3 件，公网
-3 个文件逐文件回拉 sha256，`deploy/assets/verify.sh` PASS；旧
-`t11-preview-20261027-research-all` / `research-modules` /
+**当前 release（2026-10-29）**：`t11-preview-20261029-techtree`，基于
+`t11-preview-20261027-research-t11` 硬链接复制 + 9 件 `research/tech_tree/*.json`
+增量（9 国科技树坐标 + 整车研发边，含两辆 XI 预览节点）；manifest **5920 件 /
+4430.1 MB、0 mismatch**，`delta.json` 9 件，公网 9 个文件逐文件回拉 sha256，
+`deploy/assets/verify.sh` PASS；上一代 `t11-preview-20261027-research-t11`（3 件
+research 增量）与 `t11-preview-20261027-research-all` / `research-modules` /
 `t11-preview-20261022-destructibles` / `t11-preview-20261022` / `initial-20261019`
 保留回滚。
 

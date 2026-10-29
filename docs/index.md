@@ -277,8 +277,10 @@
   740 辆。**客户端 UI 契约补充（11.21 + 预览包 UI yaml 全套比对）**：XI 对科技树屏唯一实质
   改动 = `levels=[1..10]→[1..11]`；`Lines{linesMask}` 28 个连线图案是包内数据（几何已提取），
   仅每格 mask 编号由模型计算（位语义未定，禁猜）；XI 车零 `<unlocks>` 边 = 无研发链。
-  **消费面**：WotbTools 新增 `agent-techtree` 视图；`research/tech_tree/**` 随下次 immutable
-  release 发布。全量 schema/统计/证据见 [client-research-tech-tree-loadout.md](client-research-tech-tree-loadout.md)。
+  **消费面**：WotbTools 新增 `agent-techtree` 视图；`research/tech_tree/**` 已于 2026-10-29 随
+  `t11-preview-20261029-techtree` 发布（9 件；manifest 5920 件 / 4430.1 MB、0 mismatch；公网逐文件
+  sha256 一致，`deploy/assets/verify.sh` PASS）。全量 schema/统计/证据见
+  [client-research-tech-tree-loadout.md](client-research-tech-tree-loadout.md)。
 - **WotbTools 复刻实施方案与同日落地（2026-10-27；范围按用户裁定重定）**：新增
   [wotbtools-research-loadout-plan.md](wotbtools-research-loadout-plan.md)（与上条数据盘点配套）。
   **范围**：单一整合配置界面（模块炮塔/炮/发动机/履带 + 装备 9 槽 3×3 + 补给/消耗品
