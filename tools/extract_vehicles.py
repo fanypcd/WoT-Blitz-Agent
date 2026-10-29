@@ -16,7 +16,8 @@ tank_id 桥：`--emit-bridge` 从 `data/tanks.pb` 一次性导出
 不再依赖 BlitzKit）。客户端磁盘上还有 ~146 个桥外的车辆 XML（开发/超测/未实装），
 默认跳过、计数上报；`--all-local` 才提取它们（tank_id 记 -文件数序号，仅供对照）。
 
-实现铁律（来自 docs/feasibility-pb-local-extraction.md §4，违反会静默出错）：
+实现铁律（原文出自可行性报告 A，已删档见 git 历史；提取链口径见 docs/game-data-sources.md
+§5.2b。违反会静默出错）：
   1. 重复 XML 标签 **last-wins**（`<armor_N>`/`<pitchLimits>`/`<transition>` 会重复）；
   2. 0/缺 = 省略语义：`<weight>`/`<gunPosition>`/`<hullPosition>`/全 0 bbox ⇔ pb 字段缺失；
      0 厚板不入 `plates`，但 `spaced` 保留（零厚板可带 vehicleDamageFactor）；

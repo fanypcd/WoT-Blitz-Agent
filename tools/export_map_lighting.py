@@ -14,8 +14,8 @@
 `(x,y,z,w)` 解开后，**光源局部 −Y 轴**旋转到世界系 = 阳光**传播**方向（源→地面）。
 36 图仰角全部落在 21.5°–65.7°；其余候选轴（±X/±Z/±Y 五种）在 8–12 张图上会算出
 "太阳在地下"（负仰角），全部排除。
-⚠️ **未定项**：该约定尚缺一次与客户端画面的 A/B 对照（见
-[docs/feasibility-map-lighting.md](../docs/feasibility-map-lighting.md) §七 #1）；若日后证伪，
+⚠️ **未定项**：该约定尚缺一次与客户端画面的 A/B 对照（收编于
+docs/map-render-align-audit.md §五）；若日后证伪，
 只需改本文件的 `sun_direction_from_quaternion` 与 `CONVENTION`，消费端读到的字段名不变。
 
 坐标：客户端世界系 **z 上**；消费端（three.js 场景）经 `qFrame = Ry(π)·Rx(−π/2)`
@@ -81,8 +81,8 @@ def quat_matrix(q: list[float]) -> list[list[float]]:
 def sun_direction_from_quaternion(q: list[float]) -> list[float]:
     """阳光**传播**方向（客户端世界系，单位向量）= R(q) · (0,−1,0)。
 
-    依据与候选轴排除见本文件 docstring；`docs/feasibility-map-lighting.md` §七 #1 记为
-    待 A/B 的约定项。"""
+    依据与候选轴排除见本文件 docstring；待 A/B 的约定项收编于
+    docs/map-render-align-audit.md §五。"""
     m = quat_matrix(q)
     v = [-m[0][1], -m[1][1], -m[2][1]]        # 局部 −Y 轴（列 1 取负）
     n = math.sqrt(sum(c * c for c in v)) or 1.0

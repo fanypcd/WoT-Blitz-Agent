@@ -2,8 +2,9 @@
 
 > 全量对照总账（本仓导出物 + WotbTools 现役渲染 + 客户端 36 图实测普查）：
 > 逐项列"客户端怎么做 / 我们怎么做 / 后果 / 对齐收益 / 成本 / 归类"，各行状态列为**现役状态**。
-> 光照专项的可行性报告与实施设计另见 [feasibility-map-lighting.md](feasibility-map-lighting.md)、
-> [map-lighting-plan.md](map-lighting-plan.md)；本文覆盖其之外的**材质、贴图、水、天空、雾、阴影、植被、画质档**。
+> 光照专项的实施设计见 [map-lighting-plan.md](map-lighting-plan.md)；可行性报告（含 36 图参数表）
+> 已归档删文（见 git 历史，参数表可经 `tools/export_map_lighting.py` 从客户端重导），
+> 其未定项已收编进本文 §五；本文覆盖其之外的**材质、贴图、水、天空、雾、阴影、植被、画质档**。
 
 ---
 
@@ -102,7 +103,7 @@ D3–D8、P3 已并入计数），按性质分四类（逐条现役状态见 §�
 | D7 | 沿岸线的**特征解析**：客户端相机（TPS，贴地）让"水陆平缓坡"天生落在 1 texel 级网格上 | 回放相机常在数百米外 ⇒ 客户端三条判据在同一相机位置**合法地**给粗格 ⇒ 2–5 cm/texel 的平缓坡被量化成米级台阶（网格量化，非深度抢闪/非数据噪声） | 岸线呈锯齿台阶、拉近才变细 | ★★ | **回退为客户端同构**：自研第四条判据（`terrainMesh.js` `shores`，水陆交界特征细分）已整体删除（DAVA `SubdividePatch` 只有三条判据——"纯客户端三判据"目标下无自研判据位置；负向守卫锁死不复活）。远相机下岸线的网格量化 = 客户端同相机位置的忠实结果。**保留**：根补片步长取 2 的幂（非 2 的幂时 `step>>1` 会留空洞——与判据无关的几何修复）。**已知差异**：1 texel 级残余起伏属数据自身噪声（客户端同有） | 〔错误→已修复〕 |
 | D6 | **水下静态件**的着色通道：客户端的 `ReflectionRefraction` 通道不计漫反射（`materials-fp.sl` 的 `albedo × lightmap × 2` 只在 `#if MATERIAL_LIGHTMAP && VIEW_DIFFUSE` 下发生；`#else` 支注释 "do not scale lightmap in view diffuse only case" ⇒ `color = albedo`），而水面在客户端是**不透明**的（`water-fp.sl` REAL_REFLECTION 分支 `outColor.a = 1`）⇒ 水面覆盖处的可见结果 = 折射画面，**不含光照图乘法** | 我们按主通道渲染水下件：`albedo × lightmap × 2`。马利诺夫卡 25 片水下冰 `env_ma_ice01_*` 在客户端图集里落在**未烘焙黑格**（逐片实测 63–71% 黑，邻片 0–9%：烘焙器跳过河面）⇒ 冰面成黑块 | 黑冰面 + 黑色边界锯齿 | ★★ | **已修复（前端）**：纯几何判据（整个包围盒落在某片水面占地内 0.5 m 余量、且低于其标高 5 cm 余量）⇒ 不接光照图、走不受光 albedo（`MeshBasicMaterial`，即 `VIEW_DIFFUSE=0` 口径）。受灾面实测全 36 图仅 2 张（malinovka 26 实例、italy 1）。**已知差异**：客户端另有 `flatColor` 末乘（冰上 ≤4%）未随包导出；部分淹没件（桥/沉船）仍按主通道渲染。另：水下薄板**逐件**带作者染色（马利诺夫卡冰面多数 (0.922,1.0,0.973)、`ice01_09` 为 (0.647,0.753,0.796) 偏蓝）⇒ 在染色变化的那条 tile 边界上有一道 ~22% 色阶——这是客户端作者数据本身；导出器不施加"统一染色"，如实保留客户端数据 | 〔错误→已修复〕 |
 | D8 | 贴地"被地形着色"的贴花件（铁轨/地界标线：材质 `Decal.material`，`MATERIAL_DECAL`）：`albedo(UV0) × 地图 colormap(UV1).rgb（separate_lm 图再 × colormap.a）× 2.0`，**不受光**，UV 用网格自带 UV1（无 uvScale） | 导出器无贴花判据（材质不打标）且 UV1 随导门槛只覆盖光照图/动画掩码 ⇒ 贴花批次丢 UV1；前端无贴花材质 ⇒ 落到受光 Lambert | 铁轨贴图比客户端**亮约 1.5–2.3×**（客户端等效乘子 0.84 vs 我们受光 1.2–1.9） | ★★ | **已修复**：`decal_capable` 判据 + `extras.decal`/`decalLmAdjust`/`decalSeparateLm` + UV1 随导（fail-closed 计数）+ 前端 `makeDecalMaterial`（不受光，含 GLOBAL_TINT 调整分支）；后续审计修复 decal 烘焙连乘残留与 FLATALBEDO 丢染色（判定 = 有效 define 集 ∪ 实例 flags） | 〔错误→已修复〕 |
-| D2 | 地面贴花（碾压痕/弹坑/血迹）动态生成 | 无（客户端贴图不在可得数据面：游戏层 geo-decal 贴图由游戏层传入） | ~~战场缺少"被踩过"的痕迹~~ ⇒ 无可对齐实现 | ★ | **弹坑/血迹：不做**——客户端构成 = FX 粒子（`3d/FX/<map>/hit_surface/groundHit_*.sc2`）+ 游戏层 geo-decal（`GeoDecalManager`；**贴图不在数据面**）；重做前置 = 先定位客户端弹痕贴图。**碾压痕：已落地**——TreadSystem 作者数据在数据面（逐车 `treadParameters` 块 88/764 yaml + `3d/Tanks/Common/images/` 13 张 `*_tread.dx11.dds.dvpl`），数据面已导出（包内 `tread/`）、前端由 WotbTools 几何贴花消费（[feasibility-track-marks.md](feasibility-track-marks.md)） | 〔弹坑/血迹不做；碾压痕已落地〕 |
+| D2 | 地面贴花（碾压痕/弹坑/血迹）动态生成 | 无（客户端贴图不在可得数据面：游戏层 geo-decal 贴图由游戏层传入） | ~~战场缺少"被踩过"的痕迹~~ ⇒ 无可对齐实现 | ★ | **弹坑/血迹：不做**——客户端构成 = FX 粒子（`3d/FX/<map>/hit_surface/groundHit_*.sc2`）+ 游戏层 geo-decal（`GeoDecalManager`；**贴图不在数据面**）；重做前置 = 先定位客户端弹痕贴图。**碾压痕：已落地**——TreadSystem 作者数据在数据面（逐车 `treadParameters` 块 88/764 yaml + `3d/Tanks/Common/images/` 13 张 `*_tread.dx11.dds.dvpl`），数据面已导出（包内 `tread/`，见 [data-inventory.md](data-inventory.md) 履带印行）、前端由 WotbTools 几何贴花消费 | 〔弹坑/血迹不做；碾压痕已落地〕 |
 | P3 | 信号灯等"**状态切换器 + 骨骼网格**"对象：客户端每盏灯 = `env_fc_trafic_light_02.sc2`（渲染组件 = 杆）**＋同位置的 `env_fc_trafic_light_01.sc2`**（`StateSwitcherComponent` 3 状态 + 子实体 `State 0/1/2` = **`SkinnedMesh`** 灯头/悬臂） | 导出器渲染类白名单只有 `Mesh`/`SpeedTreeObject` ⇒ **`SkinnedMesh` 整类被跳过** ⇒ `_01` 全图缺失（GLB 内该名字节点 0） | 2026-10-10 用户"图中的信号灯组件不完全"（只有杆、没有灯头/悬臂） | ★★ | **已修复（2026-10-10，上游导出）**：白名单纳入 `SkinnedMesh`，按**静止绑定姿态**导出（不读骨架/动作 ⇒ 不随动），并**只取激活状态** `State 0`（全图 335 个切换器无一 `activeState≠0`，故规则严格成立；损毁态 `State 1/2` 按用户决定不导，撞毁仍"直接消失"）。forgecity 实测：`_01` 节点 **0 → 61**（每个 450 顶点、z ∈ [4.27, 6.98] 的灯头+悬臂），杆 `_02` 完好形态另已逐层核实与客户端一致（138 顶点/240 索引/80 三角形 = datasource 77797、包围盒逐位相同、材质链 `TextureLightmap`+`traffic_light.tex`+lightmap、逐实例 UV 变换 61/61）。客户端破坏机制（`FallingType 2` 倒伏 + `objects_falling_lamppost_creak/down` + 扬尘 + `fallingAtoms` 碎件）本仓不实现 | 〔缺失→已修复〕 |
 
 ### E. 天空与雾
@@ -166,6 +167,20 @@ A4 PBR/ULTRA 档、I2 LOD、H2 风相位未做（各自为画质取舍或缺失�
 
 （原第 1 项"逐贴图采样空间"已定案：sRGB 标志只出现在 PBR 坦克 albedo（DXGI `*_UNORM_SRGB`）；
 其余全为 legacy DXT 无标志 ⇒ 按原样采样；客户端两类材质各自成链。见 C3 行。）
+
+**自光照可行性报告收编的未定项（2026-10-29 报告删档，fail-closed 原文保留；原 §七 编号见 git 历史）**：
+
+4. **太阳方向约定缺一次画面 A/B**：`光源局部 −Y 轴`为唯一自洽解（36/36 图仰角
+   21.5°–65.7°，其余 5 个候选轴在 8–12 张图上算出"太阳在地下"，已穷举排除），但缺一次
+   与客户端画面的 A/B 对照。约定正文与换算在 `tools/export_map_lighting.py` docstring
+   （`sun_direction_from_quaternion` / `CONVENTION`）；若证伪只需改该文件，消费端字段名不变。
+5. **光照图采样余项**：`textureSampleStates` 的 wrap/filter 位、mip 选择与 `×2` 的相对顺序
+   未逐位 A/B 定版（采样空间一项已定案，见 C3 行）。
+6. **`ibl.environmentMultiplier` / `environmentGroundFactor` 的作用点**：随图取值
+   0.8–4.0 / 0.4–0.8，未出现在三个 IBL 生成着色器里，推测在引擎侧采样时施加；消费端目前经
+   `scene.environmentIntensity` 施加 multiplier（`tools/export_map_ibl.py`），精确对齐前需确认。
+7. **`40_moon_mn` 天空实体**：无天穹节点（其天空走 `objects/images/spacedome.tex`），
+   见 E1 行——该图天空仍走纯色背景兜底。
 
 ---
 
