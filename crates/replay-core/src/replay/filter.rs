@@ -106,7 +106,6 @@ impl StoredInput {
 #[derive(Debug, Clone, Copy)]
 pub struct FramePose {
     /// 帧时刻（回放时钟域，秒）
-    #[allow(dead_code)] // 公开数据 API 字段：viewer 渲染锚点消费前由测试/探针使用
     pub time: f64,
     /// 滤波器输出时刻 = time − latency（渲染在此时刻的"真实"位置）
     #[allow(dead_code)] // 公开数据 API 字段：viewer 渲染锚点消费前由测试/探针使用
@@ -664,8 +663,8 @@ impl SegmentedPoseTimeline {
         (first, last)
     }
 
-    /// 全段帧数总和（60Hz 帧网格；测试/探针用）
-    #[allow(dead_code)]
+    /// 全段帧数总和（60Hz 帧网格；测试用——playback.rs 位姿网格投影按帧枚举）
+    #[cfg(test)]
     pub fn frame_count(&self) -> usize {
         self.segments.iter().map(|(_, _, tl)| tl.frame_count()).sum()
     }

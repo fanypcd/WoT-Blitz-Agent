@@ -205,8 +205,13 @@ impl ReplayModel {
         // 全部索引只建一份，弹道两路提取（collect_all_shots）与实体档案并表均从此取数。
         let shared = combat::build_shot_scan_shared(packets, author_eid);
 
-        let ct = CombatTimeline::parse_packets(packets);
-        let presence = combat::collect_aoi_lifecycle(packets);
+        let ct = CombatTimeline::from_parts(
+            shared.names.clone(),
+            shared.initial_hp.clone(),
+            packets,
+        );
+        // AoI 在场段与 shared.aoi_presence 同一收集器产物，直接复用（免一次全包流遍历）
+        let presence = shared.aoi_presence.clone();
         let hit_notices = combat::collect_hit_notices(packets);
         let prop3_health = combat::collect_prop3_health(packets);
         let counters = combat::collect_feedback_counters(packets);

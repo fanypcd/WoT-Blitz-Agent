@@ -161,7 +161,7 @@ testing** happen in the WotbTools repository (https://github.com/A158Coke/WotbTo
   The manifest's **per-file sha256** is the verification authority — a content change with the same
   size must still ship (vertex bakes, 2026-10-10). `tools/upload_asset_pack_cos.py` is
   **legacy-only**（旧 APK/回滚）；其 `--only <prefix>` 语义不适用于新 origin。
-- Background: [README §与 WotbTools 的关系](README.md), [docs/index.md](docs/index.md) §前端面收敛,
+- Background: [README §与 WotbTools 的关系](README.md), [frontend/AGENTS.md](frontend/AGENTS.md),
   [docs/architecture-debt.md](docs/architecture-debt.md).
 
 ## Visual verification belongs to the user

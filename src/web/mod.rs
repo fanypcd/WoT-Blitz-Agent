@@ -944,8 +944,11 @@ fn replay_shots_blocking(
 
     eprintln!("[replay_shots] file={}", file);
     eprintln!("[replay_shots] packets={}", raw_packets.len());
-    let timeline = crate::replay::combat::CombatTimeline::parse_packets(&raw_packets);
-    eprintln!("[replay_shots] entities={}", timeline.entity_count);
+    // 射击端点只需要实体计数与名字表两条诊断数据：不构建整条 CombatTimeline
+    //（那要对全包流做三次遍历并物化全部 type=7 事件），两个轻量收集器即可
+    let entity_count = crate::replay::combat::entity_count(&raw_packets);
+    let entity_names = crate::replay::combat::entity_names(&raw_packets);
+    eprintln!("[replay_shots] entities={}", entity_count);
     // 作者昵称来自回放自身（battle_results author→花名册；meta.player_name 兜底），不依赖文件名
     let br = replay.read_battle_results().ok();
     let author_nick = br
@@ -1038,7 +1041,7 @@ fn replay_shots_blocking(
         s.index = i + 1;
     }
     // 弹种回填：全局 shell_id → tanks.pb 原始弹种串（作者+他人统一，兜底链各级来源均识别）
-    crate::replay::loadout::ShellKindTable::from_tanks_pb().annotate(&mut all_shots);
+    crate::replay::loadout::ShellKindTable::shared().annotate(&mut all_shots);
     eprintln!(
         "[replay_shots] total_shots={} (含其他玩家)",
         all_shots.len()
@@ -1163,7 +1166,7 @@ fn replay_shots_blocking(
                 .or_insert(0) += 1;
         }
         m.into_iter()
-            .filter_map(|(eid, c)| timeline.entity_names.get(&eid).map(|n| (n.clone(), c)))
+            .filter_map(|(eid, c)| entity_names.get(&eid).map(|n| (n.clone(), c)))
             .collect()
     };
     let players: Vec<Value> = br

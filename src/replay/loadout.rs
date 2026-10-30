@@ -55,6 +55,15 @@ pub struct ShellTableEntry {
 }
 
 impl ShellKindTable {
+    /// 进程级缓存形态：tanks.pb 是静态数据（`load_tanks` OnceLock），派生表只建一次。
+    /// 此前每个调用方（web 射击端点 / replay_shot 工具 / CLI combat / 示例）各自全量
+    /// 展开 tanks×turrets×guns×shells 建 HashMap；确定性坍缩（见 `from_tanks_pb`）保证
+    /// 缓存与逐次重建逐位一致。
+    pub fn shared() -> &'static ShellKindTable {
+        static TABLE: std::sync::OnceLock<ShellKindTable> = std::sync::OnceLock::new();
+        TABLE.get_or_init(Self::from_tanks_pb)
+    }
+
     pub fn from_tanks_pb() -> Self {
         let mut by_global: HashMap<u32, ShellTableEntry> = HashMap::new();
         // 确定性坍缩：同一全局 gid 在不同炮下可携带不同穿深（穿透力是炮属性），

@@ -1,5 +1,7 @@
 //! protobuf wire 解析助手：varint 读取与字段遍历（find_field/field_value 族）。
-//! 全库唯一实现（溢出/截断策略统一，见 docs/architecture-debt.md）。
+//! 战斗路径的规范实现（溢出/截断策略统一，见 docs/architecture-debt.md）；
+//! 注意 playback.rs `CompDescriptor` 与 src/wargaming/blitzkit.rs 各自内联了
+//! 独立的 varint 读取（历史独立成型的容器/工具路径），未收敛到本模块。
 
 /// protobuf 最小遍历：varint / fixed64 / 定长子消息，返回 (field_no, wire_type, 内容偏移, 内容长)；仅用于 method36 快照，格式不合法返回 None（fail-soft 调用方忽略）。
 pub(crate) fn proto_fields(b: &[u8]) -> Option<Vec<(u32, u8, usize, usize)>> {

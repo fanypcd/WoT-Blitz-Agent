@@ -392,7 +392,8 @@ fn main() -> anyhow::Result<()> {
             &pkts,
             author_eid,
             &pitch_limits,
-        );
+        )
+        .expect("他人路径提取失败（内部不变量破坏）");
         println!(
             "  冒烟: 他人路径 {} 发（总发射 {}，跳过无终点 {}）",
             others.shots.len(),

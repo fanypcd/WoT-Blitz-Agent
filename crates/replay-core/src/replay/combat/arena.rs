@@ -781,9 +781,10 @@ pub fn reconstruct_supremacy_base_states(
     for u in raw {
         // canonical 边界唯一补缺省处：absent field1 → wire default 0 = A（Java 同式）
         let idx = u.base_index.unwrap_or(0) as usize;
-        if idx >= 4 {
-            continue;
-        }
+        // base_index 越界不是数据边界：wire 收集器（collect_supremacy_base_updates）已把
+        // >3 的块整体拒收，本函数收到的非零越界只可能来自直构调用方的契约违约——panic
+        // 显式暴露，不做静默 continue（静默丢块会让基地状态时间线缺一段且无任何痕迹）。
+        assert!(idx < 4, "RawSupremacyBaseUpdate.base_index={idx} 越界（合法 0..=3；wire 收集器已过滤，直构调用须自行保证）");
         let st = &mut states[idx];
         if u.is_idle() {
             // 空闲状态的整体广播：owner 原样保留（缺省/0 为无主），占领状态归零。

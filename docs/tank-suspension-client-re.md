@@ -28,8 +28,8 @@
    履带 = **运行时切 chunk + GPU 实例化**，每帧由「静止折线 + 逐轮偏移 + 悬空段垂弧/包轮 +
    铺地」得到 2D 链路，花纹按 `chassis.textureScale / chunkLength` 每米滚动。
    仍缺的（§五）：半径的构造口径、k 的构造、`chunkOffset` 写入者、`trackLayingInfo` 五项落位。
-5. 这份数据**不在分发面内**（客户端 yaml 不随资产包发）。前端要仿客户端，
-   需本仓先把它导进包（additive）——规模 ≈1.5–2 KB/辆、全量 ≈1.2–1.5 MB，分级路径见 §七。
+5. 本数据**已在分发面内**（2026-10-10 落地：`tools/export_tank_suspension.py` →
+   包内 `suspension/<tank_id>.json`，728 文件，前端求解器消费中——§七/§数据面）。
 
 ---
 
@@ -354,7 +354,8 @@ XML 与 sc2 侧确实没有（XML 是物理/经济参数，sc2 只有节点）�
 - 可不导（前端从模型 GLB 现算）：逐轮半径/挂点、`chunkLength`（= 折线平均段长）、
   履带周长、履带网格。
 - 规模：≈1.5–2 KB/辆 ⇒ 全量 ≈1.2–1.5 MB；读取走 `client_path()`（DLC 覆盖层）。
-- fail-closed：无块（34 辆）/ 空 `wheels`（1 辆 WarDuck）/ 旧式单数键 → 回落"整台刚体"。
+- fail-closed：无块（**9 辆** + 空 `wheels` 1 辆 WarDuck，11.21 语料 738 辆口径；
+  旧 764 文件语料的 34 辆数字已作废，见 data-inventory §6.1）/ 旧式单数键 → 回落"整台刚体"。
 
 **WotbTools（前端）——T1/T2/T3 已接线（2026-10-10）**：求解器 `scene/suspension.js`（纯函数
 + 19 项单测）、接线与守卫见 WotbTools `docs/features/battle-playback.md`；T4 的各近似项

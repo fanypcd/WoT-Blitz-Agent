@@ -142,7 +142,7 @@ pub async fn start_viewer_server_for_replay(
         &pitch_limits,
     )?;
     // 弹种回填：全局 shell_id → tanks.pb 原始弹种串（/api/replay_shot 透传给 3D 视图）
-    crate::replay::loadout::ShellKindTable::from_tanks_pb().annotate(&mut replay_data);
+    crate::replay::loadout::ShellKindTable::shared().annotate(&mut replay_data);
     // 动态装甲弹着态注入（additive：仅 6 辆声明车非缺省）
     crate::replay::combat::attach_shot_armor_states(&mut replay_data, &raw_packets);
     if replay_data.is_empty() {

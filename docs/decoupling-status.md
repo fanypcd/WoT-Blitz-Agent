@@ -199,8 +199,9 @@ BK 侧弹种集合与客户端不一致的根因是**按 gun module 塌缩 + 孤
   同为 `tanks.pb` field13 枚举：1=金币、2=收藏，互斥），运行期与消费方均已消费
   （[data-inventory.md](data-inventory.md) §1a）。
 - **报告 B 的 35 辆 GLB 缺口**：已由 `LodComponent` 判据 + 全批次导出等规则收敛到
-  733/735 逐字节（[local-model-export.md](local-model-export.md) §3）；其中 **23 辆为有意
-  分歧**（静态变换烘焙 / 状态过滤，见该文 §5.1）。
+  623/735 逐字节（[local-model-export.md](local-model-export.md) §0/§3，与该文及本文件
+  §1 同一口径）；其中 **111 辆为有意分歧**（静态变换烘焙 / 状态过滤，见该文 §5.1；
+  本条此前残留旧语料的 733/23 数字，2026-10-31 勘误）。
 - **UV1/UV2、`doubleSided`、MR 通道摆放**：均已对齐（§1）。
 
 ## 6. 对外沟通（BlitzKit 开发者）
