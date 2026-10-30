@@ -97,6 +97,20 @@ pub(crate) fn first_world_position(
 /// ReplayModel::scan / PlaybackData 构建。battle_results 缺失时仍尝试 meta 昵称
 /// 回退（截断/未结算回放只要已有作者世界位姿仍可返回）；两面证据都没有 → None。
 pub fn from_replay_bytes(bytes: &[u8]) -> anyhow::Result<Option<AuthorInitialPosition>> {
+    let raw = super::packets::read_raw_packets(bytes)?;
+    let packets: Vec<(u32, f32, &[u8])> = raw
+        .iter()
+        .map(|p| (p.packet_type, p.clock_secs, p.payload.as_slice()))
+        .collect();
+    let author_eid = author_eid_from_replay(bytes, &packets)?;
+    Ok(first_world_position(&packets, author_eid))
+}
+
+/// 从容器元数据与已分帧包流解析作者车辆 EID；0 = 证据不足。
+pub(crate) fn author_eid_from_replay(
+    bytes: &[u8],
+    packets: &[(u32, f32, &[u8])],
+) -> anyhow::Result<u32> {
     let mut replay = wotbreplay_parser::replay::Replay::open(std::io::Cursor::new(bytes))?;
     let meta = replay.read_meta().ok();
     let battle_results = replay.read_battle_results().ok();
@@ -121,29 +135,24 @@ pub fn from_replay_bytes(bytes: &[u8]) -> anyhow::Result<Option<AuthorInitialPos
         .map(|br| br.player_results.iter().map(|pr| pr.info.tank_id).collect())
         .unwrap_or_default();
 
-    let raw = super::packets::read_raw_packets(bytes)?;
-    let packets: Vec<(u32, f32, &[u8])> = raw
-        .iter()
-        .map(|p| (p.packet_type, p.clock_secs, p.payload.as_slice()))
-        .collect();
-
     // account_id 路径才需要 comps（ARENA_INFO subtype=1）；无结算账号时直接走昵称回退。
     let comps = if author_account_id != 0 {
-        let arena_updates = combat::collect_arena_updates_filtered(&packets, |s| s == 1);
+        let arena_updates = combat::collect_arena_updates_filtered(packets, |s| s == 1);
         super::playback::comp_descriptors_from_updates(&arena_updates, &valid_tanks)
     } else {
         Default::default()
     };
 
-    Ok(extract(
-        &packets,
+    Ok(resolve_author_vehicle_eid(
         &comps,
+        packets,
         author_account_id,
         &author_nickname,
     ))
 }
 
-/// 便捷入口：身份解析 + 首条世界位姿。
+/// 测试入口：身份解析 + 首条世界位姿（生产路径见 [`from_replay_bytes`]）。
+#[cfg(test)]
 fn extract(
     packets: &[(u32, f32, &[u8])],
     comps: &HashMap<String, CompDescriptor>,

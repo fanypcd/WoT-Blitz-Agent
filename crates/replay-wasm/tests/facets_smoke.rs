@@ -473,3 +473,29 @@ fn p2_tank_names_injection_and_ai_review_entry() {
         );
     }
 }
+
+/// 录像者相机能力（契约 v0.4.21）：独立入口，列等长；不进入 Playback 通道。
+#[test]
+fn recorder_camera_smoke() {
+    let Some(path) = largest_sample() else {
+        eprintln!("无回放样本，跳过");
+        return;
+    };
+    let bytes = std::fs::read(&path).unwrap();
+
+    let raw = wotb_replay_wasm::recorder_camera_json(&bytes).expect("能力构建成功");
+    let v: serde_json::Value = serde_json::from_str(&raw).expect("合法 JSON");
+    assert!(v.is_object(), "样本不应被结构校验拒绝");
+    assert_eq!(v["version"].as_u64(), Some(1));
+    assert!(v["author_eid"].as_u64().unwrap_or(0) > 0);
+    let aim_len = v["aim"]["t"].as_array().expect("aim.t").len();
+    assert!(aim_len > 0);
+    for column in ["yaw", "pitch", "ray_x", "ray_y", "ray_z"] {
+        assert_eq!(v["aim"][column].as_array().map(Vec::len), Some(aim_len), "{column}");
+    }
+    assert_eq!(
+        v["mode"]["t"].as_array().map(Vec::len),
+        v["mode"]["raw"].as_array().map(Vec::len)
+    );
+    assert!(v["client_options"].get("backward_zoom").is_some());
+}

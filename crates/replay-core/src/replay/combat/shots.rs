@@ -392,6 +392,29 @@ pub struct AimSnapshot {
     pub bloom: Option<f64>,
 }
 
+/// Avatar method36 (0x24) 瞄准快照序列（envelope = avatar = 录像者本人）；
+/// args = [len u8][protobuf]；布局不合法的包 fail-soft 跳过。
+pub fn collect_aim_snapshots(packets: &[(u32, f32, &[u8])]) -> Vec<(f32, AimSnapshot)> {
+    let mut out = Vec::new();
+    for (_, clock, p) in packets {
+        if p.len() < 14 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x24 {
+            continue;
+        }
+        let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
+        if args_len < 2 || 12 + args_len > p.len() {
+            continue;
+        }
+        let snap = parse_method36(&p[12..12 + args_len]);
+        if snap.turret_rel_yaw.is_some() && snap.bloom.is_some() {
+            out.push((*clock, snap));
+        }
+    }
+    out
+}
+
 /// 解析 method36 args → [`AimSnapshot`]。初始化变体（payloadLen=73）缺 root.field1/field2，
 /// 相应字段为 None；格式不合法返回全 None（fail-soft，调用方忽略）。
 fn parse_method36(args: &[u8]) -> AimSnapshot {
@@ -659,23 +682,7 @@ pub(crate) fn build_shot_scan_shared(
 
     // ⑤'''' Avatar method36 (0x24) 瞄准快照时间线（envelope = avatar = 录像者本人）；
     // args = [len u8][protobuf]，开火时刻成对；布局不合法的包 fail-soft 跳过（解码见 AimSnapshot）。
-    let mut aim_snapshots: Vec<(f32, AimSnapshot)> = Vec::new();
-    for (_, clock, p) in packets {
-        if p.len() < 14 {
-            continue;
-        }
-        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 0x24 {
-            continue;
-        }
-        let args_len = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
-        if args_len < 2 || 12 + args_len > p.len() {
-            continue;
-        }
-        let snap = parse_method36(&p[12..12 + args_len]);
-        if snap.turret_rel_yaw.is_some() && snap.bloom.is_some() {
-            aim_snapshots.push((*clock, snap));
-        }
-    }
+    let mut aim_snapshots = collect_aim_snapshots(packets);
     aim_snapshots.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
     let aim_pitch_series: Vec<(f32, f32)> = aim_snapshots
         .iter()

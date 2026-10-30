@@ -3,6 +3,7 @@
 // 全场实时回放时间线（playback，0.1s 网格位姿/炮塔/弹道/血量）、
 // 内部领域模型（model，一次包扫描的权威产物，切面从这里投影）、
 // 区域可破坏物事件流（destructibles，AreaDestructibles 短广播，逆向文档 §5.4）、
+// 录像者相机状态（recorder_camera，Type23/31/39 + method36/49 定向扫描），
 // 轻量录像者初始位姿能力（author，身份 + 首条可信 type=10 世界坐标，不建模型）。
 pub mod author;
 pub mod combat;
@@ -13,6 +14,7 @@ pub mod model;
 pub mod packets;
 pub mod parser;
 pub mod playback;
+pub mod recorder_camera;
 pub mod scanner;
 
 /// 坦克名解析的最小接口。核心库不绑定实现：服务端 `TankResolver`（读 tank_cache.json）
