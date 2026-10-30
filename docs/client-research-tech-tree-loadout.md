@@ -689,8 +689,14 @@ Type5 物化尾部 `0B <n>` + nB（n=1..=9，空槽省略）就是本场装备 i
 - **空槽不占位**，所以「哪个 id 在哪个槽」不可恢复；只能得到**集合**；
 - 同一预设下，id 集合足以确定装了哪些件（每槽最多一件，id 唯一）；
 - 现有实现：`crates/replay-core/src/replay/combat/collect.rs::collect_vehicle_loadout`
-  → `VehicleLoadout { equipment: [u8;9], items: Vec<[u8;14]> }`；
-  `VehicleEquipment::from_ids` 目前只把 103/110 翻成布尔，其余进 `raw`。
+  → `VehicleLoadout { equipment, equipment_count, equipment_ids, items, consumables,
+  abilities, provisions }`；`equipment_ids` 保留线序实装件，`items` 保留原始 14B 描述符，
+  消耗品/给养/模式能力按 `0A` 块解码（给养 = `payload f32 -1.0` 静态尾；`0x67` =
+  `gravityJump`/Thruster 单列为能力）。`VehicleEquipment::from_ids` 仍把 103/110 翻成
+  射击复现布尔，其余进 `raw`/`equipment_ids`；`0xA9` = `DYNAMIC_ARMOUR_SYSTEM`。
+  欧系/瑞典/捷克/波兰食物块 `0x46..0x4D` 与 BlitzKit `provisions.pb` id 103..110 逐项
+  相差 33，按每国 HQ(大)→regular(小) 闭合（`0x4A` = Goulash/LARGE_FOOD；该映射纠正
+  WotbTools 文档把 `0x48`/`0x49` 互换的推断）。
 
 **已验证的端到端例子**：`tmp_analysis/loadout_1375.json`（历史探针）中，
 带「耐久加成」的车 `hp_initial / hp_base = 1.05` 精确成立（2400→2520、1700→1785），
@@ -904,8 +910,10 @@ Type5 物化尾部 `0B <n>` + nB（n=1..=9，空槽省略）就是本场装备 i
   +11% → 2664 = 2400×(1+0.05+0.06)；若按乘法会是 2671。Maus 基础 2900、+9% →
   3161 = 2900×1.09（乘法 1.06×1.03=1.0918 → 3166）。整数 HP 四舍五入：
   2750×1.05=2887.5 → 实测 2888。**仅证明 HP 这一类；不代表其他参数也加法**。
-  （6%/9% 的第二来源与 HP 补给 `largeHPStock` +6% / `smallHPStock` +3% 吻合，但回放
-  item 描述符内部字段尚未解码，未直接读到补给 id。）
+  （6%/9% 的第二来源与 HP 补给 `largeHPStock` +6% / `smallHPStock` +3% 吻合；回放
+  item 描述符的 `wireCode` 身份已解码（`0x44` 沙袋 / `0x45` 强化沙袋，见
+  [docs/回放与射击逆向总集.md](回放与射击逆向总集.md) §2.6），描述符内部计时/动态
+  payload 仍原样保留。）
 - 校准弹 +6%/+7%（`calibratedShells`）：脚本值直接给出；回放可识别 103
   （**装配识别**，不验证数值）；
 - 强化装甲 +4%（`multiLayerArmor`）：脚本值直接给出；回放可识别 110
@@ -1075,7 +1083,7 @@ DeviceUnlockStatus: UNLOCKED | READY_TO_UNLOCK | REQUIRES_PREVIOUS_TIER
 | 3 | 乘员等级 → 各参数的曲线（BlitzKit 已给显式公式） | 通风/食物/技能的影响 | 按 `degressiveStat(crew)=0.875/(0.375*crew+0.5)-1` 实现，标注“BlitzKit 对照”；仍建议抽验 1–2 辆车 |
 | 4 | `prem_tanks.yaml` 的客户端语义 | 金币车展示位置 | 不据此摆放；按 `list.xml` 独立分组 |
 | 5 | 装备槽解锁价格 | 装备页解锁按钮 | 服务端模型给；离线只读展示槽位/状态 |
-| 6 | 消耗品/补给 14B 描述符内部字段 | 回放“本场带什么” | 现有实现保留 raw；不赋语义 |
+| 6 | 消耗品/补给 14B 描述符**内部字段**（计时器/动态状态） | 回放“本场带什么”的细节 | 物品身份已由 `wireCode` 闭合（3 消耗品 + 0..3 给养 + 模式能力；见 [回放与射击逆向总集](回放与射击逆向总集.md) §2.6）；内部 12B payload 仍保留 raw，不赋语义 |
 | 7 | `stereoscope`（119）为何无预设引用 | 装备全集/可获取性 | 标 `unused`；不硬塞进槽位 |
 | 8 | 战斗重量的求和成员（客户端是否含电台/油箱）与 11 辆超限异常 | 机动/推重比/载重 | 按 BlitzKit 公式 `tank+engine+track+turret+gun`（不含电台/油箱）；异常车 fail-closed 或按实际配置求值；`maxLoad` 只作旁证 |
 | 9 | 科技树 `position` 的 0/1 基与 `columnsCount` 定义 | 像素对齐 | 复刻用自己的 0 基网格，保持相对拓扑 |

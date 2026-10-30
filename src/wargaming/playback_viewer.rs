@@ -517,6 +517,7 @@ mod config_idx_tests {
             shell_ids: Vec::new(),
             loadout_items: Vec::new(),
             equipment: None,
+            loadout: None,
             turret_index: None,
             gun_index: None,
             config_idx: None,

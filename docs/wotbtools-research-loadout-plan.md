@@ -63,7 +63,8 @@
 ### 2.1 本仓（数据权威）
 
 - 客户端提取链现役（`tools/extract_vehicles.py` 等），`data/` 全量 738 辆 @ 11.21.0；
-- Type5 loadout 解码已有（`collect_vehicle_loadout`，装备 id 集合）；
+- Type5 loadout 解码已有（`collect_vehicle_loadout`：3 消耗品 + 0..3 给养 + 模式额外能力 +
+  9 槽装备 ID；wireCode 逻辑表见 [回放与射击逆向总集](回放与射击逆向总集.md) §2.6）；
 - 数据事实文档已落地（`client-research-tech-tree-loadout.md`）。
 
 ### 2.2 WotbTools（实现落点）

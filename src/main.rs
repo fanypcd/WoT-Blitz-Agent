@@ -1648,6 +1648,29 @@ fn main() -> Result<()> {
                             i, s.global_id, s.kind, s.damage, s.penetration
                         );
                     }
+                    if let Some(lo) = &l.loadout {
+                        println!(
+                            "  equipment {}/9: {:?}",
+                            lo.equipment_count, lo.equipment_ids
+                        );
+                        for (label, items) in [
+                            ("consumable", &lo.consumables),
+                            ("provision", &lo.provisions),
+                            ("ability", &lo.abilities),
+                        ] {
+                            for it in items {
+                                println!(
+                                    "  {label}[{}] wire=0x{:02x} state={} id={}",
+                                    it.index,
+                                    it.wire_code,
+                                    it.state,
+                                    it.logical_id.as_deref().unwrap_or("UNKNOWN")
+                                );
+                            }
+                        }
+                    } else {
+                        println!("  loadout: 无 Type5 framing");
+                    }
                 }
                 println!("共 {} 名玩家", loadouts.len());
             }

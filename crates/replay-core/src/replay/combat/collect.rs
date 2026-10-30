@@ -186,6 +186,128 @@ pub fn dump_replay_streams(packets: &[(u32, f32, &[u8])]) -> serde_json::Value {
 pub const EQ_CALIBRATED_SHELLS: u8 = 103;
 pub const EQ_ENHANCED_ARMOR: u8 = 110;
 
+/// Type5 `0A` item 描述符的 `wireCode`（u8）→ 消耗品逻辑标识。
+///
+/// 语义源：WotbTools `docs/research/replay/loadout-materialization.md` /
+/// `provision-wirecode-mapping.md`（11.19 生产语料行为闭合），以及本仓 11.20/11.21
+/// 回放样本与客户端坦克百科 `consumables.json` 的闭合：
+/// - `0xA9` = `DYNAMIC_ARMOUR_SYSTEM`（目录 id 73 `armorMover`，cooldown 60 / duration 17；
+///   Type32 实测 state2 参数 22.61 = 17×1.33（装备 101 高端消耗品）、state3 参数 60.0，
+///   且目录过滤器只包含 Titan Strife 等少数活动车）。
+///
+/// **未知线码一律返回 `None`，保留 raw 不猜名**。
+pub fn consumable_logical_id(wire_code: u8) -> Option<&'static str> {
+    Some(match wire_code {
+        0x08 => "AUTOMATIC_FIRE_EXTINGUISHER",
+        0x09 => "ADRENALINE",
+        0x0A => "ENGINE_POWER_BOOST",
+        0x0B => "MULTI_PURPOSE_RESTORATION_PACK",
+        0x0C => "FIRST_AID_KIT",
+        0x0D => "REPAIR_KIT",
+        0x3D => "IMPROVED_ENGINE_POWER_BOOST",
+        0x3E => "RETICLE_CALIBRATION",
+        0x42 => "REACTIVE_ARMOR",
+        0x69 => "TUNGSTEN_SHELLS",
+        0xA9 => "DYNAMIC_ARMOUR_SYSTEM",
+        0xBD => "REDUCED_ENGINE_POWER_BOOST",
+        _ => return None,
+    })
+}
+
+/// Type5 `0A` item 描述符中**模式额外能力**的 `wireCode` → 逻辑标识。
+///
+/// `0x67` = 坦克百科 `consumables.json` 的 `gravityJump`（mode `lunar`，name "Thruster"，
+/// acceleration 4 / cooldown 25）。Type32 实测同一线码的 state2 参数恒 0（瞬发）、state3
+/// 冷却 25.0 / 21.368（=25÷1.17，装备 118 配送系统）/22.727/19.685，与 25s 基准及
+/// 冷却缩短分支吻合；GravityMode 样本中只出现在非重型车（LT/MT/TD）的第 4 条描述符。
+/// 未闭合线码返回 `None`。
+pub fn ability_logical_id(wire_code: u8) -> Option<&'static str> {
+    match wire_code {
+        0x67 => Some("GRAVITY_JUMP"),
+        _ => None,
+    }
+}
+
+/// Type5 `0A` item 描述符的 `wireCode`（u8）→ 给养逻辑标识。
+///
+/// 证据分两层：
+/// - WotbTools 11.19 生产映射（行为/可用性闭合）：`0x0E..0x12` 大补给、
+///   `0x16..0x19` 小补给、`0x1C/0x1D/0x1E` 标准燃料/改进燃料/防护套装、
+///   `0x44/0x45` 沙袋装甲/强化沙袋、`0x46/0x49` 欧系大补给、`0x47/0x48` 欧系小补给、
+///   `0x6A/0x6B/0x6C` 齿轮油/改进齿轮油/改进火药；
+/// - 本仓 11.20/11.21 样本把同一连续补给块补齐：`0x13` 中国大补给、`0x14` 法国大补给、
+///   `0x15` 德国小补给、`0x1A` 中国小补给、`0x1B` 法国小补给（结构性块内位置；当前样本
+///   未自然出现）、`0x2D/0x2E` 其他系大/小补给、`0x32` 防破片内衬（仅出现在客户端允许
+///   该给养的德国车）；
+/// - 欧系/瑞典/捷克/波兰食物块：客户端 `provisions.pb` 的 map id 103..110（Cheesehead
+///   103 / Cinnamon Roll 104 / Grilled Salmon 105 / Crispbread 106 / Goulash 107 /
+///   Fried Cheese 108 / Zurek 109 / Faworki 110）与回放线码 0x46..0x4D（70..77）逐项
+///   相差 33，顺序一致；大/小补给按每国 **HQ(大)→regular(小)** 排列：
+///   `0x46/0x48/0x4A/0x4C` = LARGE_FOOD，`0x47/0x49/0x4B/0x4D` = SMALL_FOOD。
+///   这纠正了 WotbTools 11.19 文档把 `0x48` 标成 SMALL、`0x49` 标成 LARGE 的推断
+///   （其文档自述 `0x48` 从未自然观测；控制样本只覆盖欧洲/瑞典食物族，未逐项绑定
+///   客户端 item id）。
+///
+/// 这是**版本化线码表**，不是按国家/坦克/数值猜名；未知线码返回 `None`。
+pub fn provision_logical_id(wire_code: u8) -> Option<&'static str> {
+    Some(match wire_code {
+        // 大补给（德国/美国/苏联/英国/日本/中国/法国）
+        0x0E..=0x14 => "LARGE_FOOD",
+        // 小补给（德国/美国/苏联/英国/日本/中国/法国）
+        0x15..=0x1B => "SMALL_FOOD",
+        0x1C => "STANDARD_FUEL",
+        0x1D => "IMPROVED_FUEL",
+        0x1E => "PROTECTIVE_KIT",
+        // 其他系（other）大/小补给：样本成对出现（Titan Strife/E-10），按大→小线序
+        0x2D => "LARGE_FOOD",
+        0x2E => "SMALL_FOOD",
+        0x32 => "SPALL_LINER",
+        0x44 => "SANDBAG_ARMOR",
+        0x45 => "ENHANCED_SANDBAG_ARMOR",
+        // 欧系/瑞典/捷克/波兰：每国 HQ(大) → regular(小)
+        0x46 => "LARGE_FOOD",
+        0x47 => "SMALL_FOOD",
+        0x48 => "LARGE_FOOD",
+        0x49 => "SMALL_FOOD",
+        0x4A => "LARGE_FOOD",
+        0x4B => "SMALL_FOOD",
+        0x4C => "LARGE_FOOD",
+        0x4D => "SMALL_FOOD",
+        0x6A => "GEAR_OIL",
+        0x6B => "IMPROVED_GEAR_OIL",
+        0x6C => "IMPROVED_GUNPOWDER",
+        _ => return None,
+    })
+}
+
+/// Type5 item 描述符的语义槽位。`Consumable` 固定前 3 条（位置契约），
+/// `Provision` 由静态尾标记 `f32 -1.0` 识别，其余为模式额外能力（如 GravityMode 的
+/// 第 4 条描述符）——**不能把能力当给养**。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LoadoutItemKind {
+    Consumable,
+    Provision,
+    Ability,
+}
+
+/// 一条 14B Type5 item 描述符的解码视图（raw 恒保留）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoadoutItem {
+    /// 描述符在 `0A <k>` 块内的位置
+    pub index: u8,
+    pub kind: LoadoutItemKind,
+    /// 原始 wireCode（u8）
+    pub wire_code: u8,
+    /// 原始 state（u8）
+    pub state: u8,
+    /// 原始 12B 载荷（计时器/动态状态尚未完全解码 → 不赋内部语义）
+    pub payload_raw: [u8; 12],
+    /// 已证逻辑标识；`None` = 线码未闭合（raw 保留，不猜名）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logical_id: Option<String>,
+}
+
 /// 射击一方车辆的配件搭载（Type5 物化 `0B <n>` 变长选择串解码）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VehicleEquipment {
@@ -193,6 +315,12 @@ pub struct VehicleEquipment {
     pub calibrated_shells: bool,
     /// 携带强化装甲（ID 110）
     pub enhanced_armor: bool,
+    /// 实装件数（`0B <n>` 的 n；空槽省略）
+    #[serde(default)]
+    pub equipment_count: u8,
+    /// 实际选择的配件 ID（线序，不含空槽补齐的 0）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub equipment_ids: Vec<u8>,
     /// 九槽配件 ID 数组（诊断/未来扩展；未知 ID 不猜名）。线路串是**变长**的
     /// （空槽省略），此处按原序填入、空槽以 0 补齐——`0` 不是合法配件 ID，
     /// 故不可据位置反推槽位（空槽位置信息线上不存在）。
@@ -202,9 +330,12 @@ pub struct VehicleEquipment {
 
 impl VehicleEquipment {
     pub(crate) fn from_ids(eq: &[u8; 9]) -> Self {
+        let equipment_ids: Vec<u8> = eq.iter().copied().filter(|&id| id != 0).collect();
         VehicleEquipment {
             calibrated_shells: eq.contains(&EQ_CALIBRATED_SHELLS),
             enhanced_armor: eq.contains(&EQ_ENHANCED_ARMOR),
+            equipment_count: equipment_ids.len() as u8,
+            equipment_ids,
             raw: eq.to_vec(),
         }
     }
@@ -224,7 +355,8 @@ pub fn collect_vehicle_equipment(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, 
 }
 
 /// 采集每实体的完整开局 loadout（Type5 3+3+9；item 描述符可变 3..=7）。
-/// 同一实体取首条成功解析者（与 equipment 采集同语义）。观察者/非战斗实体由
+/// 同一实体取首条成功解析者；**首条只有配件串（无 `0A` 块）时，若后续物化包带来
+/// item 描述符则以带 items 的版本替换**（配件不变，物品不丢）。观察者/非战斗实体由
 /// 调用方按 eid/class/结算花名册过滤；本函数不按 k 值猜身份。
 pub fn collect_vehicle_loadout(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, VehicleLoadout> {
     let mut out: HashMap<u32, VehicleLoadout> = HashMap::new();
@@ -233,11 +365,20 @@ pub fn collect_vehicle_loadout(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, Ve
             continue;
         }
         let eid = u32::from_le_bytes([p[0], p[1], p[2], p[3]]);
-        if out.contains_key(&eid) {
-            continue;
+        if let Some(prev) = out.get(&eid) {
+            if !prev.items.is_empty() {
+                continue;
+            }
         }
         if let Some(l) = scan_loadout(p) {
-            out.insert(eid, l);
+            // 已有 equipment-only 版本时，仅当新版本含 item 描述符才替换
+            let replace = out
+                .get(&eid)
+                .map(|prev| prev.items.is_empty() && !l.items.is_empty())
+                .unwrap_or(true);
+            if replace {
+                out.insert(eid, l);
+            }
         }
     }
     out
@@ -374,29 +515,110 @@ pub fn collect_module_crew_states(packets: &[(u32, f32, &[u8])]) -> Vec<ModuleCr
     out
 }
 
-/// 车辆开局 loadout（Type5 3+3+9 结构；WotbTools PROVEN 位置闭合）。
+/// 车辆开局 loadout（Type5 3+3+9 结构；WotbTools PROVEN 位置闭合 + 本仓 11.20/11.21 复核）。
 ///
 /// - `equipment`：配件选择串解码为 9 槽数组——**每字节 = 装备数值 ID（= 目录中该件
 ///   字母的 ASCII 码，如 `g`=103 校准炮弹 / `n`=110 强化装甲）**；线路上串**变长**
-///   （`0B <n>`，空槽省略、满配 9），此处空槽补 0；
-/// - `items`：k 条 14 字节 item 描述符，位置闭合为 `item[0..2] = 3 消耗品`、
-///   `item[3..5] = 3 给养`。**内部字段（计时器/动态状态）尚未完全解码 → 原样保留
-///   raw，不赋内部语义**（WotbTools 明确裁决：retain raw until fully decoded）。
+///   （`0B <n>`，空槽省略、满配 9），此处空槽补 0；`equipment_count`/`equipment_ids`
+///   保留线序实装件（空槽不再以 0 混入）；
+/// - `items`：k 条 14 字节 item 描述符原样保留；`consumables`/`provisions`/`abilities`
+///   是同一批描述符的解码视图：
+///   * 前 3 条 = 消耗品槽（位置契约，WotbTools 1,037/1,037）；
+///   * 其余条目中，静态尾 `f32 -1.0`（`00 00 80 BF`）= 给养槽；
+///   * 其余无静态尾标记的条目 = 模式额外能力（如 GravityMode 的第 4 条描述符
+///     `0x67`），**不是给养**——WotbTools 的 6 条固定布局在 11.20+ 会被这条能力
+///     撑成 7 条，按位置硬切会把能力误判成给养；
+///   * 描述符内部字段（计时器/动态状态）尚未完全解码 → `payload_raw` 原样保留，
+///     不赋内部语义（WotbTools 明确裁决：retain raw until fully decoded）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VehicleLoadout {
     pub equipment: [u8; 9],
+    /// 实装配件数（`0B <n>` 的 n）
+    #[serde(default)]
+    pub equipment_count: u8,
+    /// 实装配件 ID（线序，不含空槽补齐的 0）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub equipment_ids: Vec<u8>,
+    /// 原始 14B item 描述符（恒保留，供未解码字段/回滚诊断）
     pub items: Vec<[u8; 14]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub consumables: Vec<LoadoutItem>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub abilities: Vec<LoadoutItem>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub provisions: Vec<LoadoutItem>,
+}
+
+/// 给养描述符的静态尾标记：载荷最后 4 字节 = f32 -1.0（`00 00 80 BF`）。
+/// 这是把给养与消耗品/模式能力分开的**格式不变量**，不是内容统计。
+const PROVISION_STATIC_TAIL: [u8; 4] = [0x00, 0x00, 0x80, 0xBF];
+
+fn is_provision_descriptor(item: &[u8; 14]) -> bool {
+    item[10..14] == PROVISION_STATIC_TAIL
+}
+
+/// 把 `0A <k>` 的原始描述符块解码为 (消耗品, 模式能力, 给养)。
+///
+/// 布局护栏：前 3 条必须都不带给养静态尾（3+3 位置契约）；否则视为未知布局，
+/// 只保留 raw（`items`），语义数组为空——绝不按位置硬猜。
+fn decode_loadout_items(
+    items: &[[u8; 14]],
+) -> (Vec<LoadoutItem>, Vec<LoadoutItem>, Vec<LoadoutItem>) {
+    let mut consumables = Vec::new();
+    let mut abilities = Vec::new();
+    let mut provisions = Vec::new();
+    if !items.iter().take(3).all(|it| !is_provision_descriptor(it)) {
+        return (consumables, abilities, provisions);
+    }
+    for (i, raw) in items.iter().enumerate() {
+        let wire_code = raw[0];
+        let state = raw[1];
+        let mut payload_raw = [0u8; 12];
+        payload_raw.copy_from_slice(&raw[2..14]);
+        let (kind, logical_id) = if i < 3 {
+            (
+                LoadoutItemKind::Consumable,
+                consumable_logical_id(wire_code).map(str::to_string),
+            )
+        } else if is_provision_descriptor(raw) {
+            (
+                LoadoutItemKind::Provision,
+                provision_logical_id(wire_code).map(str::to_string),
+            )
+        } else {
+            // 模式额外能力：已闭合的 0x67 = gravityJump/Thruster；其余仅 raw
+            (
+                LoadoutItemKind::Ability,
+                ability_logical_id(wire_code).map(str::to_string),
+            )
+        };
+        let item = LoadoutItem {
+            index: i as u8,
+            kind,
+            wire_code,
+            state,
+            payload_raw,
+            logical_id,
+        };
+        match kind {
+            LoadoutItemKind::Consumable => consumables.push(item),
+            LoadoutItemKind::Provision => provisions.push(item),
+            LoadoutItemKind::Ability => abilities.push(item),
+        }
+    }
+    (consumables, abilities, provisions)
 }
 
 /// 在单条 Type5 载荷内扫描 loadout 块：先定位 `0B <n>` + nB 配件串（字节域 100..=123
 /// 校验）与帧尾 `0C 00 0D`——这是**装备检测的唯一准入门槛**；`0A KK` + KK×14B
-/// item 描述符块只用于填充 `items`，缺失/数量不认识时不再丢弃装备串。
+/// item 描述符块只用于 items/消耗品/给养，缺失/数量不认识时不再丢弃装备串。
 ///
-/// `KK` 是**变长**的 item 描述符数量：实测 3..=7（3 消耗品 + 3 给养为常见 6 条；
-/// 少带消耗品/给养的玩家会出现 3/4/5 条）。旧实现把 `0A KK` 当作整个 loadout 的
-/// 硬门槛（且只接受 6..=10），这类玩家的整条 loadout 被静默丢弃（射击复现里表现为
-/// 「射手校准弹未自动识别」）。观察者/非战斗实体不做 k 值启发式排除——由调用方按
-/// eid/class/结算花名册过滤，避免把配装较少的真实玩家误判为观察者。
+/// `KK` 是**变长**的 item 描述符数量：实测 3..=7（常见 3 消耗品 + 3 给养 = 6 条；
+/// 少带给养的玩家出现 3/4/5 条；11.20+ 模式额外能力会在消耗品与给养之间插入第 4 条，
+/// 形成 7 条）。旧实现把 `0A KK` 当作整个 loadout 的硬门槛（且只接受 6..=10），这类
+/// 玩家的整条 loadout 被静默丢弃（射击复现里表现为「射手校准弹未自动识别」）。
+/// 观察者/非战斗实体不做 k 值启发式排除——由调用方按 eid/class/结算花名册过滤，
+/// 避免把配装较少的真实玩家误判为观察者。
 fn scan_loadout(p: &[u8]) -> Option<VehicleLoadout> {
     let n = p.len();
     let mut pos = 0usize;
@@ -438,7 +660,16 @@ fn scan_loadout(p: &[u8]) -> Option<VehicleLoadout> {
                             )
                         })
                         .unwrap_or_default();
-                    return Some(VehicleLoadout { equipment, items });
+                    let (consumables, abilities, provisions) = decode_loadout_items(&items);
+                    return Some(VehicleLoadout {
+                        equipment,
+                        equipment_count: count as u8,
+                        equipment_ids: eq.to_vec(),
+                        items,
+                        consumables,
+                        abilities,
+                        provisions,
+                    });
                 }
             }
         }
@@ -802,6 +1033,34 @@ pub fn collect_hit_notices(packets: &[(u32, f32, &[u8])]) -> Vec<HitNotice> {
     out
 }
 
+/// Type32 consumable lifecycle state（与 WotbTools 的 canonical 名称逐字一致）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ConsumableState {
+    /// state 1：注册/可用（开局未使用，或冷却结束后回到可用）
+    Initialized,
+    /// state 2：激活（param = 有效持续时长；瞬发为 0）
+    Activated,
+    /// state 3：持续结束/冷却转换（param = 有效冷却时长）
+    ActiveEndedOrCooldown,
+    /// state 255：实体/控制拆除（离场、死亡、对局结束）
+    Teardown,
+    /// 未识别 state 码
+    Unknown,
+}
+
+impl ConsumableState {
+    fn from_wire_state(state: u8) -> Self {
+        match state {
+            1 => Self::Initialized,
+            2 => Self::Activated,
+            3 => Self::ActiveEndedOrCooldown,
+            255 => Self::Teardown,
+            _ => Self::Unknown,
+        }
+    }
+}
+
 /// Type32 mobile `flag=0` 长体的**消耗品生命周期**事件（WotbTools PROVEN 移植）。
 ///
 /// 数据链（docs/research/replay/consumable-lifecycle.md，Blitz 11.19 国服 34 场）：
@@ -812,22 +1071,68 @@ pub fn collect_hit_notices(packets: &[(u32, f32, &[u8])]) -> Vec<HitNotice> {
 /// state 语义（该族已闭合）：1 注册/可用、2 激活（param = 有效持续时长，瞬发为 0）、
 /// 3 持续结束/冷却转换（param = 有效冷却配置）、255 实体/控制拆除。
 ///
-/// 语义红线：**wireCode 未闭合者原样保留、不猜产品身份**（文档明确；已知
-/// 0x08 自动灭火器、0xBD 次级强化引擎仅在消费方映射表中使用）。
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+/// **状态/剩余时间**：`state_name` 是语义状态；state 2/3 的 `duration_s` = param、
+/// `ends_at` = clock + param（激活结束 / 冷却结束）。消费方在播放时刻 t 的剩余时间 =
+/// `max(0, ends_at - t)`；state 1/255 无倒计时。`ever_activated` 区分「从未使用」与
+/// 「用过后已就绪」——两者 raw state 都是 1。`slot` 是 loadout 消耗品槽位（0..2，未知
+/// 线码/模式能力为 None）。**state 2/3 的实际结束仍以服务器后续 state3/state1 为准**
+/// （`ends_at` 是派生值，容差约一个包钟；实测 state1 可提前到达，例如复活重置）。
+///
+/// **已知给养线码不是消耗品**：Type32 flag=0 流同时携带给养的注册/拆除（state1/255，
+/// param=-1）；本函数按 `provision_logical_id` 过滤，避免把静态给养混进消耗品状态轨。
+///
+/// 语义红线：**wireCode 未闭合者原样保留、不猜产品身份**；已证线码通过
+/// [`consumable_logical_id`] 给出稳定逻辑标识（与 Type5 消耗品槽共用同一张表）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsumableTransition {
     /// 包时钟（回放时钟，秒；时间轴以此为准）
     pub clock: f32,
     pub eid: u32,
     /// body[2] 原始线码（未闭合值不赋身份）
     pub wire_code: u8,
+    /// 已证逻辑标识；`None` = 线码未闭合（raw 保留，不猜名）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logical_item_id: Option<String>,
     /// body[3] 状态（1/2/3/255；其他值原样透传）
     pub state: u8,
+    /// state 的语义名（与 WotbTools canonical 名称一致）
+    pub state_name: ConsumableState,
+    /// state=2 有效持续时长 / state=3 有效冷却时长（秒）；state 1/255/未知 = None
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_s: Option<f32>,
+    /// clock + duration_s（激活结束 / 冷却结束）；state 1/255/未知 = None
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ends_at: Option<f32>,
+    /// 该 (eid, wire) 在此事件之前是否已经激活过：区分「未使用」与「冷却结束已就绪」
+    #[serde(default)]
+    pub ever_activated: bool,
+    /// loadout 消耗品槽位 0..2（未知线码/模式能力 = None；由 model 并表 loadout 后设置）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<u8>,
     /// body[4..12) 原始 f64（与包时钟**不同源**——注册态恒 0、有事件时可达 10s 偏差，
     /// 精确语义未闭合 → 原样保留、不作时间轴依据，时间轴一律用 `clock`）
     pub body_clock: f64,
     /// body[12..16)：state=2 为有效持续时长、state=3 为有效冷却（其余无定义）
     pub param: f32,
+}
+
+impl ConsumableTransition {
+    /// 播放时刻 t 的剩余秒数：state 2/3 为 `clamp(ends_at - t, 0, duration_s)`；
+    /// state 1/255/未知 = None。t 早于事件时按完整时长返回，t 晚于结束时返回 0。
+    pub fn remaining_s_at(&self, t: f32) -> Option<f32> {
+        let end = self.ends_at?;
+        let duration = self.duration_s?;
+        Some((end - t).clamp(0.0, duration))
+    }
+}
+
+/// 消耗品线码在开局 loadout 中的槽位（0..2）；给养/模式能力/未知线码 = None。
+pub fn consumable_slot_of(loadout: &VehicleLoadout, wire_code: u8) -> Option<u8> {
+    loadout
+        .consumables
+        .iter()
+        .position(|i| i.wire_code == wire_code)
+        .map(|i| i as u8)
 }
 
 pub fn collect_consumable_transitions(packets: &[(u32, f32, &[u8])]) -> Vec<ConsumableTransition> {
@@ -844,13 +1149,36 @@ pub fn collect_consumable_transitions(packets: &[(u32, f32, &[u8])]) -> Vec<Cons
             continue;
         } // 该族恒 16B 体
         let body = &p[9..];
+        let wire_code = body[2];
+        // 给养与消耗品共用 flag=0 流；已知给养线码（state1/255、param=-1）不是消耗品。
+        if provision_logical_id(wire_code).is_some() {
+            continue;
+        }
+        let state = body[3];
+        let param = f32::from_le_bytes(body[12..16].try_into().unwrap());
+        let (duration_s, ends_at) = if (state == 2 || state == 3)
+            && param.is_finite()
+            && param >= 0.0
+        {
+            (Some(param), Some(*clock + param))
+        } else {
+            (None, None)
+        };
         out.push(ConsumableTransition {
             clock: *clock,
             eid: u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
-            wire_code: body[2],
-            state: body[3],
+            wire_code,
+            logical_item_id: consumable_logical_id(wire_code)
+                .or_else(|| ability_logical_id(wire_code))
+                .map(str::to_string),
+            state,
+            state_name: ConsumableState::from_wire_state(state),
+            duration_s,
+            ends_at,
+            ever_activated: false,
+            slot: None,
             body_clock: f64::from_le_bytes(body[4..12].try_into().unwrap()),
-            param: f32::from_le_bytes(body[12..16].try_into().unwrap()),
+            param,
         });
     }
     out.sort_by(|a, b| {
@@ -858,6 +1186,16 @@ pub fn collect_consumable_transitions(packets: &[(u32, f32, &[u8])]) -> Vec<Cons
             .partial_cmp(&b.clock)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    // 第二遍：按 (eid, wire) 的时序标记「此前是否激活过」。state2 本身算已激活，
+    // 其后 state3/state1/255 为 true；开局 state1 为 false（未使用）。
+    let mut used: HashMap<(u32, u8), bool> = HashMap::new();
+    for c in &mut out {
+        let key = (c.eid, c.wire_code);
+        if c.state == 2 {
+            used.insert(key, true);
+        }
+        c.ever_activated = used.get(&key).copied().unwrap_or(false);
+    }
     out
 }
 
@@ -1497,18 +1835,89 @@ mod consumable_tests {
 
     #[test]
     fn parses_flag0_consumable_family() {
+        let f0 = mk32(0x21, 0x08, 1, 1.0, 0.0); // 开局注册/可用
         let f1 = mk32(0x21, 0x08, 2, 42.5, 6.0); // 激活（持续 6s）
         let f2 = mk32(0x21, 0x08, 3, 48.5, 90.0); // 冷却
-        let packets: Vec<(u32, f32, &[u8])> = vec![(32, 48.5, &f2), (32, 42.5, &f1)];
+        let packets: Vec<(u32, f32, &[u8])> =
+            vec![(32, 48.5, &f2), (32, 1.0, &f0), (32, 42.5, &f1)];
         let t = collect_consumable_transitions(&packets);
-        assert_eq!(t.len(), 2);
+        assert_eq!(t.len(), 3);
         assert_eq!(
             (t[0].clock, t[0].eid, t[0].wire_code, t[0].state),
-            (42.5, 0x21, 0x08, 2)
+            (1.0, 0x21, 0x08, 1)
         );
-        assert!((t[0].body_clock - 42.5).abs() < 1e-9);
-        assert!((t[0].param - 6.0).abs() < 1e-6);
-        assert_eq!((t[1].clock, t[1].state), (48.5, 3), "按包时钟升序");
+        assert_eq!(t[0].state_name, ConsumableState::Initialized);
+        assert_eq!((t[0].duration_s, t[0].ends_at), (None, None));
+        assert!(!t[0].ever_activated, "开局 state1 = 未使用");
+        assert_eq!(
+            t[0].logical_item_id.as_deref(),
+            Some("AUTOMATIC_FIRE_EXTINGUISHER")
+        );
+        assert_eq!(
+            (t[1].clock, t[1].state, t[1].state_name),
+            (42.5, 2, ConsumableState::Activated)
+        );
+        assert!((t[1].body_clock - 42.5).abs() < 1e-9);
+        assert!((t[1].param - 6.0).abs() < 1e-6);
+        assert_eq!(t[1].duration_s, Some(6.0));
+        assert_eq!(t[1].ends_at, Some(48.5));
+        assert!(t[1].ever_activated);
+        assert_eq!(
+            t[1].remaining_s_at(45.0),
+            Some(3.5),
+            "激活剩余 = ends_at - t"
+        );
+        assert_eq!(t[1].remaining_s_at(40.0), Some(6.0), "t 早于事件按完整时长");
+        assert_eq!(t[1].remaining_s_at(100.0), Some(0.0), "t 晚于结束返回 0");
+        assert_eq!(
+            (t[2].clock, t[2].state, t[2].state_name),
+            (48.5, 3, ConsumableState::ActiveEndedOrCooldown)
+        );
+        assert_eq!(t[2].duration_s, Some(90.0));
+        assert_eq!(t[2].ends_at, Some(138.5));
+        assert_eq!(t[2].remaining_s_at(100.0), Some(38.5));
+        assert!(t[2].ever_activated);
+    }
+
+    #[test]
+    fn filters_known_provision_wire_codes_from_consumable_lifecycle() {
+        // Type32 flag=0 流同时携带给养注册（state1/param=-1）；给养不是消耗品，必须剔除
+        let prov = mk32(0x21, 0x1D, 1, 1.0, -1.0);
+        let cons = mk32(0x21, 0x09, 1, 1.0, 0.0);
+        let packets: Vec<(u32, f32, &[u8])> = vec![(32, 1.0, &prov), (32, 1.0, &cons)];
+        let t = collect_consumable_transitions(&packets);
+        assert_eq!(t.len(), 1);
+        assert_eq!(t[0].wire_code, 0x09);
+        assert_eq!(t[0].state_name, ConsumableState::Initialized);
+    }
+
+    #[test]
+    fn instant_activation_has_zero_active_duration() {
+        // 瞬发消耗品：state2/state3 同钟，param=0 的激活段长度为 0，冷却从同钟开始
+        let f1 = mk32(0x21, 0x0D, 2, 10.0, 0.0);
+        let f2 = mk32(0x21, 0x0D, 3, 10.0, 60.0);
+        let f3 = mk32(0x21, 0x0D, 1, 70.0, 0.0);
+        let packets: Vec<(u32, f32, &[u8])> = vec![(32, 10.0, &f1), (32, 10.0, &f2), (32, 70.0, &f3)];
+        let t = collect_consumable_transitions(&packets);
+        assert_eq!(t.len(), 3);
+        assert_eq!((t[0].duration_s, t[0].ends_at), (Some(0.0), Some(10.0)));
+        assert_eq!(t[0].remaining_s_at(10.0), Some(0.0));
+        assert_eq!((t[1].duration_s, t[1].ends_at), (Some(60.0), Some(70.0)));
+        assert_eq!(t[1].remaining_s_at(25.0), Some(45.0));
+        assert_eq!((t[2].state_name, t[2].ends_at), (ConsumableState::Initialized, None));
+        assert!(t.iter().all(|c| c.ever_activated), "state2 起均为已使用");
+    }
+
+    #[test]
+    fn teardown_and_unknown_state_have_no_countdown() {
+        let f1 = mk32(0x21, 0x0B, 255, 10.0, 0.0);
+        let f2 = mk32(0x21, 0x0B, 9, 11.0, 5.0);
+        let packets: Vec<(u32, f32, &[u8])> = vec![(32, 10.0, &f1), (32, 11.0, &f2)];
+        let t = collect_consumable_transitions(&packets);
+        assert_eq!(t[0].state_name, ConsumableState::Teardown);
+        assert_eq!((t[0].duration_s, t[0].ends_at, t[0].remaining_s_at(12.0)), (None, None, None));
+        assert_eq!(t[1].state_name, ConsumableState::Unknown);
+        assert_eq!((t[1].duration_s, t[1].ends_at), (None, None));
     }
 
     #[test]
@@ -1546,9 +1955,46 @@ mod loadout_tests {
         p
     }
 
+    /// 合成一条 14B item 描述符：`[wire, state, 12B payload]`；`provision=true` 时
+    /// 载荷尾写静态标记 `f32 -1.0`（`00 00 80 BF`）。
+    fn descriptor(wire: u8, provision: bool) -> [u8; 14] {
+        let mut it = [0u8; 14];
+        it[0] = wire;
+        it[1] = 1;
+        if provision {
+            it[10..14].copy_from_slice(&[0x00, 0x00, 0x80, 0xBF]);
+        }
+        it
+    }
+
+    /// 合成带指定描述符块的 Type5 loadout 载荷。
+    fn mk_type5_items(items: &[[u8; 14]], eq: &[u8]) -> Vec<u8> {
+        let mut p = vec![0u8; 60];
+        p[0..4].copy_from_slice(&0x31u32.to_le_bytes());
+        p[51..53].copy_from_slice(&1000u16.to_le_bytes());
+        p.extend_from_slice(&[0x0A, items.len() as u8]);
+        for it in items {
+            p.extend_from_slice(it);
+        }
+        p.extend_from_slice(&[0x0B, eq.len() as u8]);
+        p.extend_from_slice(eq);
+        p.extend_from_slice(&[0x0C, 0x00, 0x0D, 0x00, 0x00, 0x00]);
+        p
+    }
+
     /// 合成满配（9 件）Type5 loadout 块。
     fn mk_type5_loadout() -> Vec<u8> {
-        mk_type5_loadout_with(6, &[100, 101, 102, 103, 104, 105, 106, 107, 108])
+        mk_type5_items(
+            &[
+                descriptor(0x0B, false),
+                descriptor(0x0D, false),
+                descriptor(0x09, false),
+                descriptor(0x0E, true),
+                descriptor(0x1D, true),
+                descriptor(0x15, true),
+            ],
+            &[100, 101, 102, 103, 104, 105, 106, 107, 108],
+        )
     }
 
     /// 只有装备串与帧尾、没有 `0A <k>` item 描述符块的 Type5 载荷。
@@ -1570,8 +2016,31 @@ mod loadout_tests {
         let v = l.get(&0x31).expect("实体 loadout 应被采集");
         assert_eq!(v.items.len(), 6, "标准 3 消耗品 + 3 给养 = 6 条描述符");
         assert_eq!(v.equipment, [100, 101, 102, 103, 104, 105, 106, 107, 108]);
-        assert_eq!(v.items[0][0], 0x80, "描述符原样保留（不解析内部）");
-        assert_eq!(v.items[5][0], 0x85);
+        assert_eq!(v.equipment_count, 9);
+        assert_eq!(v.equipment_ids, vec![100, 101, 102, 103, 104, 105, 106, 107, 108]);
+        assert_eq!(v.items[0][0], 0x0B, "描述符原样保留（不解析内部）");
+        assert_eq!(v.items[5][0], 0x15);
+        assert_eq!(v.consumables.len(), 3);
+        assert_eq!(v.provisions.len(), 3);
+        assert!(v.abilities.is_empty());
+        assert_eq!(
+            v.consumables
+                .iter()
+                .map(|i| i.logical_id.as_deref())
+                .collect::<Vec<_>>(),
+            vec![
+                Some("MULTI_PURPOSE_RESTORATION_PACK"),
+                Some("REPAIR_KIT"),
+                Some("ADRENALINE")
+            ]
+        );
+        assert_eq!(
+            v.provisions
+                .iter()
+                .map(|i| i.logical_id.as_deref())
+                .collect::<Vec<_>>(),
+            vec![Some("LARGE_FOOD"), Some("IMPROVED_FUEL"), Some("SMALL_FOOD")]
+        );
         // 兼容入口取同一 9B 串
         assert_eq!(
             collect_vehicle_equipment(&packets)
@@ -1649,6 +2118,11 @@ mod loadout_tests {
         assert!(eq.calibrated_shells, "103 = 校准弹应判为已装备");
         assert!(!eq.enhanced_armor);
         assert_eq!(eq.raw.len(), 9);
+        assert_eq!(eq.equipment_count, 2);
+        assert_eq!(eq.equipment_ids, vec![103, 108]);
+        let l = collect_vehicle_loadout(&packets);
+        assert_eq!(l.get(&0x31).unwrap().equipment_count, 2);
+        assert_eq!(l.get(&0x31).unwrap().equipment_ids, vec![103, 108]);
 
         // 5 件、不含 103/110 → 两个标志均 false（短串不是"全 true"的兜底）
         let payload = mk_type5_loadout_with(6, &[100, 109, 114, 104, 111]);
@@ -1673,6 +2147,188 @@ mod loadout_tests {
             collect_vehicle_equipment(&packets).is_empty(),
             "帧尾缺失 → 拒收"
         );
+    }
+
+    /// GravityMode 的 7 条真实形态：3 消耗品 + 1 条模式能力（0x67，无给养静态尾）+
+    /// 3 条给养。能力必须与给养分流，不能当成第 4 个给养（否则给养数 >3）。
+    ///
+    /// 真实样本（J39 eid=0x00166626，11.20.0）：`0A 07` + `0D/0B/09/67/0F/16/1D`
+    /// 各 14B + `0B 09 67 6D 72 68 6F 75 69 71 65` + `0C 00 0D`。
+    #[test]
+    fn separates_mode_ability_from_provisions() {
+        let items = [
+            descriptor(0x0B, false),
+            descriptor(0x0D, false),
+            descriptor(0x09, false),
+            descriptor(0x67, false), // GravityMode 额外能力
+            descriptor(0x0E, true),
+            descriptor(0x1D, true),
+            descriptor(0x15, true),
+        ];
+        let eq = [103, 109, 114, 104, 111, 117, 105, 113, 101];
+        let payload = mk_type5_items(&items, &eq);
+        let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &payload)];
+        let v = collect_vehicle_loadout(&packets)
+            .get(&0x31)
+            .cloned()
+            .expect("7 条描述符的 loadout 应被采集");
+        assert_eq!(v.items.len(), 7);
+        assert_eq!(v.consumables.len(), 3);
+        assert_eq!(v.abilities.len(), 1);
+        assert_eq!(v.abilities[0].wire_code, 0x67);
+        assert_eq!(v.abilities[0].kind, LoadoutItemKind::Ability);
+        assert_eq!(
+            v.abilities[0].logical_id.as_deref(),
+            Some("GRAVITY_JUMP"),
+            "0x67 = gravityJump/Thruster（坦克百科 lunar 能力）"
+        );
+        assert_eq!(v.provisions.len(), 3);
+        assert_eq!(
+            v.provisions
+                .iter()
+                .map(|i| i.logical_id.as_deref())
+                .collect::<Vec<_>>(),
+            vec![Some("LARGE_FOOD"), Some("IMPROVED_FUEL"), Some("SMALL_FOOD")]
+        );
+        assert!(v.consumables.iter().all(|i| i.kind == LoadoutItemKind::Consumable));
+    }
+
+    /// 11.20/11.21 补给块扩展：同一连续大/小补给块 + 其他系 + 防破片内衬 + 欧系/瑞典/
+    /// 捷克/波兰食物块（按坦克百科 `provisions.pb` id 103..110 与线码 0x46..0x4D 的
+    /// 逐项偏移 33 映射，每国 HQ(大)→regular(小)）。
+    #[test]
+    fn maps_1121_food_block_and_spall_liner() {
+        for (wire, logical) in [
+            (0x13, "LARGE_FOOD"),
+            (0x14, "LARGE_FOOD"),
+            (0x15, "SMALL_FOOD"),
+            (0x1A, "SMALL_FOOD"),
+            (0x1B, "SMALL_FOOD"),
+            (0x2D, "LARGE_FOOD"),
+            (0x2E, "SMALL_FOOD"),
+            (0x32, "SPALL_LINER"),
+        ] {
+            assert_eq!(provision_logical_id(wire), Some(logical), "wire {wire:#04x}");
+        }
+        // 欧系/瑞典/捷克/波兰食物块（0x46..0x4D = provisions.pb id 103..110 - 33）
+        for (wire, logical) in [
+            (0x46, "LARGE_FOOD"),  // 103 Cheesehead
+            (0x47, "SMALL_FOOD"),  // 104 Cinnamon Roll
+            (0x48, "LARGE_FOOD"),  // 105 Grilled Salmon
+            (0x49, "SMALL_FOOD"),  // 106 Crispbread
+            (0x4A, "LARGE_FOOD"),  // 107 Goulash（Vz. 55 样本）
+            (0x4B, "SMALL_FOOD"),  // 108 Fried Cheese
+            (0x4C, "LARGE_FOOD"),  // 109 Zurek
+            (0x4D, "SMALL_FOOD"),  // 110 Faworki
+        ] {
+            assert_eq!(provision_logical_id(wire), Some(logical), "wire {wire:#04x}");
+        }
+        // 已知 WotbTools 11.19 映射不得漂移（0x48/0x49 按目录 id 顺序纠正）
+        for (wire, logical) in [
+            (0x0E, "LARGE_FOOD"),
+            (0x16, "SMALL_FOOD"),
+            (0x1C, "STANDARD_FUEL"),
+            (0x1D, "IMPROVED_FUEL"),
+            (0x1E, "PROTECTIVE_KIT"),
+            (0x44, "SANDBAG_ARMOR"),
+            (0x45, "ENHANCED_SANDBAG_ARMOR"),
+            (0x6A, "GEAR_OIL"),
+            (0x6B, "IMPROVED_GEAR_OIL"),
+            (0x6C, "IMPROVED_GUNPOWDER"),
+        ] {
+            assert_eq!(provision_logical_id(wire), Some(logical), "wire {wire:#04x}");
+        }
+        assert_eq!(consumable_logical_id(0x0B), Some("MULTI_PURPOSE_RESTORATION_PACK"));
+        assert_eq!(
+            consumable_logical_id(0xA9),
+            Some("DYNAMIC_ARMOUR_SYSTEM"),
+            "0xA9 = armorMover（目录 id 73；Titan Strife）"
+        );
+        assert_eq!(consumable_logical_id(0xBD), Some("REDUCED_ENGINE_POWER_BOOST"));
+        assert_eq!(ability_logical_id(0x67), Some("GRAVITY_JUMP"));
+        assert_eq!(ability_logical_id(0xFE), None, "未知能力不猜名");
+        assert_eq!(provision_logical_id(0xFE), None, "未知线码不猜名");
+        assert_eq!(consumable_logical_id(0xFE), None, "未知线码不猜名");
+    }
+
+    /// 未闭合给养线码：保留 raw wire/state/payload，logical_id = None。
+    #[test]
+    fn unknown_provision_wire_keeps_raw() {
+        let items = [
+            descriptor(0x0B, false),
+            descriptor(0x0D, false),
+            descriptor(0x09, false),
+            descriptor(0x9F, true), // 未闭合给养线码
+        ];
+        let payload = mk_type5_items(&items, &[100, 109, 114, 104]);
+        let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &payload)];
+        let v = collect_vehicle_loadout(&packets).get(&0x31).cloned().unwrap();
+        assert_eq!(v.provisions.len(), 1);
+        let p = &v.provisions[0];
+        assert_eq!((p.wire_code, p.state, p.logical_id.as_deref()), (0x9F, 1, None));
+        assert_eq!(p.payload_raw[8..12], [0x00, 0x00, 0x80, 0xBF]);
+        assert_eq!(p.kind, LoadoutItemKind::Provision);
+    }
+
+    /// 3 条描述符的真实玩家（Takuchan 形态）：全部为消耗品，无给养/能力；
+    /// 装备串 5 件仍按线序给出，不得因给养缺失丢装备。
+    #[test]
+    fn three_consumables_without_provisions_still_decode() {
+        let items = [
+            descriptor(0x0B, false),
+            descriptor(0x0D, false),
+            descriptor(0x09, false),
+        ];
+        let eq = [103, 109, 122, 107, 110];
+        let payload = mk_type5_items(&items, &eq);
+        let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &payload)];
+        let v = collect_vehicle_loadout(&packets).get(&0x31).cloned().unwrap();
+        assert_eq!(v.consumables.len(), 3);
+        assert!(v.provisions.is_empty());
+        assert!(v.abilities.is_empty());
+        assert_eq!(v.equipment_count, 5);
+        assert_eq!(v.equipment_ids, eq.to_vec());
+        assert_eq!(v.equipment, [103, 109, 122, 107, 110, 0, 0, 0, 0]);
+    }
+
+    /// 首条 Type5 只有配件串（无 `0A` 块），后续物化包带 item 描述符：
+    /// 以带 items 的版本替换，配件/物品都不丢（首条 equipment-only 不是终态）。
+    #[test]
+    fn later_full_block_replaces_equipment_only_first_packet() {
+        let eq = [103, 109, 114, 104, 111, 117, 105, 113, 101];
+        let first = mk_type5_equipment_only(&eq);
+        let second = mk_type5_items(
+            &[
+                descriptor(0x0B, false),
+                descriptor(0x0D, false),
+                descriptor(0x09, false),
+                descriptor(0x0E, true),
+                descriptor(0x1D, true),
+                descriptor(0x15, true),
+            ],
+            &eq,
+        );
+        let packets: Vec<(u32, f32, &[u8])> =
+            vec![(5, 1.0, first.as_slice()), (5, 2.0, second.as_slice())];
+        let v = collect_vehicle_loadout(&packets).get(&0x31).cloned().unwrap();
+        assert_eq!(v.items.len(), 6);
+        assert_eq!(v.consumables.len(), 3);
+        assert_eq!(v.provisions.len(), 3);
+        assert_eq!(v.equipment_ids, eq.to_vec());
+    }
+
+    /// 消耗品线码 → 槽位：按 loadout 的 3 个消耗品槽顺序（0..2）；给养/能力/未知 = None。
+    #[test]
+    fn maps_consumable_wire_code_to_loadout_slot() {
+        let payload = mk_type5_loadout();
+        let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &payload)];
+        let v = collect_vehicle_loadout(&packets).get(&0x31).cloned().unwrap();
+        assert_eq!(consumable_slot_of(&v, 0x0B), Some(0));
+        assert_eq!(consumable_slot_of(&v, 0x0D), Some(1));
+        assert_eq!(consumable_slot_of(&v, 0x09), Some(2));
+        assert_eq!(consumable_slot_of(&v, 0x0E), None, "给养不占消耗品槽");
+        assert_eq!(consumable_slot_of(&v, 0x67), None, "模式能力不占消耗品槽");
+        assert_eq!(consumable_slot_of(&v, 0xFE), None, "未知线码不猜槽位");
     }
 }
 

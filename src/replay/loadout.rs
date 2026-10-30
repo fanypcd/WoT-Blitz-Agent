@@ -17,6 +17,7 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 use wotbreplay_parser::models::battle_results::BattleResults;
+use wotb_replay_core::replay::combat::VehicleLoadout;
 
 use super::combat::ShotReplayData;
 use crate::wargaming::blitzkit::load_tanks;
@@ -162,6 +163,10 @@ pub struct PlayerLoadout {
     /// 耐久加成装备标签（+12.5% = 改进耐久；无加成为空串）
     pub durability_equipment: String,
     pub shells: Vec<ShellEntry>,
+    /// 开局实际搭载（Type5 `0A` 描述符块 + `0B` 配件串）：3 消耗品 + 0..3 给养 +
+    /// 模式额外能力 + 实装件/9 槽配件 ID；`None` = 无 loadout framing（观察者/旧格式）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loadout: Option<VehicleLoadout>,
 }
 
 /// type=5 实体的开局 HP 来源分槽（见 `collect_player_loadouts`）：
@@ -222,6 +227,7 @@ pub fn collect_player_loadouts(
         .collect();
 
     let tanks = load_tanks();
+    let vehicle_loadouts = wotb_replay_core::replay::combat::collect_vehicle_loadout(packets);
     let mut out: Vec<PlayerLoadout> = Vec::new();
     for (eid, (nickname, hp_initial)) in entities {
         let Some(&(team, account_id)) = nick_team.get(nickname.as_str()) else {
@@ -284,6 +290,7 @@ pub fn collect_player_loadouts(
             hp_bonus_pct,
             durability_equipment,
             shells,
+            loadout: vehicle_loadouts.get(&eid).cloned(),
         });
     }
     out.sort_by(|a, b| a.team.cmp(&b.team).then(a.nickname.cmp(&b.nickname)));

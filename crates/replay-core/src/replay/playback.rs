@@ -44,7 +44,7 @@ use serde::Serialize;
 use super::combat::{
     self, AoiPresence, AssaultBaseStateTransition, ConsumableTransition, GunPitchLimits,
     ModuleCrewStateEvent, RawReloadDuration, RawReloadPhase, ShotReplayData,
-    SupremacyBaseStateTransition, SupremacyPointsSample,
+    SupremacyBaseStateTransition, SupremacyPointsSample, VehicleLoadout,
 };
 use super::filter;
 
@@ -162,13 +162,16 @@ pub struct VehicleTrack {
     /// 比对弹表；曾用作配置推断证据，2026-10 起配置解析只认 comp blob 精确对号）
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shell_ids: Vec<u32>,
-    /// 开局 loadout raw item 描述符（6×14B；item[0..2]=3 消耗品、item[3..5]=3 给养，
-    /// 内部字段未解码故原样透传）
+    /// 开局 loadout raw item 描述符（Type5 `0A <k>`；恒保留供回滚/未解码字段诊断）
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub loadout_items: Vec<[u8; 14]>,
     /// 9 字节装备选择串（每字节 = 装备数值 ID 的 ASCII 码点；缺省不输出）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub equipment: Option<[u8; 9]>,
+    /// 开局 loadout 解码视图：3 消耗品 / 0..3 给养 / 模式额外能力 / 配件 ID。
+    /// additive（旧消费方忽略；给养与模式能力已按 `f32 -1.0` 静态尾分流）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loadout: Option<VehicleLoadout>,
     /// 实际搭载的炮塔配置（build_configs dense 索引；None = 证据不足，前端用顶级配置）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turret_index: Option<u32>,
@@ -1226,8 +1229,12 @@ pub fn from_model(
                 .map(|ts| ts.iter().map(|t| r2(*t)).collect())
                 .unwrap_or_default(),
             shell_ids,
-            loadout_items: rec.map(|r| r.loadout_items.clone()).unwrap_or_default(),
+            loadout_items: rec
+                .and_then(|r| r.loadout.as_ref())
+                .map(|l| l.items.clone())
+                .unwrap_or_default(),
             equipment: rec.and_then(|r| r.equipment),
+            loadout: rec.and_then(|r| r.loadout.clone()),
             turret_index: None,
             gun_index: None,
             config_idx: None,
@@ -1322,7 +1329,7 @@ pub fn from_model(
             .iter()
             .map(|c| ConsumableTransition {
                 clock: r2(c.clock),
-                ..*c
+                ..c.clone()
             })
             .collect(),
         reload_effective: model
@@ -1737,6 +1744,7 @@ mod tests {
             shell_ids: Vec::new(),
             loadout_items: Vec::new(),
             equipment: None,
+            loadout: None,
             turret_index: None,
             gun_index: None,
             config_idx: None,

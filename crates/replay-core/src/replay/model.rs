@@ -15,6 +15,7 @@ use super::combat::{
     CombatEventType, CombatTimeline, ConsumableTransition, FeedbackCounterEvent, GunPitchLimits,
     HpEvent, KillFeedEvent, ModuleCrewStateEvent, RawReloadDuration, RawReloadPhase,
     ShotReplayData, St10Sample, SupremacyBaseStateTransition, SupremacyPointsSample,
+    VehicleLoadout,
 };
 use super::playback::{self, KillEvent, PlaybackPlayer};
 
@@ -32,9 +33,9 @@ pub struct EntityRecord {
     pub max_hp: Option<u16>,
     /// 9 字节配件选择串（type=5 尾部 loadout 块，字节域 100..=123 校验通过）
     pub equipment: Option<[u8; 9]>,
-    /// 开局 loadout 的 raw item 描述符（6×14B：item[0..2]=3 消耗品、item[3..5]=3 给养；
-    /// 内部字段未解码 → 原样保留，不赋语义）
-    pub loadout_items: Vec<[u8; 14]>,
+    /// 开局 loadout（Type5 `0A` 描述符块 + `0B` 配件串）：3 消耗品 / 0..3 给养 /
+    /// 模式额外能力 / 9 槽配件 ID。原始 14B 描述符保留在 `loadout.items`。
+    pub loadout: Option<VehicleLoadout>,
     /// ARENA_INFO 15B 组成 blob：实际搭载炮塔局部 id（按昵称联表，缺失 = None）
     pub turret_local: Option<u16>,
     /// 组成 blob 主炮局部 id（语义同上）
@@ -227,7 +228,7 @@ impl ReplayModel {
         let assault_objective_present = combat::has_assault_objective(&assault_updates);
         let assault_bases = combat::reconstruct_assault_base_states(assault_updates);
         // 消耗品生命周期（Type32 flag=0；与 flag=1 炮弹警告同包不同族）
-        let consumables = combat::collect_consumable_transitions(packets);
+        let mut consumables = combat::collect_consumable_transitions(packets);
         let module_crew_states = combat::collect_module_crew_states(packets);
         // 区域可破坏物：先收格子锚点（type=5 class=3），再收其上的短广播事件
         let destructible_areas = crate::replay::destructibles::collect_destructible_areas(packets);
@@ -239,6 +240,13 @@ impl ReplayModel {
         let initial_hp = &shared.initial_hp;
         let equipment = &shared.vehicle_equipment;
         let loadouts = combat::collect_vehicle_loadout(packets);
+        // 消耗品事件 → loadout 槽位（0..2）：同一 eid 的消耗品线码在开局 loadout 中唯一；
+        // 未知线码/模式能力不占 3 个消耗品槽（slot=None），留给消费方按 ability 单列。
+        for c in &mut consumables {
+            c.slot = loadouts
+                .get(&c.eid)
+                .and_then(|l| combat::consumable_slot_of(l, c.wire_code));
+        }
 
         // —— 血量链去重序列 + 死亡列表 + 复活轨道 ——
         // 死亡的两路证据：prop1 死亡广播（时刻权威；溺死等血量不归零的死亡只有这一路）
@@ -494,10 +502,7 @@ impl ReplayModel {
                 tank_id: joined.map(|p| p.tank_id),
                 max_hp: initial_hp.get(&eid).map(|(_, h)| *h),
                 equipment: equipment.get(&eid).copied(),
-                loadout_items: loadouts
-                    .get(&eid)
-                    .map(|l| l.items.clone())
-                    .unwrap_or_default(),
+                loadout: loadouts.get(&eid).cloned(),
                 turret_local: comp.map(|c| c.turret_local),
                 gun_local: comp.map(|c| c.gun_local),
                 is_author,

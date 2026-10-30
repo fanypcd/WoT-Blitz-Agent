@@ -198,3 +198,49 @@ AoI 收集器已实证"同 eid 重入"）。切面以 additive 字段表达多�
   装填条继续外播）——分歧实例、证据与消费方义务见
   [wotbtools-cross-reference.md §七](wotbtools-cross-reference.md)（含迁移清单 §七.1）。
 - `PlaybackData` v2 / `AiReviewFacet` v1 形状不变（additive 字段；旧产物字段缺省即旧口径）。
+
+## 10. 开局战斗装载（additive，2026-10-30）
+
+`VehicleTrack` 新增 `loadout: Option<VehicleLoadout>`（缺省 = 无 Type5 loadout framing）。
+`VehicleLoadout` 是 Type5 `0A` item 描述符块 + `0B` 配件串的**同一次解析产物**：
+
+- `equipment`：9 槽配件 ID（变长串按原序填入、空槽补 0；`0` 非法件）；
+- `equipment_count` / `equipment_ids`：实装件数与线序实装 ID（不含补 0）；
+- `items`：原始 14B 描述符（恒保留，供未解码 payload/回滚诊断）；
+- `consumables`：前 3 条描述符（位置契约）；
+- `provisions`：其余条目中 payload 尾 `f32 -1.0`（`00 00 80 BF`）者；
+- `abilities`：其余无静态尾标记的条目（模式额外能力，如 GravityMode `0x67`；**不是给养**）。
+
+每条 `LoadoutItem` 携带 `index/kind/wire_code/state/payload_raw/logical_id`；`logical_id`
+只在已证线码上出现（WotbTools 11.19 生产映射 + 本仓 11.20/11.21 补给块扩展 + 客户端坦克
+百科目录），未闭合线码 `None`（raw 保留）。`consumables[].logical_item_id`（Type32 生命周期）
+共用同一张消耗品表。
+
+**兼容面**：`loadout_items`（raw）与 `equipment`（9B）字段保持原形状/原值；新字段 additive，
+旧消费方忽略即可。**消费方注意**：WotbTools 现有 `toLoadout` 以 `loadout_items.length === 6`
+为门禁，7 条布局（3 消耗品 + 1 模式能力 + 3 给养）会被整条丢弃——应改读 `vehicles[].loadout`
+或按 `f32 -1.0` 静态尾分流。**已闭合**：模式能力 `0x67` = `gravityJump`/Thruster；消耗品
+`0xA9` = `DYNAMIC_ARMOUR_SYSTEM`/armorMover；欧系/瑞典/捷克/波兰食物块 `0x46..0x4D` 与
+`provisions.pb` id 103..110 逐项相差 33，按每国 HQ(大)→regular(小)（`0x4A` = Goulash/
+LARGE_FOOD；纠正 WotbTools 11.19 文档 `0x48`/`0x49` 的互换推断）。当前语料所有观测线码
+均已闭合；**未决**仅描述符 12B 内部计时/动态字段。
+
+## 11. 消耗品状态与剩余时间（additive，2026-10-30）
+
+`PlaybackData.consumables[]`（`ConsumableTransition`）新增：
+
+- `state_name`：`INITIALIZED`（可用/未使用）/ `ACTIVATED`（激活）/
+  `ACTIVE_ENDED_OR_COOLDOWN`（冷却）/ `TEARDOWN`（拆除）/ `UNKNOWN`；与 WotbTools
+  canonical 名称逐字一致。
+- `duration_s`：state 2 = 有效持续秒，state 3 = 有效冷却秒；其余 None。
+- `ends_at`：`clock + duration_s`（激活结束 / 冷却结束）；播放时刻 t 的剩余 =
+  `clamp(ends_at − t, 0, duration_s)`（Rust `ConsumableTransition::remaining_s_at(t)`）。
+- `ever_activated`：该 `(eid, wire)` 在此事件前是否激活过——区分「未使用」与「用过后
+  已就绪」（两者 raw state 均为 1）。
+- `slot`：loadout 消耗品槽位 0..2（模式能力/未知线码 None）。
+
+**门禁/边界**：state 2/3 的 `ends_at` 是派生值，服务器后续 `state3`/`state1` 覆盖它
+（实测 state3 可比 state2+param 早约一个包钟；复活/重置时 state1 可提前）。已知给养线码
+（state1/255、param=-1）从消耗品轨剔除；未知线码仍 raw 保留。旧字段 `state`/`param`/
+`logical_item_id` 不变，新字段 additive；WotbTools canonical DTO 需在 pin bump 时携带
+`endsAt`/`duration`/`everActivated`/`slot` 才能显示倒计时。
