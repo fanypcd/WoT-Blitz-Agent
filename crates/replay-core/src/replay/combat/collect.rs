@@ -1078,8 +1078,9 @@ impl ConsumableState {
 /// 线码/模式能力为 None）。**state 2/3 的实际结束仍以服务器后续 state3/state1 为准**
 /// （`ends_at` 是派生值，容差约一个包钟；实测 state1 可提前到达，例如复活重置）。
 ///
-/// **已知给养线码不是消耗品**：Type32 flag=0 流同时携带给养的注册/拆除（state1/255，
-/// param=-1）；本函数按 `provision_logical_id` 过滤，避免把静态给养混进消耗品状态轨。
+/// **Type32 flag=0 流同时携带给养注册/拆除**（state1/255，param=-1）：本函数原样透传，
+/// 不给给养线码伪造 consumable slot；消费方按 `slot`/`logical_item_id` 过滤（HUD 只显示
+/// loadout 槽位 0..2 且 duration>0 的条目）。
 ///
 /// 语义红线：**wireCode 未闭合者原样保留、不猜产品身份**；已证线码通过
 /// [`consumable_logical_id`] 给出稳定逻辑标识（与 Type5 消耗品槽共用同一张表）。
@@ -1150,10 +1151,6 @@ pub fn collect_consumable_transitions(packets: &[(u32, f32, &[u8])]) -> Vec<Cons
         } // 该族恒 16B 体
         let body = &p[9..];
         let wire_code = body[2];
-        // 给养与消耗品共用 flag=0 流；已知给养线码（state1/255、param=-1）不是消耗品。
-        if provision_logical_id(wire_code).is_some() {
-            continue;
-        }
         let state = body[3];
         let param = f32::from_le_bytes(body[12..16].try_into().unwrap());
         let (duration_s, ends_at) = if (state == 2 || state == 3)
@@ -1880,15 +1877,21 @@ mod consumable_tests {
     }
 
     #[test]
-    fn filters_known_provision_wire_codes_from_consumable_lifecycle() {
-        // Type32 flag=0 流同时携带给养注册（state1/param=-1）；给养不是消耗品，必须剔除
+    fn keeps_provision_registration_without_consumable_slot_identity() {
+        // Type32 flag=0 流同时携带给养注册（state1/param=-1）；原样透传，但 logical/slot
+        // 都不伪造——WotbTools 运行时按 slot 过滤，HUD 不会把给养当消耗品。
         let prov = mk32(0x21, 0x1D, 1, 1.0, -1.0);
         let cons = mk32(0x21, 0x09, 1, 1.0, 0.0);
         let packets: Vec<(u32, f32, &[u8])> = vec![(32, 1.0, &prov), (32, 1.0, &cons)];
         let t = collect_consumable_transitions(&packets);
-        assert_eq!(t.len(), 1);
-        assert_eq!(t[0].wire_code, 0x09);
-        assert_eq!(t[0].state_name, ConsumableState::Initialized);
+        assert_eq!(t.len(), 2);
+        let p = t.iter().find(|c| c.wire_code == 0x1D).unwrap();
+        assert_eq!(p.state_name, ConsumableState::Initialized);
+        assert_eq!(p.logical_item_id, None);
+        assert_eq!(p.slot, None);
+        assert_eq!((p.duration_s, p.ends_at), (None, None));
+        let c = t.iter().find(|c| c.wire_code == 0x09).unwrap();
+        assert_eq!(c.logical_item_id.as_deref(), Some("ADRENALINE"));
     }
 
     #[test]

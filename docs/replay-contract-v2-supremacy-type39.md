@@ -241,6 +241,6 @@ LARGE_FOOD；纠正 WotbTools 11.19 文档 `0x48`/`0x49` 的互换推断）。�
 
 **门禁/边界**：state 2/3 的 `ends_at` 是派生值，服务器后续 `state3`/`state1` 覆盖它
 （实测 state3 可比 state2+param 早约一个包钟；复活/重置时 state1 可提前）。已知给养线码
-（state1/255、param=-1）从消耗品轨剔除；未知线码仍 raw 保留。旧字段 `state`/`param`/
+（state1/255、param=-1）原样透传，消费方按 `slot`/`logical_item_id` 过滤；未知线码仍 raw 保留。旧字段 `state`/`param`/
 `logical_item_id` 不变，新字段 additive；WotbTools canonical DTO 需在 pin bump 时携带
 `endsAt`/`duration`/`everActivated`/`slot` 才能显示倒计时。

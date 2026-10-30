@@ -39,7 +39,7 @@
 
 ### 版本与发行
 
-- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.17**）。
+- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.18**）。
   该值变更合并到 `main` 后，Release workflow 自动测试、构建、创建 `v<version>` tag
   并发布 `wotb-replay-wasm-v<version>.zip`；发布策略与 Android 同步规则见
   [AGENTS.md](../AGENTS.md)。
@@ -49,7 +49,8 @@
 
 | 版本 | 内容 |
 |---|---|
-| v0.4.17 | **战斗装载与消耗品状态闭合（additive）**：①Type5 loadout 解码 3 消耗品 + 0..3 给养 + 模式额外能力 + 9 槽配件；`0A` 描述符按 `payload f32 -1.0` 分流给养，GravityMode 7 条布局能力单列；`vehicles[].loadout`、`equipment_count/ids`、`ConsumableTransition.logical_item_id`。②全部观测 wireCode 闭合：`0x67`=`gravityJump`/Thruster、`0xA9`=`DYNAMIC_ARMOUR_SYSTEM`、欧系/瑞典/捷克/波兰食物块 `0x46..0x4D` 与 `provisions.pb` id 103..110 逐项相差 33（`0x4A`=Goulash/LARGE；纠正 WotbTools `0x48`/`0x49` 互换推断）。③消耗品状态：`state_name`、`duration_s`、`ends_at`（剩余 `clamp(ends_at−t,0,duration_s)`）、`ever_activated`、`slot`；Type32 给养注册从消耗品轨剔除。**消费方**：WotbTools pin bump 后改读 `loadout`/新字段，在 2D/3D HUD 血量条旁显示定时消耗品图标 + 剩余时间环；旧 6 条样本 `loadout_items`/`equipment` 逐字节不变。证据：26 个回放 0 UNKNOWN；J39 定时/瞬发/重力跳冷却闭合；165 core tests + full workspace/clippy。 |
+| v0.4.18 | **战斗装载与消耗品状态闭合（additive）**：①Type5 loadout 解码 3 消耗品 + 0..3 给养 + 模式额外能力 + 9 槽配件；`0A` 描述符按 `payload f32 -1.0` 分流给养，GravityMode 7 条布局能力单列；`vehicles[].loadout`、`equipment_count/ids`、`ConsumableTransition.logical_item_id`。②全部观测 wireCode 闭合：`0x67`=`gravityJump`/Thruster、`0xA9`=`DYNAMIC_ARMOUR_SYSTEM`、欧系/瑞典/捷克/波兰食物块 `0x46..0x4D` 与 `provisions.pb` id 103..110 逐项相差 33（`0x4A`=Goulash/LARGE；纠正 WotbTools `0x48`/`0x49` 互换推断）。③消耗品状态：`state_name`、`duration_s`、`ends_at`（剩余 `clamp(ends_at−t,0,duration_s)`）、`ever_activated`、`slot`；Type32 给养注册原样透传（v0.4.17 首版曾剔除，v0.4.18 恢复；消费方按 slot 过滤）。**消费方**：WotbTools pin bump 后改读 `loadout`/新字段，在 2D/3D HUD 血量条旁显示定时消耗品图标 + 剩余时间环；旧 6 条样本 `loadout_items`/`equipment` 逐字节不变。证据：26 个回放 0 UNKNOWN；J39 定时/瞬发/重力跳冷却闭合；全量 core/workspace 测试 + clippy。 |
+| v0.4.17 | 同批首版（战斗装载/消耗品状态）；Type32 给养注册被误剔除，由 v0.4.18 恢复透传。 |
 | v0.4.16 | **命中通知归属：时钟容差 → 弹着区间顺序（解析器行为修正）**：method8 / type=32 都没有 shotId（P2 探针 0/457、0/2729），改用**同射手 `[本发弹着, 下一发弹着)` 区间**归属（`notice_windows`，零时钟容差）——旧 `|t−end_time|≤0.05s` 窗小于 10Hz 包钟量子（≈81ms），一次 tick 抖动就把命中通知判成“未转发”（20261029 HE 样本 +0.0811s：`hit_token/segment/game_hit_result` 全丢 → 前端退回弹道弦，82.12°/73.0mm 判穿；服务器段 83.76°/92.0mm 不穿 → 287 溅射，判定结论相反）。哈希令牌降级为 method8↔type=32 的同事件连接；段包未转发/履带命中不发族包时由 method8 兜底，不再整发 fail。**additive**：`shots[].hits[]`（一发多 victim / 多次装甲交互全保留，主目标在首位；额外受击者须与主事件同服务器批次）与 `shot_replays_json.unattached_hits[]`（对应射击未录入的命中事件：射手/受击者/时刻/伤害/结果/cmpIndex/令牌 + segment/shell_id/armor_group/hit_triangle + 受击者位姿与炮塔角——射击复现所需最小集，射击方姿态非必要）。证据：14 场语料 573 发逐发对拍，27 发语义变化全部为增益（26 发他人射击由无目标→服务器真值，受击者距终点 ≤13m；1 发作者同 bug），8 条 unattached 显式输出，0 解析失败；5 条新单测。**消费方**：additive 缺省即旧行为；`hit_token/game_hit_result` 覆盖上升 → WotbTools pin bump 后重生成 AI 投影 golden。详见本页 §命中通知归属（2026-10-29）。 |
 | v0.4.15 | **录像者初始世界位姿轻量能力（additive）**：新增第 5 个独立 WASM 入口 `parseAuthorInitialPosition(bytes)` → `{author_eid, clock, position}` 或 `null`。只读 meta + battle_results 解析作者身份，随后定向扫描 type=10（`eid==author_eid`、`payload>=48B`、`parent==0`、位置/时钟 finite），取 replay clock 最小的世界观测；**不构建 ReplayModel / PlaybackData / AiReviewFacet**，不读地图语义、不物化时间线。身份解析与 `ReplayModel::scan` 共用 comp `account_id` 精确匹配 → Type5 昵称回退（SSOT）；type=10 解码复用共享 `decode_st10_sample`（不新增 decoder）。输出原样 replay 世界坐标（`x/z` 水平、`y` 高程），NORTH/SOUTH/出生侧分类留给消费方。证据：真实夹具 `2.wotbreplay` 锁定 author_eid/clock/坐标并与同场 Type5 战斗车辆物化位姿跨源核对 <0.05m；去掉 battle_results 的副本（meta 昵称回退）仍返回同一位姿；全部夹具 finite 且 <0.1m；WASM shape / `null` / Result 边界 smoke。**兼容面**：`parseResult` 不读包流、输出零变化；Playback 切面全部夹具逐字节不变；AI 切面仅同刻事件顺序（既有 HashMap 顺序非确定）无语义差异。契约见 [author-initial-position.md](author-initial-position.md)。 |
 | v0.4.14 | **血量链死亡证据与显示去重分离（v0.4.13 的复审缺陷）**：v0.4.13 把 `zero_hits`（method1 归零事件的凶手/死因登记）放在显示链相邻同值去重之后——终态快照（0/0xFFFD/0xFFFE/0xFFFF，隐藏段死亡后残骸重入）先到时，随后（或同钟）的 method1 归零被相邻去重吞掉，死亡归属退化 `0/255` 甚至消失（存在 prop1 时）。现改为**归零是否立死看上一条 method1 更新的值**（同值归零 = 同一次死亡的 overkill 重复，不重复立死），与夹在中间的快照无关；显示链行为与 v0.4.13 逐位一致，仅死亡归属修正。**消费方**：`death_t`/`killer_eid`/`cause` 对「隐藏段死亡 + 残骸重入」场景恢复 method1 归属；切面 v2 形状不变，AI 投影 golden 预期仅 provenance 变化。证据：WotbTools #767 复审 P2-2 反例 + 回归 `hp_series_zero_hit_survives_terminal_snapshot_adjacency`（双向 + overkill 重复归零仍单条；6 合成单测 + 13 样本探针 0 脱节 + clippy 零警告）。 |
@@ -169,8 +170,8 @@
   （实测 state3 可比 state2+param 早约一个包钟；复活/重置时 state1 可提前）。
 - **未使用 vs 已就绪**：两者 raw state 都是 1；`ever_activated` 标记该 (eid, wire) 此前是否
   激活过。`slot` = loadout 消耗品槽位 0..2（模式能力/未知线码 None）。
-- **给养剔除**：Type32 flag=0 流同时携带给养注册/拆除（state1/255、param=-1）；按
-  `provision_logical_id` 过滤后，消耗品状态轨只含消耗品/模式能力。
+- **给养注册透传**：Type32 flag=0 流同时携带给养注册/拆除（state1/255、param=-1）；
+  原样透传，消费方按 `slot`（给养无 loadout 消耗品槽位）过滤，HUD 不会把给养当消耗品。
 - **证据**：J39 实测肾上腺素 state2 53.55（dur20）→ state3 73.46（cd68.376）→ state1
   141.85；修理箱瞬发 state2/3 65.49（cd64.103）→ state1 129.52；GravityJump 65.82
   （cd21.368）→ state1 87.19；均闭合到包钟精度。合成测试覆盖定时/瞬发/复活提前
