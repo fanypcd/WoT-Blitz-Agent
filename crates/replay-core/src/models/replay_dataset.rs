@@ -145,7 +145,7 @@ impl ReplayDataset {
             settlement: Settlement {
                 battle: BattleSettlement {
                     winner: summary.winner_team,
-                    duration_secs: None, // 结算 root5（crate 未暴露）；meta 口径在 metadata.battle_duration
+                    duration_secs: None, // 结算 root5 已解码至 summary.result_duration_secs（parser.rs），此处未接线（接线属 DTO 值变更）；meta 口径在 metadata.battle_duration
                     author_account_id: summary.author_account_id,
                     author_team: summary.author_team,
                     author_won: summary.author_won,

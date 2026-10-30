@@ -407,7 +407,7 @@ impl AiReviewFacet {
                 map_name: summary.map_name.clone(),
                 room_type: summary.room_type.clone(),
                 winner: summary.winner_team,
-                duration_secs: None, // 结算口径 root5 未解码；未知 → null
+                duration_secs: None, // 结算口径 root5 已解码至 summary.result_duration_secs（parser.rs），DTO 冻结 v1 未接线（接线属值变更需 golden 同步）；未知 → null
                 meta_duration_secs: (summary.battle_duration_secs > 0.0)
                     .then_some(summary.battle_duration_secs),
                 periods: model.timeline.periods.clone(),

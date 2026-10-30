@@ -474,7 +474,7 @@ fn p2_tank_names_injection_and_ai_review_entry() {
     }
 }
 
-/// 录像者相机能力（契约 v0.4.20）：独立入口，列等长；不进入 Playback 通道。
+/// 录像者相机能力（契约 v0.4.21）：独立入口，列等长；不进入 Playback 通道。
 #[test]
 fn recorder_camera_smoke() {
     let Some(path) = largest_sample() else {

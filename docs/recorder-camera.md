@@ -1,6 +1,6 @@
 # 录像者相机能力（`parseRecorderCamera`）
 
-> 状态：v0.4.20 additive 能力，与其余五个 WASM 入口相互独立。
+> 状态：v0.4.21 additive 能力，与其余五个 WASM 入口相互独立。
 > 实现：`crates/replay-core/src/replay/recorder_camera.rs`；WASM 入口：`crates/replay-wasm/src/lib.rs`。
 
 ## 1. 能力定义

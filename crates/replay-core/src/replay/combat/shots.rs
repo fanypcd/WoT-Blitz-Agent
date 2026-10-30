@@ -983,10 +983,14 @@ pub struct UnattachedHit {
 /// 语义：同射手的所有 `[弹着, 下一发弹着)` 区间都不包含它 = 对应的射击不存在于录像。
 /// 同事件重发（同刻同 hash6）合并，保留 settled。
 pub fn collect_unattached_hits(packets: &[(u32, f32, &[u8])]) -> Vec<UnattachedHit> {
-    let shared = build_shot_scan_shared(packets, 0);
+    collect_unattached_hits_from_shared(&build_shot_scan_shared(packets, 0))
+}
+
+/// [`collect_unattached_hits`] 的共享扫描形态（射击 bundle 一次扫描三路复用）。
+/// 只消费非作者过滤的流，任何 author_eid 下输出逐位一致。
+pub(crate) fn collect_unattached_hits_from_shared(shared: &ShotScanShared) -> Vec<UnattachedHit> {
     let mut per_shooter: HashMap<u32, Vec<(f32, f32)>> = HashMap::new();
-    for (i, l) in shared.launches.iter().enumerate() {
-        let _ = i;
+    for l in &shared.launches {
         if let Some(w) = shared.notice_windows.get(&l.shot_id) {
             per_shooter.entry(l.shooter).or_default().push(*w);
         }
@@ -1510,17 +1514,16 @@ pub(crate) fn extract_shot_replays_from_shared(
         // （与 method8 同刻），否则取终点时刻。命中归属、受击方状态快照、prop2 取样窗都以此为基准。
         let end_time = shot_impact_time(chain, end_time);
         // 命中通知（method8/type=32）归属区间：`[本发弹着, 同射手下一发弹着)`。
-        // 无 shotId 的通知族只能靠这条顺序语义绑定（零时钟容差）；窗口缺失 = 该发无终点
-        // （作者路径上面已 bail），此处仅作防御性退化并留质量标记。
-        let (mut win_lo, mut win_hi) = shared
-            .notice_windows
-            .get(&shot_id)
-            .copied()
-            .unwrap_or((end_time, end_time + 0.05));
-        if !(win_lo <= end_time && win_hi > win_lo) {
-            win_lo = end_time;
-            win_hi = end_time + 0.05;
-        }
+        // 无 shotId 的通知族只能靠这条顺序语义绑定（零时钟容差）。窗口必然在位：
+        // 本循环只处理非续段发射（shot_segments 过滤），且终点缺失已在上面 bail——而
+        // [`build_notice_windows`] 恰为"每条非续段 + 有终点"的发射建窗。查不到 =
+        // 共享扫描构建/消费两侧不变量被破坏（代码缺陷），fail-visible 上抛，不静默退化。
+        let Some(&(win_lo, win_hi)) = shared.notice_windows.get(&shot_id) else {
+            anyhow::bail!(
+                "{}: 非续段发射缺少命中通知窗口（build_notice_windows 不变量破坏）",
+                ctx()
+            );
+        };
         let in_notice_window = |t: f32| t >= win_lo && t < win_hi;
         let (via, leg_secs) = shot_legs(l.point, l.vel, chain, ball_b);
         let fire_tick = tick_at_anchored(tick_timeline, session_tick, fire_time);
@@ -2190,10 +2193,56 @@ pub fn extract_all_shots_auto_with_limits(
         author_eid,
         pitch_limits,
         &mut render_cache,
-    );
+    )?;
     Ok((author, others))
 }
 
+/// [`extract_all_shots_auto_with_limits`] 的三路形态（WASM `parseShotReplays` /
+/// CLI diagnose 入口）：在两路提取之外，同一次共享扫描直接产出未归属命中。
+/// 包流扫描是全链最重的工作，此前作者/他人/未归属三路各自
+/// `build_shot_scan_shared`（≈3x 扫描）；未归属命中只消费非作者过滤的流
+/// （launches/notice_windows/direct_hits8/warnings32/names），任何 author_eid 下逐位一致。
+pub struct ShotExtractionBundle {
+    /// 作者严格路径：Err 原样携带（fail-visible，与 [`extract_shot_replays_auto_with_limits`]
+    /// 语义一致），由调用方决定降级策略；未归属命中不受其成败影响，恒可用。
+    pub author: anyhow::Result<Vec<ShotReplayData>>,
+    /// 他人宽松路径：数据缺失按设计跳过计数，Err 仅在内部不变量破坏时出现
+    /// （见 [`extract_other_shot_replays_with_limits`] 宽松模式说明）。
+    pub others: anyhow::Result<OtherShotsExtraction>,
+    /// 未归属命中（对应射击不在录像里 = AoI 截断），消费方按"未知归属"呈现。
+    pub unattached_hits: Vec<UnattachedHit>,
+}
+
+/// 一次共享扫描完成"作者严格 + 他人宽松 + 未归属命中"三路提取。
+/// `author_player_eid` 语义同 [`extract_all_shots_auto_with_limits`]（非零直接采用）。
+pub fn extract_shot_bundle_auto_with_limits(
+    packets: &[(u32, f32, &[u8])],
+    author_nick: &str,
+    author_player_eid: u32,
+    pitch_limits: &GunPitchLimits,
+) -> ShotExtractionBundle {
+    let author_eid = if author_player_eid != 0 {
+        author_player_eid
+    } else {
+        resolve_author_player_eid_by_nick(packets, author_nick)
+    };
+    let shared = build_shot_scan_shared(packets, author_eid);
+    let mut render_cache: HashMap<u32, SegmentedPoseTimeline> = HashMap::new();
+    let author =
+        extract_shot_replays_from_shared(&shared, author_eid, pitch_limits, &mut render_cache);
+    let others = extract_other_shot_replays_from_shared(
+        &shared,
+        author_eid,
+        pitch_limits,
+        &mut render_cache,
+    );
+    let unattached_hits = collect_unattached_hits_from_shared(&shared);
+    ShotExtractionBundle {
+        author,
+        others,
+        unattached_hits,
+    }
+}
 /// 他人路径提取结果：射击列表 + 回退/跳过统计（web 响应 notes 供用户了解数据边界）。
 pub struct OtherShotsExtraction {
     pub shots: Vec<ShotReplayData>,
@@ -2417,13 +2466,15 @@ pub(crate) fn fill_shells_from_launch_fingerprints(
 /// 0x1b 地形命中广播的 shell_global_id（全局广播含所有玩家脱靶弹，shotId 配对）并置 shell_from_terrain；
 /// 伤害 = 血量链降幅（source=射手，cause=0）；双方炮管俯仰 = prop2 frac 解码（无锚定时射手回退发射速度向量、受击方回退车体 pitch）；
 /// method36 瞄准快照 / type=28 弹药槽 = Avatar 专属 → None / 0。
-/// 宽松模式：数据缺失的射击跳过并计数，绝不 bail（AoI 裁剪致远端数据稀疏是预期，与作者路径 fail-fast 不同）。
+/// 宽松模式：**数据**缺失的射击跳过并计数（AoI 裁剪致远端数据稀疏是预期，与作者路径
+/// fail-fast 不同）；但**内部不变量**破坏（非续段 + 有终点的发射缺少命中通知窗口）照旧
+/// fail-visible 上抛——那不是数据边界，是代码缺陷，静默兜底会把命中错配到错误的发射。
 /// `pitch_limits` 语义见 [`extract_shot_replays_with_limits`]。
 pub fn extract_other_shot_replays_with_limits(
     packets: &[(u32, f32, &[u8])],
     author_player_eid: u32,
     pitch_limits: &GunPitchLimits,
-) -> OtherShotsExtraction {
+) -> anyhow::Result<OtherShotsExtraction> {
     let shared = build_shot_scan_shared(packets, author_player_eid);
     let mut render_cache: HashMap<u32, SegmentedPoseTimeline> = HashMap::new();
     extract_other_shot_replays_from_shared(
@@ -2441,7 +2492,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
     author_player_eid: u32,
     pitch_limits: &GunPitchLimits,
     render_cache: &mut HashMap<u32, SegmentedPoseTimeline>,
-) -> OtherShotsExtraction {
+) -> anyhow::Result<OtherShotsExtraction> {
     // ① 全部非作者的 method29 发射事件（作者由严格路径处理；shotId 全局去重）；args<37 的包直接跳过
     let launches: Vec<LaunchEntry> = shared
         .launches
@@ -2458,6 +2509,20 @@ pub(crate) fn extract_other_shot_replays_from_shared(
         .filter(|(i, _)| !launch_is_cont[*i])
         .map(|(_, l)| l)
         .collect();
+
+    // ①'' 命中通知窗口不变量校验（fail-visible）：本函数只处理非续段发射（①' 已过滤），
+    // 且窗口查找仅发生在终点在位的发射上——而 [`build_notice_windows`] 恰为"每条非续段 +
+    // 有终点"的发射建窗。任一发射缺窗 = 共享扫描构建/消费两侧不变量被破坏（代码缺陷），
+    // 上抛而不是按编造兜底窗静默错配归属（下文两处窗口查找据此 expect）。
+    for l in &launches {
+        if shared.endpoints.contains_key(&l.shot_id) {
+            anyhow::ensure!(
+                shared.notice_windows.contains_key(&l.shot_id),
+                "他人路径: shotId={} 非续段发射缺少命中通知窗口（build_notice_windows 不变量破坏）",
+                l.shot_id
+            );
+        }
+    }
 
     // ② method20 弹道终点（shotId 配对，全量收集，与作者路径同构）
     let endpoints = &shared.endpoints;
@@ -2494,12 +2559,13 @@ pub(crate) fn extract_other_shot_replays_from_shared(
                 // 命中归属窗口基准 = 首个续段时刻（装甲接触），无续段则终点时刻
                 let end_time =
                     shot_impact_time(segments.get(&(l.shooter, l.shot_id)), end_time);
-                // 与目标绑定同一区间（`[本发弹着, 下一发弹着)`）——两条链不允许各用一套规则
+                // 与目标绑定同一区间（`[本发弹着, 下一发弹着)`）——两条链不允许各用一套规则。
+                // 窗口在位由 ①'' 不变量校验保证（非续段 + 有终点 ⇒ 建窗）。
                 let (win_lo, win_hi) = shared
                     .notice_windows
                     .get(&l.shot_id)
                     .copied()
-                    .unwrap_or((end_time, end_time + 0.05));
+                    .expect("他人路径: 命中通知窗口缺失（①'' 不变量校验后不可达）");
                 let cands: Vec<&DirectHit8> = direct_hits8
                     .iter()
                     .filter(|d| d.shooter == l.shooter && d.t >= win_lo && d.t < win_hi)
@@ -2565,16 +2631,13 @@ pub(crate) fn extract_other_shot_replays_from_shared(
         let chain = segments.get(&(l.shooter, l.shot_id));
         // `end_time` 语义 = 抵达时刻（有续段时取首续段时刻，与 method8 同刻），与作者路径同构
         let end_time = shot_impact_time(chain, end_time);
-        // 命中通知归属区间（与作者路径同构）：`[本发弹着, 同射手下一发弹着)`，零时钟容差
-        let (mut win_lo, mut win_hi) = shared
+        // 命中通知归属区间（与作者路径同构）：`[本发弹着, 同射手下一发弹着)`，零时钟容差。
+        // 终点缺失的发已 continue；窗口在位由 ①'' 不变量校验保证（非续段 + 有终点 ⇒ 建窗）。
+        let (win_lo, win_hi) = shared
             .notice_windows
             .get(&l.shot_id)
             .copied()
-            .unwrap_or((end_time, end_time + 0.05));
-        if !(win_lo <= end_time && win_hi > win_lo) {
-            win_lo = end_time;
-            win_hi = end_time + 0.05;
-        }
+            .expect("他人路径: 命中通知窗口缺失（①'' 不变量校验后不可达）");
         let in_notice_window = |t: f32| t >= win_lo && t < win_hi;
         let (via, leg_secs) = shot_legs(l.point, l.vel, chain, ball_b);
         // 射手状态快照；AoI 裁剪缺失时用炮口坐标兜底（ball_a = method29 服务器权威发射位置），朝向从速度向量推算，不整发跳过
@@ -2989,7 +3052,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
     eprintln!("[replay_others] 其他玩家射击提取: {} 发（终点缺失跳过 {}、受击方状态缺失跳过 {}、受击方开火前已死亡剔除 {}、射手状态炮口兜底 {}、多目标歧义回退时间最近 {}、弹种指纹回填 {} = 编码 {} / 编码+弹速 {} / 弹速 {}、指纹未唯一 {}）",
         out.len(), skipped_no_endpoint, skipped_no_target_state, skipped_dead_target, muzzle_fallback, ambiguous_time_fallback,
         fill.total(), fill.filled_by_code, fill.filled_by_code_velocity, fill.filled_by_velocity, fill.unresolved);
-    OtherShotsExtraction {
+    Ok(OtherShotsExtraction {
         shots: out,
         total_launches: launches.len(),
         skipped_no_endpoint,
@@ -2997,7 +3060,7 @@ pub(crate) fn extract_other_shot_replays_from_shared(
         skipped_dead_target,
         muzzle_fallback,
         ambiguous_time_fallback,
-    }
+    })
 }
 
 #[cfg(test)]

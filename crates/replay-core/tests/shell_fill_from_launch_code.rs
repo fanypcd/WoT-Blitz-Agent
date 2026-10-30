@@ -33,6 +33,7 @@ fn extract_others(path: &Path) -> OtherShotsExtraction {
     let author_eid = resolve_author_player_eid_by_nick(&tuples, "Anonyme");
     let limits = GunPitchLimits::new();
     extract_other_shot_replays_with_limits(&tuples, author_eid, &limits)
+        .expect("他人路径提取失败（内部不变量破坏）")
 }
 
 fn by_code_count(others: &OtherShotsExtraction) -> usize {

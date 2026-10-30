@@ -32,15 +32,8 @@ use std::io::Cursor;
 use wotb_replay_core::replay::combat::GunPitchLimits;
 use wotb_replay_core::replay::model::{ReplayModel, ScanInput};
 use wotb_replay_core::replay::parser::ReplayParser;
+use wotb_replay_core::replay::packets::read_raw_packets;
 use wotb_replay_core::replay::playback::{PlaybackPlayer, PlaybackRenderInput};
-
-/// 包流分帧（各入口共用）：只切出 (type, clock, payload)，不反序列化 payload——
-/// 单个包的 pickle 形状偏差（如 type 0 的 bool 字段为整数）不再让整场回放失败。
-fn decode_packets(
-    bytes: &[u8],
-) -> anyhow::Result<Vec<wotb_replay_core::replay::packets::RawPacket>> {
-    wotb_replay_core::replay::packets::read_raw_packets(bytes)
-}
 
 fn roster_of(summary: &wotb_replay_core::models::battle::BattleSummary) -> Vec<PlaybackPlayer> {
     summary
@@ -135,7 +128,7 @@ pub fn playback_json(
 ) -> anyhow::Result<String> {
     let mut replay = wotbreplay_parser::replay::Replay::open(Cursor::new(bytes))?;
     let summary = ReplayParser::new().parse_replay(&mut replay, "client.wotbreplay")?;
-    let packets = decode_packets(bytes)?;
+    let packets = read_raw_packets(bytes)?;
     let packets: Vec<(u32, f32, &[u8])> = packets
         .iter()
         .map(|p| (p.packet_type, p.clock_secs, p.payload.as_slice()))
@@ -144,8 +137,11 @@ pub fn playback_json(
     // 俯仰锚定表注入（与 parseShotReplays 的 limitsJson 同款）：
     // {昵称: GunPitchRange}，消费方由资产面 tank/{id}.json 的 pitch_limits 组装。
     // 缺省空表时 gun_pitch 走 hull_pitch 兜底（坡上炮管俯仰不正确的根因）。
+    // 非空但**非法**的注入 JSON → Err（fail-visible）：静默当空表会让俯仰无声降级且
+    // 无逐发质量标记可查，属调用方契约违约而非数据边界（tankNamesJson 是展示串，仍按未注入处理）。
     let limits: GunPitchLimits = match limits_json {
-        Some(s) if !s.is_empty() => serde_json::from_str(s).unwrap_or_default(),
+        Some(s) if !s.is_empty() => serde_json::from_str(s)
+            .map_err(|e| anyhow::anyhow!("limitsJson 非法（俯仰锚定表注入违约）: {e}"))?,
         _ => GunPitchLimits::new(),
     };
     let model = ReplayModel::scan(&ScanInput {
@@ -185,7 +181,7 @@ pub fn playback_json(
 pub fn ai_review_json(bytes: &[u8]) -> anyhow::Result<String> {
     let mut replay = wotbreplay_parser::replay::Replay::open(Cursor::new(bytes))?;
     let summary = ReplayParser::new().parse_replay(&mut replay, "client.wotbreplay")?;
-    let packets = decode_packets(bytes)?;
+    let packets = read_raw_packets(bytes)?;
     let packets: Vec<(u32, f32, &[u8])> = packets
         .iter()
         .map(|p| (p.packet_type, p.clock_secs, p.payload.as_slice()))
@@ -210,23 +206,27 @@ pub fn ai_review_json(bytes: &[u8]) -> anyhow::Result<String> {
 ///
 /// **契约 v0.1.9（breaking）**：输出形状
 /// `{shots, author_path: "ok"|"error", author_error?, author_eid, others:{total_launches,
-/// skipped_no_endpoint, skipped_no_target_state, muzzle_fallback}}`。此前作者严格路径
-/// 任何 Err 都被 `unwrap_or_default()` 静默吞成空数组（作者射击链整体消失且无诊断）；
-/// 现 `author_path="error"` 时 `author_error` 携带链式原因（仅 error 态存在该键），
-/// `others` 透传他人宽松路径的跳过/兜底统计（fail-soft 边界透明化），消费方 fail-visible。
+/// skipped_no_endpoint, skipped_no_target_state, muzzle_fallback}|absent, others_error?}`。
+/// 此前作者严格路径任何 Err 都被 `unwrap_or_default()` 静默吞成空数组（作者射击链整体
+/// 消失且无诊断）；现 `author_path="error"` 时 `author_error` 携带链式原因（仅 error 态
+/// 存在该键），`others` 透传他人宽松路径的跳过/兜底统计（fail-soft 边界透明化），消费方
+/// fail-visible。`others` 与 `others_error` 互斥：后者仅在他路径**内部不变量破坏**时出现
+/// （数据缺失按设计进 skipped_* 计数），同样不静默吞成空统计。
 /// 两路合并后 shots 内 index 为局部值，消费方须按 time_s 全局重编号（契约 §shots）。
 ///
 /// `limits_json`：可选的俯仰锚定表（{昵称: {dep, ele, front?, back?, transition?}}，
 /// GunPitchRange serde 形状——消费方由资产面 tank/{id}.json 的 pitch_limits 换算
 /// dep=max、ele=−min）。服务端路径由 TankResolver 注入同名锚定；客户端路径
 /// 缺省为空表——空表下 prop2 frac 无法按车型极限解码，逐发俯仰降级标记会
-/// 如实透传（质量边界，非错误）。
+/// 如实透传（质量边界，非错误）。**非空但非法**的注入 JSON → Err（fail-visible：
+/// 静默当空表会让俯仰无声降级且无逐发标记可查，属调用方契约违约）。
 ///
 /// `shells_json`：可选的全局弹种反解表（`wotb-agent dump-shell-kinds` 产物，
 /// {全局弹种 id: {type, penetration, damage, module_damage, explosion_radius}}）。
 /// 注入后每发输出补齐 `shell_kind`（与上游 annotate 同源）与 `shell`（完整弹
 /// 数据，徽标/判定直接消费）——消费方渲染侧不再需要自带弹种表或槽位兜底；
 /// 缺省时 shell_kind 保持空串、无 shell 字段（数据可得性边界，非错误）。
+/// **非空但非法**的表 JSON → Err（同上理由）。
 pub fn shot_replays_json(
     bytes: &[u8],
     limits_json: Option<&str>,
@@ -234,7 +234,7 @@ pub fn shot_replays_json(
 ) -> anyhow::Result<String> {
     let mut replay = wotbreplay_parser::replay::Replay::open(Cursor::new(bytes))?;
     let summary = ReplayParser::new().parse_replay(&mut replay, "client.wotbreplay")?;
-    let packets = decode_packets(bytes)?;
+    let packets = read_raw_packets(bytes)?;
     let packets: Vec<(u32, f32, &[u8])> = packets
         .iter()
         .map(|p| (p.packet_type, p.clock_secs, p.payload.as_slice()))
@@ -248,38 +248,52 @@ pub fn shot_replays_json(
         .unwrap_or_default();
     let author_eid =
         wotb_replay_core::replay::combat::resolve_author_player_eid_by_nick(&packets, &author_nick);
+    // 非空但非法的注入 JSON → Err（fail-visible，与 parsePlayback 的 limitsJson 同理由：
+    // 静默当空表会让 prop2 俯仰无声降级且无逐发标记可查）
     let limits: GunPitchLimits = match limits_json {
-        Some(s) if !s.is_empty() => serde_json::from_str(s).unwrap_or_default(),
+        Some(s) if !s.is_empty() => serde_json::from_str(s)
+            .map_err(|e| anyhow::anyhow!("limitsJson 非法（俯仰锚定表注入违约）: {e}"))?,
         _ => GunPitchLimits::new(),
     };
 
-    // 作者严格路径 + 他人宽松路径合并。strict 失败不再静默降级为空——诊断上抛，
-    // shots 仍含他人宽松路径全量（fail-visible，整场射击复现不因单路径失败不可用）
-    let (author_shots, author_error) =
-        match wotb_replay_core::replay::combat::extract_shot_replays_auto_with_limits(
-            &packets,
-            &author_nick,
-            &limits,
-        ) {
-            Ok(s) => (s, None),
-            Err(e) => (Vec::new(), Some(format!("{e:#}"))),
-        };
-    let others = wotb_replay_core::replay::combat::extract_other_shot_replays_with_limits(
-        &packets, author_eid, &limits,
+    // 作者严格路径 + 他人宽松路径 + 未归属命中，一次共享扫描三路提取。strict 失败
+    // 不再静默降级为空——诊断上抛，shots 仍含他人宽松路径全量（fail-visible，
+    // 整场射击复现不因单路径失败不可用）；他人路径 Err 仅在内部不变量破坏时出现，
+    // 以 others_error 透传（不静默吞成空统计）
+    let bundle = wotb_replay_core::replay::combat::extract_shot_bundle_auto_with_limits(
+        &packets,
+        &author_nick,
+        author_eid,
+        &limits,
     );
+    let (author_shots, author_error) = match bundle.author {
+        Ok(s) => (s, None),
+        Err(e) => (Vec::new(), Some(format!("{e:#}"))),
+    };
+    let (others, others_error) = match bundle.others {
+        Ok(o) => (Some(o), None),
+        Err(e) => (None, Some(format!("{e:#}"))),
+    };
+    let unattached = bundle.unattached_hits;
     let mut shots = author_shots;
-    shots.extend(others.shots);
+    if let Some(others) = &others {
+        shots.extend(others.shots.iter().cloned());
+    }
     shots.sort_by(|a, b| a.fire_time.partial_cmp(&b.fire_time).unwrap());
     // 动态装甲弹着态注入（additive：仅 6 辆声明车非缺省，消费方按声明门控）
     wotb_replay_core::replay::combat::attach_shot_armor_states(&mut shots, &packets);
 
     // 弹种反解注入（服务端 annotate + shell 字段注入的客户端等价）：表缺失时
-    // 原样输出（消费方按缺数据处理）
-    let mut shots_val = serde_json::to_value(&shots)?;
-    if let Some(table) = shells_json
+    // 原样输出（消费方按缺数据处理）；非空但非法的表 JSON → Err（fail-visible）
+    let shell_table: Option<serde_json::Map<String, serde_json::Value>> = shells_json
         .filter(|s| !s.is_empty())
-        .and_then(|s| serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(s).ok())
-    {
+        .map(|s| {
+            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(s)
+                .map_err(|e| anyhow::anyhow!("shellsJson 非法（全局弹种反解表注入违约）: {e}"))
+        })
+        .transpose()?;
+    let mut shots_val = serde_json::to_value(&shots)?;
+    if let Some(table) = shell_table {
         if let Some(arr) = shots_val.as_array_mut() {
             for v in arr.iter_mut() {
                 let shell_id = v.get("shell_id").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
@@ -318,21 +332,23 @@ pub fn shot_replays_json(
     outcome.insert("author_eid".into(), serde_json::json!(author_eid));
     // 有证据但无法归属到任何 shot 的命中通知（对应射击不在录像里 = AoI 截断）。
     // 独立输出而不是丢弃：这些事件带受击者/伤害/结果/令牌，消费方按“未知归属”呈现。
-    outcome.insert(
-        "unattached_hits".into(),
-        serde_json::to_value(wotb_replay_core::replay::combat::collect_unattached_hits(
-            &packets,
-        ))?,
-    );
-    outcome.insert(
-        "others".into(),
-        serde_json::json!({
-            "total_launches": others.total_launches,
-            "skipped_no_endpoint": others.skipped_no_endpoint,
-            "skipped_no_target_state": others.skipped_no_target_state,
-            "muzzle_fallback": others.muzzle_fallback,
-        }),
-    );
+    outcome.insert("unattached_hits".into(), serde_json::to_value(&unattached)?);
+    // others 与 others_error 互斥：Err 仅在内部不变量破坏时出现（数据缺失按设计进
+    // skipped_* 计数），fail-visible 透传给消费方，不静默吞成空统计
+    if let Some(others) = &others {
+        outcome.insert(
+            "others".into(),
+            serde_json::json!({
+                "total_launches": others.total_launches,
+                "skipped_no_endpoint": others.skipped_no_endpoint,
+                "skipped_no_target_state": others.skipped_no_target_state,
+                "muzzle_fallback": others.muzzle_fallback,
+            }),
+        );
+    }
+    if let Some(err) = others_error {
+        outcome.insert("others_error".into(), serde_json::Value::String(err));
+    }
     Ok(serde_json::Value::Object(outcome).to_string())
 }
 
@@ -374,7 +390,8 @@ mod js {
     /// → PlaybackData JSON 字符串（位姿网格/弹道/击杀/阶段/可见性）。
     /// `tankNamesJson` 可选：同 `parseResult`——注入后 `vehicles[].tank_name` 为真实车型名。
     /// `limitsJson` 可选：俯仰锚定表 JSON（{昵称: GunPitchRange}）——注入后 prop2
-    /// 俯仰按车型极限解码；缺省时 gun_pitch 走 hull_pitch 兜底（坡上炮管不准）。
+    /// 俯仰按车型极限解码；缺省时 gun_pitch 走 hull_pitch 兜底（坡上炮管不准）；
+    /// **非空但非法**的 JSON 以字符串 Error 拒绝（fail-visible，不做静默空表降级）。
     #[wasm_bindgen(js_name = parsePlayback)]
     pub fn parse_playback(bytes: &[u8], tank_names: Option<String>, limits: Option<String>) -> Result<String, JsValue> {
         super::playback_json(bytes, tank_names.as_deref(), limits.as_deref())
@@ -391,15 +408,18 @@ mod js {
     }
 
     /// JS 入口（射击复现用）：`parseShotReplays(new Uint8Array(fileBuffer), limitsJson?, shellsJson?)`
-    /// → `{shots, author_path, author_error?, author_eid, others}` JSON 字符串
+    /// → `{shots, author_path, author_error?, author_eid, others?, others_error?}` JSON 字符串
     /// （弹道/命中判定/质量标记/渲染锚点；契约 v0.1.9 起 fail-visible——作者严格
     /// 路径失败不再静默吞空，`author_path="error"` 时 `author_error` 携带原因）。
     /// `limitsJson` 可选：俯仰锚定表 JSON（{昵称: GunPitchRange}，消费方由资产面
     /// tank/{id}.json 的 pitch_limits 组装 dep=max、ele=−min）——注入后 prop2 俯仰
-    /// 按车型极限解码（与服务端路径同级）；缺省空表时俯仰降级标记如实透传。
+    /// 按车型极限解码（与服务端路径同级）；缺省空表时俯仰降级标记如实透传；
+    /// **非空但非法**的 JSON 以字符串 Error 拒绝（fail-visible，不做静默空表降级）。
     /// `shellsJson` 可选：全局弹种反解表 JSON（`wotb-agent dump-shell-kinds` 产物，
     /// {全局弹种 id: {type, penetration, damage, module_damage, explosion_radius}}）——
-    /// 注入后每发补齐 `shell_kind` 与 `shell`（完整弹数据）；缺省时无弹种反解。
+    /// 注入后每发补齐 `shell_kind` 与 `shell`（完整弹数据）；缺省时无弹种反解；
+    /// **非空但非法**的 JSON 同样拒绝。`others` 缺失而 `others_error` 在场 = 他人路径
+    /// 内部不变量破坏（数据缺失按设计进 skipped_* 计数，不会走到这一步）。
     #[wasm_bindgen(js_name = parseShotReplays)]
     pub fn parse_shot_replays(
         bytes: &[u8],

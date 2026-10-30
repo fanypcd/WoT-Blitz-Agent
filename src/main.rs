@@ -796,17 +796,15 @@ fn main() -> Result<()> {
                     )
                 });
             let pitch_limits = Default::default();
-            let mut author_shots = wotb_agent::replay::combat::extract_shot_replays_auto_with_limits(
+            // 一次共享扫描完成作者严格 + 他人宽松两路（作者 Err → 空表降级，诊断上抛语义不变）
+            let bundle = wotb_agent::replay::combat::extract_shot_bundle_auto_with_limits(
                 &raw_packets,
                 &summary.author_nickname,
-                &pitch_limits,
-            )
-            .unwrap_or_default();
-            let mut others = wotb_agent::replay::combat::extract_other_shot_replays_with_limits(
-                &raw_packets,
                 author_eid,
                 &pitch_limits,
             );
+            let mut author_shots = bundle.author.unwrap_or_default();
+            let mut others = bundle.others?;
             // 动态装甲弹着态注入（additive：仅 6 辆声明车非缺省）
             wotb_agent::replay::combat::attach_shot_armor_states(&mut author_shots, &raw_packets);
             wotb_agent::replay::combat::attach_shot_armor_states(&mut others.shots, &raw_packets);
@@ -1553,7 +1551,7 @@ fn main() -> Result<()> {
                     &pitch_limits,
                 )?;
             // 弹种回填：全局 shell_id → tanks.pb 原始弹种串（兜底链各级来源统一识别）
-            wotb_agent::replay::loadout::ShellKindTable::from_tanks_pb().annotate(&mut shot_replay);
+            wotb_agent::replay::loadout::ShellKindTable::shared().annotate(&mut shot_replay);
             // UpdateArena 竞技场状态流（子类型名表 + PERIOD 战局阶段时间线，报告 §4.5）
             let arena_updates = wotb_agent::replay::combat::collect_arena_updates(&raw_packets);
             let arena_periods = wotb_agent::replay::combat::parse_arena_periods(&arena_updates);

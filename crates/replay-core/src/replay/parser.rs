@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::fs::File;
+use std::io::Cursor;
 use std::path::Path;
 use wotbreplay_parser::replay::Replay;
 
@@ -145,17 +145,17 @@ impl<'a> ReplayParser<'a> {
             .unwrap_or("?")
             .to_string();
 
-        // 容器字段需从原始字节取（见 apply_container_fields），在打开 Replay（消费 reader）之前读
-        let raw_bytes = std::fs::read(path).ok();
+        // 容器字段需从原始字节取（见 apply_container_fields）；同一次磁盘读取同时喂
+        // Replay::open（Cursor）——此前 File::open 二次读盘，批量扫描逐文件翻倍 IO
+        let raw_bytes = std::fs::read(path)
+            .with_context(|| format!("Failed to open replay: {}", path.display()))?;
 
-        let mut replay = Replay::open(File::open(path)?)
+        let mut replay = Replay::open(Cursor::new(&raw_bytes))
             .with_context(|| format!("Failed to open replay: {}", path.display()))?;
         let mut summary = self
             .parse_replay(&mut replay, &file_name)
             .with_context(|| format!("Failed to parse replay: {}", path.display()))?;
-        if let Some(raw) = raw_bytes.as_deref() {
-            apply_container_fields(&mut summary, raw);
-        }
+        apply_container_fields(&mut summary, &raw_bytes);
         Ok(summary)
     }
 

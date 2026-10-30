@@ -11,7 +11,7 @@
 | [docs/回放与射击逆向总集.md](回放与射击逆向总集.md) | 射击/回放逆向**唯一权威参考**：第一篇=协议层数据段（字节布局/语义/使用状态/死路清单/消费地图）、第二篇=客户端处理架构、第三篇=客户端弹道与命中表现（含 DecodeShotSegment 权威定义）、第四篇=WI 对照与射击复现实现、第五篇=遗留未定项 |
 | [docs/replay-contract-v2-supremacy-type39.md](replay-contract-v2-supremacy-type39.md) | **回放契约 v2**：争霸基地状态（sparse 重建 + 空闲整播判据）、实时点数、type39 原始帧、独立炮塔与生命轨道等 additive 切面契约、门禁与版本护栏 |
 | [docs/author-initial-position.md](author-initial-position.md) | **录像者初始世界位姿能力**（v0.4.15 additive）：`parseAuthorInitialPosition` 的 JSON 形状、身份/位姿证据规则、`null` 失败边界、坐标轴约定、性能与架构边界、真实夹具回归 |
-| [docs/recorder-camera.md](recorder-camera.md) | **录像者相机能力**（v0.4.20 additive）：`parseRecorderCamera` 的 DTO、结构校验、抽稀容差与证据边界 |
+| [docs/recorder-camera.md](recorder-camera.md) | **录像者相机能力**（v0.4.21 additive）：`parseRecorderCamera` 的 DTO、结构校验、抽稀容差与证据边界 |
 | [docs/wotbtools-cross-reference.md](wotbtools-cross-reference.md) | 与 WotbTools 逆向结论的逐条裁决（采纳/驳回/互证），防止误采或回退已定案；附跨仓协作现状 |
 | [docs/tank-suspension-client-re.md](tank-suspension-client-re.md) | **客户端坦克悬挂逆向**：处理链与节点绑定契约、逐车 `suspension:` 数据面（`wheels`/履带折线/`chassis.textureScale`）、负重轮-履带求解公式（反汇编还原）、对齐可行性分级与剩余未定项 |
 | [docs/architecture-debt.md](architecture-debt.md) | 架构债与长期改动方案：已完成项（combat.rs 拆分、双路径合并）与仍留存项 |
@@ -50,7 +50,8 @@
 
 | 版本 | 内容 |
 |---|---|
-| v0.4.20 | **录像者相机轻量能力（additive）**：新增第 6 个独立 WASM 入口 `parseRecorderCamera(bytes)`，输出 Type39 瞄准关键帧、Type23 模式、Type31 缩放、method36 bloom 与 `BackwardZoom`；协议形状不符时返回 `null`。证据：46 份本地回放（11.18 / 11.19 / 11.20）零误拒，Type23/31 计数与独立分帧脚本一致；最大 JSON 约 560 KiB，解析约 40 ms。波及面：仅新增入口，现有五个入口输出不变；`collect_aim_snapshots` 与作者身份解析为无行为变化的抽取。 |
+| v0.4.21 | **录像者相机轻量能力（additive）**：新增第 6 个独立 WASM 入口 `parseRecorderCamera(bytes)`，输出 Type39 瞄准关键帧、Type23 模式、Type31 缩放、method36 bloom 与 `BackwardZoom`；协议形状不符时返回 `null`。证据：46 份本地回放（11.18 / 11.19 / 11.20）零误拒，Type23/31 计数与独立分帧脚本一致；最大 JSON 约 560 KiB，解析约 40 ms。波及面：仅新增入口，现有五个入口输出不变；`collect_aim_snapshots` 与作者身份解析为无行为变化的抽取。 |
+| v0.4.20 | **射击提取链单次扫描收口 + 退化兜底 fail-visible 化（内部性能 + 错误面）**：①一次共享扫描三路提取（`extract_shot_bundle_auto_with_limits`：作者严格/他人宽松/未归属命中），`parseShotReplays` 的包流扫描 3→1、CLI diagnose 2→1；②他人宽松路径 `Result` 化——数据缺失照旧 `skipped_*` 计数，仅内部不变量破坏（非续段 + 有终点发射缺少 `notice_windows` 窗口）上抛 Err，WASM 输出 `others?`/`others_error?` 互斥键（与 `author_path="error"` 同款 fail-visible）；③`limitsJson`/`shellsJson` **非空但非法**的注入 JSON → 整体 Err（静默当空表会让俯仰/弹种无声降级且无逐发标记可查；`tankNamesJson` 是展示串，仍按未注入）；④supremacy `base_index>3` 直构输入 panic（wire 收集器已过滤，静默 continue 会让基地时间线缺段无痕迹）。性能（输出逐位不变）：`CombatTimeline::from_parts` 复用共享扫描产物（scan 少 3 次全包流遍历）、`ReplayParser::parse_file` 单次读盘（批量扫描 IO 减半）、anchors 段定位/侧倾插值二分化（≈80k 次调用热路径 O(n)→O(log n)）、`ShellKindTable::shared()` 进程级缓存。证据：全 workspace 测试 + clippy 0；射击/回放/AI 切面单测零变化。**消费方**：WotbTools 读 `others` 前先判 `others_error`；注入表组装不变；pin bump 后重生成 AI 投影 golden（预期仅 provenance）。详见本页 2026-10-31 节与 WotbTools `contracts/agent/replay-facets-v2.md` §5。 |
 | v0.4.19 | **消耗品线码 0x3F 闭合并补发**（additive）：`0x3F` = `SHELL_RELOAD_BOOST`（客户端 `newAutoloader`：dur 20s / cd 65s）。证据：M-VI-Yoh（弹夹重坦）slot0 激活 20.0s、冷却 55.555 = 65 × 0.8547（装备 101 冷却缩短），为目录唯一 dur20/cd65 条目；同场 0x3D/0x3E/0x42 已在改进消耗品块内闭合。**消费方**：WotbTools pin bump 后 HUD 用 `reload.webp` 显示该消耗品；未知线码一律不渲染徽标（fail-closed）。**覆盖核对**：客户端 11.21.0 目录 common（可装配）消耗品 13 件与 13 个线码一一对应、0 缺口；其余 51 条为特殊模式专属（bossmode/hellgames/madgames/gravitizing/prototypes/lunar），仅 `0x67` gravityJump 已闭合，未观测线码继续 fail-closed。 |
 | v0.4.18 | **战斗装载与消耗品状态闭合（additive）**：①Type5 loadout 解码 3 消耗品 + 0..3 给养 + 模式额外能力 + 9 槽配件；`0A` 描述符按 `payload f32 -1.0` 分流给养，GravityMode 7 条布局能力单列；`vehicles[].loadout`、`equipment_count/ids`、`ConsumableTransition.logical_item_id`。②**本批语料内**全部观测 wireCode 闭合（26 场；语料外 `0x3F` 由 v0.4.19 补入，见上行）：`0x67`=`gravityJump`/Thruster、`0xA9`=`DYNAMIC_ARMOUR_SYSTEM`、欧系/瑞典/捷克/波兰食物块 `0x46..0x4D` 与 `provisions.pb` id 103..110 逐项相差 33（`0x4A`=Goulash/LARGE；纠正 WotbTools `0x48`/`0x49` 互换推断）。③消耗品状态：`state_name`、`duration_s`、`ends_at`（剩余 `clamp(ends_at−t,0,duration_s)`）、`ever_activated`、`slot`；Type32 给养注册原样透传（v0.4.17 首版曾剔除，v0.4.18 恢复；消费方按 slot 过滤）。**消费方**：WotbTools pin bump 后改读 `loadout`/新字段，在 2D/3D HUD 血量条旁显示定时消耗品图标 + 剩余时间环；旧 6 条样本 `loadout_items`/`equipment` 逐字节不变。证据：26 个回放 0 UNKNOWN；J39 定时/瞬发/重力跳冷却闭合；全量 core/workspace 测试 + clippy。 |
 | v0.4.17 | 同批首版（战斗装载/消耗品状态）；Type32 给养注册被误剔除，由 v0.4.18 恢复透传。 |
@@ -82,6 +83,12 @@
 | v0.3.6 | prop3 血量属性广播（录像者自身血量的唯一来源，与 method1 非镜像）。 |
 | v0.3.5 | 原始 HP 证据 `Damage.hp_raw`（未钳制 u16，区分零血与终态未知）与 AoI 开段物化 HP；method8 原始命中通知（全变体、不分类）。 |
 | v0.3.4 | 包流自行分帧（不再依赖 crate 对 payload 的反序列化——单个 pickle 形状偏差不再让整场失败）。 |
+
+### 射击提取链单次扫描收口 + 退化兜底 fail-visible 化（2026-10-31，性能 + 错误面，v0.4.20）
+
+- **性能（输出逐位不变）**：①新增 `extract_shot_bundle_auto_with_limits`——作者严格/他人宽松/未归属命中**一次共享扫描**三路复用，`parseShotReplays` 的包流扫描 3 次 → 1 次（CLI diagnose 2 → 1）；②`CombatTimeline::from_parts` 复用共享扫描的名字/满血锚点产物，`ReplayModel::scan` 少 3 次全包流遍历（AoI 在场段同源复用）；③`ReplayParser::parse_file` 单次读盘（此前 File::open 二次读盘，批量扫描逐文件 IO 翻倍）；④`anchors.rs` 段定位与侧倾插值改 `partition_point` 二分（原线性扫描在 ≈80k 次调用热路径上）；⑤`ShellKindTable::shared()` 进程级缓存（此前 web 端点/工具逐调用全量展开 tanks.pb）。
+- **fail-visible（错误面变化，正常数据输出不变）**：①他人宽松路径 `Result` 化——**数据**缺失仍跳过计数（`skipped_*` 契约不变），仅**内部不变量破坏**（非续段 + 有终点的发射缺少命中通知窗口；构建/消费两侧由 `build_notice_windows`/`shot_segments` 保证不可达）上抛 Err，不再用编造兜底窗静默错配归属；②`parseShotReplays` 输出 `others?` / `others_error?` 互斥键（与 `author_path="error"` 同款 fail-visible 形状）；③`limitsJson` / `shellsJson` **非空但非法**的注入 JSON → 整体 Err（此前静默当空表会让俯仰/弹种无声降级且无逐发标记可查；`tankNamesJson` 是展示串，仍按未注入处理）；④`reconstruct_supremacy_base_states` 对 `base_index > 3` 的直构输入 panic（wire 收集器已过滤，静默 continue 会让基地时间线缺段无痕迹）。
+- **消费方**：WotbTools 消费 `parseShotReplays` 时先判 `others_error` 再读 `others`；注入表组装处无需变化（合法 JSON 行为不变）。契约细节见 [回放与射击逆向总集](回放与射击逆向总集.md) §八与 WotbTools `contracts/agent/replay-facets-v2.md` §5。
 
 ### 命中通知归属：时钟容差 → 弹着区间顺序（2026-10-29，解析器行为修正，v0.4.16）
 
@@ -446,9 +453,8 @@
   manifest 逐文件 sha256；含 7 个变体目录）。生产 origin 已迁移到
   **`https://assets.wotbtools.com`**（Alibaba `ali-sh-asset-01`，
   `/srv/wotb-assets/releases/<pack-id>` + `current` 原子软链）；当前线上 release
-  **`t11-preview-20261027-research-t11`**（740 辆预览数据 + 可破坏物修复 + 20 个
-  配置器 `research/**` 数据文件，含两辆 XI 车的逐车模块；manifest **5911 件 /
-  4430.0 MB / 0 mismatch**）。
+  以 [data-inventory.md](data-inventory.md) §2.1 为准（本页不再另行维护副本数字，
+  此前 20261027 条目的 5911 件 / 4430.0 MB 已被 20261029 科技树 release 取代）。
   发布按「新 release 硬链接复制 + 增量覆盖
   （`cp --remove-destination` / `os.replace` 断链）+ 主机重算 manifest + 校验 +
   原子切 `current`」；**不要再走 COS 根目录全量上传**——COS 仅保留旧 APK 与临时回滚，
@@ -559,8 +565,9 @@
     origin 差约 13 mm（厚度同为 20）。可视 GLB 只有一组 `chassis_track_L/R`，当前数据没有
     按履带模块的第二套网格；若客户端确有不同履带外形，需按模型语义另行确认。待办：逐 module
     透出 thickness/origin 并让查看器按当前底盘选；视觉几何差异另行确认。
-  - 对方点名要的字段：`PlaybackData.damages[]`、`coverage`、`finish_reason`、
-    `unsupported_damage`（数据已在 `timeline.hp_events` 等的投影工作）。
+  - 对方点名要的字段清单（`PlaybackData.damages[]`、`coverage`、`finish_reason`、
+    `unsupported_damage`）以 [wotbtools-cross-reference.md](wotbtools-cross-reference.md) §五
+    为单一维护点，本页不再复制。
 - 解析侧遗留未定项（禁猜、封存）以 [总集 第五篇](回放与射击逆向总集.md#第五篇-遗留未定项) 为准；
   前端侧未做项（自动曝光、水面 HIGH/ULTRA 反射、雾=非目标等）见
   [map-render-align-audit.md](map-render-align-audit.md)。

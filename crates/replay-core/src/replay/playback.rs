@@ -879,8 +879,8 @@ fn build_coverage(clocks: &[f32]) -> Vec<f32> {
     out
 }
 
-/// coverage 区段内的时刻判定（前端同式）
-#[allow(dead_code)]
+/// coverage 区段内的时刻判定（前端同式；仅测试消费）
+#[cfg(test)]
 fn coverage_contains(cov: &[f32], t: f32) -> bool {
     cov.as_chunks::<2>()
         .0
@@ -1404,7 +1404,7 @@ pub(crate) fn collect_all_shots(
                 author_player_eid,
                 pitch_limits,
                 &mut render_cache,
-            );
+            )?;
             all.extend(others.shots);
             all.sort_by(|a, b| a.fire_time.partial_cmp(&b.fire_time).unwrap());
             Ok(CollectedShots {
@@ -1414,12 +1414,14 @@ pub(crate) fn collect_all_shots(
         }
         Err(strict_err) => {
             eprintln!("[playback] 作者严格路径提取失败（{strict_err:#}），降级宽松全路径");
+            // 宽松路径自身 Err = 内部不变量破坏（代码缺陷），不属本次降级覆盖的数据边界，
+            // fail-visible 上抛（collect_all_shots 的降级契约只针对作者路径的数据缺失）
             let mut all = combat::extract_other_shot_replays_from_shared(
                 shared,
                 0,
                 pitch_limits,
                 &mut render_cache,
-            )
+            )?
             .shots;
             for s in &mut all {
                 if author_player_eid != 0 && s.shooter_eid == author_player_eid {
