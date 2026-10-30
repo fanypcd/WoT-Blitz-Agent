@@ -64,7 +64,7 @@ f3/f4/f5/f6 全缺省的行 = 该基地整条状态广播（零值被 proto3 省
 | 项 | 结论 | 落地 |
 |---|---|---|
 | type31 | 录制者 arcade gun-marker/瞄准圈尺寸（连续值 6.75..54；`replayCtrl.setArcadeGunMarkerSize` 代码证据）。旧"FOV 三档·非瞄准圈"并档：三离散值=静止瞄准时刻子集 | 文档 |
-| type=32 24/25B 族 | **消耗品生命周期**（wireCode+state 1/2/3/255；0x08 自动灭火器/0x09 肾上腺素/0x0A 引擎增压/0x0B MPRP/0x0C 急救包/0x0D 修理箱/0x3D 高级引擎增压/0x3E 瞄具校准/0x42 反应装甲/0x69 钨芯弹/0xA9 动态装甲系统/0xBD 次级强化引擎码表 PROVEN）。旧"模块损伤百分比流"降级；未闭合线码 `logical_item_id=None` + raw 保留。**状态/剩余时间**：`state_name`（INITIALIZED/ACTIVATED/ACTIVE_ENDED_OR_COOLDOWN/TEARDOWN/UNKNOWN）、state2/3 的 `duration_s`+`ends_at`（激活/冷却结束，剩余 = clamp(ends_at−t, 0, duration_s)）、`ever_activated` 区分未使用/已就绪、`slot` 0..2；给养注册原样透传，消费方按 slot/logical 过滤 | 代码（`ConsumableTransition`；`remaining_s_at`） |
+| type=32 24/25B 族 | **消耗品生命周期**（wireCode+state 1/2/3/255；0x08 自动灭火器/0x09 肾上腺素/0x0A 引擎增压/0x0B MPRP/0x0C 急救包/0x0D 修理箱/0x3D 高级引擎增压/0x3E 瞄具校准/0x3F 装填加速（Shell Reload Boost）/0x42 反应装甲/0x69 钨芯弹/0xA9 动态装甲系统/0xBD 次级强化引擎码表 PROVEN）。旧"模块损伤百分比流"降级；未闭合线码 `logical_item_id=None` + raw 保留。**状态/剩余时间**：`state_name`（INITIALIZED/ACTIVATED/ACTIVE_ENDED_OR_COOLDOWN/TEARDOWN/UNKNOWN）、state2/3 的 `duration_s`+`ends_at`（激活/冷却结束，剩余 = clamp(ends_at−t, 0, duration_s)）、`ever_activated` 区分未使用/已就绪、`slot` 0..2；给养注册原样透传，消费方按 slot/logical 过滤 | 代码（`ConsumableTransition`；`remaining_s_at`） |
 | 穿透谓词 | `hit_flags & 0x1110`（+0x0100 内部模块穿；对结算 269/270，r≈0.9924）；他人路径 +`(result=2, cmp=0)` 模块-only 穿 case | **代码**（combat.rs 两处） |
 | type26 | **来袭炮弹警告**（PROVEN），非"弹道清理"；开火后 0.2~0.6s 相关实为弹丸飞行时窗 | 文档 |
 | battle_results tag125 | WotbTools #301 字段集无 125；开局血量改用公式 `max(field1,0)+field11` 交叉验证（我方 125 记录标注"待复核"） | 文档 |

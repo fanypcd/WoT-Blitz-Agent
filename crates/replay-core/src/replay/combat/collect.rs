@@ -206,6 +206,10 @@ pub fn consumable_logical_id(wire_code: u8) -> Option<&'static str> {
         0x0D => "REPAIR_KIT",
         0x3D => "IMPROVED_ENGINE_POWER_BOOST",
         0x3E => "RETICLE_CALIBRATION",
+        // 0x3F = 客户端 `newAutoloader`（Shell Reload Boost，dur 20s / cd 65s）。
+        // 证据：M-VI-Yoh（弹夹重坦）slot0 激活 20.0s，冷却 55.555 = 65 × 0.8547
+        // （装备 101 高-end 消耗品冷却缩短），与目录内唯一 dur20/cd65 条目吻合。
+        0x3F => "SHELL_RELOAD_BOOST",
         0x42 => "REACTIVE_ARMOR",
         0x69 => "TUNGSTEN_SHELLS",
         0xA9 => "DYNAMIC_ARMOUR_SYSTEM",
@@ -1874,6 +1878,20 @@ mod consumable_tests {
         assert_eq!(t[2].ends_at, Some(138.5));
         assert_eq!(t[2].remaining_s_at(100.0), Some(38.5));
         assert!(t[2].ever_activated);
+    }
+
+    #[test]
+    fn maps_shell_reload_boost_wire_0x3f() {
+        // 0x3F：M-VI-Yoh 样本 slot0 激活 20s、冷却 55.555（65 × 0.8547）——
+        // 客户端目录唯一 dur=20/cd=65 的条目是 newAutoloader（Shell Reload Boost）。
+        let act = mk32(0x21, 0x3F, 2, 98.0, 20.0);
+        let packets: Vec<(u32, f32, &[u8])> = vec![(32, 98.0, &act)];
+        let t = collect_consumable_transitions(&packets);
+        assert_eq!(t.len(), 1);
+        assert_eq!(t[0].logical_item_id.as_deref(), Some("SHELL_RELOAD_BOOST"));
+        assert_eq!(t[0].state_name, ConsumableState::Activated);
+        assert_eq!(t[0].duration_s, Some(20.0));
+        assert_eq!(t[0].ends_at, Some(118.0));
     }
 
     #[test]
