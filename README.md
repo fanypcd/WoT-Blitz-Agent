@@ -18,9 +18,9 @@ World of Tanks Blitz（坦克世界闪击战）的**回放解析核心**：以 R
     证据）。fail-closed：证据缺失一律 Option / 哨兵保留 raw，不猜 0；
   - 射击复现数据：逐发弹道两端、双方姿态 / 炮塔 / 俯仰、命中结果与受击部件、
     弹种兜底链、逐发质量标记。
-- **WASM 通道**（`crates/replay-wasm`）：五个独立入口
+- **WASM 通道**（`crates/replay-wasm`）：六个独立入口
   `parseResult` / `parsePlayback` / `parseShotReplays` / `parseAiReview` /
-  `parseAuthorInitialPosition`，`.wotbreplay` 字节 → 能力 JSON，消费方按需取用
+  `parseAuthorInitialPosition` / `parseRecorderCamera`，`.wotbreplay` 字节 → 能力 JSON，消费方按需取用
   （只要结果时不强制物化全场时序；初始位姿入口不构建 Playback/时间线）。
 - **数据与资产管线**（`src/wargaming/`、`tools/`、`scripts/`）：本机客户端 DVPL 提取
   （车辆数值 / 装甲 / 碰撞盒 / 模型 / 图标 / 地图资产）、同格式 pb 编码，资产包导出与
@@ -57,7 +57,7 @@ WotbTools 仓库进行**，本仓只出 Rust 核心与 WASM 发行产物。
 | 路径 | 说明 |
 |------|------|
 | `crates/replay-core/` | 回放解析核心库（零网络依赖，原生 / WASM 双目标）：协议解码、领域模型、时间线、投影切面 |
-| `crates/replay-wasm/` | 浏览器通道入口：五个独立能力 JSON 入口（入口契约见 `crates/replay-wasm/src/lib.rs` 顶部文档注释；切面 schema 落 WotbTools `contracts/agent/replay-facets-v2.md`，初始位姿契约见 [docs/author-initial-position.md](docs/author-initial-position.md)） |
+| `crates/replay-wasm/` | 浏览器通道入口：六个独立能力 JSON 入口（入口契约见 `crates/replay-wasm/src/lib.rs` 顶部文档注释；切面 schema 落 WotbTools `contracts/agent/replay-facets-v2.md`，初始位姿契约见 [docs/author-initial-position.md](docs/author-initial-position.md)） |
 | `src/` | 历史应用层（CLI / LLM Agent / Web GUI / 资产管线）：产品面退役后作为数据与资产管线的载体保留 |
 | `docs/` | [文档索引](docs/index.md)：逆向总集、回放契约 v2、数据来源、WotbTools 交叉引用裁决等 |
 | `tools/`、`scripts/` | 地图 / 坦克 GLB 导出、资产包导出与本机联调伺服脚本 |

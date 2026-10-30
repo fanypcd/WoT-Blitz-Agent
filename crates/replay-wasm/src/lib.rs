@@ -14,7 +14,8 @@
 //!   契约 v0.1.9：作者严格路径 fail-visible，不再静默吞空）；
 //! - `parseAiReview(bytes)`  → AI 事件数据 JSON（DTO 冻结 v1）；
 //! - `parseAuthorInitialPosition(bytes)` → 录像者车辆首条可信 type=10 世界坐标
-//!   JSON，或 `null`（轻量能力：不构建 ReplayModel / PlaybackData / AiReviewFacet）。
+//!   JSON，或 `null`（轻量能力：不构建 ReplayModel / PlaybackData / AiReviewFacet）；
+//! - `parseRecorderCamera(bytes)` → 录像者相机状态 JSON，或 `null`（结构校验未通过）。
 //!
 //! 客户端路径的已知取舍（与服务端路径的差异，均为数据可得性而非实现差异）：
 //! - 无 tank_cache / models.pb：`tank_name` 空串、`gun_pitch` 走车体 pitch 兜底、
@@ -113,6 +114,13 @@ pub fn author_initial_position_json(bytes: &[u8]) -> anyhow::Result<String> {
     // 能力实现全部在核心库（原生/ wasm32 同构）；WASM 只做 JSON 序列化。
     let position = wotb_replay_core::replay::author::from_replay_bytes(bytes)?;
     Ok(serde_json::to_string(&position)?)
+}
+
+/// 录像者相机能力：Type23 模式 + Type31 缩放 + Type39 瞄准 + method36 bloom。
+/// 协议形状不符合已验证结构时返回 `null`，消费方据此禁用录像者视角。
+pub fn recorder_camera_json(bytes: &[u8]) -> anyhow::Result<String> {
+    let camera = wotb_replay_core::replay::recorder_camera::from_replay_bytes(bytes)?;
+    Ok(serde_json::to_string(&camera)?)
 }
 
 /// 时序能力（Temporal interpretation）：字节 → PlaybackData JSON。
@@ -352,6 +360,14 @@ mod js {
         super::author_initial_position_json(bytes).map_err(|e| {
             JsValue::from_str(&format!("author initial position parse failed: {e:#}"))
         })
+    }
+
+    /// JS 入口（录像者相机）：`parseRecorderCamera(new Uint8Array(fileBuffer))`
+    /// → 录像者相机状态 JSON，或 `null`（结构校验未通过）。不构建 PlaybackData。
+    #[wasm_bindgen(js_name = parseRecorderCamera)]
+    pub fn parse_recorder_camera(bytes: &[u8]) -> Result<String, JsValue> {
+        super::recorder_camera_json(bytes)
+            .map_err(|e| JsValue::from_str(&format!("recorder camera parse failed: {e:#}")))
     }
 
     /// JS 入口（时序能力）：`parsePlayback(new Uint8Array(fileBuffer), tankNamesJson?)`

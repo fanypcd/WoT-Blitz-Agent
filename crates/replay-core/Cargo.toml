@@ -15,3 +15,5 @@ chrono.workspace = true
 # **必须关掉默认特性**：默认会拉入 bzip2-sys/zstd（C 依赖），契约第 6 节要求
 # 本 crate 可编 wasm32——只保留纯 Rust 的 deflate 后端。
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
+# method49 客户端选项是 zlib 流；与 zip 共用纯 Rust 后端，保持可编 wasm32。
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
