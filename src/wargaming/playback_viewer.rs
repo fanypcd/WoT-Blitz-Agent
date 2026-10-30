@@ -171,10 +171,10 @@ fn build_playback_json_uncached(
 
 // ---------- 实际搭载配置推断（GLB 炮塔/主炮变体选择） ----------
 //
-// 回放不含直接的模块 id，但有两个可靠证据：
-// 1. 发射弹种（shell_id 全局 id）：不同主炮弹表不同——已观测弹种必须 ⊆ 该炮弹表；
-// 2. 初始血量：总 HP = 车体 health + 炮塔 health（tanks.pb），装备"改进耐久"= ×1.125。
-// 弹种证据缺失（未开炮）时按血量；再缺失取顶级配置。多匹配取最后一档。
+// 配置口径：comp blob（account_id 精确匹配，P3 定案）唯一证据源，缺 comp 不猜
+// （config_idx 保持 None，见 annotate_vehicle_config_slice 与
+// config_idx_stays_none_without_comp 测试）。此前的"发射弹种/初始血量"启发式
+// 已整体退役——那些是可被 comp 直接钉定的猜测路径，勿再回填。
 
 fn annotate_vehicle_configs(
     pb: &mut crate::replay::playback::PlaybackData,

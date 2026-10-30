@@ -26,4 +26,4 @@ repository's automated browser gates), then say what the user should look at and
 check over. See root [`AGENTS.md`](../AGENTS.md) §Visual verification belongs to the user.
 
 Background: root [`AGENTS.md`](../AGENTS.md) §Frontend ownership,
-[README §分发形态](../README.md), [`docs/index.md`](../docs/index.md) §前端面收敛.
+[README §分发形态](../README.md), [`docs/index.md`](../docs/index.md) §数据面.

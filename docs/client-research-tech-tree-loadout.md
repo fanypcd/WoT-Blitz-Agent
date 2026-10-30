@@ -1085,7 +1085,7 @@ DeviceUnlockStatus: UNLOCKED | READY_TO_UNLOCK | REQUIRES_PREVIOUS_TIER
 | 5 | 装备槽解锁价格 | 装备页解锁按钮 | 服务端模型给；离线只读展示槽位/状态 |
 | 6 | 消耗品/补给 14B 描述符**内部字段**（计时器/动态状态） | 回放“本场带什么”的细节 | 物品身份已由 `wireCode` 闭合（3 消耗品 + 0..3 给养 + 模式能力；见 [回放与射击逆向总集](回放与射击逆向总集.md) §2.6）；内部 12B payload 仍保留 raw，不赋语义 |
 | 7 | `stereoscope`（119）为何无预设引用 | 装备全集/可获取性 | 标 `unused`；不硬塞进槽位 |
-| 8 | 战斗重量的求和成员（客户端是否含电台/油箱）与 11 辆超限异常 | 机动/推重比/载重 | 按 BlitzKit 公式 `tank+engine+track+turret+gun`（不含电台/油箱）；异常车 fail-closed 或按实际配置求值；`maxLoad` 只作旁证 |
+| 8 | 战斗重量的求和成员（客户端是否含电台/油箱）与 11 辆超限异常 | 机动/推重比/载重 | ~~按 BlitzKit 公式 `tank+engine+track+turret+gun`（不含电台/油箱）~~ **已解决（2026-10-27，见 wotbtools-research-loadout-plan §10 #1）：按整车计（hull+engine+track+turret+gun+radio+fuel），与 BlitzInfo 11.21 `wt` 逐辆一致**；`maxLoad` 只作旁证 |
 | 9 | 科技树 `position` 的 0/1 基与 `columnsCount` 定义 | 像素对齐 | 复刻用自己的 0 基网格，保持相对拓扑 |
 | 10 | 模块 `price` 非零的 9 辆车是否走特殊购买流程 | 研发/购买按钮 | 保留 `price` 字段，UI 区分 XP/credits |
 | 11 | `tanks.pb` field10 = 车体 HP，而 `tank_cache`/`tank_data` 的总 HP = 车体+顶炮塔 | 直接读 pb 的消费方会少算炮塔血量 | 统一用 `tank_cache`/`tank_data` 的 `hp`；不要直接用 pb field10 当总血量 |

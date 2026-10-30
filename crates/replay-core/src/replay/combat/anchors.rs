@@ -157,10 +157,9 @@ pub(crate) fn select_anchor_state(
         return Some((pos_of(b), ang_of(b), b.clock - t, "nearest"));
     }
 
-    let mut i = 0usize;
-    while i + 1 < samples.len() && samples[i + 1].clock < t {
-        i += 1;
-    }
+    // 段定位用二分（samples 已按 clock 升序）：此前的线性步进在锚点密集场是逐发 O(n)；
+    // 到达此处时 t ≤ 末采样时钟（越界/extrapolated 分支已在上方 return），i+1 必在界内
+    let i = samples.partition_point(|s| s.clock < t).saturating_sub(1);
     let a = &samples[i];
     let b = &samples[i + 1];
     if is_boundary(i) {
@@ -232,29 +231,39 @@ pub(crate) fn render_anchor(
     // 与 render_timeline 同规则。恒 0 会使加载摆放（渲染位采样）与滑块时间线的
     // 车体侧倾不一致，炮塔偏航下炮管仰角漂移 ~5.6°。
     let mut ang = pose.ang;
-    {
-        let mut prev = &samples[0];
-        let t64 = t as f64;
-        for s in samples.iter() {
-            if (s.clock as f64) >= t64 {
-                let span = s.clock as f64 - prev.clock as f64;
-                let f = if span > 1e-6 {
-                    ((t64 - prev.clock as f64) / span) as f32
-                } else {
-                    0.0
-                };
-                ang[2] = prev.roll + (s.roll - prev.roll) * f;
-                break;
-            }
-            prev = s;
-        }
-    }
+    ang[2] = roll_at_sample(samples, t as f64);
     Some(RenderAnchorData {
         pos: pose.pos,
         ang,
         latency: pose.latency,
         dist_to_judgment: dist3(pose.pos, judgment_pos),
     })
+}
+
+/// 原始 volatile 侧倾在 t 时刻的线性插值（roll 不经滤波层，视觉侧倾来自物理层；两端共用）。
+/// samples 已按 clock 升序（st10 收集器保证），`partition_point` 二分定位首个 clock ≥ t 的
+/// 采样——[`render_timeline`] 逐 0.1s 网格点调用本函数（≈80k 次量级热路径），线性扫描是
+/// 纯浪费。t 早于首采样/晚于末采样 → 端点 roll 保持（与原线性扫描语义逐位一致）。
+fn roll_at_sample(samples: &[St10Sample], t: f64) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let idx = samples.partition_point(|s| (s.clock as f64) < t);
+    if idx == 0 {
+        return samples[0].roll;
+    }
+    if idx >= samples.len() {
+        return samples[samples.len() - 1].roll;
+    }
+    let prev = &samples[idx - 1];
+    let s = &samples[idx];
+    let span = s.clock as f64 - prev.clock as f64;
+    let f = if span > 1e-6 {
+        ((t - prev.clock as f64) / span) as f32
+    } else {
+        0.0
+    };
+    prev.roll + (s.roll - prev.roll) * f
 }
 
 /// 滤波时间线降采样：[base+dt_from, base+dt_to] 步长 step 的滤波器输出（渲染层严格对齐，
@@ -289,25 +298,7 @@ pub(crate) fn render_timeline(
     // roll 不经滤波层（视觉侧倾来自物理层），但原始 volatile 携带车体/地形侧倾，
     // 置 0 会丢姿态（T110 1436 shot4 实证：13° roll 使 1.95m 高的炮闩枢轴横移
     // 0.44m，炮闩标注与 launchpoint 永不对齐）——按原始采样线性插值补齐。
-    let roll_at = |t: f64| -> f32 {
-        if samples.is_empty() {
-            return 0.0;
-        }
-        let mut prev = &samples[0];
-        for s in samples.iter() {
-            if (s.clock as f64) >= t {
-                let span = s.clock as f64 - prev.clock as f64;
-                let f = if span > 1e-6 {
-                    ((t - prev.clock as f64) / span) as f32
-                } else {
-                    0.0
-                };
-                return prev.roll + (s.roll - prev.roll) * f;
-            }
-            prev = s;
-        }
-        prev.roll
-    };
+    let roll_at = |t: f64| -> f32 { roll_at_sample(samples, t) };
     // 只输出在场段内的采样（AoI 外 = 客户端尚无/已无该实体数据，不渲染，交给前端隐藏模型）
     let mut out = Vec::new();
     let mut dt = dt_from;

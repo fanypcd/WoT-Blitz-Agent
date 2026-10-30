@@ -214,7 +214,7 @@ lumber_01、neptune_01）分段表与基础变体一致，共用基础目录。�
 
 `wotb-replay-wasm-v<version>.zip` —— 由 [.github/workflows/release.yml](../.github/workflows/release.yml)
 在 `[workspace.metadata.release].version` 变更合并到 `main` 时自动测试、构建、打 tag 并发布
-（版本策略见 [AGENTS.md](../AGENTS.md)；现值 **v0.4.15**）。消费方按 **commit + sha256** 锁定，
+（版本策略见 [AGENTS.md](../AGENTS.md)；现值以 Cargo.toml / 本目录 index.md §版本与发行为准，v0.4.19）。消费方按 **commit + sha256** 锁定，
 落到自己的 `/wasm/<40 位 commit>/` 目录；**不浮动跟随 upstream main**。
 
 ## 三、跨领域接线点与护栏

@@ -47,6 +47,10 @@ wire 块是 **SPARSE UPDATE**，重建语义（本仓 `reconstruct_supremacy_bas
   显示层映射为 idle），但**只在确有进度被清掉时**产出归零行（上一条已产出行 progress > 0）——
   普通对局同样会发的裸初始化对不得合成 0 事件，否则 `assault_bases` 恒非空，
   旧产物（无 `assault_objective_present`）的存在性回退判据会被误判成"有目标"。
+- **`base_index` 越界（>3）不是数据边界**：wire 收集器已把越界块整体拒收（不产
+  `RawSupremacyBaseUpdate`），`reconstruct_supremacy_base_states` 对非零越界输入
+  panic（2026-10-31 起由静默 `continue` 收紧）——静默丢块会让基地状态时间线缺一段
+  且无任何痕迹；panic 只可能来自绕过收集器的直构调用方（契约违约）。
 
 对消费方的影响：`PlaybackData.version` **不变**（字段形状未变，只是取值语义）。
 `supremacy_bases` 会出现"清空"迁移行，`assault_bases` 会出现 `progress = 0` 行；

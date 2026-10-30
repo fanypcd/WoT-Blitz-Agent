@@ -57,15 +57,33 @@ pub(crate) fn extract_entity_names(packets: &[(u32, f32, &[u8])]) -> HashMap<u32
     names
 }
 
+/// 实体名表提取（[`extract_entity_names`] 的公开形态）：web 射击端点只需要
+/// 名字表与实体计数，不必为两条诊断数据构建整条 CombatTimeline（三次全包流遍历
+/// + type=7 事件物化）。
+pub fn entity_names(packets: &[(u32, f32, &[u8])]) -> HashMap<u32, String> {
+    extract_entity_names(packets)
+}
+
+/// type=5 满血锚点实体数（[`CombatTimeline::entity_count`] 的同口径轻量形态）。
+pub fn entity_count(packets: &[(u32, f32, &[u8])]) -> usize {
+    collect_initial_hp(packets).len()
+}
+
 impl CombatTimeline {
-    pub fn parse_packets(packets: &[(u32, f32, &[u8])]) -> Self {
-        let entity_names = extract_entity_names(packets);
-        let mut events = Vec::new();
+    /// 共享扫描形态：实体名表 / 满血锚点已由 [`build_shot_scan_shared`]（或其它已
+    /// 收集方）持有时直接传入复用，避免对全包流的三次重复遍历（契约"包流只扫一遍"）。
+    /// `initial_hp` 语义 = [`collect_initial_hp`] 输出（eid → (锚点时钟, 满血)）。
+    pub fn from_parts(
+        entity_names: HashMap<u32, String>,
+        initial_hp: HashMap<u32, (f32, u16)>,
+        packets: &[(u32, f32, &[u8])],
+    ) -> Self {
         // 血量缓存以 type=5 满血锚点预置：否则受害者首个 prop3 事件的降幅恒为 0（首刀不进掉血表）
-        let mut entity_health: HashMap<u32, u16> = collect_initial_hp(packets)
+        let mut entity_health: HashMap<u32, u16> = initial_hp
             .into_iter()
             .map(|(k, (_, hp))| (k, hp))
             .collect();
+        let mut events = Vec::new();
         let mut death_entities = std::collections::HashSet::new();
 
         for (pkt_type, clock, payload) in packets {
@@ -198,6 +216,17 @@ impl CombatTimeline {
             total_damage_tracked,
             entity_names,
         }
+    }
+
+    /// 独立构建形态（调用方无共享扫描可用时）：自行提取名字表与满血锚点后走
+    /// [`Self::from_parts`]——三次全包流遍历；有 [`build_shot_scan_shared`] 在手的
+    /// 调用方应改用 `from_parts` 复用产物。
+    pub fn parse_packets(packets: &[(u32, f32, &[u8])]) -> Self {
+        Self::from_parts(
+            extract_entity_names(packets),
+            collect_initial_hp(packets),
+            packets,
+        )
     }
 
     /// 提取所有生命值变化事件：`(时间, 实体ID, 名称, 当前血量, 受击伤害)`。
