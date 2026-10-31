@@ -40,7 +40,7 @@
 
 ### 版本与发行
 
-- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.21**）。
+- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.22**）。
   该值变更合并到 `main` 后，Release workflow 自动测试、构建、创建 `v<version>` tag
   并发布 `wotb-replay-wasm-v<version>.zip`；发布策略与 Android 同步规则见
   [AGENTS.md](../AGENTS.md)。
@@ -50,6 +50,7 @@
 
 | 版本 | 内容 |
 |---|---|
+| v0.4.22 | **作者当前弹种时间线（additive）+ 接收突发与补给线修正**：①playback 切面新增 `author_shell_timeline`（method 0x07 确认流，折叠重复值，按作者首次死亡截断，语义证据见总集 §3.5），供 WotbTools 3D 回放开镜穿深着色；②全车辆 type=10 + prop2 接收突发时间轴重建；③补给线码受控实验纠正与系别族字段 `family`。②③改变解析输出，下游换 pin 时要重审 golden。 |
 | v0.4.21 | **录像者相机轻量能力（additive）**：新增第 6 个独立 WASM 入口 `parseRecorderCamera(bytes)`，输出 Type39 瞄准关键帧、Type23 模式、Type31 缩放、method36 bloom 与 `BackwardZoom`；协议形状不符时返回 `null`。证据：46 份本地回放（11.18 / 11.19 / 11.20）零误拒，Type23/31 计数与独立分帧脚本一致；最大 JSON 约 560 KiB，解析约 40 ms。波及面：仅新增入口，现有五个入口输出不变；`collect_aim_snapshots` 与作者身份解析为无行为变化的抽取。 |
 | v0.4.20 | **射击提取链单次扫描收口 + 退化兜底 fail-visible 化（内部性能 + 错误面）**：①一次共享扫描三路提取（`extract_shot_bundle_auto_with_limits`：作者严格/他人宽松/未归属命中），`parseShotReplays` 的包流扫描 3→1、CLI diagnose 2→1；②他人宽松路径 `Result` 化——数据缺失照旧 `skipped_*` 计数，仅内部不变量破坏（非续段 + 有终点发射缺少 `notice_windows` 窗口）上抛 Err，WASM 输出 `others?`/`others_error?` 互斥键（与 `author_path="error"` 同款 fail-visible）；③`limitsJson`/`shellsJson` **非空但非法**的注入 JSON → 整体 Err（静默当空表会让俯仰/弹种无声降级且无逐发标记可查；`tankNamesJson` 是展示串，仍按未注入）；④supremacy `base_index>3` 直构输入 panic（wire 收集器已过滤，静默 continue 会让基地时间线缺段无痕迹）。性能（输出逐位不变）：`CombatTimeline::from_parts` 复用共享扫描产物（scan 少 3 次全包流遍历）、`ReplayParser::parse_file` 单次读盘（批量扫描 IO 减半）、anchors 段定位/侧倾插值二分化（≈80k 次调用热路径 O(n)→O(log n)）、`ShellKindTable::shared()` 进程级缓存。证据：全 workspace 测试 + clippy 0；射击/回放/AI 切面单测零变化。**消费方**：WotbTools 读 `others` 前先判 `others_error`；注入表组装不变；pin bump 后重生成 AI 投影 golden（预期仅 provenance）。详见本页 2026-10-31 节与 WotbTools `contracts/agent/replay-facets-v2.md` §5。 |
 | v0.4.19 | **消耗品线码 0x3F 闭合并补发**（additive）：`0x3F` = `SHELL_RELOAD_BOOST`（客户端 `newAutoloader`：dur 20s / cd 65s）。证据：M-VI-Yoh（弹夹重坦）slot0 激活 20.0s、冷却 55.555 = 65 × 0.8547（装备 101 冷却缩短），为目录唯一 dur20/cd65 条目；同场 0x3D/0x3E/0x42 已在改进消耗品块内闭合。**消费方**：WotbTools pin bump 后 HUD 用 `reload.webp` 显示该消耗品；未知线码一律不渲染徽标（fail-closed）。**覆盖核对**：客户端 11.21.0 目录 common（可装配）消耗品 13 件与 13 个线码一一对应、0 缺口；其余 51 条为特殊模式专属（bossmode/hellgames/madgames/gravitizing/prototypes/lunar），仅 `0x67` gravityJump 已闭合，未观测线码继续 fail-closed。 |
