@@ -412,44 +412,73 @@ impl AvatarFilter {
 /// 60Hz 帧网格步长（客户端每帧渲染一次 `output()`）
 pub const FRAME_DT: f64 = 1.0 / 60.0;
 
-/// type=10 的协议标称发送周期（10Hz/车，《回放与射击逆向总集》第一篇 §2）。
+/// 位姿/炮塔流的协议标称发送周期（10Hz/车，《回放与射击逆向总集》第一篇 §2：
+/// type=10 定周期广播；prop2 变化驱动，但转动期实测 ≈0.1s 间隔）。
 /// 用途：录制端接收突发把多包压成同一时间戳时的**时间轴重建**步长（见下）。
 pub const ST10_NOMINAL_DT: f32 = 0.1;
 
-/// **作者车**先按 10Hz 重建被接收突发压扁的时间戳（就地修改）。
+/// 接收突发时间轴重建：把被录制端压成同 clock 的 10Hz 快照连包按标称周期回填（就地修改）。
 ///
 /// 证据与动因（2026-10-11，用户报"0:15 处坦克卡在原地、随后突然前滑一小段，客户端匀速"）：
 /// 录制端按**到达时间**给每个包打 clock；网络突发时若干包在同一毫秒到达 ⇒ 文件里出现
 /// **同 clock 连包**（实测 `20261011_1924 … T100LT`：clock 27.580 处 4 连包，位置却是
 /// 标准的 ~1.0 m/0.1 s 等距步进，且恰好填补 27.182→27.682 之间的 4 个 10Hz 槽位）。
-/// 该流喂进 AvatarFilter 后如实重放为「保持 0.4 s → 一帧跳 5.6 m」——但**作者自己的车在
-/// 客户端里是本地物理（不经过这段流渲染）**，玩家看到的是匀速 ⇒ 对作者车重排时间戳才是
-/// 客户端同构。远程车保持原样：录制端收到包的时序就是当时客户端滤器的输入时序，
-/// 保持重放才是"远程车在客户端里的观感"（见 docs/index.md 同名条目）。
+/// 该流喂进 AvatarFilter 后如实重放为「保持 0.4 s → 一帧跳 5.6 m」。
+///
+/// 范围（2026-10-31 用户决策，取代 v0.4.4 的"仅作者车"口径）：**全部车辆**的 type=10
+/// 位姿流与 prop2 炮塔流都做重建（prop2 见 [`respace_same_clock_bursts_prop2`]）。理由：
+/// 同 clock 连包是**到达时间打戳的传输伪影**，与车辆是谁无关——2026-10-31 神了 Kranvagn
+/// 实测：90.254→94.058s 全场停摆 3.80s（期间仅 type=39 心跳继续到达），补发把每车
+/// 25~38 个 type=10、21~36 个 prop2 压成 clock=94.058；作者车炮塔 35 连包跨 57° 在渲染
+/// 网格上成为单格跳变、远程车整场冻结后猛冲。重建目标 = 服务器权威 10Hz 快照流的原始
+/// 时序，对同类数据统一施用；v0.4.4 的"远程车保持原样 = 复现录制端观感"口径就此废止。
 ///
 /// 规则：同 clock 的连续 n（≥2）个采样，按标称 10Hz 从该 clock **向前回填**——
 /// `clock[k] = T − (n−1−k)·0.1`。fail-closed 护栏：回填后首个采样必须仍晚于前一个采样
 /// 的 clock（否则整段放弃、保持原值——不猜时序）。输入按文件序（该流 clock 单调不减）。
 pub fn respace_same_clock_bursts(samples: &mut [St10Sample]) {
-    let n = samples.len();
+    let mut clocks: Vec<f32> = samples.iter().map(|s| s.clock).collect();
+    respace_clock_runs(&mut clocks);
+    for (s, c) in samples.iter_mut().zip(clocks) {
+        s.clock = c;
+    }
+}
+
+/// [`respace_same_clock_bursts`] 的 prop2 版（`(clock, rel_yaw, frac)` 元组流，规则一致）。
+///
+/// prop2 是变化驱动广播：炮塔连续转动期 ≈10Hz（实测 0.09~0.11s 间隔）。stall 期转过的
+/// 整段角度被压成同 clock 连包后，`prop2_at` 括号语义下中间帧不可达——"保持末帧"分支
+/// 会把首末角之间的全部旋转压缩成单格跳变（神了 Kranvagn 实测 57.07°/0.1s）。
+/// 判定锚点（`prop2_at_arrived`）不走重建副本，保持原始到达时序。
+pub fn respace_same_clock_bursts_prop2(series: &mut [(f32, f32, u16)]) {
+    let mut clocks: Vec<f32> = series.iter().map(|s| s.0).collect();
+    respace_clock_runs(&mut clocks);
+    for (s, c) in series.iter_mut().zip(clocks) {
+        s.0 = c;
+    }
+}
+
+/// 同 clock 连包回填核心：对升序 clock 切片就地重排（规则见 [`respace_same_clock_bursts`]）。
+fn respace_clock_runs(clocks: &mut [f32]) {
+    let n = clocks.len();
     let mut i = 0usize;
     while i < n {
         let mut j = i + 1;
-        while j < n && samples[j].clock == samples[i].clock {
+        while j < n && clocks[j] == clocks[i] {
             j += 1;
         }
         let run = j - i;
         if run >= 2 {
-            let t = samples[i].clock;
+            let t = clocks[i];
             let first = t - (run as f32 - 1.0) * ST10_NOMINAL_DT;
             let ok = if i == 0 {
                 first > 0.0
             } else {
-                first > samples[i - 1].clock
+                first > clocks[i - 1]
             };
             if ok {
-                for (k, s) in samples[i..j].iter_mut().enumerate() {
-                    s.clock = t - (run as f32 - 1.0 - k as f32) * ST10_NOMINAL_DT;
+                for (k, c) in clocks[i..j].iter_mut().enumerate() {
+                    *c = t - (run as f32 - 1.0 - k as f32) * ST10_NOMINAL_DT;
                 }
             }
         }
@@ -1056,14 +1085,54 @@ mod tests {
     #[test]
     fn respace_same_clock_bursts_guard_fail_closed() {
         let mut v = vec![
-            sample(10.00, [0.0, 0.0, 0.0], 0.1),
-            sample(10.05, [0.0, 0.0, 0.0], 0.1), // 前一个采样太近
+            sample(10.00, [0.0, 0.0, 0.0], 0.1), // 前一个采样太近
             sample(10.05, [0.0, 0.0, 0.0], 0.1), // 3 连包回填需 0.2s > 0.05s 间隔 → 放弃
+            sample(10.05, [0.0, 0.0, 0.0], 0.1),
             sample(10.05, [0.0, 0.0, 0.0], 0.1),
         ];
         respace_same_clock_bursts(&mut v);
         assert_eq!(v[1].clock, 10.05);
         assert_eq!(v[3].clock, 10.05);
+    }
+
+    /// prop2 元组流版：与 type=10 同规则（2026-10-31 全车辆+prop2 扩展）。
+    /// 可回填形态（神了 Kranvagn 突发形状的缩小版）：前采样留足 room 时 5 连包
+    /// 按标称 10Hz 从到达 clock 向前回填。
+    #[test]
+    fn respace_same_clock_bursts_prop2_10hz() {
+        let mut v: Vec<(f32, f32, u16)> = vec![(90.254, -1.02, 30)];
+        for k in 0..5 {
+            v.push((94.058, -0.9 + 0.028 * k as f32, 30));
+        }
+        v.push((94.149, 0.1, 30));
+        respace_same_clock_bursts_prop2(&mut v);
+        let clocks: Vec<f32> = v.iter().map(|s| s.0).collect();
+        let expect = [90.254, 93.658, 93.758, 93.858, 93.958, 94.058, 94.149];
+        assert_eq!(clocks.len(), expect.len());
+        for (a, b) in clocks.iter().zip(expect) {
+            assert!((a - b).abs() < 1e-3, "clock {a} != {b}");
+        }
+        // yaw/frac 原值不动，只动 clock（重排不改值、不改序）
+        assert_eq!(v[1].1, -0.9);
+        assert_eq!(v[1].2, 30);
+        // 时钟严格升序保持（消费方 partition_point 二分契约）
+        for d in clocks.windows(2) {
+            assert!(d[0] < d[1], "重排后必须严格升序");
+        }
+    }
+
+    /// prop2 版护栏：回填会越过前一个采样时整段放弃（与 type=10 同 fail-closed）。
+    #[test]
+    fn respace_same_clock_bursts_prop2_guard_fail_closed() {
+        // 3 连包回填需 0.2s，但前采样仅早 0.009s → 越界，整段放弃
+        let mut v: Vec<(f32, f32, u16)> = vec![(94.049, -1.0, 30)];
+        for k in 0..3 {
+            v.push((94.058, -0.9 + 0.028 * k as f32, 30));
+        }
+        respace_same_clock_bursts_prop2(&mut v);
+        assert_eq!(v[0].0, 94.049);
+        assert_eq!(v[1].0, 94.058);
+        assert_eq!(v[3].0, 94.058);
     }
 
     /// 无突发时逐字节不变（正常 10Hz 流零影响）。
