@@ -637,9 +637,18 @@ pub struct AuthorShellEvent {
 
 /// method 0x07 确认流 → 弹种变更时间线：a0=0/1 成对同值与重复广播折叠为一次变更。
 /// 全局弹种 id 域为 24 位（与 terrain_impacts 同掩码）。
-fn author_shell_timeline(broadcasts: &[(f32, u32)]) -> Vec<AuthorShellEvent> {
+/// 作者首次死亡起 0x07 可能跟随被观战车辆，此后的广播不投影；按未取整时钟比较，
+/// 避免边界被 `r2` 挪动。作者未识别时无从截断，不输出。
+fn author_shell_timeline(timeline: &crate::replay::model::Timeline) -> Vec<AuthorShellEvent> {
     let mut out: Vec<AuthorShellEvent> = Vec::new();
-    for (clock, raw) in broadcasts {
+    if timeline.author_eid == 0 {
+        return out;
+    }
+    let first_death = timeline.deaths.get(&timeline.author_eid).map(|d| d.t);
+    for (clock, raw) in &timeline.shell_broadcasts {
+        if first_death.is_some_and(|death| *clock >= death) {
+            continue;
+        }
         let shell_id = raw & 0x00FF_FFFF;
         if out.last().is_none_or(|e| e.shell_id != shell_id) {
             out.push(AuthorShellEvent {
@@ -706,7 +715,8 @@ pub struct PlaybackData {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reload_effective: Vec<RawReloadDuration>,
     /// 作者当前弹种时间线（method 0x07 服务器确认；切换即生效，无 selected/loaded 分离）。
-    /// 首条 = 开局弹种。**归属止于作者首次死亡**：之后可能是被观战车辆，消费方必须截断。
+    /// 首条 = 开局弹种。**只含作者首次死亡之前的确认**：之后的 0x07 可能属于被观战车辆，
+    /// 已在投影时截断；末条之后到首次死亡之间保持末条弹种。
     /// 契约 additive：消费方忽略未知键。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub author_shell_timeline: Vec<AuthorShellEvent>,
@@ -1365,7 +1375,7 @@ pub fn from_model(
                 ..c.clone()
             })
             .collect(),
-        author_shell_timeline: author_shell_timeline(&model.timeline.shell_broadcasts),
+        author_shell_timeline: author_shell_timeline(&model.timeline),
         reload_effective: model
             .timeline
             .reload_effective
@@ -1475,6 +1485,85 @@ pub(crate) fn collect_all_shots(
 mod tests {
     use super::*;
 
+    const AUTHOR: u32 = 7;
+
+    fn shell_timeline(
+        author_eid: u32,
+        death: Option<f32>,
+        broadcasts: &[(f32, u32)],
+    ) -> Vec<AuthorShellEvent> {
+        let mut timeline = crate::replay::model::Timeline {
+            author_eid,
+            shell_broadcasts: broadcasts.to_vec(),
+            ..Default::default()
+        };
+        if let Some(t) = death {
+            timeline.deaths.insert(
+                AUTHOR,
+                crate::replay::model::DeathRecord {
+                    t,
+                    killer_eid: 0,
+                    cause: 0,
+                },
+            );
+        }
+        author_shell_timeline(&timeline)
+    }
+
+    fn shell(t: f32, shell_id: u32) -> AuthorShellEvent {
+        AuthorShellEvent { t, shell_id }
+    }
+
+    #[test]
+    fn author_shell_timeline_folds_pairs_and_masks_to_24_bits() {
+        let got = shell_timeline(
+            AUTHOR,
+            None,
+            &[
+                (5.0, 32362),
+                (5.0, 32362), // a0=1 成对
+                (29.37, 32618),
+                (29.37, 32618),
+                (29.5, 0x7F00_0000 | 32618), // 重复确认 + byte3 噪声都不是变更
+                (30.0, 32362),
+            ],
+        );
+        assert_eq!(
+            got,
+            vec![shell(5.0, 32362), shell(29.37, 32618), shell(30.0, 32362)]
+        );
+    }
+
+    /// 19/46 场作者死后 0x07 跟随被观战车辆：首次死亡起的广播不属于作者。
+    #[test]
+    fn author_shell_timeline_stops_at_first_death() {
+        let got = shell_timeline(
+            AUTHOR,
+            Some(10.0),
+            &[(5.0, 1), (9.0, 2), (10.0, 3), (12.0, 4)],
+        );
+        assert_eq!(got, vec![shell(5.0, 1), shell(9.0, 2)]);
+    }
+
+    /// 截断用未取整时钟：取整后 10.003 与 10.004 同为 10.0，比较必须在取整之前。
+    #[test]
+    fn author_shell_timeline_compares_raw_clock_at_death_boundary() {
+        let got = shell_timeline(AUTHOR, Some(10.004), &[(10.003, 1), (10.004, 2)]);
+        assert_eq!(got, vec![shell(10.0, 1)]);
+    }
+
+    #[test]
+    fn author_shell_timeline_keeps_all_when_author_survives() {
+        let got = shell_timeline(AUTHOR, None, &[(5.0, 1), (500.0, 2)]);
+        assert_eq!(got, vec![shell(5.0, 1), shell(500.0, 2)]);
+    }
+
+    /// 作者未识别时拿不到死亡时刻，归属无法证明。
+    #[test]
+    fn author_shell_timeline_is_empty_without_author() {
+        assert!(shell_timeline(0, None, &[(5.0, 1)]).is_empty());
+    }
+
     /// 作者车接收突发时间轴重建（真实回放回归，2026-10-11）。
     ///
     /// 夹具 = 用户报障回放（T100LT 训练房）：录制端在 clock≈27.58 把 4 个 type=10 包压成
@@ -1484,23 +1573,6 @@ mod tests {
     /// ① 原始流确实存在同 clock 连包（证据/夹具有效性，防夹具替换后测试静默失效）；
     /// ② 修复后作者车 0.1s 渲染网格全程无超速步进（≤2.2 m/步 = 22 m/s，含加速余量；
     ///    修复前该段 5.6 m/步 ≈ 56 m/s）。
-    #[test]
-    fn author_shell_timeline_folds_pairs_and_masks_to_24_bits() {
-        let got = author_shell_timeline(&[
-            (5.0, 32362),
-            (5.0, 32362), // a0=1 成对
-            (29.37, 32618),
-            (29.37, 32618),
-            (29.5, 0x7F00_0000 | 32618), // 重复确认 + byte3 噪声都不是变更
-            (30.0, 32362),
-        ]);
-        let shell = |t, shell_id| AuthorShellEvent { t, shell_id };
-        assert_eq!(
-            got,
-            vec![shell(5.0, 32362), shell(29.37, 32618), shell(30.0, 32362)]
-        );
-    }
-
     #[test]
     fn author_burst_respacing_smooths_real_replay() {
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
