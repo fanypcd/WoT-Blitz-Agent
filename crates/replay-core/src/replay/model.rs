@@ -134,6 +134,8 @@ pub struct Timeline {
     pub reloads: Vec<RawReloadPhase>,
     /// 权威「当前生效完整装填时长」（方法 35；时间升序）
     pub reload_effective: Vec<RawReloadDuration>,
+    /// Avatar method 0x07 弹种确认流（a0=0/1，时间升序）：观战中跟随被观战车辆，归属止于作者首次死亡
+    pub shell_broadcasts: Vec<(f32, u32)>,
 }
 
 /// 内部回放模型：包流单次扫描产物 + 结算花名册并表
@@ -550,6 +552,7 @@ impl ReplayModel {
                 destructible_events,
                 reloads,
                 reload_effective,
+                shell_broadcasts: shared.shell_broadcasts,
             },
             packet_histogram,
         })
@@ -810,6 +813,28 @@ mod tests {
         assert_eq!(kills.len(), 2, "每次死亡各产一条击杀事件");
         assert_eq!((kills[0].t, kills[0].killer_eid), (11.0, 7));
         assert_eq!((kills[1].t, kills[1].killer_eid), (21.0, 9));
+    }
+
+    /// method 0x07：a0=0/1 进确认流，a0=18 异构子命令排除。
+    #[test]
+    fn shell_broadcasts_reach_timeline() {
+        let m07 = |a0: u8, shell: u32| {
+            let mut p = vec![0u8; 17];
+            p[4..8].copy_from_slice(&7u32.to_le_bytes());
+            p[8..12].copy_from_slice(&5u32.to_le_bytes());
+            p[12] = a0;
+            p[13..17].copy_from_slice(&shell.to_le_bytes());
+            p
+        };
+        let model = scan_min(vec![
+            (8, 5.0, m07(0, 32362)),
+            (8, 5.0, m07(1, 32362)),
+            (8, 6.0, m07(18, 0x0100_0104)),
+        ]);
+        assert_eq!(
+            model.timeline.shell_broadcasts,
+            vec![(5.0, 32362), (5.0, 32362)]
+        );
     }
 
     /// 作者车形态：method1 全缺、死亡只有 prop1 广播、复活证据只走 prop3——

@@ -628,6 +628,29 @@ pub struct DetachedTurretTrack {
     pub pose_kf: PoseKeyframes,
 }
 
+/// 作者当前弹种变更事件（`shell_id` = 全局弹种 id，与回放 shell 表同域）
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct AuthorShellEvent {
+    pub t: f32,
+    pub shell_id: u32,
+}
+
+/// method 0x07 确认流 → 弹种变更时间线：a0=0/1 成对同值与重复广播折叠为一次变更。
+/// 全局弹种 id 域为 24 位（与 terrain_impacts 同掩码）。
+fn author_shell_timeline(broadcasts: &[(f32, u32)]) -> Vec<AuthorShellEvent> {
+    let mut out: Vec<AuthorShellEvent> = Vec::new();
+    for (clock, raw) in broadcasts {
+        let shell_id = raw & 0x00FF_FFFF;
+        if out.last().is_none_or(|e| e.shell_id != shell_id) {
+            out.push(AuthorShellEvent {
+                t: r2(*clock),
+                shell_id,
+            });
+        }
+    }
+    out
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PlaybackData {
     /// Authoritative class-8 detached rigid bodies, linked to vehicles[].eid.
@@ -682,6 +705,11 @@ pub struct PlaybackData {
     /// 契约 additive：消费方忽略未知键。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reload_effective: Vec<RawReloadDuration>,
+    /// 作者当前弹种时间线（method 0x07 服务器确认；切换即生效，无 selected/loaded 分离）。
+    /// 首条 = 开局弹种。**归属止于作者首次死亡**：之后可能是被观战车辆，消费方必须截断。
+    /// 契约 additive：消费方忽略未知键。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub author_shell_timeline: Vec<AuthorShellEvent>,
     /// 原始 armorsStates 状态轨道（Vehicle propID 16：type=7 更新 + type=5 create 快照，
     /// 仅动态装甲车 `<extras><armorsStatesController>` 产生轨道，状态语义见
     /// data/armor_states.json；静态车为空、字段整体省略）。契约 additive：同版本只加字段，
@@ -1337,6 +1365,7 @@ pub fn from_model(
                 ..c.clone()
             })
             .collect(),
+        author_shell_timeline: author_shell_timeline(&model.timeline.shell_broadcasts),
         reload_effective: model
             .timeline
             .reload_effective
@@ -1455,6 +1484,23 @@ mod tests {
     /// ① 原始流确实存在同 clock 连包（证据/夹具有效性，防夹具替换后测试静默失效）；
     /// ② 修复后作者车 0.1s 渲染网格全程无超速步进（≤2.2 m/步 = 22 m/s，含加速余量；
     ///    修复前该段 5.6 m/步 ≈ 56 m/s）。
+    #[test]
+    fn author_shell_timeline_folds_pairs_and_masks_to_24_bits() {
+        let got = author_shell_timeline(&[
+            (5.0, 32362),
+            (5.0, 32362), // a0=1 成对
+            (29.37, 32618),
+            (29.37, 32618),
+            (29.5, 0x7F00_0000 | 32618), // 重复确认 + byte3 噪声都不是变更
+            (30.0, 32362),
+        ]);
+        let shell = |t, shell_id| AuthorShellEvent { t, shell_id };
+        assert_eq!(
+            got,
+            vec![shell(5.0, 32362), shell(29.37, 32618), shell(30.0, 32362)]
+        );
+    }
+
     #[test]
     fn author_burst_respacing_smooths_real_replay() {
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
