@@ -40,7 +40,7 @@
 
 ### 版本与发行
 
-- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.19**）。
+- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.4.21**）。
   该值变更合并到 `main` 后，Release workflow 自动测试、构建、创建 `v<version>` tag
   并发布 `wotb-replay-wasm-v<version>.zip`；发布策略与 Android 同步规则见
   [AGENTS.md](../AGENTS.md)。
@@ -89,6 +89,96 @@
 - **性能（输出逐位不变）**：①新增 `extract_shot_bundle_auto_with_limits`——作者严格/他人宽松/未归属命中**一次共享扫描**三路复用，`parseShotReplays` 的包流扫描 3 次 → 1 次（CLI diagnose 2 → 1）；②`CombatTimeline::from_parts` 复用共享扫描的名字/满血锚点产物，`ReplayModel::scan` 少 3 次全包流遍历（AoI 在场段同源复用）；③`ReplayParser::parse_file` 单次读盘（此前 File::open 二次读盘，批量扫描逐文件 IO 翻倍）；④`anchors.rs` 段定位与侧倾插值改 `partition_point` 二分（原线性扫描在 ≈80k 次调用热路径上）；⑤`ShellKindTable::shared()` 进程级缓存（此前 web 端点/工具逐调用全量展开 tanks.pb）。
 - **fail-visible（错误面变化，正常数据输出不变）**：①他人宽松路径 `Result` 化——**数据**缺失仍跳过计数（`skipped_*` 契约不变），仅**内部不变量破坏**（非续段 + 有终点的发射缺少命中通知窗口；构建/消费两侧由 `build_notice_windows`/`shot_segments` 保证不可达）上抛 Err，不再用编造兜底窗静默错配归属；②`parseShotReplays` 输出 `others?` / `others_error?` 互斥键（与 `author_path="error"` 同款 fail-visible 形状）；③`limitsJson` / `shellsJson` **非空但非法**的注入 JSON → 整体 Err（此前静默当空表会让俯仰/弹种无声降级且无逐发标记可查；`tankNamesJson` 是展示串，仍按未注入处理）；④`reconstruct_supremacy_base_states` 对 `base_index > 3` 的直构输入 panic（wire 收集器已过滤，静默 continue 会让基地时间线缺段无痕迹）。
 - **消费方**：WotbTools 消费 `parseShotReplays` 时先判 `others_error` 再读 `others`；注入表组装处无需变化（合法 JSON 行为不变）。契约细节见 [回放与射击逆向总集](回放与射击逆向总集.md) §八与 WotbTools `contracts/agent/replay-facets-v2.md` §5。
+
+### 补给线码受控实验纠正 + 系别族字段 family（2026-10-31，fail-closed 修正 + additive）
+
+- **动因（受控实验，2026-10-31 本地客户端）**：用户亲装**大补给**的 Kranvagn 回放线码为
+  `0x49`（v0.4.18 表标其为瑞典小补给——错）；亲装**茹尔汤**的 60TP 回放线码为 `0x6D`、
+  亲装**改进型齿轮油**为 `0x6B`（后者与既有表一致，互证）；亲装**大口粮**的 Vz.55 回放
+  线码为 `0x4A`（钉死捷克大）；AC Atlas 同场**亲装大+小口粮** → `0x2D`/`0x2E`（其他系
+  大小次序直接钉死）。装填时间推算（弹夹炮 + 瞄准延迟混杂）不可作为补给大小判据，弃用。
+- **结构性发现：装载可同时携带同族大+小两个食物**（受控 Atlas 双口粮；同场 Maus
+  `0x0E+0x15`、LTG `0x10+0x17`、Bulldog `0x0F+0x16` 为双食物自然样本）——WotbTools
+  11.18/11.20 语料"53TP 同时带 `0x6D+0x6E`"并非异常。**消费方 HUD/检视不得假设每车
+  至多一个食物。**
+- **根因**：v0.4.18 把「`provisions.pb` id 103..110 与线码 `0x46..0x4D` 逐项相差 33」当
+  格式规律外推——它只是 103/104 → `0x46/0x47` 两个观测点上的巧合归纳。线码是游戏内部
+  补给槽 id 的**自有命名空间**（WotbTools 11.19 文档原话："The replay wireCode is **not**
+  assumed to equal BlitzKit/public provision source ID"）：瑞典对 HQ/regular 顺序与欧系对
+  **相反**，波兰 `0x6D/0x6E` 恰等于目录 id 109/110 的十进制原值。**每条线码独立取证，
+  禁止按数值邻接外推**；WotbTools 11.19 生产映射（`0x48`=SMALL/`0x49`=LARGE）本来就是
+  对的，v0.4.18 的"纠正"才是错的。
+- **修正**（`provision_logical_id`）：`0x48`=瑞典小(Crispbread)、`0x49`=瑞典大(Grilled
+  Salmon)（受控实验 + WotbTools 11.19 结算体观测双证）；`0x4A`=捷克大(Goulash 107，
+  **受控钉死**——v0.4.18 的 LARGE 标签结论碰巧正确但证据错误，现改由受控实验支撑)；
+  `0x4B`=捷克小(Fried Cheese 108，`0x4A` 钉死后按成对 + 24 槽 24 件计数闭合消去——至此
+  **33 件 common 补给 ↔ 33 线码槽全绑定**)；撤销 `0x4C/0x4D`（从未自然观测，`None`）；
+  新增 `0x6D`=波兰大(Zurek 109，受控 + 11.18/11.20 自然观测)、`0x6E`=波兰小(Faworki 110，
+  与 `0x6D` 成对消去)。
+- **additive**：`LoadoutItem.family`（`Option<String>`）+ `provision_family()`——食物族
+  系别（germany/usa/ussr/uk/japan/china/france/european/swedish/czech/polish/other），
+  通用给养（燃料/防护包/沙袋/内衬/齿轮油）为 `None`；消耗品/模式能力恒 `None`。系别证据
+  = 车辆可用性消去（线码绑定唯一目录条目，观测到其出现在仅可用单一食物族的坦克上）。
+- **动因（图标错系）**：此前切面只导出 `LARGE_FOOD`/`SMALL_FOOD`，WotbTools 图标映射只能
+  兜底"其他系"图标——Kranvagn（瑞典）显示 Hybrid 图标即此根因；`family` 落地后消费方按
+  `(family, logical_id)` 选系别正确图标。
+- **证据**：16 场语料扫描（14 场库存 + 2 场 Kranvagn 对局）线码↔坦克系别全闭合（`0x4A`
+  在 Vz.55 = 捷克可用性消去）；受控回放 2 场端到端复验（Kranvagn `0x49`→LARGE/swedish、
+  60TP `0x6D`→LARGE/polish）；Type32 全消耗品线码 0 未知。单测：受控实验回归
+  `controlled_food_experiments_export_family` + 旧断言块重写。
+- **全量可用性审计（2026-10-31 补，受控实验后复验）**：客户端目录 common 可装配补给恰
+  **33 件**（食物 24 + 通用 9；另有 1 件 common+ability `desertPower` 与 51 件特殊模式件
+  不占给养槽）↔ 线码槽 33（食物 24 + 通用 9）**计数闭合；受控实验闭合 `0x4A/0x4B` 后
+  33/33 全绑定**。tankId→stem→目录 filter 可用性模拟器对语料 **151 组 (坦克, 线码) 观测
+  逐条交叉验证，0 违规**：`0x32`=防崩内衬三处观测（Rhm.-B. WT / FV4005 / Grille 15）全在
+  目录 include 敞篷 TD 列表内；七国块 14 槽中 13 槽按本国坦克直接观测（唯 `0x1B` 未现）；
+  `0x44/0x45` Maus HP ×1.03/×1.06、`0x6C` VK72.01 弹速 ×1.35 行为闭合维持成立；`0x6A`=
+  齿轮油由三槽三件消去（`0x6B` 受控、`0x6C` 行为已钉）。未观测槽位
+  `0x1B/0x48/0x4B/0x6A/0x6C/0x6E` 各有独立证据（见下条未决）。
+- **消费方（WotbTools）**：pin bump 后 ① `itemCodes.ts` 回退表同步 `0x48`=SMALL/
+  `0x49`=LARGE（其现表已随 v0.4.19 反标，需换回）、删 `0x4A..0x4D` 食物标签、补
+  `0x6D/0x6E`（其 2026-10-30 提交已含）；② 图标/名称按新 `family` 字段（或等价本地表）
+  选系别；旧字段 `loadout_items`/`equipment` 逐字节不变，`family` 缺省（旧产物）走
+  unknown 系别兜底不变。
+- **未决（全部为低风险补对/补位推断，绑定均已建立）**：① `0x48` 族=瑞典是**补对推断**
+  （`0x49` 受控已证瑞典大，欧/瑞/捷区域按 (0x46,47)(0x48,49)(0x4A,4B) 成对分配；同机制
+  曾在波兰上被证伪——瑞典车亲装脆饼一场可转直接证据）；② `0x1B`（法国小）为七国块
+  13/14 直接观测后的补位——法国车亲装肉罐头一场可闭合；③ `0x6E`（波兰小）为与 `0x6D`
+  成对消去、`0x6A`（齿轮油）为三槽三件消去——60TP 一场（齿轮油+丝带脆饼）可双双转
+  直接证据；④ `0x4B`（捷克小）为成对 + 计数闭合消去——Vz.55 亲装油炸奶酪一场可闭合。
+  `0x4C/0x4D` 及其余未观测线码继续 fail-closed。
+
+### 全车辆 type=10 + prop2 接收突发时间轴重建（2026-10-31，解析器行为修正）
+
+- **动因（真实样本，用户报障"3D 回放一段时间明显卡顿 / 作者车炮塔一下子跳变"）**：
+  `20261002_2147` 神了 Kranvagn 场 90.254→94.058s **全场网络停摆 3.80s**（期间仅
+  type=39 心跳按 ~30 包/0.25s 继续到达，连接未断），补发把每车 25~38 个 type=10、
+  21~36 个 prop2 压成 clock=94.058（包头 clock = 录制端到达时间，见总集 §2.1）。
+  v0.4.4 只重建作者车 type=10 ⇒ ①作者车炮塔在 t≈94.2 单格跳 **57.07°**（prop2 35 连包
+  跨 −52.0°→+4.9°，`prop2_at` 同刻括号下中间帧不可达）；②远程车整场冻结后于
+  t≈94.7~94.8 猛冲（pose_kf 100~414 m/s、0.1s 网格步进最大 27m）。
+- **行为**：`respace_same_clock_bursts`（标称 10Hz 回填 + fail-closed 护栏，规则不变）
+  从"仅作者车 type=10"扩展到**全部车辆 type=10 + prop2**（新增
+  `filter::respace_same_clock_bursts_prop2`，二者共享回填核心）。v0.4.4 的"远程车保持
+  原样 = 复现录制端观感"口径废止：同 clock 连包是到达时间打戳的传输伪影，与车辆是谁
+  无关，重建目标 = 服务器权威 10Hz 快照流的原始时序（同类数据统一施用）。
+- **效果（夹具实测）**：突发窗 [91, 95.5] 全车队位姿步进 ≤1.02 m/0.1s（修复前最大
+  27m）、全车 pose_kf 0 个超 30 m/s 折段（修复前 100~414 m/s）；作者车炮塔全程
+  ≤2.35°/0.1s（修复前 57.07°）。**残余诚实空洞**：补发包数少于停摆槽位时（prop2 变化
+  驱动广播），未覆盖段在 `prop2_at` 括号语义下渲染为"保持→一步追上空洞期扫过角"
+  （实测最大 晓孩哥 11.12°/0.1s，1.8s 空洞扫 9.5°）——缺失数据的诚实表现而非回归；
+  把扫描摊回空洞期会引入命中后反应污染（prop2_at 设计红线），不做。
+- **边界**：判定锚点（`prop2_at_arrived`、射击提取 render_cache）不走重建副本，保持
+  原始到达时序；单发复现滑块的炮塔/俯仰时间线（`timeline_prop2_client`）**仍走原始流**
+  ——滑块窗口窄（−3~+2s）且与弹道炮口锚点同图消费，半套重排会造成滑块姿态与锚点
+  不一致，未见报障暂不动（潜在同型伪影，已记录）；AoI 重入瞬移（隐藏期跨段跳变，
+  如 MisakuraRin t=193.5 跨 117m）不在本修复范围（前端按 visibility 隐藏，pop-in 非卡顿）。
+- **回归**：`burst_respacing_covers_all_vehicles_and_prop2`（新夹具
+  `data/replay_samples/20261002_2147__shenle_S16_Kranvagn_15612263746483708.wotbreplay`，
+  下载原名 `20261002_2147___神了_S16_Kranvagn_…`：证据锁 + 作者车全程位姿/炮塔步进上限
+  + 全车队突发窗步进上限）+ `respace_same_clock_bursts_prop2` 单测 ×2。
+  **消费方零适配**：`PlaybackData` 契约不变，仅位姿/炮塔数值在含突发的场次更平滑
+  （golden 若有对应差异属预期）。
 
 ### 命中通知归属：时钟容差 → 弹着区间顺序（2026-10-29，解析器行为修正，v0.4.16）
 
@@ -146,11 +236,11 @@
   给养）；同时补齐 `wireCode` 逻辑表（WotbTools 11.19 生产映射 + 本仓 11.20/11.21 样本 +
   客户端坦克百科目录：`0x13/0x14` 中国/法国大补给、`0x15` 德国小补给、`0x1A/0x1B` 中国/法国
   小补给、`0x2D/0x2E` 其他系大/小、`0x32` 防破片内衬；模式能力 `0x67` = `gravityJump`/
-  Thruster；消耗品 `0xA9` = `DYNAMIC_ARMOUR_SYSTEM`/armorMover；欧系/瑞典/捷克/波兰食物块
-  `0x46..0x4D` 与 `provisions.pb` 的 id 103..110 逐项相差 33，按每国 HQ(大)→regular(小)
-  闭合，`0x4A` = Goulash/LARGE_FOOD）。**该块纠正了 WotbTools 11.19 文档把 `0x48` 标成
-  SMALL、`0x49` 标成 LARGE 的推断**（其自述 `0x48` 从未自然观测）。当前语料的所有观测
-  loadout 线码均已闭合；未观测的新线码仍保持 `None` + raw。
+  Thruster；消耗品 `0xA9` = `DYNAMIC_ARMOUR_SYSTEM`/armorMover）。~~当时把欧系/瑞典/捷克/
+  波兰食物块按「id 103..110 逐项 −33」闭合，并称其纠正了 WotbTools `0x48/0x49`~~——该
+  外推**已被 2026-10-31 受控实验证伪并撤销**（`0x49`=瑞典大、`0x4A..0x4D` 大小标签全部
+  撤销、波兰实为 `0x6D/0x6E`），见上一节。当前语料的所有观测 loadout 线码均已闭合；
+  未观测的新线码仍保持 `None` + raw。
 - **对外形状（additive）**：`vehicles[].loadout`（`VehicleLoadout`：equipment/equipment_ids/
   items/consumables/abilities/provisions）；`consumables[].logical_item_id`；
   `shooter_equipment`/`target_equipment` 的 `equipment_count`/`equipment_ids`。旧字段
@@ -162,9 +252,9 @@
   raw、短装备串线序）。
 - **消费方**：WotbTools 当前 `toLoadout` 要求 `loadout_items.length === 6`，7 条布局会被
   整条丢弃；pin bump 后应改读 `vehicles[].loadout`（或放宽到按静态尾分流）。其
-  `frontend/src/replay-local/playback/itemCodes.ts` 还需同步本批纠正：`0x48`=LARGE_FOOD、
-  `0x49`=SMALL_FOOD（现为互换）、`0x4A..0x4D` 补全、`0x67`=GRAVITY_JUMP、
-  `0xA9`=DYNAMIC_ARMOUR_SYSTEM（名称表已含后者，前者需新增）。旧 6 条样本的
+  `frontend/src/replay-local/playback/itemCodes.ts` 线码纠正以 2026-10-31 受控实验节
+  为准（`0x48`=SMALL/`0x49`=LARGE、`0x4A..0x4D` 撤销食物标签、`0x6D/0x6E`=波兰、
+  `0x67`=GRAVITY_JUMP、`0xA9`=DYNAMIC_ARMOUR_SYSTEM）。旧 6 条样本的
   `loadout_items`/`equipment` 逐字节不变。
 - **未决**：仅描述符 12B 内部计时/动态字段（物品身份已全部闭合）；未在语料中自然出现的
   未来线码仍按 fail-closed 保留 raw + `None`。

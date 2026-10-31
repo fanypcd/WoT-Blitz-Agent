@@ -234,25 +234,33 @@ pub fn ability_logical_id(wire_code: u8) -> Option<&'static str> {
 
 /// Type5 `0A` item 描述符的 `wireCode`（u8）→ 给养逻辑标识。
 ///
-/// 证据分两层：
-/// - WotbTools 11.19 生产映射（行为/可用性闭合）：`0x0E..0x12` 大补给、
-///   `0x16..0x19` 小补给、`0x1C/0x1D/0x1E` 标准燃料/改进燃料/防护套装、
-///   `0x44/0x45` 沙袋装甲/强化沙袋、`0x46/0x49` 欧系大补给、`0x47/0x48` 欧系小补给、
-///   `0x6A/0x6B/0x6C` 齿轮油/改进齿轮油/改进火药；
-/// - 本仓 11.20/11.21 样本把同一连续补给块补齐：`0x13` 中国大补给、`0x14` 法国大补给、
-///   `0x15` 德国小补给、`0x1A` 中国小补给、`0x1B` 法国小补给（结构性块内位置；当前样本
-///   未自然出现）、`0x2D/0x2E` 其他系大/小补给、`0x32` 防破片内衬（仅出现在客户端允许
-///   该给养的德国车）；
-/// - 欧系/瑞典/捷克/波兰食物块：客户端 `provisions.pb` 的 map id 103..110（Cheesehead
-///   103 / Cinnamon Roll 104 / Grilled Salmon 105 / Crispbread 106 / Goulash 107 /
-///   Fried Cheese 108 / Zurek 109 / Faworki 110）与回放线码 0x46..0x4D（70..77）逐项
-///   相差 33，顺序一致；大/小补给按每国 **HQ(大)→regular(小)** 排列：
-///   `0x46/0x48/0x4A/0x4C` = LARGE_FOOD，`0x47/0x49/0x4B/0x4D` = SMALL_FOOD。
-///   这纠正了 WotbTools 11.19 文档把 `0x48` 标成 SMALL、`0x49` 标成 LARGE 的推断
-///   （其文档自述 `0x48` 从未自然观测；控制样本只覆盖欧洲/瑞典食物族，未逐项绑定
-///   客户端 item id）。
+/// **线码是游戏内部补给槽 id 的自有命名空间，与客户端目录 id 无统一换算关系**
+/// （WotbTools 11.19 文档原话："The replay wireCode is **not** assumed to equal
+/// BlitzKit/public provision source ID"）。`103/104 → 0x46/0x47` 的 −33 关系只是两个
+/// 观测点上的巧合归纳：瑞典对内 HQ/regular 顺序与欧系对相反（`0x48`=小/`0x49`=大），
+/// 波兰 `0x6D/0x6E` 恰等于目录 id 109/110 的十进制原值。因此**每条线码独立取证**，
+/// 禁止按数值邻接外推。证据：
+/// - 七国连续块（德美苏英日中法）：WotbTools 11.19 结算战斗体（960 份 3+3+9，0 unknown）
+///   行为闭合 `0x0E..0x12` 大 / `0x16..0x19` 小；本仓 11.20/11.21 样本补齐 `0x13`(中)
+///   `0x14`(法) `0x15`(德) `0x1A`(中)，`0x1B`(法) 为块内位置；
+/// - `0x1C/0x1D/0x1E` 标准燃料/改进燃料/防护套装、`0x44/0x45` 沙袋（Maus 同车 HP 控制
+///   2987/2900=1.03、3074/2900=1.06 行为闭合）、`0x6A/0x6B/0x6C` 齿轮油（60TP 受控
+///   实验：亲装改进型齿轮油 → `0x6B`）/改进火药（VK72.01 弹速 ×1.35 闭合）；
+/// - `0x2D/0x2E` 其他系大/小补给、`0x32` 防破片内衬；
+/// - 欧系/瑞典：`0x46`=欧系大(Cheesehead)、`0x47`=欧系小(Cinnamon Roll)（WotbTools
+///   11.19 生产映射）；`0x48`=瑞典小(Crispbread)、`0x49`=瑞典大(Grilled Salmon)——
+///   **受控实验钉死**（2026-10-31 Kranvagn 亲装大补给 → `0x49`），与 WotbTools 11.19
+///   生产映射一致；本仓 v0.4.18 曾按「103..110 连续 −33」把 `0x48/0x49` 反标并外推
+///   `0x4A..0x4D`，该推断已被受控实验与 `0x6D` 自然观测证伪，全部撤销；
+/// - 捷克：**`0x4A` = 红烩牛肉/Goulash(107) 大——受控实验钉死**（2026-10-31 Vz.55 亲装
+///   大口粮 → `0x4A`）；`0x4B` = 油炸奶酪/Fried Cheese(108) 小——`0x4A` 钉死后按成对 +
+///   24 槽 24 件计数闭合消去（至此 33 件 common 补给 ↔ 33 线码槽**全绑定**）；
+/// - 波兰：`0x6D`=茹尔汤/Zurek(109) **受控实验钉死**（2026-10-31 60TP 亲装茹尔汤 →
+///   `0x6D`）+ WotbTools 11.18/11.20 自然观测（60TP 仅带 `0x6D`）；`0x6E` 在 53TP
+///   上与 `0x6D` 成对出现 → 消去得 Faworki(110)/小补给；
+/// - 曾把 `0x4C/0x4D` 当波兰大/小：纯结构外推、从未自然观测，已撤销返回 `None`。
 ///
-/// 这是**版本化线码表**，不是按国家/坦克/数值猜名；未知线码返回 `None`。
+/// **未知/未闭合线码一律返回 `None`，raw 保留不猜名。**
 pub fn provision_logical_id(wire_code: u8) -> Option<&'static str> {
     Some(match wire_code {
         // 大补给（德国/美国/苏联/英国/日本/中国/法国）
@@ -268,18 +276,57 @@ pub fn provision_logical_id(wire_code: u8) -> Option<&'static str> {
         0x32 => "SPALL_LINER",
         0x44 => "SANDBAG_ARMOR",
         0x45 => "ENHANCED_SANDBAG_ARMOR",
-        // 欧系/瑞典/捷克/波兰：每国 HQ(大) → regular(小)
+        // 欧系（大→小）/瑞典（小→大，顺序与欧系对相反——0x49 受控实验钉死；0x48 的
+        // 族=瑞典为补对推断，置信低于直接观测，见 docs/index.md 2026-10-31 节未决）
         0x46 => "LARGE_FOOD",
         0x47 => "SMALL_FOOD",
-        0x48 => "LARGE_FOOD",
-        0x49 => "SMALL_FOOD",
+        0x48 => "SMALL_FOOD",
+        0x49 => "LARGE_FOOD",
+        // 捷克：0x4A=Goulash(107) 大（受控钉死）；0x4B=Fried Cheese(108) 小（成对+计数
+        // 闭合消去）；曾把 0x4C/0x4D 当捷克——从未自然观测，不猜。
         0x4A => "LARGE_FOOD",
         0x4B => "SMALL_FOOD",
-        0x4C => "LARGE_FOOD",
-        0x4D => "SMALL_FOOD",
+        // 波兰：目录 id 109/110 十进制原值（受控实验 + 11.18/11.20 自然观测）
+        0x6D => "LARGE_FOOD",
+        0x6E => "SMALL_FOOD",
         0x6A => "GEAR_OIL",
         0x6B => "IMPROVED_GEAR_OIL",
         0x6C => "IMPROVED_GUNPOWDER",
+        _ => return None,
+    })
+}
+
+/// Type5 `0A` 给养描述符的 `wireCode` → 补给系别族（客户端 `provisions.json` 的
+/// nation/sub-line 词汇）。仅食物族有系别；燃料/防护包/沙袋/内衬/齿轮油等通用给养
+/// 返回 `None`。消费方（WotbTools）用 `(family, logical_id 的大小)` 选择正确系别
+/// 的图标与名称——此前只导出 `LARGE_FOOD`/`SMALL_FOOD`，瑞典/捷克/波兰/欧洲车只能
+/// 兜底显示「其他系」图标（Kranvagn 显示他系图标的根因）。
+///
+/// 系别证据 = **车辆可用性消去**（线码绑定唯一目录条目；观测到线码出现在某系坦克上，
+/// 该系坦克可装备的食物族即唯一）：`0x46/0x47` 在意大利车（Carro 45t/Minotauro/
+/// Progetto 46，仅欧系通用奶酪/肉桂卷可用）→ 欧系；`0x49` 在 Kranvagn（仅瑞典
+/// 三文鱼/脆饼可用）→ 瑞典，`0x48` 与其同族成对；`0x4A` 在 Vz.55（仅捷克红烩牛肉/
+/// 油炸奶酪可用）→ 捷克（`0x4B` 未观测不归族）；`0x6D/0x6E` 在 60TP/53TP（波兰）。
+pub fn provision_family(wire_code: u8) -> Option<&'static str> {
+    Some(match wire_code {
+        // 大补给（德国/美国/苏联/英国/日本/中国/法国）
+        0x0E..=0x14 => [
+            "germany", "usa", "ussr", "uk", "japan", "china", "france",
+        ][(wire_code - 0x0E) as usize],
+        // 小补给（同序）
+        0x15..=0x1B => [
+            "germany", "usa", "ussr", "uk", "japan", "china", "france",
+        ][(wire_code - 0x15) as usize],
+        // 其他系（Hybrid Nation）
+        0x2D | 0x2E => "other",
+        // 欧洲通用（奶酪/肉桂卷；瑞典/捷克/波兰车被客户端 exclude 列表排除）
+        0x46 | 0x47 => "european",
+        // 瑞典（三文鱼 0x49 受控实验 / 脆饼 0x48）
+        0x48 | 0x49 => "swedish",
+        // 捷克（0x4A 受控钉死 Goulash；0x4B 成对消去 Fried Cheese）
+        0x4A | 0x4B => "czech",
+        // 波兰（茹尔汤/丝带脆饼）
+        0x6D | 0x6E => "polish",
         _ => return None,
     })
 }
@@ -310,6 +357,11 @@ pub struct LoadoutItem {
     /// 已证逻辑标识；`None` = 线码未闭合（raw 保留，不猜名）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logical_id: Option<String>,
+    /// 补给系别族（仅 `kind = Provision` 的食物族有值：germany/usa/ussr/uk/japan/
+    /// china/france/european/swedish/czech/polish/other）；消耗品/能力/通用给养 = None。
+    /// 消费方按 `(family, logical_id)` 选系别正确的图标与名称。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family: Option<String>,
 }
 
 /// 射击一方车辆的配件搭载（Type5 物化 `0B <n>` 变长选择串解码）。
@@ -596,6 +648,13 @@ fn decode_loadout_items(
                 ability_logical_id(wire_code).map(str::to_string),
             )
         };
+        // 系别族仅食物族有值；大小未闭合的线码（如 0x4A 捷克）同样导出族，消费方
+        // 据此至少选对系别，大小仍按 unknown 处理。
+        let family = if kind == LoadoutItemKind::Provision {
+            provision_family(wire_code).map(str::to_string)
+        } else {
+            None
+        };
         let item = LoadoutItem {
             index: i as u8,
             kind,
@@ -603,6 +662,7 @@ fn decode_loadout_items(
             state,
             payload_raw,
             logical_id,
+            family,
         };
         match kind {
             LoadoutItemKind::Consumable => consumables.push(item),
@@ -2212,9 +2272,8 @@ mod loadout_tests {
         assert!(v.consumables.iter().all(|i| i.kind == LoadoutItemKind::Consumable));
     }
 
-    /// 11.20/11.21 补给块扩展：同一连续大/小补给块 + 其他系 + 防破片内衬 + 欧系/瑞典/
-    /// 捷克/波兰食物块（按坦克百科 `provisions.pb` id 103..110 与线码 0x46..0x4D 的
-    /// 逐项偏移 33 映射，每国 HQ(大)→regular(小)）。
+    /// 11.20/11.21 补给块扩展：同一连续大/小补给块 + 其他系 + 防破片内衬 + 欧系/瑞典
+    /// 食物对（0x46..0x49，见下方受控实验注释）与波兰 0x6D/0x6E。
     #[test]
     fn maps_1121_food_block_and_spall_liner() {
         for (wire, logical) in [
@@ -2229,20 +2288,60 @@ mod loadout_tests {
         ] {
             assert_eq!(provision_logical_id(wire), Some(logical), "wire {wire:#04x}");
         }
-        // 欧系/瑞典/捷克/波兰食物块（0x46..0x4D = provisions.pb id 103..110 - 33）
+        // 欧系/瑞典食物对：0x46=欧系大、0x47=欧系小（WotbTools 11.19 生产映射）；
+        // 瑞典对顺序相反——0x48=瑞典小(脆饼)、0x49=瑞典大(三文鱼)。
+        // **受控实验钉死（2026-10-31）**：Kranvagn 亲装大补给 → 线码 0x49。
+        // v0.4.18 曾按「103..110 连续 −33」把 0x48/0x49 反标，已被证伪撤销。
         for (wire, logical) in [
-            (0x46, "LARGE_FOOD"),  // 103 Cheesehead
+            (0x46, "LARGE_FOOD"),  // 103 Cheesehead（意大利车观测）
             (0x47, "SMALL_FOOD"),  // 104 Cinnamon Roll
-            (0x48, "LARGE_FOOD"),  // 105 Grilled Salmon
-            (0x49, "SMALL_FOOD"),  // 106 Crispbread
-            (0x4A, "LARGE_FOOD"),  // 107 Goulash（Vz. 55 样本）
-            (0x4B, "SMALL_FOOD"),  // 108 Fried Cheese
-            (0x4C, "LARGE_FOOD"),  // 109 Zurek
-            (0x4D, "SMALL_FOOD"),  // 110 Faworki
+            (0x48, "SMALL_FOOD"),  // 106 Crispbread（WotbTools 11.19 结算体观测）
+            (0x49, "LARGE_FOOD"),  // 105 Grilled Salmon（受控实验 + 11.19）
         ] {
             assert_eq!(provision_logical_id(wire), Some(logical), "wire {wire:#04x}");
         }
-        // 已知 WotbTools 11.19 映射不得漂移（0x48/0x49 按目录 id 顺序纠正）
+        // 捷克：0x4A = 红烩牛肉/Goulash(107) 大——受控实验钉死（2026-10-31 Vz.55 亲装
+        // 大口粮 → 0x4A）；0x4B = 油炸奶酪/Fried Cheese(108) 小——0x4A 钉死后按成对 +
+        // 24 槽 24 件计数闭合消去。曾把 0x4C/0x4D 当捷克（−33 外推）——从未观测，不猜。
+        assert_eq!(provision_logical_id(0x4A), Some("LARGE_FOOD"));
+        assert_eq!(provision_family(0x4A), Some("czech"));
+        assert_eq!(provision_logical_id(0x4B), Some("SMALL_FOOD"));
+        assert_eq!(provision_family(0x4B), Some("czech"));
+        // 曾把 0x4C/0x4D 当波兰（−33 结构外推、从未自然观测）——已撤销。
+        assert_eq!(provision_logical_id(0x4C), None, "0x4C 从未观测，不猜名");
+        assert_eq!(provision_logical_id(0x4D), None, "0x4D 从未观测，不猜名");
+        // 波兰：0x6D=茹尔汤(109)——受控实验钉死（2026-10-31 60TP 亲装茹尔汤 → 0x6D，
+        // 与 WotbTools 11.18/11.20 自然观测一致）；0x6E 与 0x6D 成对 → Faworki(110) 小。
+        assert_eq!(provision_logical_id(0x6D), Some("LARGE_FOOD"));
+        assert_eq!(provision_logical_id(0x6E), Some("SMALL_FOOD"));
+        assert_eq!(provision_family(0x6D), Some("polish"));
+        assert_eq!(provision_family(0x6E), Some("polish"));
+        // 系别族：七国块逐码 + 欧系/瑞典/其他系 + 通用给养无族。
+        for (wire, family) in [
+            (0x0E, "germany"),
+            (0x0F, "usa"),
+            (0x10, "ussr"),
+            (0x11, "uk"),
+            (0x12, "japan"),
+            (0x13, "china"),
+            (0x14, "france"),
+            (0x15, "germany"),
+            (0x16, "usa"),
+            (0x17, "ussr"),
+            (0x18, "uk"),
+            (0x19, "japan"),
+            (0x1A, "china"),
+            (0x1B, "france"),
+            (0x2D, "other"),
+            (0x2E, "other"),
+            (0x46, "european"),
+            (0x47, "european"),
+            (0x48, "swedish"),
+            (0x49, "swedish"),
+        ] {
+            assert_eq!(provision_family(wire), Some(family), "wire {wire:#04x}");
+        }
+        assert_eq!(provision_family(0x1D), None, "燃料/防护包等通用给养无族");
         for (wire, logical) in [
             (0x0E, "LARGE_FOOD"),
             (0x16, "SMALL_FOOD"),
@@ -2287,6 +2386,56 @@ mod loadout_tests {
         assert_eq!((p.wire_code, p.state, p.logical_id.as_deref()), (0x9F, 1, None));
         assert_eq!(p.payload_raw[8..12], [0x00, 0x00, 0x80, 0xBF]);
         assert_eq!(p.kind, LoadoutItemKind::Provision);
+    }
+
+    /// 受控实验回归（2026-10-31）：Kranvagn 亲装大补给 → `0x49`（瑞典大/三文鱼）；
+    /// 60TP 亲装茹尔汤 → `0x6D`（波兰大）；Vz.55 亲装大口粮 → `0x4A`（捷克大/Goulash）；
+    /// AC Atlas 亲装大+小口粮 → `0x2D`/`0x2E`（其他系大小次序直接钉死，且证实
+    /// **装载可同时携带同族大+小两个食物**——同场 Maus 0x0E+0x15 / LTG 0x10+0x17 /
+    /// Bulldog 0x0F+0x16 为双食物自然样本，"53TP 带 0x6D+0x6E" 并非异常）。
+    /// family 随解码导出；通用给养（燃料）无族。
+    #[test]
+    fn controlled_food_experiments_export_family() {
+        let items = [
+            descriptor(0x0B, false),
+            descriptor(0x0D, false),
+            descriptor(0x09, false),
+            descriptor(0x49, true), // Kranvagn 大补给（受控）
+            descriptor(0x4A, true), // Vz.55 大口粮（受控：捷克大/Goulash）
+            descriptor(0x1D, true), // 改进燃料（通用，无族）
+            descriptor(0x6D, true), // 60TP 茹尔汤（受控）
+            descriptor(0x2D, true), // Atlas 大口粮（受控：其他系大）
+            descriptor(0x2E, true), // Atlas 小口粮（受控：其他系小，与大并存）
+        ];
+        let payload = mk_type5_items(&items, &[100, 109, 114, 104]);
+        let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &payload)];
+        let v = collect_vehicle_loadout(&packets).get(&0x31).cloned().unwrap();
+        let by_wire = |w: u8| {
+            v.provisions
+                .iter()
+                .find(|p| p.wire_code == w)
+                .unwrap_or_else(|| panic!("wire {w:#04x} missing"))
+        };
+        let krv = by_wire(0x49);
+        assert_eq!(krv.logical_id.as_deref(), Some("LARGE_FOOD"));
+        assert_eq!(krv.family.as_deref(), Some("swedish"));
+        let cze = by_wire(0x4A);
+        assert_eq!(cze.logical_id.as_deref(), Some("LARGE_FOOD"));
+        assert_eq!(cze.family.as_deref(), Some("czech"));
+        let fuel = by_wire(0x1D);
+        assert_eq!(fuel.family, None, "通用给养无族");
+        let pol = by_wire(0x6D);
+        assert_eq!(pol.logical_id.as_deref(), Some("LARGE_FOOD"));
+        assert_eq!(pol.family.as_deref(), Some("polish"));
+        // Atlas 双口粮：大在前小在后，均可导出族
+        let oth_l = by_wire(0x2D);
+        assert_eq!(oth_l.logical_id.as_deref(), Some("LARGE_FOOD"));
+        assert_eq!(oth_l.family.as_deref(), Some("other"));
+        let oth_s = by_wire(0x2E);
+        assert_eq!(oth_s.logical_id.as_deref(), Some("SMALL_FOOD"));
+        assert_eq!(oth_s.family.as_deref(), Some("other"));
+        // 消耗品/能力不携带族
+        assert!(v.consumables.iter().all(|c| c.family.is_none()));
     }
 
     /// 3 条描述符的真实玩家（Takuchan 形态）：全部为消耗品，无给养/能力；
