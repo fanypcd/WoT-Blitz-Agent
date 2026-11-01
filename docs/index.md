@@ -85,7 +85,15 @@
 | v0.3.5 | 原始 HP 证据 `Damage.hp_raw`（未钳制 u16，区分零血与终态未知）与 AoI 开段物化 HP；method8 原始命中通知（全变体、不分类）。 |
 | v0.3.4 | 包流自行分帧（不再依赖 crate 对 payload 的反序列化——单个 pickle 形状偏差不再让整场失败）。 |
 
-### 射击提取链单次扫描收口 + 退化兜底 fail-visible 化（2026-10-31，性能 + 错误面，v0.4.20）
+### 炮管俯仰接入装备 122（改进型垂直稳定器，2026-11-01，解析器行为修正 + WotbTools 联动）
+
+**改动**：`decode_prop2_gun_pitch` 的输入从 models.pb 原始 `GunPitchRange` 改为**按实体实际配件**扩展后的有效极限——Type5 `0B` 配件串含 **122 `improvedPitchLimitsSystem`** 时，仰角上限 +4°、俯角下限 +3°（基础值与 front/back 扇区极值同增益，`transition` 不变）。覆盖 3D 回放（`vehicles[].gun_pitch`）、射击复现（`shooter_gun_pitch` / `target_gun_pitch` / 两侧 `gun_timeline`）以及服务端 `/api/playback/data`、`/api/replay/shots`、CLI `combat`、WASM `parsePlayback` / `parseShotReplays`。`VehicleEquipment` additive 新字段 `improved_pitch_limits`（仅 true 时序列化），供 WotbTools 装甲查看器自动勾选；`tank/{id}.json` / `tank_cache.json` 的 `pitch_limits` / `gun_depression` / `gun_elevation` 仍是基础值。
+
+**证据**：`data/research/devices.json` id=122 `bonusValues.upperPitchLimitIncrease=4` / `lowerPitchLimitIncrease=3`；可用性 = 每车 `optDevicePreset`（当前 11 辆 `AlternatePitchGrouserPreset` + Rinoceronte 的 `DrumGunPitchLimitsPreset`）；回放证据 = 同 eid 的 Type5 `0B` 配件串（103/110 同源机制）。`crates/replay-core/tests/pitch_device_data.rs` 对该数据做锚定，并断言**只有 122** 声明俯仰增量——新增第二件俯仰配件时测试失败，强制显式接入。
+
+**影响面**：只有实际装 122 的车辆/玩家输出变化（极限端点精确 +4°/+3°，中间 frac 线性变化）；无 122 的场次逐位不变。`limitsJson` 契约明确为**基础**极限，core 负责叠加设备加成（WotbTools 不应在 `pitchLimits.js` / `ReplayShotsPane` 预加，否则双重计算）。WotbTools 侧装甲查看器新增 122 勾选（目标/被展示车，默认关、射击复现自动勾选），手动拖炮按扩展后极限钳制；需 pin bump + `wotbVersion` bump。
+
+
 
 - **性能（输出逐位不变）**：①新增 `extract_shot_bundle_auto_with_limits`——作者严格/他人宽松/未归属命中**一次共享扫描**三路复用，`parseShotReplays` 的包流扫描 3 次 → 1 次（CLI diagnose 2 → 1）；②`CombatTimeline::from_parts` 复用共享扫描的名字/满血锚点产物，`ReplayModel::scan` 少 3 次全包流遍历（AoI 在场段同源复用）；③`ReplayParser::parse_file` 单次读盘（此前 File::open 二次读盘，批量扫描逐文件 IO 翻倍）；④`anchors.rs` 段定位与侧倾插值改 `partition_point` 二分（原线性扫描在 ≈80k 次调用热路径上）；⑤`ShellKindTable::shared()` 进程级缓存（此前 web 端点/工具逐调用全量展开 tanks.pb）。
 - **fail-visible（错误面变化，正常数据输出不变）**：①他人宽松路径 `Result` 化——**数据**缺失仍跳过计数（`skipped_*` 契约不变），仅**内部不变量破坏**（非续段 + 有终点的发射缺少命中通知窗口；构建/消费两侧由 `build_notice_windows`/`shot_segments` 保证不可达）上抛 Err，不再用编造兜底窗静默错配归属；②`parseShotReplays` 输出 `others?` / `others_error?` 互斥键（与 `author_path="error"` 同款 fail-visible 形状）；③`limitsJson` / `shellsJson` **非空但非法**的注入 JSON → 整体 Err（此前静默当空表会让俯仰/弹种无声降级且无逐发标记可查；`tankNamesJson` 是展示串，仍按未注入处理）；④`reconstruct_supremacy_base_states` 对 `base_index > 3` 的直构输入 panic（wire 收集器已过滤，静默 continue 会让基地时间线缺段无痕迹）。
