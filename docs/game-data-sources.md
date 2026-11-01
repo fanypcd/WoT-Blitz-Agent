@@ -577,12 +577,17 @@ alpha 覆盖率 ~20% = 只有俯视件）按本节命令重合成会把 36 张�
 
 ### 5.6 2D 战术底图（WotbTools 前端资产）的派生链
 
-2D 地图鸟瞰 / 战局回放用的 29 张底图不是客户端资产，也**不再**是外部 AI 增强件，而是本仓自产：
+2D 地图鸟瞰 / 战局回放用的底图不是客户端资产，也**不再**是外部 AI 增强件，而是本仓自产：
 `release/asset_pack/map/<key>/ground.webp`（4096²，含俯视屋顶/树冠烘焙）经
-`tools/export_2d_basemaps.py` 派生 → `release/2d-basemaps/`（canonical 1254² WebP q90 / method 6）
+`tools/export_2d_basemaps.py` 派生 → `release/2d-basemaps/`（canonical 1254² WebP q90 / method 6
+＋ **cover 512² WebP q80**——picker 封面用轻量版，同一调色管线第二次采样，观感与 canonical 一致）
 → 交接 WotbTools `frontend/src/assets/maps/`（web 与 Android 共用这一份 canonical 字节；Android 不再派生，见本节结尾）。
 
-**冻结配方**（全 29 张同一套，参数 = 工具内常量）：LANCZOS 1254² → 全局对比曲线
+**清单来源（v3，2026-11-01）**：资产包 `index.json` **全量枚举**（去重后 43 key）——不再依赖
+WotbTools `mapImages.js`（手维护 29 张，新图/变体空间/老版复刻进不了循环，43 缺 14 的根因）。
+pack 里每张图都有 ground.webp（打包链保证），原料齐备即全覆盖。
+
+**冻结配方**（全 43 张同一套，参数 = 工具内常量）：LANCZOS 1254² → 全局对比曲线
 `y' = softclip(128 + (y−128)×1.17)`（两端 24 级软肩）→ 饱和 ×0.9748 → 逐通道软肩（无硬裁切）
 → USM 1.0px/80%/thr2 → WebP q90 / method 6。
 
@@ -595,11 +600,14 @@ WotbTools 的 2D 渲染把回放坐标按 `coordinateBounds = ±300` 线性映�
 按 29 张聚合分布求的匹配 LUT 近似恒等；逐图配平会违反 AGENTS.md「同类数据同一变换、不做测量驱动的
 逐项决策」⇒ 只用一条全局曲线按同一比例缩差，残余差距随 manifest 输出、如实记录。
 
-**fail closed 前置条件**（工具内断言）：WotbTools 注册表 `mapImages.js` 可解析且文件名唯一；
-源 `ground.webp` 必须 4096²；`terrain.json.worldBounds` 必须 ±300 m；输出目录含注册表之外的
-webp 即拒写（防指错目录）。`--verify` 按 manifest 逐张重算并比对 sha256（确定性 + 保真）。
+**fail closed 前置条件**（工具内断言）：资产包 `index.json` 可解析且 key 去重后非空；
+源 `ground.webp` 必须 4096²；`terrain.json.worldBounds` 必须 ±300 m；输出目录含清单之外的
+webp 即拒写（防指错目录）。`--verify` 按 manifest 逐张重算并比对 sha256（确定性 + 保真），
+cover 512² 按包内 `cover/index.json` 逐张校验字节。
 
-**现役产物**：`release/2d-basemaps/` 29 张 / **21.50 MiB**；`release/2d-basemaps-manifest.json`
+**现役产物**：`release/2d-basemaps/` 43 张（2026-11-01 起 pack index 全量枚举，此前 29 张）
+＋ `release/asset_pack/cover/` 43 张封面（512²，44–112KB）＋ cover/index.json；
+`release/2d-basemaps-manifest.json`
 记录配方、逐件 sha256 与源 ground 的 sha256；与用户对照页验收版本**逐字节一致**。
 **WotbTools 侧不再派生**（2026-10-16 决定）：Web 与 APK 随包的就是这一份 canonical 字节，
 像素完全一致（此前 Android 用的 ≤1024²/q72 派生链已整体删除）。
@@ -609,8 +617,8 @@ webp 即拒写（防指错目录）。`--verify` 按 manifest 逐张重算并比
 `recipe`、逐图 `path/sha256/bytes/width/height` **＋几何契约 `worldBounds` / `orientation`**，
 2026-10-16 起；schemaVersion 1 缺这两项，消费侧一律不换图），并在 staging 目录写下交接件
 `map2d-source.json`（schemaVersion 2：`contentGeneratedAt` = 索引 `generated`、`indexSha256`、
-`recipe`，以及**与字节的绑定** `maps: {code: {file, sha256}}`（29 条）与 `mapsDigest`）。
-该交接件随 29 张 webp 一起进 WotbTools `frontend/src/assets/maps/`：**包内"内容时间戳"的唯一来源**
+`recipe`，以及**与字节的绑定** `maps: {code: {file, sha256}}`（43 条）与 `mapsDigest`）。
+该交接件随 43 张 webp 一起进 WotbTools `frontend/src/assets/maps/`：**包内"内容时间戳"的唯一来源**
 ——运行时用它与资产 origin 索引的 `generated` 做单调比较（`index.generated <= contentGeneratedAt ⇒ 包内即最新`）。
 **绝不能在消费侧改成构建时间**：stage 晚于资产发布才构建时会把真正更新的底图判成更旧而永久拒绝升级，
 且同一 commit 重跑构建会产出不同字节的 bundle（破坏 stage 可重跑性与 APK 不可变性）。
