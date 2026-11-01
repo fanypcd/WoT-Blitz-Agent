@@ -111,6 +111,14 @@
 | 履带厚度 / 原点 | chassis 段；已按**逐底盘 map** 保留（C1 修复，见 [decoupling-status.md](decoupling-status.md) §2） |
 | 炮管裁切平面 `maskSlice` | Parameters YAML `maskSlice.<gun_NN>`：`planePosition`(3D)/`planeNormal`/`planeAxis`/`planeSliceMode`/`frustumCone*`——models.pb 只带 `planePosition[1]` 标量；完整记录导出 sidecar `data/gun_mask_slices.json`（478 条，键 `tank_id:turret_local:gun_local`），包内 `data/gunMaskSlices.json`；与 gunRecoil/gunMarks 同组的**视觉/特效切片**参数，不作装甲判定边界（viewer 裁切仍用 BlitzKit 的 `gun_mask` 标量） |
 
+**俯仰装备加成（2026-11-01 接入）**：客户端装备 **id=122 `improvedPitchLimitsSystem`**
+（改进型垂直稳定器）的 `script.params.bonusValues` 为 `upperPitchLimitIncrease=4`、
+`lowerPitchLimitIncrease=3`。上表 `pitch` 仍是 models.pb 的**基础极限**；回放解码时按
+实体实际配件串（Type5 `0B`）叠加 4°/3°（基础与 front/back 扇区同增益，transition 不变）。
+可用性由每车 `<optDevicePreset>` 决定：当前 11 辆 `AlternatePitchGrouserPreset`
++ Rinoceronte 的 `DrumGunPitchLimitsPreset`（共 12 辆）。数值锚定测试见
+`crates/replay-core/tests/pitch_device_data.rs`；`tank/{id}.json` 不预计算有效值。
+
 **逐炮塔/逐主炮装甲透出**（2026-10-17）：`tank/{id}.json` 的 `configs[]` 现在带
 **additive** `turret_plates`/`turret_spaced`（按 `config.turret_index` 对应的 models.pb
 炮塔变体）与 `gun_plates`/`gun_spaced`（逐主炮；`gun_thickness` 已有）。顶层
