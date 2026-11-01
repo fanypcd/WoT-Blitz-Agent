@@ -424,7 +424,16 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
    回拉比对 sha256，并在 WotbTools 仓跑 `bash deploy/assets/verify.sh https://assets.wotbtools.com`。
 8. 旧 release 保留回滚（至少保留当前 + 上一代）；`delta.json` 随 release 留存。
 
-**当前 release（2026-10-29）**：`t11-preview-20261029-techtree`，基于
+**当前 release（2026-11-01）**：`2d-basemap-v3-20261101`，基于 `t11-preview-20261029-techtree`
+硬链接复制 + **14 件 map2d 增量（29→43 全量枚举首发布）+ 43 件 cover 全新目录** + 2 个索引
+（`map2d/index.json` 43 条、`cover/index.json` 43 条）；旧 29 张 map2d 与上一代**逐字节相同**
+（配方确定性），故为纯增量。manifest **5978 件 / 4444.3 MB、0 mismatch**，`delta.json` 59 件
+（58 added + 1 modified），公网 14+43+2 件逐文件回拉 sha256 一致，`deploy/assets/verify.sh` PASS；
+回滚版本 `t11-preview-20261029-techtree`（5920 件 / 4430.1 MB，manifest 已按磁盘重算并保留原
+`generated`，校验 0 mismatch）。**发布注意**：`cp -al` 后 `manifest.json` 与上一代共享 inode，
+重算必须写新 inode（临时文件 + `os.replace`）——原地 `open(w)` 会同时污染回滚版本的 manifest。
+
+**上一 release（2026-10-29）**：`t11-preview-20261029-techtree`，基于
 `t11-preview-20261027-research-t11` 硬链接复制 + 9 件 `research/tech_tree/*.json`
 增量（9 国科技树坐标 + 整车研发边，含两辆 XI 预览节点）；manifest **5920 件 /
 4430.1 MB、0 mismatch**，`delta.json` 9 件，公网 9 个文件逐文件回拉 sha256，
