@@ -161,6 +161,16 @@ Android `wotbVersion` 已在消费分支 bump。
 `playback/boundary.ts` + `buildBoundary` 调用全撤），四周只保留客户端导出的
 `MapBorderRenderObject` 边界。
 
+**2026-11-17 续（用户报障）**：① **水面波纹仍不动**——地图模式墙钟把**秒**累加值当毫秒
+再 `/1000`，`uTime` 慢 1000 倍（实测 4 s 只走 0.004 s，肉眼等于静止；草风摆同样被拖慢）⇒
+改为 `AMBIENT_T += dt * 1000`（与 `T` 同单位）。② **三角形草**——导出器取同图首个 VRO
+（60k 档，lod0 为 27/7/7/3 顶点稀疏三角）；改为按 lod0 几何量取 **500 档完整草簇**
+（38/39/26/5 顶点、54–81 索引），实例预算仍 60k，28 图 `grass.*` 重导。③ **全部变体**——
+打包器 `index.json` 增 `variantKey`（注册表原 key）与 `variant`（GLB `scene.extras.
+variantByMapId` 的标签），同一资产 key 的全部变体条目保留；`mapBases.js` 增
+`variants: { <label>: { supremacy, assault } }` 全套点位；WotbTools 地图预览加变体切换，
+3D 按该变体 map_id 裁剪边界/基地（诺曼底 = Normandy / Hills / Beach，边界分别 nt0/nt1/nt2）。
+
 **未取证 / 边界**：草密度通道语义（`densityMapChannel=4`）按"第 4 通道 = alpha"解读；
 `flippedDensityMap` 按属性名字面（逐格镜像密度采样）实现——两者均无引擎源可对，已在
 导出器注释标注；边界材质为引擎内置、消费端按组件字段近似（颜色/区间/淡出逐字段照抄，

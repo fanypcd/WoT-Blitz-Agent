@@ -43,6 +43,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import struct
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -54,6 +55,29 @@ from pack_incremental import overlay_bytes
 from tank_image_overrides import apply_covers, load_catalog, matches_dataset
 
 GROUND_LAYERS = ["cm", "lm", "tile0", "tile1", "mask0", "mask1", "hmap0", "hmap1"]
+
+
+def glb_variant_map(path: Path) -> dict[str, str]:
+    """读 GLB scene extras 的 `variantByMapId`（map_id → 变体标签）。
+
+    多变体地图的资产只物化一份，index 里每个 id 仍需要自己的变体标签：预览端据此
+    切换变体、按标签取该变体的基地点位；3D 侧由 GLB scene extras 自行裁剪边界。
+    只读 GLB 头 + JSON chunk，不加载 43MB 二进制体。
+    """
+    try:
+        with path.open("rb") as f:
+            magic, _version, _length = struct.unpack("<III", f.read(12))
+            if magic != 0x46546C67:
+                return {}
+            chunk_len, chunk_type = struct.unpack("<II", f.read(8))
+            if chunk_type != 0x4E4F534A:
+                return {}
+            document = json.loads(f.read(chunk_len).decode("utf-8"))
+    except (OSError, ValueError, struct.error, UnicodeDecodeError):
+        return {}
+    extras = ((document.get("scenes") or [{}])[0].get("extras") or {})
+    mapping = extras.get("variantByMapId")
+    return mapping if isinstance(mapping, dict) else {}
 
 
 def sha256(p: Path) -> str:
@@ -474,12 +498,34 @@ def main() -> None:
         apply_covers(out, img_dir, True, catalog)
 
     # ---- index.json（前端一次性装载：数字 id → key） ----
+    # 多变体地图：key = 资产目录（同 space 只物化一份，所有变体共用），variant =
+    # 该 id 在场景里的变体标签（来自 GLB scene extras），variantKey = 注册表原 key。
+    # 预览端按 id 选变体（3D 裁剪边界用）、按 variant 取该变体的基地点位。
     generated = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    variant_cache: dict[str, dict[str, str]] = {}
+
+    def variant_of(entry: dict) -> str | None:
+        space = entry["space"]
+        if space not in variant_cache:
+            variant_cache[space] = glb_variant_map(cache_maps / f"{space}.glb")
+        return variant_cache[space].get(str(entry["map_id"]))
+
+    index_maps = {}
+    for e in maps:
+        item = {
+            "key": seen_spaces.get(e["space"], e["key"]),
+            "display": e["display"],
+            "variantKey": e["key"],
+        }
+        label = variant_of(e)
+        if label:
+            item["variant"] = label
+        index_maps[str(e["map_id"])] = item
     index = {
         "version": 1,
         "generated": generated,
         **provenance,
-        "maps": {str(e["map_id"]): {"key": seen_spaces.get(e["space"], e["key"]), "display": e["display"]} for e in maps},
+        "maps": index_maps,
     }
     (out / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=1),
                                     encoding="utf-8")

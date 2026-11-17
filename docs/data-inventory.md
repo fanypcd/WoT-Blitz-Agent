@@ -194,7 +194,7 @@ lumber_01、neptune_01）分段表与基础变体一致，共用基础目录。�
 | `map2d/<code>.webp` + `map2d/index.json` | 44 | §10b：`tools/export_2d_basemaps.py` 写（43 图 + index；**非打包器产物**，重打包后须重跑；资产 origin 免发版通道） |
 | `cover/<code>.webp` + `cover/index.json` | 44 | §10b：`tools/export_2d_basemaps.py` 写 512² picker 封面（43 图 + index；**非打包器产物**） |
 | `research/**` | 29 | 配置器数据（`meta.json` + 9 国别 `modules/*.json` + 全局目录/物品/技能/params/strings/涂装，20 件）+ `tech_tree/**` 9 件；由 `scripts/export_asset_pack.py` 从 `data/research/` 复制，图标仍留 WotbTools `common/research/icons/` |
-| `index.json` | 1 | 打包器生成（地图 id → key/display） |
+| `index.json` | 1 | 打包器生成（地图 id → `key`（资产目录）/`display`/`variantKey`（注册表原 key）/`variant`（场景变体标签，来自 GLB `scene.extras.variantByMapId`））。同 space 变体共用一份资产，预览端按 id 切变体、按标签取该变体的基地点位 |
 | `manifest.json` | — | 打包器生成（全量 sha256；本身不登记自己） |
 
 **`scenery.glb` 的语义 extras（2026-10-18）**：材质 `extras.sky` 由客户端 `Skyobject`
