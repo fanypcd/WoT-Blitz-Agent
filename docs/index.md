@@ -151,6 +151,15 @@ Android `wotbVersion` 已在消费分支 bump。
 回放传输（`T` 恒 0），作者风摆与水面法线滚动原本冻在首帧 ⇒ 消费端新增**地图模式墙钟**
 （`mapReady && !hasData` 时 `AMBIENT_T += dt`；回放仍用回放时钟，暂停/seek 语义不变）。
 
+**同日修正（用户报障）**：① **草颜色**——首版只乘灰度 albedo，漏了逐实例
+`vegetationColor`（`grass-fp.sl:103` 为 `albedo × vegetationColor × grassBaseColorMult`）；
+实例 9→12 字节补 RGB，密度/颜色采样统一按客户端 UV（`uv=0.5−pivot/worldSize`、
+`uvColor=(1−uv.x,uv.y)`），`flippedDensityMap` 改作几何镜像标记。② **边界变体**——
+`collect_map_border` 按 `LabelComponent` 分组、节点带 `extras.mdVariant`，基础图只显示本变体
+边界（此前全部合并 ⇒ 中间多出其它变体的内部边界线）。③ **删除旧边界带**（WotbTools
+`playback/boundary.ts` + `buildBoundary` 调用全撤），四周只保留客户端导出的
+`MapBorderRenderObject` 边界。
+
 **未取证 / 边界**：草密度通道语义（`densityMapChannel=4`）按"第 4 通道 = alpha"解读；
 `flippedDensityMap` 按属性名字面（逐格镜像密度采样）实现——两者均无引擎源可对，已在
 导出器注释标注；边界材质为引擎内置、消费端按组件字段近似（颜色/区间/淡出逐字段照抄，
