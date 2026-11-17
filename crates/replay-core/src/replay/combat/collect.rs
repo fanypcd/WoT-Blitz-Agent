@@ -334,13 +334,11 @@ pub fn provision_logical_id(wire_code: u8) -> Option<&'static str> {
 pub fn provision_family(wire_code: u8) -> Option<&'static str> {
     Some(match wire_code {
         // 大补给（德国/美国/苏联/英国/日本/中国/法国）
-        0x0E..=0x14 => [
-            "germany", "usa", "ussr", "uk", "japan", "china", "france",
-        ][(wire_code - 0x0E) as usize],
+        0x0E..=0x14 => ["germany", "usa", "ussr", "uk", "japan", "china", "france"]
+            [(wire_code - 0x0E) as usize],
         // 小补给（同序）
-        0x15..=0x1B => [
-            "germany", "usa", "ussr", "uk", "japan", "china", "france",
-        ][(wire_code - 0x15) as usize],
+        0x15..=0x1B => ["germany", "usa", "ussr", "uk", "japan", "china", "france"]
+            [(wire_code - 0x15) as usize],
         // 其他系（Hybrid Nation）
         0x2D | 0x2E => "other",
         // 欧洲通用（奶酪/肉桂卷；瑞典/捷克/波兰车被客户端 exclude 列表排除）
@@ -548,6 +546,86 @@ pub struct ModuleCrewStateEvent {
     pub component: ModuleComponent,
     pub state: ModuleState,
     pub related_eid: u32,
+}
+
+/// method38 组件 token 的逐模块损伤事件（作者路径：仅本录像者射击携带）。
+///
+/// method38 args 布局（总集 §3.3）：`[victim u32][flags16 u16][headerHi16 u16][count u8]
+/// [count × (componentToken u8 + rawState u8)][modifierCount u8]…`。
+/// token→组件见 [`ModuleComponent::from_code`]（31..43；42 未闭合保持 Unknown）；
+/// rawState（PROVEN）：**1 = 受损或乘员受伤 / 2 = critical/禁用族 / 0 = 命中但无新持久负面**。
+/// 记录出全部 token（含 state 0）而不是只挑 crit：state 0 本身是「命中已登记但无新负面」
+/// 的证据，消费方据 raw 自行呈现（禁按统计挑拣）。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModuleDamageState {
+    /// rawState 1：受损 / 乘员受伤
+    Damaged,
+    /// rawState 2：critical / 禁用族
+    Critical,
+    /// rawState 0：命中但无新的持久负面
+    NoChange,
+    /// 其他 raw 值（未观测，fail-closed 原样保留）
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct ModuleDamageEvent {
+    pub clock: f32,
+    /// 受击车辆实体
+    pub victim_eid: u32,
+    pub component_code: u8,
+    pub component: ModuleComponent,
+    pub state_code: u8,
+    pub state: ModuleDamageState,
+}
+
+/// method38 组件 token → 逐模块损伤事件（作者射击；他人路径无此包）。
+pub fn collect_module_damage_events(packets: &[(u32, f32, &[u8])]) -> Vec<ModuleDamageEvent> {
+    let mut out = Vec::new();
+    for (t, clock, p) in packets {
+        if *t != 8 || p.len() < 22 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != 38 {
+            continue;
+        }
+        let alen = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
+        if alen < 10 || 12 + alen > p.len() {
+            continue;
+        }
+        let a = &p[12..12 + alen];
+        let victim = u32::from_le_bytes([a[0], a[1], a[2], a[3]]);
+        let count = a[8] as usize;
+        if 9 + count * 2 > alen {
+            continue; // token 区截断：整包 fail-closed（不产出半套证据）
+        }
+        for i in 0..count {
+            let o = 9 + i * 2;
+            let component_code = a[o];
+            let state_code = a[o + 1];
+            let state = match state_code {
+                1 => ModuleDamageState::Damaged,
+                2 => ModuleDamageState::Critical,
+                0 => ModuleDamageState::NoChange,
+                _ => ModuleDamageState::Unknown,
+            };
+            out.push(ModuleDamageEvent {
+                clock: *clock,
+                victim_eid: victim,
+                component_code,
+                component: ModuleComponent::from_code(component_code),
+                state_code,
+                state,
+            });
+        }
+    }
+    out.sort_by(|x, y| {
+        x.clock
+            .partial_cmp(&y.clock)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    out
 }
 
 pub fn collect_module_crew_states(packets: &[(u32, f32, &[u8])]) -> Vec<ModuleCrewStateEvent> {
@@ -1245,14 +1323,12 @@ pub fn collect_consumable_transitions(packets: &[(u32, f32, &[u8])]) -> Vec<Cons
         let wire_code = body[2];
         let state = body[3];
         let param = f32::from_le_bytes(body[12..16].try_into().unwrap());
-        let (duration_s, ends_at) = if (state == 2 || state == 3)
-            && param.is_finite()
-            && param >= 0.0
-        {
-            (Some(param), Some(*clock + param))
-        } else {
-            (None, None)
-        };
+        let (duration_s, ends_at) =
+            if (state == 2 || state == 3) && param.is_finite() && param >= 0.0 {
+                (Some(param), Some(*clock + param))
+            } else {
+                (None, None)
+            };
         out.push(ConsumableTransition {
             clock: *clock,
             eid: u32::from_le_bytes([p[0], p[1], p[2], p[3]]),
@@ -1384,9 +1460,9 @@ pub(crate) fn decoded_target_gun_pitch(
     let bearing = bearing?;
     if let Some(w) = prefer {
         if w.eid == victim {
-            let err = ((w.inc_yaw - bearing + std::f32::consts::PI).rem_euclid(
-                std::f32::consts::TAU,
-            ) - std::f32::consts::PI)
+            let err = ((w.inc_yaw - bearing + std::f32::consts::PI)
+                .rem_euclid(std::f32::consts::TAU)
+                - std::f32::consts::PI)
                 .abs();
             if err <= super::shots::INC_YAW_TOL && w.inc_pitch.to_degrees().abs() <= 30.0 {
                 return Some((w.inc_pitch, w.inc_yaw));
@@ -2004,14 +2080,18 @@ mod consumable_tests {
         let f1 = mk32(0x21, 0x0D, 2, 10.0, 0.0);
         let f2 = mk32(0x21, 0x0D, 3, 10.0, 60.0);
         let f3 = mk32(0x21, 0x0D, 1, 70.0, 0.0);
-        let packets: Vec<(u32, f32, &[u8])> = vec![(32, 10.0, &f1), (32, 10.0, &f2), (32, 70.0, &f3)];
+        let packets: Vec<(u32, f32, &[u8])> =
+            vec![(32, 10.0, &f1), (32, 10.0, &f2), (32, 70.0, &f3)];
         let t = collect_consumable_transitions(&packets);
         assert_eq!(t.len(), 3);
         assert_eq!((t[0].duration_s, t[0].ends_at), (Some(0.0), Some(10.0)));
         assert_eq!(t[0].remaining_s_at(10.0), Some(0.0));
         assert_eq!((t[1].duration_s, t[1].ends_at), (Some(60.0), Some(70.0)));
         assert_eq!(t[1].remaining_s_at(25.0), Some(45.0));
-        assert_eq!((t[2].state_name, t[2].ends_at), (ConsumableState::Initialized, None));
+        assert_eq!(
+            (t[2].state_name, t[2].ends_at),
+            (ConsumableState::Initialized, None)
+        );
         assert!(t.iter().all(|c| c.ever_activated), "state2 起均为已使用");
     }
 
@@ -2022,7 +2102,10 @@ mod consumable_tests {
         let packets: Vec<(u32, f32, &[u8])> = vec![(32, 10.0, &f1), (32, 11.0, &f2)];
         let t = collect_consumable_transitions(&packets);
         assert_eq!(t[0].state_name, ConsumableState::Teardown);
-        assert_eq!((t[0].duration_s, t[0].ends_at, t[0].remaining_s_at(12.0)), (None, None, None));
+        assert_eq!(
+            (t[0].duration_s, t[0].ends_at, t[0].remaining_s_at(12.0)),
+            (None, None, None)
+        );
         assert_eq!(t[1].state_name, ConsumableState::Unknown);
         assert_eq!((t[1].duration_s, t[1].ends_at), (None, None));
     }
@@ -2125,7 +2208,10 @@ mod loadout_tests {
         assert_eq!(v.items.len(), 6, "标准 3 消耗品 + 3 给养 = 6 条描述符");
         assert_eq!(v.equipment, [100, 101, 102, 103, 104, 105, 106, 107, 108]);
         assert_eq!(v.equipment_count, 9);
-        assert_eq!(v.equipment_ids, vec![100, 101, 102, 103, 104, 105, 106, 107, 108]);
+        assert_eq!(
+            v.equipment_ids,
+            vec![100, 101, 102, 103, 104, 105, 106, 107, 108]
+        );
         assert_eq!(v.items[0][0], 0x0B, "描述符原样保留（不解析内部）");
         assert_eq!(v.items[5][0], 0x15);
         assert_eq!(v.consumables.len(), 3);
@@ -2147,7 +2233,11 @@ mod loadout_tests {
                 .iter()
                 .map(|i| i.logical_id.as_deref())
                 .collect::<Vec<_>>(),
-            vec![Some("LARGE_FOOD"), Some("IMPROVED_FUEL"), Some("SMALL_FOOD")]
+            vec![
+                Some("LARGE_FOOD"),
+                Some("IMPROVED_FUEL"),
+                Some("SMALL_FOOD")
+            ]
         );
         // 兼容入口取同一 9B 串
         assert_eq!(
@@ -2175,7 +2265,10 @@ mod loadout_tests {
         let eq = VehicleEquipment::from_ids(&v.equipment);
         assert!(eq.calibrated_shells, "103 = 校准弹应判为已装备");
         assert!(eq.enhanced_armor, "110 = 强化装甲应判为已装备");
-        assert!(eq.improved_pitch_limits, "122 = 改进型垂直稳定器应判为已装备");
+        assert!(
+            eq.improved_pitch_limits,
+            "122 = 改进型垂直稳定器应判为已装备"
+        );
         let json = serde_json::to_value(&eq).unwrap();
         assert_eq!(json["improved_pitch_limits"], true);
     }
@@ -2185,7 +2278,8 @@ mod loadout_tests {
     fn equipment_omits_improved_pitch_limits_when_not_equipped() {
         let payload = mk_type5_loadout_with(3, &[103, 109, 107, 110]);
         let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &payload)];
-        let eq = VehicleEquipment::from_ids(collect_vehicle_equipment(&packets).get(&0x31).unwrap());
+        let eq =
+            VehicleEquipment::from_ids(collect_vehicle_equipment(&packets).get(&0x31).unwrap());
         assert!(!eq.improved_pitch_limits);
         let json = serde_json::to_value(&eq).unwrap();
         assert!(
@@ -2278,7 +2372,8 @@ mod loadout_tests {
         // 5 件、不含 103/110 → 两个标志均 false（短串不是"全 true"的兜底）
         let payload = mk_type5_loadout_with(6, &[100, 109, 114, 104, 111]);
         let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &payload)];
-        let eq = VehicleEquipment::from_ids(collect_vehicle_equipment(&packets).get(&0x31).unwrap());
+        let eq =
+            VehicleEquipment::from_ids(collect_vehicle_equipment(&packets).get(&0x31).unwrap());
         assert!(!eq.calibrated_shells && !eq.enhanced_armor);
 
         // 帧尾护栏：串后不是 `0C 00 0D`（改尾字节 / 直接截断）的伪造块不得被采纳
@@ -2339,9 +2434,16 @@ mod loadout_tests {
                 .iter()
                 .map(|i| i.logical_id.as_deref())
                 .collect::<Vec<_>>(),
-            vec![Some("LARGE_FOOD"), Some("IMPROVED_FUEL"), Some("SMALL_FOOD")]
+            vec![
+                Some("LARGE_FOOD"),
+                Some("IMPROVED_FUEL"),
+                Some("SMALL_FOOD")
+            ]
         );
-        assert!(v.consumables.iter().all(|i| i.kind == LoadoutItemKind::Consumable));
+        assert!(v
+            .consumables
+            .iter()
+            .all(|i| i.kind == LoadoutItemKind::Consumable));
     }
 
     /// 11.20/11.21 补给块扩展：同一连续大/小补给块 + 其他系 + 防破片内衬 + 欧系/瑞典
@@ -2358,19 +2460,27 @@ mod loadout_tests {
             (0x2E, "SMALL_FOOD"),
             (0x32, "SPALL_LINER"),
         ] {
-            assert_eq!(provision_logical_id(wire), Some(logical), "wire {wire:#04x}");
+            assert_eq!(
+                provision_logical_id(wire),
+                Some(logical),
+                "wire {wire:#04x}"
+            );
         }
         // 欧系/瑞典食物对：0x46=欧系大、0x47=欧系小（WotbTools 11.19 生产映射）；
         // 瑞典对顺序相反——0x48=瑞典小(脆饼)、0x49=瑞典大(三文鱼)。
         // **受控实验钉死（2026-10-31）**：Kranvagn 亲装大补给 → 线码 0x49。
         // v0.4.18 曾按「103..110 连续 −33」把 0x48/0x49 反标，已被证伪撤销。
         for (wire, logical) in [
-            (0x46, "LARGE_FOOD"),  // 103 Cheesehead（意大利车观测）
-            (0x47, "SMALL_FOOD"),  // 104 Cinnamon Roll
-            (0x48, "SMALL_FOOD"),  // 106 Crispbread（WotbTools 11.19 结算体观测）
-            (0x49, "LARGE_FOOD"),  // 105 Grilled Salmon（受控实验 + 11.19）
+            (0x46, "LARGE_FOOD"), // 103 Cheesehead（意大利车观测）
+            (0x47, "SMALL_FOOD"), // 104 Cinnamon Roll
+            (0x48, "SMALL_FOOD"), // 106 Crispbread（WotbTools 11.19 结算体观测）
+            (0x49, "LARGE_FOOD"), // 105 Grilled Salmon（受控实验 + 11.19）
         ] {
-            assert_eq!(provision_logical_id(wire), Some(logical), "wire {wire:#04x}");
+            assert_eq!(
+                provision_logical_id(wire),
+                Some(logical),
+                "wire {wire:#04x}"
+            );
         }
         // 捷克：0x4A = 红烩牛肉/Goulash(107) 大——受控实验钉死（2026-10-31 Vz.55 亲装
         // 大口粮 → 0x4A）；0x4B = 油炸奶酪/Fried Cheese(108) 小——0x4A 钉死后按成对 +
@@ -2426,15 +2536,25 @@ mod loadout_tests {
             (0x6B, "IMPROVED_GEAR_OIL"),
             (0x6C, "IMPROVED_GUNPOWDER"),
         ] {
-            assert_eq!(provision_logical_id(wire), Some(logical), "wire {wire:#04x}");
+            assert_eq!(
+                provision_logical_id(wire),
+                Some(logical),
+                "wire {wire:#04x}"
+            );
         }
-        assert_eq!(consumable_logical_id(0x0B), Some("MULTI_PURPOSE_RESTORATION_PACK"));
+        assert_eq!(
+            consumable_logical_id(0x0B),
+            Some("MULTI_PURPOSE_RESTORATION_PACK")
+        );
         assert_eq!(
             consumable_logical_id(0xA9),
             Some("DYNAMIC_ARMOUR_SYSTEM"),
             "0xA9 = armorMover（目录 id 73；Titan Strife）"
         );
-        assert_eq!(consumable_logical_id(0xBD), Some("REDUCED_ENGINE_POWER_BOOST"));
+        assert_eq!(
+            consumable_logical_id(0xBD),
+            Some("REDUCED_ENGINE_POWER_BOOST")
+        );
         assert_eq!(ability_logical_id(0x67), Some("GRAVITY_JUMP"));
         assert_eq!(ability_logical_id(0xFE), None, "未知能力不猜名");
         assert_eq!(provision_logical_id(0xFE), None, "未知线码不猜名");
@@ -2452,10 +2572,16 @@ mod loadout_tests {
         ];
         let payload = mk_type5_items(&items, &[100, 109, 114, 104]);
         let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &payload)];
-        let v = collect_vehicle_loadout(&packets).get(&0x31).cloned().unwrap();
+        let v = collect_vehicle_loadout(&packets)
+            .get(&0x31)
+            .cloned()
+            .unwrap();
         assert_eq!(v.provisions.len(), 1);
         let p = &v.provisions[0];
-        assert_eq!((p.wire_code, p.state, p.logical_id.as_deref()), (0x9F, 1, None));
+        assert_eq!(
+            (p.wire_code, p.state, p.logical_id.as_deref()),
+            (0x9F, 1, None)
+        );
         assert_eq!(p.payload_raw[8..12], [0x00, 0x00, 0x80, 0xBF]);
         assert_eq!(p.kind, LoadoutItemKind::Provision);
     }
@@ -2481,7 +2607,10 @@ mod loadout_tests {
         ];
         let payload = mk_type5_items(&items, &[100, 109, 114, 104]);
         let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &payload)];
-        let v = collect_vehicle_loadout(&packets).get(&0x31).cloned().unwrap();
+        let v = collect_vehicle_loadout(&packets)
+            .get(&0x31)
+            .cloned()
+            .unwrap();
         let by_wire = |w: u8| {
             v.provisions
                 .iter()
@@ -2522,7 +2651,10 @@ mod loadout_tests {
         let eq = [103, 109, 122, 107, 110];
         let payload = mk_type5_items(&items, &eq);
         let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &payload)];
-        let v = collect_vehicle_loadout(&packets).get(&0x31).cloned().unwrap();
+        let v = collect_vehicle_loadout(&packets)
+            .get(&0x31)
+            .cloned()
+            .unwrap();
         assert_eq!(v.consumables.len(), 3);
         assert!(v.provisions.is_empty());
         assert!(v.abilities.is_empty());
@@ -2550,7 +2682,10 @@ mod loadout_tests {
         );
         let packets: Vec<(u32, f32, &[u8])> =
             vec![(5, 1.0, first.as_slice()), (5, 2.0, second.as_slice())];
-        let v = collect_vehicle_loadout(&packets).get(&0x31).cloned().unwrap();
+        let v = collect_vehicle_loadout(&packets)
+            .get(&0x31)
+            .cloned()
+            .unwrap();
         assert_eq!(v.items.len(), 6);
         assert_eq!(v.consumables.len(), 3);
         assert_eq!(v.provisions.len(), 3);
@@ -2562,7 +2697,10 @@ mod loadout_tests {
     fn maps_consumable_wire_code_to_loadout_slot() {
         let payload = mk_type5_loadout();
         let packets: Vec<(u32, f32, &[u8])> = vec![(5, 1.0, &payload)];
-        let v = collect_vehicle_loadout(&packets).get(&0x31).cloned().unwrap();
+        let v = collect_vehicle_loadout(&packets)
+            .get(&0x31)
+            .cloned()
+            .unwrap();
         assert_eq!(consumable_slot_of(&v, 0x0B), Some(0));
         assert_eq!(consumable_slot_of(&v, 0x0D), Some(1));
         assert_eq!(consumable_slot_of(&v, 0x09), Some(2));
@@ -2795,7 +2933,13 @@ mod dmg_attribution_tests {
     use super::*;
 
     fn ev(clock: f32, victim: u32, hp: u16, source: u32) -> HpEvent {
-        HpEvent { clock, victim, hp, source, cause: 0 }
+        HpEvent {
+            clock,
+            victim,
+            hp,
+            source,
+            cause: 0,
+        }
     }
 
     /// 同 tick 双命中同一受害者：逐事件采样必须保留两条降幅（旧"同钟异值整组丢弃"
@@ -2815,11 +2959,11 @@ mod dmg_attribution_tests {
 
         // 全 source：三段降幅逐事件成立
         let all = derive_dmg_losses(&events, None, &seed);
-        let got: Vec<(u32, u32, u16)> = all
-            .iter()
-            .map(|l| (l.source, l.dmg, l.hp_cur))
-            .collect();
-        assert_eq!(got, vec![(author, 357, 3213), (other, 341, 2872), (author, 389, 2483)]);
+        let got: Vec<(u32, u32, u16)> = all.iter().map(|l| (l.source, l.dmg, l.hp_cur)).collect();
+        assert_eq!(
+            got,
+            vec![(author, 357, 3213), (other, 341, 2872), (author, 389, 2483)]
+        );
 
         // 作者过滤：只剩本人的两段（357 / 389），绝不合成 1087
         let mine = derive_dmg_losses(&events, Some(author), &seed);
@@ -2835,16 +2979,40 @@ mod dmg_attribution_tests {
         let other = 1002u32;
         let victim = 2001u32;
         let losses = vec![
-            DmgLoss { victim, source: author, t_cur: 74.94986, dmg: 357, hp_cur: 3213 },
-            DmgLoss { victim, source: other, t_cur: 74.94986, dmg: 341, hp_cur: 2872 },
-            DmgLoss { victim, source: author, t_cur: 82.632904, dmg: 389, hp_cur: 2483 },
+            DmgLoss {
+                victim,
+                source: author,
+                t_cur: 74.94986,
+                dmg: 357,
+                hp_cur: 3213,
+            },
+            DmgLoss {
+                victim,
+                source: other,
+                t_cur: 74.94986,
+                dmg: 341,
+                hp_cur: 2872,
+            },
+            DmgLoss {
+                victim,
+                source: author,
+                t_cur: 82.632904,
+                dmg: 389,
+                hp_cur: 2483,
+            },
             // 位于两次命中之间的"孤儿"降幅（如别的来源未广播的伤害落入作者链）
-            DmgLoss { victim, source: author, t_cur: 80.0, dmg: 999, hp_cur: 0 },
+            DmgLoss {
+                victim,
+                source: author,
+                t_cur: 80.0,
+                dmg: 999,
+                hp_cur: 0,
+            },
         ];
         let shots: Vec<Option<(f32, u32, u32)>> = vec![
             Some((74.94986, author, victim)),  // 首发：357（不是 999、不是 341）
             Some((74.94986, other, victim)),   // 同刻他射：341
-            Some((82.632904, author, victim)),  // 第二发：389
+            Some((82.632904, author, victim)), // 第二发：389
         ];
         let got = assign_dmg_losses(&shots, &losses);
         assert_eq!(got.get(&0), Some(&(357, 3213)));
@@ -2859,8 +3027,20 @@ mod dmg_attribution_tests {
         let author = 1001u32;
         let victim = 2001u32;
         let losses = vec![
-            DmgLoss { victim, source: author, t_cur: 50.0, dmg: 100, hp_cur: 900 },
-            DmgLoss { victim, source: author, t_cur: 50.0, dmg: 120, hp_cur: 780 },
+            DmgLoss {
+                victim,
+                source: author,
+                t_cur: 50.0,
+                dmg: 100,
+                hp_cur: 900,
+            },
+            DmgLoss {
+                victim,
+                source: author,
+                t_cur: 50.0,
+                dmg: 120,
+                hp_cur: 780,
+            },
         ];
         let shots: Vec<Option<(f32, u32, u32)>> = vec![
             Some((50.0, author, victim)),

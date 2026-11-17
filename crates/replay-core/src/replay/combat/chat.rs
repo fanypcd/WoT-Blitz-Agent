@@ -92,17 +92,177 @@ pub struct RawNotification {
     pub code: u16,
 }
 
+/// 0x2f（onChatAction）的事件类别——**只命名已由语料证实的类别**，其余 raw 透传。
+///
+/// 证据（15 场跟踪语料 305 条动作事件，逐类比对与实战语义吻合）：
+/// - `message`（code 1）：pickle 顶层 = 文本串，前缀名 = 发送者；真实聊天正文（43 条，
+///   含 "how do get that tank?" / "?" / "zetzu" / 泰文等）；
+/// - `command`（code 20）：pickle = (cmdId, targetId, 0, '', '')，前缀名 = 发送者；
+///   快捷指令/战场标记（blitzinfo 同族 chatCommand 语义），cmdId 语义未逐一闭合 →
+///   原样透传（禁命名）；
+/// - `join`（code 0）/ `leave`（code 2）：频道成员进出（pickle = 名字串 / None）；
+/// - `channel_created`（code 7）：开局频道建立/问候，pickle = (ownerName, greeting)，
+///   全部出现在开战前 20 秒；
+/// - `other`：其余 code（22/4/8 等，频率极低）原样透传。
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatEventKind {
+    Message,
+    Command,
+    Join,
+    Leave,
+    ChannelCreated,
+    Other,
+}
+
+/// 一条聊天域事件（0x2f onChatAction 已解码子集）。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ChatEvent {
+    pub t: f32,
+    pub kind: ChatEventKind,
+    /// 原始事件码（u16，前 10 字节 `[ff×8][code u16]`）——未命名类别的唯一证据。
+    pub raw_type: u16,
+    /// 频道句柄（前 26..30 字节；与 `chat_channels[].id` 同域）
+    pub channel: u32,
+    /// 发送者/参与者名（前缀字段；与原名字节逐字一致）
+    pub sender: String,
+    /// 聊天正文（仅 `message`）；其余类别为空
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub text: String,
+    /// 快捷指令码（仅 `command`）：pickle 元组第 0 项，语义未闭合 → 原样透传
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<i64>,
+    /// 指令目标（仅 `command`）：pickle 元组第 1 项（0 = 无目标），语义未闭合
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<i64>,
+}
+
+/// 一条 0x2f 动作事件的**原始**解码结果（投影层转 [`ChatEvent`]）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct RawChatAction {
+    pub clock: f32,
+    pub code: u16,
+    pub channel: u32,
+    pub sender: String,
+    pub(crate) pickle: Option<PickleVal>,
+}
+
+/// 解析 0x2f 动作事件的固定前缀 + pickle：
+/// `[ff×8][code u16][f64][f64][channel u32][session u32][0 u32][nameLen u8][name][00][pickleLen u8][pickle]`
+/// （频道表那一条是 379B 大包、走 [`pickle_channels`]，此处 `nameLen` 字段不成立 → 返回 None）。
+fn parse_chat_action(args: &[u8]) -> Option<RawChatAction> {
+    if args.len() < 40 || args[0..8] != [0xFF; 8] {
+        return None;
+    }
+    let code = u16::from_le_bytes([args[8], args[9]]);
+    let channel = u32::from_le_bytes([args[26], args[27], args[28], args[29]]);
+    let name_len = args[38] as usize;
+    let name_end = 39usize.checked_add(name_len)?;
+    if name_end + 2 > args.len() {
+        return None;
+    }
+    let sender = std::str::from_utf8(&args[39..name_end]).ok()?.to_string();
+    if args[name_end] != 0x00 {
+        return None; // 名字后必须是 0 分隔（否则不是动作事件形状）
+    }
+    let pickle_len = args[name_end + 1] as usize;
+    let pickle_start = name_end + 2;
+    let pickle_end = pickle_start.checked_add(pickle_len)?;
+    if pickle_end > args.len() {
+        return None;
+    }
+    let pickle = if pickle_len == 0 {
+        None
+    } else {
+        Some(pickle_parse(&args[pickle_start..pickle_end])?)
+    };
+    Some(RawChatAction {
+        clock: 0.0, // 由收集器填入
+        code,
+        channel,
+        sender,
+        pickle,
+    })
+}
+
+/// 0x2f 动作事件收集（消息 / 快捷指令 / 成员进出 / 频道建立；频道表大包由
+/// [`collect_chat_channels`] 处理，此处跳过）。
+pub fn collect_chat_events(packets: &[(u32, f32, &[u8])]) -> Vec<RawChatAction> {
+    let mut out = Vec::new();
+    for (kind, clock, p) in packets {
+        if *kind != METHOD_PACKET || p.len() < 12 {
+            continue;
+        }
+        if u32::from_le_bytes([p[4], p[5], p[6], p[7]]) != AVATAR_CHAT_CHANNELS {
+            continue;
+        }
+        let alen = u32::from_le_bytes([p[8], p[9], p[10], p[11]]) as usize;
+        if 12 + alen > p.len() {
+            continue;
+        }
+        let args = &p[12..12 + alen];
+        if args.len() >= 300 {
+            continue; // 频道表（pickle 列表）
+        }
+        if let Some(mut action) = parse_chat_action(args) {
+            action.clock = *clock;
+            out.push(action);
+        }
+    }
+    out
+}
+
+/// 把原始动作投影为 [`ChatEvent`]（类别判定只用已证实映射；未知 code → Other）。
+pub fn chat_event_from_raw(raw: &RawChatAction) -> ChatEvent {
+    let mut ev = ChatEvent {
+        t: raw.clock,
+        kind: ChatEventKind::Other,
+        raw_type: raw.code,
+        channel: raw.channel,
+        sender: raw.sender.clone(),
+        text: String::new(),
+        command: None,
+        target: None,
+    };
+    match (raw.code, &raw.pickle) {
+        // 1 = 聊天正文（pickle 顶层 = 文本串）
+        (1, Some(PickleVal::Str(text))) => {
+            ev.kind = ChatEventKind::Message;
+            ev.text = text.clone();
+        }
+        // 20 = 快捷指令（pickle = (cmdId, targetId, 0, '', '')）
+        (20, Some(PickleVal::Tuple(items))) => {
+            ev.kind = ChatEventKind::Command;
+            if let Some(PickleVal::Int(cmd)) = items.first() {
+                ev.command = Some(*cmd);
+            }
+            if let Some(PickleVal::Int(target)) = items.get(1) {
+                ev.target = Some(*target);
+            }
+        }
+        // 0 = 成员进入（pickle = 名字串）；2 = 成员离开（pickle = None）
+        (0, _) => ev.kind = ChatEventKind::Join,
+        (2, _) => ev.kind = ChatEventKind::Leave,
+        // 7 = 频道建立/问候（pickle = (ownerName, greeting)）
+        (7, _) => ev.kind = ChatEventKind::ChannelCreated,
+        _ => {}
+    }
+    ev
+}
+
 // ---------------------------------------------------------------------------
 // 极简 pickle 栈机（仅 protocol-2 观测操作码子集；未知操作码 / 形状不符 → None）
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq)]
-enum PickleVal {
+pub(crate) enum PickleVal {
     Int(i64),
     Str(String),
     Bool(bool),
+    None,
     List(Vec<PickleVal>),
     Dict(Vec<(String, PickleVal)>),
+    Tuple(Vec<PickleVal>),
     Mark,
 }
 
@@ -122,6 +282,11 @@ const OP_LONG_BINPUT: u8 = b'r'; // 0x72 [idx u32]
 const OP_BINGET: u8 = b'h'; // 0x68 [idx u8]
 const OP_SETITEMS: u8 = b'u'; // 0x75（'s'=单对 SETITEM 0x73，未观测不支持）
 const OP_APPENDS: u8 = b'e'; // 0x65
+const OP_NONE: u8 = b'N'; // 0x4E
+const OP_TUPLE: u8 = b't'; // 0x74（MARK..TUPLE）
+const OP_TUPLE1: u8 = 0x85;
+const OP_TUPLE2: u8 = 0x86;
+const OP_TUPLE3: u8 = 0x87;
 const OP_STOP: u8 = b'.'; // 0x2E
 
 /// 解析整段 pickle，返回栈顶值；任何未支持操作码 / 截断 / 悬空 Mark → None。
@@ -160,16 +325,16 @@ fn pickle_parse(data: &[u8]) -> Option<PickleVal> {
             }
             OP_BININT2 => {
                 need!(2);
-                stack.push(PickleVal::Int(i16::from_le_bytes(
-                    data[pos..pos + 2].try_into().ok()?,
-                ) as i64));
+                stack.push(PickleVal::Int(
+                    i16::from_le_bytes(data[pos..pos + 2].try_into().ok()?) as i64,
+                ));
                 pos += 2;
             }
             OP_BININT4 => {
                 need!(4);
-                stack.push(PickleVal::Int(i32::from_le_bytes(
-                    data[pos..pos + 4].try_into().ok()?,
-                ) as i64));
+                stack.push(PickleVal::Int(
+                    i32::from_le_bytes(data[pos..pos + 4].try_into().ok()?) as i64,
+                ));
                 pos += 4;
             }
             OP_INT => {
@@ -246,6 +411,26 @@ fn pickle_parse(data: &[u8]) -> Option<PickleVal> {
                     _ => return None, // 容器种类与操作码不符
                 }
             }
+            OP_NONE => stack.push(PickleVal::None),
+            OP_TUPLE1 | OP_TUPLE2 | OP_TUPLE3 => {
+                let arity = match op {
+                    OP_TUPLE1 => 1,
+                    OP_TUPLE2 => 2,
+                    _ => 3,
+                };
+                if stack.len() < arity {
+                    return None;
+                }
+                let items: Vec<PickleVal> = stack.split_off(stack.len() - arity);
+                stack.push(PickleVal::Tuple(items));
+            }
+            OP_TUPLE => {
+                // MARK..TUPLE：Mark 之上为元素
+                let mark = stack.iter().rposition(|v| matches!(v, PickleVal::Mark))?;
+                let items: Vec<PickleVal> = stack.drain(mark + 1..).collect();
+                stack.pop(); // Mark
+                stack.push(PickleVal::Tuple(items));
+            }
             OP_STOP => break,
             _ => return None, // 未知操作码：fail-closed
         }
@@ -257,7 +442,8 @@ fn pickle_parse(data: &[u8]) -> Option<PickleVal> {
 fn pickle_channels(args: &[u8]) -> Option<Vec<ChatChannel>> {
     // PROTO 头定位：前缀未闭合，扫描前 64 字节内的 `80 02`（语料恒为 44B 前缀后的 0x80 0x02）
     let scan_end = args.len().min(64);
-    let proto_at = (0..scan_end.saturating_sub(1)).find(|&i| args[i] == 0x80 && args[i + 1] == 0x02)?;
+    let proto_at =
+        (0..scan_end.saturating_sub(1)).find(|&i| args[i] == 0x80 && args[i + 1] == 0x02)?;
     let val = pickle_parse(&args[proto_at..])?;
     // 兼容 pickle 尾部（语料 STOP 后即结束；若有多余字节以首个 list 为准）
     let PickleVal::List(mut items) = val else {
@@ -412,8 +598,7 @@ mod tests {
     const ARGS_2F: &str = "ffffffffffffffff060097adac9d89adda41eeb4ac9d89adda4100000000ffffffffffffffff0000ff4e010080025d7101287d7102285508697353797374656d710389550a6973526561644f6e6c797104895504646249447105492d383132383838343532373939383538300a550b6e6f74696679466c61677371064b00550969735365637572656471078955086772656574696e67710855005505666c61677371094b0255096f776e65724e616d65710a550055056f776e6572710b49343232353131313434333235323835320a550b6368616e6e656c4e616d65710c551c23636861743a6368616e6e656c732f626174746c652f636f6d6d6f6e710d55026964710e4a2de11c00757d710f286803896804896805492d383132383838383832323936353837360a68064b006807896808550068094b03680a5500680b49343232353131313434333235323835320a680c551a23636861743a6368616e6e656c732f626174746c652f7465616d7110680e4a2ee11c0075652e00";
 
     /// 真实 0x2b args（20261002_2147 中文客户端样本）
-    const ARGS_2B: &str =
-        "013d4b75ba0000000018e788b1e78ea9e6b8b8e6888fe79a84e5b191e58d97e58789";
+    const ARGS_2B: &str = "013d4b75ba0000000018e788b1e78ea9e6b8b8e6888fe79a84e5b191e58d97e58789";
 
     #[test]
     fn pickle_channels_parse_real_fixture() {
@@ -489,5 +674,55 @@ mod tests {
         let data = hex(ARGS_2F);
         let proto_at = data.windows(2).position(|w| w == [0x80, 0x02]).unwrap();
         assert!(pickle_parse(&data[proto_at..proto_at + 40]).is_none());
+    }
+    // ---- 0x2f onChatAction（全类型）----
+
+    /// 真实 0x2f 动作 args（20260902_2053 场）：join / message / leave / command 各一。
+    const ACTION_JOIN: &str = "ffffffffffffffff00009486f41207a6da41a9a3fb1207a6da4150a51700dd61db780000000012424c41434b5f54524f4f505f736e69706572001980025512424c41434b5f54524f4f505f736e6970657271012e00";
+    const ACTION_MSG: &str = "ffffffffffffffff01004c8efc1507a6da418290ea1707a6da4150a51700dd61db780000000012424c41434b5f54524f4f505f736e69706572001c80025515686f7720646f2067657420746861742074616e6b3f71012e00";
+    const ACTION_LEAVE: &str = "ffffffffffffffff02003dd65d2107a6da41bd355e2107a6da4150a5170030d771b3000000000d756e6465726c696e6531303236000480024e2e00";
+    const ACTION_CMD: &str = "ffffffffffffffff1400d559952207a6da41c825952207a6da4150a51700e1787578000000000e50726174616d615f476572616c6400148002284b1d4a55a517004b00550055007471012e00";
+
+    #[test]
+    fn chat_action_message_parses_sender_and_text() {
+        let raw = parse_chat_action(&hex(ACTION_MSG)).expect("message action must parse");
+        assert_eq!(raw.code, 1);
+        assert_eq!(raw.sender, "BLACK_TROOP_sniper");
+        assert_eq!(raw.channel, 0x0017_A550);
+        let ev = chat_event_from_raw(&raw);
+        assert_eq!(ev.kind, ChatEventKind::Message);
+        assert_eq!(ev.text, "how do get that tank?");
+        assert_eq!(ev.sender, "BLACK_TROOP_sniper");
+    }
+
+    #[test]
+    fn chat_action_join_leave_command_kinds() {
+        let join = chat_event_from_raw(&parse_chat_action(&hex(ACTION_JOIN)).unwrap());
+        assert_eq!(join.kind, ChatEventKind::Join);
+        let leave = chat_event_from_raw(&parse_chat_action(&hex(ACTION_LEAVE)).unwrap());
+        assert_eq!(leave.kind, ChatEventKind::Leave);
+        assert_eq!(leave.sender, "underline1026");
+        let cmd = chat_event_from_raw(&parse_chat_action(&hex(ACTION_CMD)).unwrap());
+        assert_eq!(cmd.kind, ChatEventKind::Command);
+        assert_eq!(cmd.sender, "Pratama_Gerald");
+        assert_eq!(cmd.command, Some(29));
+        assert_eq!(cmd.target, Some(1_549_653)); // tuple[1] 原样（指令目标域，语义未闭合）
+    }
+
+    #[test]
+    fn channel_table_is_not_treated_as_action() {
+        // 频道表（379B pickle 列表）没有动作前缀的 nameLen 形状 → None
+        let args = hex(ARGS_2F);
+        assert!(parse_chat_action(&args).is_none());
+    }
+
+    #[test]
+    fn unknown_action_code_is_preserved_raw() {
+        let mut args = hex(ACTION_MSG);
+        args[8] = 22; // 未命名类别
+        let raw = parse_chat_action(&args).expect("shape still valid");
+        let ev = chat_event_from_raw(&raw);
+        assert_eq!(ev.kind, ChatEventKind::Other);
+        assert_eq!(ev.raw_type, 22);
     }
 }

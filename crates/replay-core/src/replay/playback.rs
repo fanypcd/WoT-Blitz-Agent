@@ -755,6 +755,15 @@ pub struct PlaybackData {
     /// 单发通知（Avatar method 0x12；`code` 语义未定，原样透传——消费方不得命名/猜测）。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notifications: Vec<combat::NotificationEvent>,
+    /// 聊天域动作事件（Avatar method 0x2f 全类型，pickle 解码）：聊天正文（code 1）/
+    /// 快捷指令（code 20，指令码原样透传）/ 成员进出（0/2）/ 频道建立（7）/ 其他 raw。
+    /// 契约 additive：消费方忽略未知键。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chat_events: Vec<combat::ChatEvent>,
+    /// 逐模块损伤事件（method38 组件 token；作者路径）：victim/组件/rawState 一一对应，
+    /// rawState 0=无新负面 1=受损 2=critical。契约 additive：消费方忽略未知键。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub module_damage_events: Vec<combat::ModuleDamageEvent>,
 }
 
 /// Project the model's raw rigid bodies without AvatarFilter, terrain snapping,
@@ -1038,6 +1047,21 @@ pub fn attach_packet_evidence(data: &mut PlaybackData, packets: &[(u32, f32, &[u
             t: r2(n.clock),
             subject: n.subject,
             code: n.code,
+        })
+        .collect();
+    data.chat_events = crate::replay::combat::collect_chat_events(packets)
+        .iter()
+        .map(|raw| {
+            let mut ev = crate::replay::combat::chat_event_from_raw(raw);
+            ev.t = r2(ev.t);
+            ev
+        })
+        .collect();
+    data.module_damage_events = crate::replay::combat::collect_module_damage_events(packets)
+        .into_iter()
+        .map(|ev| crate::replay::combat::ModuleDamageEvent {
+            clock: r2(ev.clock),
+            ..ev
         })
         .collect();
     for shot in &mut data.shots {
@@ -1340,10 +1364,7 @@ pub fn from_model(
         .filter(|k| candidates.contains_key(&k.victim_eid))
         .collect();
 
-    let mut shots: Vec<PlaybackShot> = shots_raw
-        .iter()
-        .map(to_playback_shot)
-        .collect();
+    let mut shots: Vec<PlaybackShot> = shots_raw.iter().map(to_playback_shot).collect();
     shots.sort_by(|a, b| a.t_fire.partial_cmp(&b.t_fire).unwrap());
 
     let periods_out: Vec<PeriodPoint> = periods
@@ -1382,6 +1403,8 @@ pub fn from_model(
         chat_channels: Vec::new(), // 原始包证据：attach_packet_evidence 回填（同 armor_states 边界）
         chat_messages: Vec::new(),
         notifications: Vec::new(),
+        chat_events: Vec::new(), // 原始包证据：attach_packet_evidence 回填
+        module_damage_events: Vec::new(),
         supremacy_bases: model
             .timeline
             .supremacy_bases
@@ -1777,12 +1800,32 @@ mod tests {
             .eid;
         let max_run = |mut clocks: Vec<f32>| -> usize {
             clocks.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            clocks.chunk_by(|a, b| a == b).map(|c| c.len()).max().unwrap_or(0)
+            clocks
+                .chunk_by(|a, b| a == b)
+                .map(|c| c.len())
+                .max()
+                .unwrap_or(0)
         };
-        let st10_run = max_run(model.timeline.poses[&author_eid].iter().map(|s| s.clock).collect());
-        let prop2_run = max_run(model.timeline.turret[&author_eid].iter().map(|s| s.0).collect());
-        assert!(st10_run >= 20, "夹具 type=10 应含 ≥20 连包突发，实测 {st10_run}");
-        assert!(prop2_run >= 20, "夹具 prop2 应含 ≥20 连包突发，实测 {prop2_run}");
+        let st10_run = max_run(
+            model.timeline.poses[&author_eid]
+                .iter()
+                .map(|s| s.clock)
+                .collect(),
+        );
+        let prop2_run = max_run(
+            model.timeline.turret[&author_eid]
+                .iter()
+                .map(|s| s.0)
+                .collect(),
+        );
+        assert!(
+            st10_run >= 20,
+            "夹具 type=10 应含 ≥20 连包突发，实测 {st10_run}"
+        );
+        assert!(
+            prop2_run >= 20,
+            "夹具 prop2 应含 ≥20 连包突发，实测 {prop2_run}"
+        );
 
         let input = PlaybackInput {
             packets: &packets,
@@ -1808,7 +1851,7 @@ mod tests {
                 let d = ((v.pos[i * 3] - v.pos[(i - 1) * 3]).powi(2)
                     + (v.pos[i * 3 + 1] - v.pos[(i - 1) * 3 + 1]).powi(2)
                     + (v.pos[i * 3 + 2] - v.pos[(i - 1) * 3 + 2]).powi(2))
-                    .sqrt();
+                .sqrt();
                 if d > max {
                     max = d;
                     max_at = t;
@@ -1834,7 +1877,11 @@ mod tests {
         };
 
         // ② 作者车全程网格无超速步进
-        let author = pb.vehicles.iter().find(|v| v.is_author).expect("夹具应含作者车");
+        let author = pb
+            .vehicles
+            .iter()
+            .find(|v| v.is_author)
+            .expect("夹具应含作者车");
         let (pos_max, pos_at) = max_pos_step(author, 0.0, f32::MAX);
         assert!(
             pos_max <= POS_STEP_CAP,
@@ -1959,41 +2006,42 @@ mod tests {
     /// [38 account][42 公会]…`——eid/account 是身份联表精确键（重名/匿名免疫）。
     #[test]
     fn comp_descriptor_extracts_eid_and_account_from_entry() {
-        let entry_inner = |eid: u32, tank: u16, turret: u16, gun: u16, nick: &[u8], account: u64| {
-            let mut e = Vec::new();
-            e.push(0x08);
-            // eid varint
-            let mut v = eid;
-            loop {
-                let b = (v & 0x7f) as u8;
-                v >>= 7;
-                if v == 0 {
-                    e.push(b);
-                    break;
+        let entry_inner =
+            |eid: u32, tank: u16, turret: u16, gun: u16, nick: &[u8], account: u64| {
+                let mut e = Vec::new();
+                e.push(0x08);
+                // eid varint
+                let mut v = eid;
+                loop {
+                    let b = (v & 0x7f) as u8;
+                    v >>= 7;
+                    if v == 0 {
+                        e.push(b);
+                        break;
+                    }
+                    e.push(b | 0x80);
                 }
-                e.push(b | 0x80);
-            }
-            e.push(0x12);
-            e.push(0x0f);
-            e.extend(comp_blob(tank, turret, gun));
-            e.push(0x1a);
-            e.push(nick.len() as u8);
-            e.extend(nick);
-            e.extend([0x20, 0x01, 0x28, 0x01]); // f4/f5 标志
-            e.push(0x38);
-            let mut a = account;
-            loop {
-                let b = (a & 0x7f) as u8;
-                a >>= 7;
-                if a == 0 {
-                    e.push(b);
-                    break;
+                e.push(0x12);
+                e.push(0x0f);
+                e.extend(comp_blob(tank, turret, gun));
+                e.push(0x1a);
+                e.push(nick.len() as u8);
+                e.extend(nick);
+                e.extend([0x20, 0x01, 0x28, 0x01]); // f4/f5 标志
+                e.push(0x38);
+                let mut a = account;
+                loop {
+                    let b = (a & 0x7f) as u8;
+                    a >>= 7;
+                    if a == 0 {
+                        e.push(b);
+                        break;
+                    }
+                    e.push(b | 0x80);
                 }
-                e.push(b | 0x80);
-            }
-            e.extend([0x42, 0x04, b'G', b'A', b'R', b'N']); // f8 公会标签
-            e
-        };
+                e.extend([0x42, 0x04, b'G', b'A', b'R', b'N']); // f8 公会标签
+                e
+            };
         let e1 = entry_inner(1892656, 9489, 3, 5, b"Anonyme", 2033684170);
         let e2 = entry_inner(269839187, 6225, 7, 9, b"yuki0411", 2041831618);
         let mut args = Vec::new();
@@ -2098,19 +2146,38 @@ mod tests {
         let json = |v: &VehicleTrack| serde_json::to_value(v).unwrap();
 
         let single = json(&base(Some(20.0), vec![20.0], vec![]));
-        assert!(single.get("death_times").is_none(), "单死 = death_t 已表达，字段省略");
-        assert!(single.get("resurrection_times").is_none(), "无复活 → 字段省略");
+        assert!(
+            single.get("death_times").is_none(),
+            "单死 = death_t 已表达，字段省略"
+        );
+        assert!(
+            single.get("resurrection_times").is_none(),
+            "无复活 → 字段省略"
+        );
 
         let none = json(&base(None, vec![], vec![]));
         assert!(none.get("death_times").is_none() && none.get("resurrection_times").is_none());
 
         let respawned = json(&base(Some(20.0), vec![20.0, 58.5], vec![35.0]));
         assert_eq!(
-            respawned.get("death_times").unwrap().as_array().unwrap().len(),
+            respawned
+                .get("death_times")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
             2,
             "≥2 次死亡才输出完整死亡列表"
         );
-        assert_eq!(respawned.get("resurrection_times").unwrap().as_array().unwrap().len(), 1);
+        assert_eq!(
+            respawned
+                .get("resurrection_times")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     /// 飞行时长：300m / 150mps = 2.0s；速度缺失 0.5s 兜底
@@ -2299,7 +2366,8 @@ mod tests {
     fn keyframes_keep_holds_and_jumps_unlike_grid_aliasing() {
         // 12Hz 位置更新（与 0.1s 网格不同相 → 网格重采样必然混叠），每步 1.4m
         let tl =
-            filter::SegmentedPoseTimeline::build(&synthetic_samples(1.4, 1.0 / 12.0, 300), &[]).unwrap();
+            filter::SegmentedPoseTimeline::build(&synthetic_samples(1.4, 1.0 / 12.0, 300), &[])
+                .unwrap();
         let kf = pose_keyframes(&tl);
         let (start, end) = tl.time_range();
         let frames: Vec<(f64, [f32; 3])> = (0..tl.frame_count())

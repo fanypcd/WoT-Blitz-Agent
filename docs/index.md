@@ -43,7 +43,7 @@ XI 级预览车的 2D 封面可按车型核查来源、复跑渲染和生成裁�
 
 ### 版本与发行
 
-- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.5.0**）。
+- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.5.1**）。
   该值变更合并到 `main` 后，Release workflow 自动测试、构建、创建 `v<version>` tag
   并发布 `wotb-replay-wasm-v<version>.zip`；发布策略与 Android 同步规则见
   [AGENTS.md](../AGENTS.md)。
@@ -53,6 +53,7 @@ XI 级预览车的 2D 封面可按车型核查来源、复跑渲染和生成裁�
 
 | 版本 | 内容 |
 |---|---|
+| v0.5.1 | **聊天全类型 + 逐模块损伤（additive）**：①Playback 新增 `chat_events`（Avatar method 0x2f 全类型 pickle 解码：code 1=聊天正文〔sender=前缀名、text=pickle 串〕／code 20=快捷指令〔cmd/target 原样透传〕／code 0/2=成员进出／code 7=频道建立／其余 raw 透传；判据 = 15 场跟踪语料 305 条动作事件，逐类与实战语义吻合，正文样例逐字节锁定）；②新增 `module_damage_events`（method38 组件 token 逐模块：victim/组件/rawState，rawState 0=无新负面 1=受损 2=critical，token 31..43）。**语义修正**：此前 v0.5.0 把 0x2b 文本当聊天——现保留原字段但明确其另域（u64=频道句柄）；真正战斗聊天正文在 0x2f。契约 additive（旧消费方零扰动）；消费方 WotbTools 事件流据 chat_events/module_damage_events 合并展示。证据与语义表见 [replay-chat-events.md](replay-chat-events.md)。 |
 | v0.5.0 | **回放聊天域（additive）：频道表 + 聊天文本 + 单发通知**：Playback 切面新增 `chat_channels`（Avatar method 0x2f，BigWorld pickle 协议 2 观测子集栈机，`#chat:channels/battle/common`/`team` 两频道：id/dbID/owner/flags/isSystem/isReadOnly/isSecured）、`chat_messages`（Avatar method 0x2b，形状门禁 `[tag u8][seq u64][len u8][UTF-8×len]`，`tag`/`seq` 原样透传未定语义）、`notifications`（Avatar method 0x12，形状 `[subject u32][code u16][00×6]`，`code` 语义未定原样透传）。**fail-closed**：形状门禁不过的包整包跳过（未知 pickle 操作码/缺必备键/长度不符/非 UTF-8），语料外回放零扰动。证据与单样本 provenance 见 [replay-chat-events.md](replay-chat-events.md)：15/15 跟踪语料频道表形状一致、0x2b 当前语料仅 1 条（中文客户端）、0x12 54 条形状一致；blitzinfo 同域交叉验证（其核心含 chat/text、marker/markerType 事件族，Avatar 方法 ≥0x2b 进聊天族）。已知未解：快捷指令 marker 的包级定位（blitzinfo 白名单 {1,6,9,10,15,18,26} 已知但本语料 0 样本，未实现）、0x2f 44B 前缀、聊天 `tag`/`seq`、通知 `code` 语义。**消费方**：WotbTools pin bump 后事件流合并三键；旧消费方零扰动（additive 缺省省略）。 |
 | v0.4.23 | **俯仰解码接入装备 122（解析器行为修正 + additive）**：3D 回放 `vehicles[].gun_pitch` 与射击复现 `shooter_gun_pitch` / `target_gun_pitch` / 两侧时间线按同 eid 的 Type5 `0B` 配件串叠加「改进型垂直稳定器」(122) 的 +4°仰 / +3°俯；基础与 front/back 扇区同增益，`transition` 不变。`VehicleEquipment` additive `improved_pitch_limits`（仅 true 序列化）。无 122 的场次输出逐位不变；当前 12 辆可用车（11 辆 `AlternatePitchGrouserPreset` + Rinoceronte 的 `DrumGunPitchLimitsPreset`）。数据锚定测试锁定 `devices.json` id=122 数值并断言只有 122 声明俯仰增量。WotbTools 装甲查看器配套接入手动钳制；pin bump 后重生成 AI projection golden（provenance 必变，若 fixture 含 122 车则 pitch 值变化属预期）。 |
 | v0.4.22 | **作者当前弹种时间线（additive）+ 接收突发与补给线修正**：①playback 切面新增 `author_shell_timeline`（method 0x07 确认流，折叠重复值，按作者首次死亡截断，语义证据见总集 §3.5），供 WotbTools 3D 回放开镜穿深着色；②全车辆 type=10 + prop2 接收突发时间轴重建；③补给线码受控实验纠正与系别族字段 `family`。②③改变解析输出，下游换 pin 时要重审 golden。 |
