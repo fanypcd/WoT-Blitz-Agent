@@ -10,9 +10,36 @@ type=8 实体方法流，信封 `[eid u32][method u32][argsLen u32][args]`（总
 
 | mid | 语义 | 参数形态 | 语料覆盖 |
 |---|---|---|---|
-| 0x2b (43) | 聊天文本消息 | `[tag u8][seq u64 LE][len u8][UTF-8×len]` | **1 条**（中文客户端 20261002_2147__shenle_S16_Kranvagn） |
-| 0x2f (47) | 聊天频道表 | 44B 前缀 + BigWorld pickle（protocol 2） | **15/15 场**，每场恰 1 条 |
+| **0x2f (47)** | **onChatAction（聊天域动作，主数据源）** | `[ff×8][code u16][f64][f64][channel u32][session u32][0 u32][nameLen u8][sender][00][pickleLen u8][pickle]` | **305 条动作事件 / 15 场**（见 §2.1） |
+| 0x2f (47) | 聊天频道表（同方法大包） | 44B 前缀 + pickle 列表（>300B） | 15/15 场，每场恰 1 条 |
+| 0x2b (43) | 另域文本（**非战斗聊天**） | `[tag u8][u64 频道句柄][len u8][UTF-8×len]` | 1 条（中文客户端样本） |
 | 0x12 (18) | 单发通知（语义未定） | `[subject u32][code u16][00×6]` | 54 条，形状全部一致 |
+
+### 2.1 0x2f 动作事件（v0.5.1 全类型）
+
+`code` = args[8..10] u16；`channel` = args[26..30] u32（与频道表 `id` 同域）；`sender` =
+args[39..39+nameLen]（UTF-8 原文）；pickle（protocol 2）给出类别载荷：
+
+| code | kind | pickle 载荷 | 语义证据 |
+|---|---|---|---|
+| **1** | `message` | 顶层 = 文本串 | **真实聊天正文**："how do get that tank?" / "?" / "zetzu" / 泰文句子，发送者 = 前缀名 |
+| **20 (0x14)** | `command` | 元组 `(cmdId, targetId, 0, '', '')` | 快捷指令/战场标记；cmdId ∈ {24,26,29,…} 语义未逐一闭合 → 原样透传（禁命名） |
+| 0 | `join` | 名字串 | 频道成员进入（t 4.4–124.6s，开局段） |
+| 2 | `leave` | `None` | 频道成员离开（t 56.5–314.8s） |
+| 7 | `channel_created` | 元组 `(ownerName, greeting)` | 开局频道建立/问候（全部 t < 20s） |
+| 22/4/8 | `other` | 各异 | 频率极低（≤2 条），raw 透传 |
+
+**v0.5.0 的归类修正**：此前 `chat_messages`（0x2b）被当作聊天正文；实测其 `u64` 字段是
+**频道句柄**、文本是另一域（改名/公告族，单样本），并非战斗聊天。战斗聊天正文只在
+0x2f code 1（43 条 / 全语料）。两字段均保留（additive），消费方应以 `chat_events` 为准。
+
+### 2.2 method38 组件 token → 逐模块损伤（`module_damage_events`）
+
+`method38`（作者射击）尾部组件表 `count × (componentToken u8 + rawState u8)` 逐项展开：
+`victim_eid` + `component`（31 引擎 / 32 弹药架 / 33 油箱 / 34-35 右左履带 / 36 火炮 /
+37 炮塔旋转机 / 38 观察装置 / 39 车长 / 40 驾驶员 / 41 炮手 / 43 装填手 / 42 UNKNOWN 禁猜）
++ `rawState`（**0=命中但无新持久负面 / 1=受损或乘员受伤 / 2=critical 禁用族**）。
+他人路径无此包；`module_crew_states`（method16）继续覆盖全车状态事件。
 
 **blitzinfo 交叉验证**（第二独立来源）：其 `replay-core.wasm` 数据段含 `chat`/`text`、
 `command`/`args`/`response`、`marker`/`markerType`、`channelName`/`channel` 事件族字段名；

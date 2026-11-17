@@ -60,8 +60,7 @@ fn author_initial_position_smoke() {
     };
     let bytes = std::fs::read(&path).unwrap();
 
-    let raw = wotb_replay_wasm::author_initial_position_json(&bytes)
-        .expect("轻量能力构建成功");
+    let raw = wotb_replay_wasm::author_initial_position_json(&bytes).expect("轻量能力构建成功");
     let v: serde_json::Value = serde_json::from_str(&raw).expect("合法 JSON");
     assert!(v.is_object(), "样本应产出对象，而非 null：{raw}");
     assert!(
@@ -69,7 +68,9 @@ fn author_initial_position_smoke() {
         "author_eid 必须解析"
     );
     assert!(
-        v["clock"].as_f64().is_some_and(|c| c.is_finite() && c >= 0.0),
+        v["clock"]
+            .as_f64()
+            .is_some_and(|c| c.is_finite() && c >= 0.0),
         "clock 必须为有限回放时钟：{:?}",
         v["clock"]
     );
@@ -105,13 +106,20 @@ fn playback_smoke() {
     };
     let bytes = std::fs::read(&path).unwrap();
 
-    let playback_str = wotb_replay_wasm::playback_json(&bytes, None, None).expect("时序能力构建成功");
+    let playback_str =
+        wotb_replay_wasm::playback_json(&bytes, None, None).expect("时序能力构建成功");
     let pb: serde_json::Value = serde_json::from_str(&playback_str).unwrap();
     assert_eq!(pb["version"], 2, "contract v2（版本门禁；消费端拒绝错版）");
     // contract v2 新键：非争霸场为空数组也必须安全序列化在场（skip_serializing_if 语义）
     // 聊天域（频道表/文本消息/单发通知）：additive 缺省省略；语料样本（频道表 15/15）
     // 至少含频道表数组——样本集为空时跳过断言由上方 largest_sample 保证有样本。
-    for key in ["chat_channels", "chat_messages", "notifications", "supremacy_bases", "supremacy_points"] {
+    for key in [
+        "chat_channels",
+        "chat_messages",
+        "notifications",
+        "supremacy_bases",
+        "supremacy_points",
+    ] {
         assert!(
             pb.get(key).is_none_or(|v| v.is_array()),
             "v2 键 {key} 须为数组或缺省"
@@ -493,7 +501,11 @@ fn recorder_camera_smoke() {
     let aim_len = v["aim"]["t"].as_array().expect("aim.t").len();
     assert!(aim_len > 0);
     for column in ["yaw", "pitch", "ray_x", "ray_y", "ray_z"] {
-        assert_eq!(v["aim"][column].as_array().map(Vec::len), Some(aim_len), "{column}");
+        assert_eq!(
+            v["aim"][column].as_array().map(Vec::len),
+            Some(aim_len),
+            "{column}"
+        );
     }
     assert_eq!(
         v["mode"]["t"].as_array().map(Vec::len),

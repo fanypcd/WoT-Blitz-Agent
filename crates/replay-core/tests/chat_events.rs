@@ -6,7 +6,8 @@
 use std::path::PathBuf;
 
 use wotb_replay_core::replay::combat::{
-    collect_chat_channels, collect_chat_messages, collect_notifications,
+    collect_chat_channels, collect_chat_events, collect_chat_messages,
+    collect_module_damage_events, collect_notifications, ChatEventKind, ModuleDamageState,
 };
 use wotb_replay_core::replay::packets::read_raw_packets;
 
@@ -34,7 +35,10 @@ fn tuples(path: &PathBuf) -> Vec<(u32, f32, Vec<u8>)> {
 }
 
 fn refs(packets: &[(u32, f32, Vec<u8>)]) -> Vec<(u32, f32, &[u8])> {
-    packets.iter().map(|(t, c, p)| (*t, *c, p.as_slice())).collect()
+    packets
+        .iter()
+        .map(|(t, c, p)| (*t, *c, p.as_slice()))
+        .collect()
 }
 
 /// 每场恰两条频道（team + common），channelName 形如 `#chat:channels/battle/<后缀>`。
@@ -48,15 +52,29 @@ fn chat_channels_two_per_battle() {
         assert_eq!(channels.len(), 2, "{}: expected 2 channels", f.display());
         let mut names: Vec<&str> = channels.iter().map(|c| c.channel_name.as_str()).collect();
         names.sort_unstable();
-        assert_eq!(names, ["#chat:channels/battle/common", "#chat:channels/battle/team"]);
+        assert_eq!(
+            names,
+            ["#chat:channels/battle/common", "#chat:channels/battle/team"]
+        );
         // pickle 内频道顺序不固定（20260902_2045 场为 [team, common]）；
         // 观测不变量：team 通道 id 严格大于 common（创建序）
-        let mut by_name: Vec<(&str, i64)> =
-            channels.iter().map(|c| (c.channel_name.as_str(), c.id)).collect();
+        let mut by_name: Vec<(&str, i64)> = channels
+            .iter()
+            .map(|c| (c.channel_name.as_str(), c.id))
+            .collect();
         by_name.sort_unstable();
-        assert!(by_name[1].1 > by_name[0].1, "{}: team id > common id", f.display());
+        assert!(
+            by_name[1].1 > by_name[0].1,
+            "{}: team id > common id",
+            f.display()
+        );
         // owner 出现且与 pickle owner 域一致（同场两频道 owner 相同）
-        assert_eq!(channels[0].owner, channels[1].owner, "{}: same owner", f.display());
+        assert_eq!(
+            channels[0].owner,
+            channels[1].owner,
+            "{}: same owner",
+            f.display()
+        );
     }
     // 总数基线（跟踪语料全集 15 场）不在此断言：CI 检出是 git 跟踪子集（9/15，
     // 其余样本本地未跟踪），「全集缩水」由语料管理面负责；本测试锁定的是
@@ -74,7 +92,12 @@ fn notifications_corpus_baseline() {
     for f in all_fixtures() {
         let packets = tuples(&f);
         for n in collect_notifications(&refs(&packets)) {
-            assert_ne!(n.code, 0, "{}: zero code is not an observed shape", f.display());
+            assert_ne!(
+                n.code,
+                0,
+                "{}: zero code is not an observed shape",
+                f.display()
+            );
             total += 1;
         }
     }
@@ -95,4 +118,90 @@ fn chat_messages_corpus_baseline() {
     assert_eq!(msgs[0].tag, 0x01);
     assert_eq!(msgs[0].seq, 0xBA75_4B3D);
     assert_eq!(msgs[0].text, "爱玩游戏的屑南凉");
+}
+
+/// 0x2f 全类型动作事件：真实战斗聊天正文（code 1）逐字节锁定。
+#[test]
+fn chat_action_messages_corpus() {
+    let mut messages = Vec::new();
+    let mut commands = 0usize;
+    let mut joins = 0usize;
+    let mut leaves = 0usize;
+    for f in all_fixtures() {
+        let packets = tuples(&f);
+        for raw in collect_chat_events(&refs(&packets)) {
+            let ev = wotb_replay_core::replay::combat::chat_event_from_raw(&raw);
+            match ev.kind {
+                ChatEventKind::Message => {
+                    messages.push((f.file_name().unwrap().to_string_lossy().to_string(), ev))
+                }
+                ChatEventKind::Command => commands += 1,
+                ChatEventKind::Join => joins += 1,
+                ChatEventKind::Leave => leaves += 1,
+                _ => {}
+            }
+        }
+    }
+    // 攻击性断言只针对**任何子集都成立**的事实：正文串与发送者成对出现。
+    for (name, ev) in &messages {
+        assert!(
+            !ev.text.is_empty(),
+            "{name}: message text must be non-empty"
+        );
+        assert!(
+            !ev.sender.is_empty(),
+            "{name}: message sender must be non-empty"
+        );
+        assert!(ev.raw_type == 1, "{name}: message raw_type");
+    }
+    // 逐场锁定（该场在跟踪语料内）：BLACK_TROOP_sniper 的英文提问
+    let hit = messages
+        .iter()
+        .find(|(name, ev)| name.contains("20260902_2053") && ev.text == "how do get that tank?");
+    assert!(
+        hit.is_some(),
+        "expected the known chat line from 20260902_2053"
+    );
+    let names: Vec<&str> = messages.iter().map(|(_, e)| e.sender.as_str()).collect();
+    assert!(names.contains(&"BLACK_TROOP_sniper"));
+    if messages.is_empty() {
+        eprintln!("无回放样本，跳过");
+    }
+    // 指令/进出事件在语料中存在（子集不保证非零 → 不做绝对值断言）
+    let _ = (commands, joins, leaves);
+}
+
+/// method38 组件 token → 逐模块损伤事件（作者路径）：token 与 rawState 语义。
+#[test]
+fn module_damage_events_corpus() {
+    let mut total = 0usize;
+    let mut critical = 0usize;
+    let mut damaged = 0usize;
+    for f in all_fixtures() {
+        let packets = tuples(&f);
+        for ev in collect_module_damage_events(&refs(&packets)) {
+            total += 1;
+            assert!(ev.victim_eid != 0, "{}: victim must be set", f.display());
+            assert!(
+                (31..=43).contains(&ev.component_code),
+                "{}: token {}",
+                f.display(),
+                ev.component_code
+            );
+            match ev.state {
+                ModuleDamageState::Critical => critical += 1,
+                ModuleDamageState::Damaged => damaged += 1,
+                ModuleDamageState::NoChange | ModuleDamageState::Unknown => {}
+            }
+        }
+    }
+    // 语料里两类状态都观测到（若样本集缩小到 0 条则跳过）
+    if total > 0 {
+        assert!(
+            damaged > 0 || critical > 0,
+            "expected at least one damage/critical token"
+        );
+    } else {
+        eprintln!("无回放样本，跳过");
+    }
 }
