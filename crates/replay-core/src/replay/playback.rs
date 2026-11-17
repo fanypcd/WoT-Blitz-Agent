@@ -660,6 +660,26 @@ fn author_shell_timeline(timeline: &crate::replay::model::Timeline) -> Vec<Autho
     out
 }
 
+/// 逐次掉血事件（method1 血量链投影；blitzinfo 战斗日志的 damage 类）。
+///
+/// 语义 = 权威血量广播的相邻降幅：`damage = prev_hp − hp`（prev 由满血锚点/上一事件给出），
+/// 因此是**服务器血量证据**而非估算；`damage = 0` 表示该事件没有掉血（治疗/复位/复活侧）。
+/// 归因（`source_eid`/`cause`）与 kills 同域：0=炮弹 1=火焰 2=撞击 3=世界/环境 5=溺水。
+/// 同刻多次命中可能被服务器血量快照折叠为单条（协议事实，不做拆分）。
+#[derive(Debug, Clone, Serialize)]
+pub struct DamageEvent {
+    pub t: f32,
+    pub victim_eid: u32,
+    /// 本次事件的掉血量（prev_hp − hp 的饱和差；0 = 无掉血）
+    pub damage: u32,
+    /// 事件后的当前血量（原样，含终态哨兵族）
+    pub hp: u16,
+    /// 伤害来源实体（0 = 未归属/环境）
+    pub source_eid: u32,
+    /// 死因/伤害原因码（与 kills.cause 同域）
+    pub cause: u8,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PlaybackData {
     /// Authoritative class-8 detached rigid bodies, linked to vehicles[].eid.
@@ -764,6 +784,44 @@ pub struct PlaybackData {
     /// rawState 0=无新负面 1=受损 2=critical。契约 additive：消费方忽略未知键。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub module_damage_events: Vec<combat::ModuleDamageEvent>,
+    /// 逐次掉血事件（method1 血量链；含攻击者/原因/掉血量）——战斗日志的 damage 类，
+    /// 与 blitzinfo 的 ev-damage 同语义。契约 additive：消费方忽略未知键。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub damage_events: Vec<DamageEvent>,
+}
+
+/// 血量链 → 逐次掉血事件（damage = prev − hp）。prev 序列：满血锚点（若锚点时刻
+/// 早于该事件）→ 上一事件；无锚点且为首个事件时 damage = 0（不知道基线就不猜）。
+fn damage_events(model: &crate::replay::model::ReplayModel) -> Vec<DamageEvent> {
+    let mut out: Vec<DamageEvent> = Vec::new();
+    let mut prev_by_victim: HashMap<u32, u16> = HashMap::new();
+    // 满血/首见锚点（type=5，锚点时刻 ≤ 事件时刻才可用）
+    let anchor = &model.timeline.initial_hp;
+    for ev in &model.timeline.hp_events {
+        if !prev_by_victim.contains_key(&ev.victim) {
+            if let Some((t0, hp0)) = anchor.get(&ev.victim) {
+                if *t0 <= ev.clock {
+                    prev_by_victim.insert(ev.victim, *hp0);
+                }
+            }
+        }
+        let prev = prev_by_victim.get(&ev.victim).copied();
+        let damage = match prev {
+            Some(p) if p > ev.hp => u32::from(p - ev.hp),
+            _ => 0,
+        };
+        out.push(DamageEvent {
+            t: r2(ev.clock),
+            victim_eid: ev.victim,
+            damage,
+            hp: ev.hp,
+            source_eid: ev.source,
+            cause: ev.cause,
+        });
+        prev_by_victim.insert(ev.victim, ev.hp);
+    }
+    out.sort_by(|a, b| a.t.partial_cmp(&b.t).unwrap_or(std::cmp::Ordering::Equal));
+    out
 }
 
 /// Project the model's raw rigid bodies without AvatarFilter, terrain snapping,
@@ -1405,6 +1463,7 @@ pub fn from_model(
         notifications: Vec::new(),
         chat_events: Vec::new(), // 原始包证据：attach_packet_evidence 回填
         module_damage_events: Vec::new(),
+        damage_events: damage_events(model),
         supremacy_bases: model
             .timeline
             .supremacy_bases
