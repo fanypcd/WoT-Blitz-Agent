@@ -715,8 +715,10 @@ def collect_renderables(scene: dict) -> dict:
         # 的 `State N` 子树：SkinnedMesh + Skeleton/MotionComponent）。按**静止绑定姿态**导出
         # （不读骨架动画 ⇒ 不随动），且**只取激活状态**（`State 0`，见下）——用户决定"完好形态
         # 做完整、撞毁直接消失"，故不导损毁态网格。
-        # 其余类（MapBorderRenderObject 等调试/边框对象）仍跳过。
-        if cls not in ("Mesh", "SpeedTreeObject", "SkinnedMesh"):
+        # 其余类（MapBorderRenderObject 等调试/边框对象）仍跳过——见
+        # docs/map-render-align-audit.md 各行（F2 水面 / H3 Flora / B9 投影贴花）。
+        if cls not in ("Mesh", "SpeedTreeObject", "SkinnedMesh",
+                       "WaterRenderObject", "FloraRenderObject"):
             continue
 
         # RenderObject 可见位（缺省即可见，镜像 RenderObject::Load 序列化缺省）；
@@ -1989,13 +1991,23 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         # 后按用户裁示**回退到 MEDIUM**（抉择与两档对比见 docs/index.md 的 F1 条）。
         # ⚠️ 法线图与立方图**都必需**：缺任一张即 fail-closed 不发水面数据（消费端回落
         # 普通材质，宁可不画错——菲涅尔 alpha 需要法线、反射项需要立方图）。
+        # ⚠️ WaterRenderObject（水体主体，2026-11 审计 F2：13 图 14 实例）另有 UV 基
+        # 两属性门槛（见 wro_uv_basis）——缺任一 ⇒ 该实例**整批不导**（此类网格无 UV 流，
+        # 消费端无从推导 UV，硬导会渲染成错色平面；Mesh 类水面有 UV/albedo，保留既有
+        # fallback 回落普通材质）。counters: water_wro_dropped。
+        wro_uv = None
         water_surface = None
         if is_water:
             nm_img, _ = textures.get(mat_desc["textures"].get("normalmap") or "")
             wc_img = _env_cube_equirect(textures, mat_desc["textures"].get("cubemap"),
                                         env_cube_cache)
-            if nm_img is not None and wc_img is not None:
+            if cls == "WaterRenderObject":
+                wro_uv = wro_uv_basis(mat_desc)
+            if nm_img is not None and wc_img is not None and (
+                    cls != "WaterRenderObject" or wro_uv is not None):
                 water_surface = {"props": water_props(mat_desc)}
+                if wro_uv is not None:
+                    water_surface.update(wro_uv)
                 # 法线图：无损 PNG（法线图有损压缩会改变波浪朝向）
                 nbuf = io.BytesIO()
                 nm_img.convert("RGB").transpose(Image.FLIP_TOP_BOTTOM).save(nbuf, "PNG")
@@ -2010,6 +2022,9 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
                 stats["water_surface"] = stats.get("water_surface", 0) + 1
             else:
                 stats["water_fallback"] = stats.get("water_fallback", 0) + 1
+                if cls == "WaterRenderObject":
+                    stats["water_wro_dropped"] = stats.get("water_wro_dropped", 0) + 1
+                    continue
 
         # 视角淡出软混合效果片（客户端 `enabledPresets.AlphaBlend` + flags `BLEND_BY_ANGLE`）：
         # `rays.sc2` / 光柱片这类"白 RGB + 图案全在 alpha"的薄片，客户端按 `Textured.material`
@@ -2071,9 +2086,12 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
                     if blend_by_angle is not None else None),
                    (mat_desc["textures"].get("normalmap"), mat_desc["textures"].get("cubemap"),
                     # 水面**逐材质属性**也要进键：同一 albedo/法线/立方图但菲涅尔/色调不同的
-                    # 实例（马利诺夫卡的浮冰群）否则会串用首个实例的属性
+                    # 实例（马利诺夫卡的浮冰群）否则会串用首个实例的属性；WRO 的 UV 基
+                    # （texCoordTransform0/inputTangent）逐材质同样不得串用
                     tuple(sorted((k, tuple(v) if isinstance(v, list) else v)
-                                 for k, v in water_surface["props"].items())))
+                                 for k, v in water_surface["props"].items())),
+                    tuple(wro_uv["texCoordTransform0"]) if wro_uv else None,
+                    tuple(wro_uv["inputTangent"]) if wro_uv else None)
                    if water_surface is not None else None)
         if mat_key not in material_index_by_albedo:
             material_index_by_albedo[mat_key] = _build_material(
@@ -2190,6 +2208,13 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         scene_extras["variantMappingIncomplete"] = True
     (output_dir / f"{space}.glb").write_bytes(
         glb.finish("wotb-agent export_map_glb (client-aligned)", scene_extras))
+
+    # 投影贴花（DeferredDecalComponent，2026-11 审计 B9；当前内容仅 plant 有）：
+    # 随 GLB 重导一起落盘（scenery_only 也写——贴花数据与几何同源，变体重打标
+    # 不改场景内容但保持数据面新鲜）。计数进 sidecar warnings。
+    decals_doc = export_deferred_decals(scene, textures, output_dir, space)
+    if decals_doc is not None:
+        stats["deferred_decals"] = len(decals_doc["decals"])
 
     if scenery_only:
         # 只重导 GLB（变体打标等场景修正）；不触地面贴图与 sidecar——旧 sidecar
@@ -2312,6 +2337,146 @@ def water_props(mat_desc: dict) -> dict:
         vals = [round(float(v), 6) for v in _prop_floats(mat_desc, key, tuple(default))[:n]]
         out[key] = vals if n > 1 else vals[0]
     return out
+
+
+def wro_uv_basis(mat_desc: dict) -> dict | None:
+    """WaterRenderObject 水面的 UV 基（两属性缺一返回 None ⇒ 调用方 fail-closed 跳过）。
+
+    客户端证据（`water-vp.sl`，`#ensuredefined WATER_RENDER_OBJECT` 分支）：
+    该类网格的着色 **不读网格 UV 流**（此类的 vertexFormat 实测无 TEXCOORD 位，如
+    neptune 106482 format=17 = VERTEX+TANGENT），UV 由**局部坐标程序化推导**：
+        uv = (dot(localPosition.xy, texCoordTransform0.xz),
+              dot(localPosition.xy, texCoordTransform0.yw))     # water-vp.sl:208-209
+        texCoord0 = uv × normal0Scale + frac(normal0ShiftPerSecond·t)
+        texCoord1 = rot90(uv) × normal1Scale + frac(normal1ShiftPerSecond·t)
+    法线恒 (0,0,1)、切线 = `inputTangent` 属性（两个属性**仅**在 WATER_RENDER_OBJECT
+    分支声明，:116-118）。Mesh 类水面（如马利诺夫卡浮冰）走 #else 分支用网格
+    UV/法线/切线流，**不消费这两个属性**——故 extras 只对 WaterRenderObject 下发，
+    消费端以键的存在与否区分 UV 来源（类判据，非内容启发式）。
+    """
+    props = mat_desc.get("properties") or {}
+    if "texCoordTransform0" not in props or "inputTangent" not in props:
+        return None
+    try:
+        tct = _prop_floats(mat_desc, "texCoordTransform0", (0.0, 0.0, 0.0, 0.0))[:4]
+        tan = _prop_floats(mat_desc, "inputTangent", (0.0, 0.0, 0.0))[:3]
+    except (ValueError, struct.error):
+        return None
+    # 全零/非有限矩阵 = 截断或损坏数据推导不出 UV（客户端也不会这么配）——fail-closed
+    if not all(math.isfinite(v) for v in tct + tan) or all(v == 0.0 for v in tct):
+        return None
+    return {
+        "texCoordTransform0": [round(float(v), 6) for v in tct],
+        "inputTangent": [round(float(v), 6) for v in tan],
+    }
+
+
+# 贴花 blending 枚举（客户端 Materials/Shaders/blending.slh 逐字；消费端按名分支）：
+# MULTIPLICATIVE(5) 在片元末还有 `rgb = lerp(1, rgb, a)`（deferred-decal-fp.sl:145-147）
+DECAL_BLENDING_NAMES = {
+    0: "none", 1: "alphaBlend", 2: "additive", 3: "alphaAdditive", 4: "softAdditive",
+    5: "multiplicative", 6: "strongMultiplicative", 7: "premultipliedAlpha",
+    8: "fuseBlendAdd",
+}
+
+
+def collect_deferred_decals(scene: dict, textures: "TextureStore") -> tuple[list[dict], dict]:
+    """收集 DeferredDecalComponent 实体 → (records, textures)（export_deferred_decals 的纯提取部分）。
+
+    客户端语义（Materials/Shaders/Default/deferred-decal-{fp,vp}.sl + DeferredDecal.material
+    + blending.slh，2026-11 审计 B9；当前内容仅 plant 有 490 实例）：
+      渲染对象 = 贴花实体的**单位盒**（TransformComponent 缩放 = 盒尺寸、旋转 = 投影朝向）。
+      逐像素由场景深度重建世界位 → 盒模型空间 positionMS ∈ [-0.5,0.5]³；|x|,|y| 出界弃
+      （DECAL_VERTICAL_FADE 时 z 走 verticalFadeWidth 淡出，否则 |z| 出界弃）；
+      UV = (positionMS.xy + 0.5) × uvOffsetScale + uvOffset（单一 albedo 采样器）。
+      blending = 组件 `blending` 字段（blending.slh 枚举，见 DECAL_BLENDING_NAMES）。
+    贴图绑定取 **atlasInfo** 槽（图集 + UV 矩形）：`decalComponent.decal` 的 dec_N.tex
+    在整个客户端树**不存在**（陈旧引用，全树 find 无一命中），atlasInfo 是唯一可解析槽。
+    fail-closed：两槽都解析不到实体文件 ⇒ 跳过该贴花（返回记录里不含它），计数交给调用方。
+    隐藏实体（visibility bit0/bit1）跳过——与场景网格同口径。
+    """
+    records: list[dict] = []
+    tex_paths: dict[str, str] = {}
+    dropped_no_texture = 0
+    for _path, entity in iter_entities_recursive(scene):
+        if entity.get("visibility", 0) & 3:
+            continue
+        comp = component_by_type(entity, "DeferredDecalComponent")
+        if comp is None:
+            continue
+        atlas = comp.get("decalComponent.atlasInfo") or {}
+        slot_tex = atlas.get("atlasInfo.albedo")
+        slot_off = atlas.get("atlasInfo.uvOffset")
+        slot_scale = atlas.get("atlasInfo.uvScale")
+        if not isinstance(slot_tex, str) or not isinstance(slot_off, list) \
+                or not isinstance(slot_scale, list) or len(slot_off) != 2 or len(slot_scale) != 2:
+            dropped_no_texture += 1
+            continue
+        if not any(c.exists() for c in textures._candidates(slot_tex)):
+            # atlas 槽解析不到实体文件：按 fail-closed 跳过（不猜 dec_N 兜底——
+            # 那些路径在客户端树同样不存在）
+            dropped_no_texture += 1
+            continue
+        rec = {
+            "name": entity.get("name") or None,
+            "blending": comp.get("blending"),
+            "blendingName": DECAL_BLENDING_NAMES.get(comp.get("blending")),
+            "fogBehaviour": comp.get("fogBehaviour"),
+            "layer": comp.get("layer"),
+            "fadeDistance": comp.get("fadeDistance"),
+            "verticalFadeWidth": comp.get("verticalFadeWidth"),
+            "backSideFade": bool(comp.get("backSideFade")),
+            "isShadowReceiver": bool(comp.get("isShadowReceiver")),
+            "texture": slot_tex,
+            "uvOffset": [float(v) for v in slot_off[:2]],
+            "uvScale": [float(v) for v in slot_scale[:2]],
+            "box": world_transform(entity),
+        }
+        fc = comp.get("flatColor")
+        if isinstance(fc, list) and len(fc) == 4:
+            # FLATCOLOR define 未在 DeferredDecal.material 声明（基础模板只有 BLENDING）
+            # ⇒ 客户端不采该字段；如实随档保留（消费端按客户端"不采"口径忽略）
+            rec["flatColor"] = [round(float(v), 6) for v in fc[:4]]
+        records.append(rec)
+        tex_paths.setdefault(slot_tex, f"decal_{slot_tex.rsplit('/', 1)[-1].rsplit('.', 1)[0]}.webp")
+    return records, tex_paths
+
+
+def export_deferred_decals(scene: dict, textures: "TextureStore",
+                           output_dir: pathlib.Path, space: str) -> dict | None:
+    """投影贴花落盘：`<space>.decals.json` + 解码图集 `<space>.decal_<name>.webp`。
+
+    打包器（export_asset_pack.py）把 json 收进 `map/<key>/decals.json`、webp 去掉
+    `<space>.` 前缀收进 `map/<key>/`（textures 映射里的文件名即包内相对名）。
+    无贴花实体时返回 None（不写空文件）。坐标 = 客户端世界系（与场景 GLB 节点同帧，
+    消费端与 GLB 同一 qFrame 变换）。
+    """
+    records, tex_paths = collect_deferred_decals(scene, textures)
+    if not records:
+        return None
+    for tex_path, out_name in tex_paths.items():
+        img = textures.get(tex_path)[0]
+        if img is None:
+            # collect 阶段刚验过存在性——这里失败只可能是解码失败，fail-closed 收缩
+            # 引用集合；没有任何贴花引用到图时整个 json 不写
+            records = [r for r in records if r["texture"] != tex_path]
+            tex_paths[tex_path] = None
+            continue
+        buf = io.BytesIO()
+        img.transpose(Image.FLIP_TOP_BOTTOM).save(buf, "WEBP", lossless=True)
+        (output_dir / f"{space}.{out_name}").write_bytes(buf.getvalue())
+    used = {name for name in tex_paths.values() if name}
+    if not used:
+        return None
+    doc = {
+        "space": space,
+        "version": 1,
+        "textures": {path: name for path, name in tex_paths.items() if name},
+        "decals": records,
+    }
+    (output_dir / f"{space}.decals.json").write_text(
+        json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    return doc
 
 
 def _env_cube_equirect(textures: "TextureStore", tex_path: str | None, cache: dict,
@@ -2651,7 +2816,15 @@ def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | 
             base["alphaCutoff"] = 0.5 if st_tint is not None else 0.33
     else:
         r, g, b = textures.avg_color.get(albedo_path or "", (0.62, 0.60, 0.55)) or (0.62, 0.60, 0.55)
-        base["pbrMetallicRoughness"]["baseColorFactor"] = [r, g, b, 1.0]
+        if water and water_surface is not None:
+            # WaterRenderObject 水面：网格**无 UV 流** ⇒ 无 albedo 可嵌（MEDIUM 档 shader
+            # 也不采 albedo——tex2D(albedo) 只在 !PIXEL_LIT 分支）。消费端走 extras.water
+            # 自定义材质，GLB 侧仍按水面语义落 BLEND + 水面透明度兜底
+            base["alphaMode"] = "BLEND"
+            base["pbrMetallicRoughness"]["baseColorFactor"] = [
+                r, g, b, opacity if opacity is not None else 1.0]
+        else:
+            base["pbrMetallicRoughness"]["baseColorFactor"] = [r, g, b, 1.0]
     if base.get("alphaMode") == "BLEND":
         # 语义标记：这是客户端声明/导出器判定的真混合材质。消费端不得再按
         # opacity≈1 把它改写成不透明 + alphaTest（旧包的伪透明启发式仅作 fallback）。

@@ -14,7 +14,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "wotbtools"))
 
 from export_map_lighting import (  # noqa: E402
-    CONVENTION, extract_lighting, game_to_scene, sun_direction_from_quaternion,
+    CONVENTION, extract_dynamic_lights, extract_lighting, game_to_scene,
+    sun_direction_from_quaternion,
 )
 
 # himmelsdorf 实测原始四元数与其解出方向（回归夹具：换实现即失配）
@@ -83,6 +84,70 @@ def test_missing_quaternion_marks_warning():
     data = extract_lighting(_scene(with_q=False), "x")
     assert "sun" in data and "direction" not in data["sun"]
     assert any("quaternion" in w for w in data["warnings"])
+
+
+def _entity_with_light(*, name="spot.sc2", visibility=0, with_lc=True, with_tr=True):
+    """iceworld spot.sc2 实测字段形状的合成实体。"""
+    comps = []
+    if with_lc:
+        comps.append({"comp.typename": "LightComponent",
+                      "lc.light": {"##name": "Light",
+                                   "ambColor.a": 1.0, "ambColor.b": 0.0,
+                                   "ambColor.g": 0.0, "ambColor.r": 0.0,
+                                   "color.a": 1.0, "color.b": 1.0,
+                                   "color.g": 0.4869999885559082,
+                                   "color.r": 0.14499999582767487,
+                                   "falloffExponent": 1.2999999523162842,
+                                   "flags": 3, "intensity": 1.0, "radius": 18.0,
+                                   "type": 2}})
+    if with_tr:
+        comps.append({"comp.typename": "TransformComponent",
+                      "tc.worldTranslation": [112.19242095947266, -179.49282836914062,
+                                              38.49443817138672],
+                      "tc.worldRotation": [-2.9802322387695312e-08, 0.0,
+                                           0.8784213066101074, -0.47788703441619873],
+                      "tc.worldScale": [1.0, 1.0, 1.0]})
+    return {"name": name, "visibility": visibility,
+            "components": {f"{i:04d}": c for i, c in enumerate(comps)}}
+
+
+def test_dynamic_lights_extracted_with_raw_fields():
+    scene = {"#hierarchy": [_entity_with_light()]}
+    lights = extract_dynamic_lights(scene)
+    assert len(lights) == 1
+    rec = lights[0]
+    assert rec["name"] == "spot.sc2"
+    assert rec["type"] == 2 and rec["flags"] == 3          # 原样下发（type 语义未定版）
+    assert rec["radius"] == 18.0 and rec["intensity"] == 1.0
+    assert abs(rec["falloffExponent"] - 1.3) < 1e-6
+    assert [round(c, 3) for c in rec["color"]] == [0.145, 0.487, 1.0, 1.0]
+    assert rec["ambient"] == [0.0, 0.0, 0.0, 1.0]
+    assert rec["position"][0] == 112.19242095947266
+    assert len(rec["rotation"]) == 4
+
+
+def test_dynamic_lights_hidden_and_componentless_skipped():
+    scene = {"#hierarchy": [
+        _entity_with_light(name="hidden", visibility=1),
+        _entity_with_light(name="nolight", with_lc=False),
+        _entity_with_light(name="ok"),
+    ]}
+    lights = extract_dynamic_lights(scene)
+    assert [r["name"] for r in lights] == ["ok"]
+
+
+def test_dynamic_lights_key_absent_when_none():
+    # 36 图里 30 图无 LightComponent：json 不写键（消费端 ?? [] 同义）
+    data = extract_lighting({"#sceneComponentSets": {"Default": []},
+                             "#hierarchy": [_entity_with_light(with_lc=False)]}, "x")
+    assert "dynamicLights" not in data
+
+
+def test_dynamic_lights_reach_lighting_json():
+    scene = {"#sceneComponentSets": {"Default": []},
+             "#hierarchy": [_entity_with_light()]}
+    data = extract_lighting(scene, "41_iceworld_ic")
+    assert len(data["dynamicLights"]) == 1
 
 
 if __name__ == "__main__":

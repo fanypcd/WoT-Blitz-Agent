@@ -118,6 +118,54 @@ asset consumption 变更）。
 WebAudio 距离/pan 增益，曲线为产品近似非客户端语义）；音频为 Wargaming 资产，公开发布
 口径待产品侧确认。
 
+### 地图元素导出补全：水体主体 / 投影贴花 / 动态光源 / Flora（2026-11-17，数据面新增）
+
+**问题**：2026-11-16 全面审计（36 图 sc2 全量解析，见
+[map-render-align-audit.md](map-render-align-audit.md) 新增 F2/B9/A5/H3/I5/J1 行）发现四类
+客户端会渲染、导出器整类跳过的元素；用户报障"诺曼底水面缺东西"的根因即其一——
+
+- **F2 `WaterRenderObject`（水体主体）**：渲染类白名单只有 Mesh/SpeedTreeObject/SkinnedMesh，
+  13 图 14 个实例的海/河/湖**整片缺失**（neptune/lagoon/holland/canyon/rudniki/lumber/rift/
+  pliego/amigosville 九图完全没水）；该类网格客户端**不读 UV 流**，UV =
+  `dot(localPosition.xy, texCoordTransform0)` 程序化推导（water-vp.sl WATER_RENDER_OBJECT 分支）。
+- **B9 `DeferredDecalComponent` 投影贴花**：plant 490 个（漆线/污渍/格栅），单位盒投影 + 图集 UV 矩形。
+- **A5 `LightComponent` 动态光源**：6 图 142 个（iceworld 聚光 71 / faust 夜灯 61 / plant 3 / 其余 7）。
+- **H3 `FloraRenderObject`**：4 图的静态花草簇（8–144 顶点/批）。
+
+**证据基础**：全 36 图 sc2 render 类普查（WaterRenderObject 14、DeferredDecal 490、
+LightComponent 142、FloraRenderObject 4、VegetationRenderObject 71=草、MapBorderRenderObject 51
+=引擎内置材质不可导、ParticleEffectComponent 25,361=粒子系统级非目标）；客户端 shader 逐行核对
+（`water-{vp,fp}.sl`、`deferred-decal-{vp,fp}.sl`、`blending.slh`、`DeferredDecal.material`、
+`WaterAllQualities.material` 四档模板）。投影贴花的 `dec_N.tex` 槽全树不存在（陈旧引用），
+实际生效槽 = `atlasInfo`（atlas0 + UV 矩形）——按存在性判定，非内容启发式。
+
+**做了什么**：导出器白名单 + WRO 水面 UV 基捕获（`wro_uv_basis`：`texCoordTransform0`/`inputTangent`
+缺一或字节退化 fail-closed 整批不导，extras 键只对 WRO 类下发）+ 无 albedo 水面 BLEND 语义；
+`collect_deferred_decals`/`export_deferred_decals` → `<space>.decals.json` + 无损图集
+`<space>.decal_*.webp`；`export_map_lighting.py` 新增 `dynamicLights[]`（原始字段直传，
+`type` 语义未定版已标注）；打包器收 `decals.json`/`decal_*.webp`。
+
+**产物与爆炸半径**：19 图 GLB 重导（105 s，`water_surface` 40→**60** 批次，0 fallback /
+0 dropped）、plant `decals.json`（490 条 + 2048² 图集 2.1 MB）、6 图 `lighting.json` 带光源；
+解析器/WASM/回放切面零改动。**WotbTools 消费侧待接**（pin bump 前不影响现网）：
+① WRO 水面按位置推导 UV（网格 UV0 是作者态、客户端不读）；② decals.json 投影/贴片渲染；
+③ dynamicLights 光源渲染；④ Android `wotbVersion` 在消费 PR 同步 bump。地图边界（I5）与
+粒子 FX（J1）定为非目标（数据不可得 / 系统级特效）。
+
+**打包链勘误（同批实测）**：`export_2d_basemaps.py` 的 map2d 输出目录旧默认硬编码
+`release/asset_pack/map2d`（`--pack` 只管注册表）——候选包构建时曾把 `map2d/index.json`
+误写进已 stamp 的 11.21.0-20261106-r2 主包（43 张 webp 为确定性派生、字节未变，仅 index
+`generated` 时间戳变化；已从阿里 origin 回拉原件恢复，全包 manifest 复核 **0 mismatch**）。
+修复 = `--map2d-dir` 缺省改 `<pack>/map2d` 派生 + `cmd_export/cmd_verify` 对含 `version.json`
+的包 fail-closed 拒写（与打包器同一道防线）。同批实测发现并修正打包链顺序：**变体物化必须在
+2D 底图之前**（2D 注册表读 pack index 去重 key，先 2D 后物化在全新候选包上被 staging 一致性
+检查拒绝）——AGENTS.md 与 data-inventory.md 的顺序说明已同步修正。
+
+**未取证 / 边界**：Light `type` 枚举语义（观测全为 2，按位姿推断"带方向光源"——推断）缺一次
+画面 A/B；贴花 flatColor×54 在 `DeferredDecal.material` 无 FLATCOLOR define（如实随档，按
+客户端口径不采）；WRO 水面的客户端近景 cell 细分（`cellSize 40 / quadSize 0.15`）属运行时
+LOD，静态导出为作者网格（近景细节略粗的画质取舍）。
+
 ### 资产原发布补齐：连发组 DPM + 口径权威的 tank/*.json 上线（2026-11-04，数据面发布勘误）
 
 **问题（修了但没上线）**：2026-10-28 连发组（PomPom）DPM 修复与 2026-10-27 口径权威修正

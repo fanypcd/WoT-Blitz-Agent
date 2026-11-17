@@ -32,7 +32,7 @@
 | `data/cache/tank_images/{id}.webp` | **本机客户端**（`tools/export_tank_icons.py` 剥壳字节；BlitzKit 仅缺失兜底） | ✅ 已实现并接线 | §2.5 |
 | `data/game_data/{id}.json` 装甲/碰撞盒 | 本机客户端 DVPL | — | §2.2/§2.3 |
 | `data/tank_cache.json` | `tanks.pb` 派生（纯本地，**不经 WG API**） | ✅ 随 pb | — |
-| 地图资产（底图/地形/小地图/场景） | 本机客户端 | — | `tools/export_map_glb.py` |
+| 地图资产（底图/地形/小地图/场景；**2026-11-17 起含水体主体/Flora 网格、投影贴花 `decals.json`+图集、`lighting.json` `dynamicLights[]`**） | 本机客户端 | — | `tools/export_map_glb.py` + `tools/export_map_lighting.py` |
 | 玩家战绩 | WG API | 不可（本来就不是本地数据） | — |
 
 `fetch-tanks` 的实现是 `TankResolver::from_blitzkit()` 后落盘，`api_client.rs` 明确
@@ -1111,6 +1111,35 @@ App 侧消费（WotbTools `frontend/src/data/map2dOverlay.js`）与"包内兜底
 `map/<key>/ground.webp`（±300 全幅渲染，取向/世界框由 `terrain.json` 契约校验）做零位移相关比对——
 移位 (0,0)、取向 identity 最优、尺度 1.000、相关 0.987–0.998（残差 = 导出侧色调/USM 逐点滤波），
 即**每一张都是包内渲染的全幅等比降采样**（一次性诊断，不入库；判据仍是契约，不搜索）。
+
+### 5.6b 地图元素导出补全：水体主体 / 投影贴花 / 动态光源 / Flora（2026-11-17）
+
+36 图 sc2 全量普查（`docs/map-render-align-audit.md` F2/B9/A5/H3/I5/J1 行）发现四类
+客户端会渲染、导出器整类跳过的元素，本次随导：
+
+- **水体主体 `WaterRenderObject`**（14 实例 / 13 图）：此前整类被白名单跳过 ⇒
+  neptune/lagoon/holland/canyon/rudniki/lumber/rift/pliego/amigosville 九图完全没水。
+  该类网格客户端不读 UV 流，UV 由 `dot(localPosition.xy, texCoordTransform0.xz/.yw)`
+  推导（`water-vp.sl` WATER_RENDER_OBJECT 分支），法线恒 (0,0,1)、切线 = `inputTangent`
+  属性。导出按 MEDIUM 档既有链路走，另把 UV 基两属性随 `extras.water` 下发
+  （键**只对 WRO 类存在**，消费端以此区分 UV 来源）；属性缺失/字节退化 fail-closed
+  整批不导（`water_wro_dropped` 计数，本机 0）。重导后全库水面批次 **40（Mesh 类）→ 60**。
+- **投影贴花 `DeferredDecalComponent`**（490 / 仅 plant）：`<space>.decals.json`
+  （blending 按 blending.slh 枚举直传 + blendingName、图集 UV 矩形、单位盒世界位姿、
+  fade 字段、flatColor×54 如实随档）+ 解码图集 `<space>.decal_<名>.webp`（2048² RGBA
+  无损）。贴图取 `atlasInfo` 槽——`decalComponent.decal` 的 `dec_N.tex` 全树不存在
+  （陈旧引用），按存在性判定。打包器收 `map/<key>/decals.json` + `decal_*.webp`。
+- **动态光源 `LightComponent`**（142 / 6 图）：`tools/export_map_lighting.py` 新增
+  `dynamicLights[]` 进 `lighting.json`（type/flags/color/ambColor/intensity/radius/
+  falloffExponent + 实体世界位姿，坐标 = 客户端世界系与 GLB 节点同帧）。`type` 枚举
+  语义未从引擎源定版（观测全为 2）——原样直传，消费端接时需 A/B 定版。
+- **静态 Flora 簇 `FloraRenderObject`**（4 图 × 4 批）：白名单纳入后走 Mesh 路径
+  （材质族 = `StandardAllQualities` → pbr 族近似链，albedo 实测不撞 impostor 过滤）。
+
+非目标（同批裁定）：`MapBorderRenderObject`（材质不在 dataNodes，数据面不可得）、
+FX 粒子系统（`ParticleEffectComponent` 25,361 实例 / 31 图，系统级运行时）。
+消费端（WotbTools）接线项见 [index.md](index.md) 2026-11-17 条目与
+[map-render-align-audit.md](map-render-align-audit.md) 各行"成本"列。
 
 ### 5.7 客户端小地图（`map/<key>/mini.webp`）——**已退出地面链路**（2026-10-16 裁定：以 ±300 为准）
 

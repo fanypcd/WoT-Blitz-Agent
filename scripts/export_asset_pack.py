@@ -422,9 +422,19 @@ def main() -> None:
             got.append("destructibles")
 
         # 逐图光照参数（tools/export_map_lighting.py：太阳方向/色/强度 + 环境色 + 雾 + IBL
-        # 引用）——3D 侧方向光与半球环境光的来源；缺失时消费端回落硬编码灯光，不阻断）
+        # 引用 + dynamicLights 动态光源）——3D 侧方向光与半球环境光的来源；缺失时消费端
+        # 回落硬编码灯光，不阻断）
         if cp(cache_maps / f"{space}.lighting.json", f"map/{key}/lighting.json"):
             got.append("lighting")
+
+        # 投影贴花（tools/export_map_glb.py 产物，2026-11 审计 B9；当前内容仅 plant 有）：
+        # <space>.decals.json + 解码图集 <space>.decal_<name>.webp（去 <space>. 前缀
+        # 收进 map/<key>/，decals.json.textures 里的文件名即包内相对名）。缺失时
+        # 消费端无贴花层，不阻断
+        if cp(cache_maps / f"{space}.decals.json", f"map/{key}/decals.json"):
+            got.append("decals")
+        for dpath in sorted(cache_maps.glob(f"{space}.decal_*.webp")):
+            cp(dpath, f"map/{key}/{dpath.name[len(space) + 1:]}")
 
         # 逐图 IBL 环境贴图（tools/export_map_ibl.py：客户端 specular 立方图 → 等距柱状投影）
         # ——动态物/坦克的环境反射来源；缺失时消费端不设 scene.environment（不阻断）
