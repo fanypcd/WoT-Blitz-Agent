@@ -128,7 +128,7 @@ def _grass_scene(density_path="grass/d.tex", flip_ones=4, alpha_value=128):
         "name": "grass.sc2",
         "components": {"0001": {"comp.typename": "RenderComponent", "rc.renderObj": veg}},
     }]}
-    density = Image.new("RGBA", (16, 16), (0, 0, 0, alpha_value))
+    density = Image.new("RGBA", (16, 16), (32, 96, 48, alpha_value))
     albedo = Image.new("RGBA", (8, 8), (128, 128, 128, 255))
     return scene, _FakeMaterials("grass/grass120.tex"), _FakeTextures({
         density_path: density, "grass/grass120.tex": albedo})
@@ -144,10 +144,13 @@ def test_collect_grass_scene_allocates_budget():
     assert meta["variations"] == 4
     assert grass["params"]["baseColorMultiplier"] == 2.0
     # 实例字段合法：变体 < 4、位置落在 bounds 内
-    xq, zq, rq, sq, variation, flipped = GRASS_INSTANCE_STRUCT.unpack_from(grass["instances"], 0)
+    xq, zq, rq, sq, variation, flipped, cr, cg, cb = GRASS_INSTANCE_STRUCT.unpack_from(
+        grass["instances"], 0)
     assert 0 <= variation < 4
     assert 0 <= sq <= 255
     assert xq <= 65535 and zq <= 65535
+    # 逐实例植被色（客户端 grass-vp.sl:117 的 vegetationColorMap 采样；夹具 RGB=(32,96,48)）
+    assert (cr, cg, cb) == (32, 96, 48)
 
 
 def test_collect_grass_scene_flipped_cells_recorded():
@@ -224,8 +227,10 @@ def test_collect_map_border_geometry_and_visual():
     group = _scg_group([(0, 0, 0), (0, 0, 0.9), (1, 0, 0.1), (1, 0, 1.0)], [0, 1, 2, 3])
     border = collect_map_border(_border_scene(), {42: group})
     assert border is not None
-    assert len(border["positions"]) == 4
-    assert border["indices"] == [0, 1, 2, 1, 3, 2]     # 条带交替绕序 → 2 三角形
+    assert len(border["groups"]) == 1 and border["groups"][0]["label"] is None
+    g0 = border["groups"][0]
+    assert len(g0["positions"]) == 4
+    assert g0["indices"] == [0, 1, 2, 1, 3, 2]     # 条带交替绕序 → 2 三角形
     v = border["visual"]
     assert v["color"][:3] == [1.0, 0.156, 0.156]
     assert v["height"] == 0.9 and v["minZ"] == -100.0 and v["maxZ"] == 100.0
@@ -235,9 +240,38 @@ def test_collect_map_border_geometry_and_visual():
 def test_collect_map_border_applies_world_transform():
     group = _scg_group([(0, 0, 0), (0, 0, 0.9), (1, 0, 0.1), (1, 0, 1.0)], [0, 1, 2, 3])
     border = collect_map_border(_border_scene(translation=(10.0, 20.0, 30.0)), {42: group})
-    p0, p1 = border["positions"][0], border["positions"][1]
+    pts = border["groups"][0]["positions"]
+    p0, p1 = pts[0], pts[1]
     assert p0 == [10.0, 20.0, 30.0]
     assert abs(p1[0] - 10.0) < 1e-6 and abs(p1[1] - 20.0) < 1e-6 and abs(p1[2] - 30.9) < 1e-6
+
+
+def test_collect_map_border_groups_by_variant_label():
+    """多变体图：每个边界实体带 LabelComponent（nt0/nt1/…），必须分组导出——
+    全部合并会把基础图里其它变体的内部边界一起画出来（2026-11-17 用户报障）。"""
+    group = _scg_group([(0, 0, 0), (0, 0, 0.9), (1, 0, 0.1), (1, 0, 1.0)], [0, 1, 2, 3])
+    scene = _border_scene()
+    for comp in scene["#hierarchy"][0]["components"].values():
+        if comp.get("comp.typename") == "MapBorderComponent":
+            comp["labelOwner"] = True
+    # 两个实体：dt1 / dt2
+    scene["#hierarchy"].append({
+        "name": "MapBorder2", "visibility": 0,
+        "components": {
+            "0001": {**scene["#hierarchy"][0]["components"]["0001"]},
+            "0002": {**scene["#hierarchy"][0]["components"]["0002"]},
+            "0003": {**scene["#hierarchy"][0]["components"]["0003"]},
+            "0004": {"comp.typename": "LabelComponent", "lc.labels": ["dt2"]},
+        },
+    })
+    scene["#hierarchy"][0]["components"]["0004"] = {
+        "comp.typename": "LabelComponent", "lc.labels": ["dt1"]}
+    border = collect_map_border(scene, {42: group})
+    assert border is not None
+    labels = sorted(g["label"] for g in border["groups"])
+    assert labels == ["dt1", "dt2"], labels
+    for g in border["groups"]:
+        assert len(g["positions"]) == 4 and len(g["indices"]) == 6
 
 
 def test_collect_map_border_fail_closed():

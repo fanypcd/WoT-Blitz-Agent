@@ -2211,7 +2211,8 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
     border = collect_map_border(scene, groups_by_id)
     if border is not None:
         add_map_border(glb, border)
-        stats["map_border_verts"] = len(border["positions"])
+        stats["map_border_verts"] = sum(len(g["positions"]) for g in border["groups"])
+        stats["map_border_groups"] = len(border["groups"])
     (output_dir / f"{space}.glb").write_bytes(
         glb.finish("wotb-agent export_map_glb (client-aligned)", scene_extras))
 
@@ -2517,8 +2518,12 @@ def export_deferred_decals(scene: dict, textures: "TextureStore",
 #          逐格 0/1 二值（实测值域 {0,1}）——按格镜像密度采样（属性名字面语义）。
 #   其余随档：baseColorMultilplier / scaleVariation / rotationVariation /
 #          layerAnimation{Amplitude,Drug,Spring} / visibilityDistance / lodRanges。
+#   颜色 = `albedo(灰度).rgb × vegetationColor.rgb × grassBaseColorMult(2.0)`（客户端
+#          grass-fp.sl:103；`isLit=false` 即不受光分支）。vegetationColor 逐实例取
+#          `vro.lightmap` 同图的 **RGB**，UV 按 grass-vp.sl:113-117 逐字：
+#          uv = 0.5 − chunkPivot.xy / worldSize.xy，uvColor = (1−uv.x, uv.y)。
 #   出货预算：客户端三档实体名 60k/120k/500k（= 实例预算）。网页端取 **60k**（每实例
-#          9 字节 ⇒ ~0.5MB/图）；逐格配额按密度 alpha 比例分配（最大余数法，确定性），
+#          12 字节 ⇒ ~0.7MB/图）；逐格配额按密度 alpha 比例分配（最大余数法，确定性），
 #          格内位置/旋转/缩放/变体由确定性哈希生成。
 #
 # 边界（I5）：`MapBorderRenderObject` 的 `rb.nmatname = 0`（**引擎内置材质**，dataNodes
@@ -2529,8 +2534,9 @@ def export_deferred_decals(scene: dict, textures: "TextureStore",
 GRASS_GRID = 128            # densityMapSize(16384) = 128×128 格
 GRASS_TARGET_INSTANCES = 60000
 GRASS_ALPHA_CUTOFF = 0.5
-# 每实例 9 字节：xQ u16 / zQ u16 / rot u16 / scaleQ u8 / variation u8 / flipped u8
-GRASS_INSTANCE_STRUCT = struct.Struct("<HHHBBB")
+# 每实例 12 字节：xQ u16 / zQ u16 / rot u16 / scaleQ u8 / variation u8 / flipped u8 /
+# r u8 / g u8 / b u8（逐实例植被色 = vegetationColorMap RGB 采样，客户端 grass-vp.sl:117 同源）
+GRASS_INSTANCE_STRUCT = struct.Struct("<HHHBBBBBB")
 GRASS_SCALE_MIN, GRASS_SCALE_MAX = 0.4, 1.6
 
 
@@ -2663,14 +2669,28 @@ def collect_grass_scene(scene: dict, materials: "MaterialLibrary",
     span_y = max(1e-6, float(bmax[1]) - y0)
 
     n = GRASS_GRID
-    alpha = np.asarray(density_img.convert("RGBA").resize((n, n), Image.BILINEAR),
-                       dtype=np.float64)[..., 3] / 255.0
     flip_grid = np.frombuffer(flip_bytes[: n * n], dtype=np.uint8).reshape(n, n)
-    # 逐格镜像密度采样（客户端 flippedDensityMap 字面语义：该格按镜像方向取密度）
+    # flippedDensityMap = 逐格 0/1：客户端用于打散重复（几何镜像），**不是**密度镜像。
     flipped_cells = flip_grid.astype(bool)
-    weights = alpha.copy()
-    if flipped_cells.any():
-        weights = np.where(flipped_cells, alpha[:, ::-1], alpha)
+    # 密度与植被色同取 `vro.lightmap`（客户端 grass-vp.sl 的 vegetationColorMap）：
+    #   uv = 0.5 − pivot.xy / worldSize.xy；uvColor = (1−uv.x, uv.y)
+    # 即纹理 u = 0.5 + x/spanX、v = 0.5 − y/spanY（v 向下）。
+    tex = np.asarray(density_img.convert("RGBA"), dtype=np.uint8)
+    th, tw = tex.shape[0], tex.shape[1]
+
+    def sample_rgba(wx: float, wy: float) -> tuple[int, int, int, float]:
+        u = min(max(0.5 + wx / span_x, 0.0), 1.0)
+        v = min(max(0.5 - wy / span_y, 0.0), 1.0)
+        xi = min(tw - 1, int(u * tw))
+        yi = min(th - 1, int(v * th))
+        r, g, b, a = tex[yi, xi]
+        return int(r), int(g), int(b), float(a) / 255.0
+
+    weights = np.zeros((n, n), dtype=np.float64)
+    for cy in range(n):
+        for cx in range(n):
+            weights[cy, cx] = sample_rgba(x0 + (cx + 0.5) * (span_x / n),
+                                          y0 + (cy + 0.5) * (span_y / n))[3]
     total = float(weights.sum())
     if total <= 1e-6:
         return None
@@ -2708,10 +2728,12 @@ def collect_grass_scene(scene: dict, materials: "MaterialLibrary",
                 scale = 1.0 + ((r2 >> 24) % 65536 / 65535.0 * 2.0 - 1.0) * scale_var[variation]
                 sq = int(round((max(GRASS_SCALE_MIN, min(GRASS_SCALE_MAX, scale)) - GRASS_SCALE_MIN)
                                / (GRASS_SCALE_MAX - GRASS_SCALE_MIN) * 255))
+                cr, cg, cb, _ = sample_rgba(wx, wy)
                 packed += GRASS_INSTANCE_STRUCT.pack(
                     max(0, min(65535, xq)), max(0, min(65535, yq)),
                     int(round(rot / (2 * math.pi) * 65535)) & 0xFFFF,
-                    max(0, min(255, sq)), variation, 1 if flipped_cells[cy, cx] else 0)
+                    max(0, min(255, sq)), variation, 1 if flipped_cells[cy, cx] else 0,
+                    cr, cg, cb)
     if not packed:
         return None
     return {
@@ -2725,6 +2747,7 @@ def collect_grass_scene(scene: dict, materials: "MaterialLibrary",
             "count": len(packed) // GRASS_INSTANCE_STRUCT.size,
             "densitySource": density_path,
             "cellsWithGrass": cells_with_grass,
+            "colorSource": density_path,
             "bounds": {"min": [x0, y0, float(bmin[2])],
                        "max": [float(bmax[0]), float(bmax[1]), float(bmax[2])]},
             "variations": len(variations_out),
@@ -2786,13 +2809,17 @@ def _strip_to_triangles(strip: list[int]) -> list[int]:
 
 
 def collect_map_border(scene: dict, groups_by_id: dict) -> dict | None:
-    """MapBorderRenderObject → 合并几何 + 首个实体的视觉参数（纯提取）。
+    """MapBorderRenderObject → **按变体标签分组**的几何 + 首个实体的视觉参数（纯提取）。
 
     几何 = scg 三角形带（逐实体按世界变换烘焙）；材质 id=0（引擎内置、dataNodes 无节点）
     ⇒ 视觉完全由 `MapBorderComponent` 字段驱动（见区块头注）。
+
+    ⚠️ 变体：多变体地图的每个边界实体带 `LabelComponent`（nt0/nt1/nt2、dt1..），一局只
+    激活一组——客户端只显示本局变体那条边界。这里按标签分组导出，节点带 `extras.mdVariant`
+    （与场景节点同一套消费端变体过滤）；无标签的图合并为单组恒显示。**不能全部合并**：
+    否则基础图会把其它变体的内部边界线一起画出来（2026-11-17 用户报障）。
     """
-    positions: list[list[float]] = []
-    indices: list[int] = []
+    groups: dict[str | None, dict] = {}
     visual: dict | None = None
     for _path, entity in iter_entities_recursive(scene):
         render = component_by_type(entity, "RenderComponent")
@@ -2824,6 +2851,10 @@ def collect_map_border(scene: dict, groups_by_id: dict) -> dict | None:
                                       (ro.get("mro.distanceNearFarSq") or [])][:2],
                 "distanceFadeEnabledRo": bool(ro.get("mro.distanceFadeEnabled")),
             }
+        label = entity_variant_label(entity)
+        bucket = groups.setdefault(label, {"positions": [], "indices": []})
+        positions = bucket["positions"]
+        indices = bucket["indices"]
         transform = world_transform(entity)
         tx, ty, tz = transform["translation"]
         qx, qy, qz, qw = transform["rotation"]
@@ -2857,13 +2888,21 @@ def collect_map_border(scene: dict, groups_by_id: dict) -> dict | None:
                 rz = iz * qw + iw * -qz + ix * -qy - iy * -qx
                 positions.append([rx + tx, ry + ty, rz + tz])
             indices.extend(base + i for i in tris)
-    if not positions or not indices or visual is None:
+    if not groups or visual is None:
         return None
-    return {"positions": positions, "indices": indices, "visual": visual}
+    out_groups = [{"label": label, **data} for label, data in groups.items()
+                  if data["positions"] and data["indices"]]
+    if not out_groups:
+        return None
+    return {"groups": out_groups, "visual": visual}
 
 
 def add_map_border(glb: GlbBuilder, border: dict) -> None:
-    """边界几何合并成一个 node + 一个不受光材质（extras.mapBorder 携带视觉字段）。"""
+    """边界几何 → **每个变体标签一个 node** + 一个不受光材质（extras.mapBorder 视觉字段）。
+
+    节点 `extras.mdVariant = <label>` 与场景节点同一套变体过滤（消费端按对局 map_id 剔除非
+    本组）；无标签组不写 mdVariant（恒显示）。
+    """
     visual = border["visual"]
     color = visual["color"]
     mat = {
@@ -2878,15 +2917,20 @@ def add_map_border(glb: GlbBuilder, border: dict) -> None:
     }
     glb.materials.append(mat)
     mat_index = len(glb.materials) - 1
-    mi = glb.add_shared_mesh(("mapborder",), border["positions"], border["indices"], None,
-                             None, mat_index)
-    if mi is None:
-        return
-    glb.nodes.append({
-        "mesh": mi, "name": "MapBorder",
-        "translation": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0],
-        "scale": [1.0, 1.0, 1.0],
-    })
+    for gi, group in enumerate(border["groups"]):
+        mi = glb.add_shared_mesh(("mapborder", gi), group["positions"], group["indices"], None,
+                                 None, mat_index)
+        if mi is None:
+            continue
+        node = {
+            "mesh": mi,
+            "name": "MapBorder" + (":" + group["label"] if group.get("label") else ""),
+            "translation": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0],
+            "scale": [1.0, 1.0, 1.0],
+        }
+        if group.get("label"):
+            node["extras"] = {"mdVariant": group["label"]}
+        glb.nodes.append(node)
 
 
 def _env_cube_equirect(textures: "TextureStore", tex_path: str | None, cache: dict,
