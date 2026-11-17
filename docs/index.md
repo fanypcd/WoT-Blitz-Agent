@@ -123,12 +123,13 @@ WebAudio 距离/pan 增益，曲线为产品近似非客户端语义）；音频
 **做了什么**：把审计表最后两个"客户端会渲染、导出器跳过"的类补齐，并给粒子 FX 定性：
 
 - **H1 草系统（`VegetationRenderObject`）**：28 图（其余 8 图无 Grass 实体）。几何
-  `vro.geometryData.cgd.chunkSet` **内嵌在 sc2**（4 变体 × 3 LOD，lod0 = 27 顶点/9 三角形，
+  `vro.geometryData.cgd.chunkSet` **内嵌在 sc2**（4 变体 × 3 LOD；原型取 500 档完整草簇 lod0 = 38/39/26/5 顶点、54–81 索引——60k/120k 档是 27/7/7/3 顶点稀疏三角，2026-11-17 用户报“三角形草”后改取高档，
   normalsCount=0）；材质 `cgd.materialId` → 逐图 albedo；**密度 = `vro.lightmap` 的 alpha**
   （`densityMapChannel=4`、`useSeparateDensityMap=false`）；`vro.flippedDensityMap` 实测
   16384 字节 = 128×128 逐格 0/1（翻转位，非密度）；风参数逐层随档。出货 60k 实例/图
-  （9 字节/实例：位置 u16 归一化 + 旋转 u16 + 缩放 u8 + 变体 u8 + 翻转 u8），逐格配额按
-  密度比例分配（最大余数法）+ 确定性哈希铺点。
+  （12 字节/实例：位置 u16×2 + 旋转 u16 + 缩放 u8 + 变体 u8 + 翻转 u8 + 逐实例 RGB×3，
+  ~0.72MB/图；原型 GLB 另 ~0.12MB/图），逐格配额按密度比例分配（最大余数法）+
+  确定性哈希铺点。
 - **I5 地图边界（`MapBorderRenderObject`）**：33 图。材质 id=0（引擎内置）不可得，但
   **几何在 scg**（三角形带竖带：顶点对高差恰 = `mbc.visualHeight`）+ `MapBorderComponent`
   带全部视觉字段（颜色/可见 z 区间/边缘淡出/z 偏移/距离淡出）⇒ 合并几何 + `extras.mapBorder`
@@ -137,7 +138,7 @@ WebAudio 距离/pan 增益，曲线为产品近似非客户端语义）；音频
   祖先下（触树落叶/击毁扬尘/爆炸），即客户端里也不存在常驻粒子 ⇒ 结构性非目标，
   不再作为"未做项"跟踪。
 
-**产物**：28 图 `grass.{json,bin,glb}`（原型 4 变体 + albedo，~0.6MB/图）；33 图主 GLB 增
+**产物**：28 图 `grass.{json,bin,glb}`（原型 4 变体 + albedo；实例 ~0.72MB + 原型 ~0.12MB/图）；33 图主 GLB 增
 `MapBorder` 网格与材质；打包器收 `map/<key>/grass.*`。消费端（WotbTools 隔离分支）：
 `mapGrass.ts`（解析/分块 InstancedMesh/作者风摆，仅高清·极致档）+ `makeMapBorderMaterial`；
 Android `wotbVersion` 已在消费分支 bump。

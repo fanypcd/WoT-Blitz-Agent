@@ -17,7 +17,7 @@
 | 水面实例旗标（全 36 图） | 各图 `.sc2` `#dataNodes` 的 water 材质 `flags` | 仅 `SPECULAR(20)/VERTEX_FOG(19)/FOG_*(…)/FLATCOLOR(3)/WATER_RENDER_OBJECT(14)/SHADOW_RECEIVER(2)/SOFT_COASTLINE(1)`；**`WATER_RIPPLES/WATER_TESSELLATION/WATER_DEFORMATION` 零实例启用** |
 | 动态阴影 | 场景 `DirectionalShadowComponent.shadowConfigHigh` | 4 级 `ranges=20/40/64/84m`、`filterRadius=5/3/1/1`、constant/slope bias、`cascadesBlendWidth`、`fadeOutWidth`、`LMGateFactor=0.5–1.5`、`landscapeLMGateFactor`、`shadowColor`、`litDiffuseSpecAmbientMult`（逐图不同） |
 | 风场 | 场景 `WindComponent` | `quaternion`（风向）+ `wc.windSpeed` / `wc.windForce`（逐图） |
-| 草分档 | 场景 VegetationRenderObject ×3 | 实体名 60k/120k/500k；**500 档作者几何 38 顶点/株，OFF 档 27 顶点**（当前导出器取首个 VRO = OFF 档） |
+| 草分档 | 场景 VegetationRenderObject ×3 | 实体名 60k/120k/500k；**500 档作者几何 38 顶点/株，OFF 档 27 顶点**（2026-11-17 起导出器已取 500 档几何；实例预算仍 60k，分档预算待做） |
 | 天空云 | 天空材质 `textures.flowmap`（54 个 flowmap 批次） | 客户端双层 flowmap 动画；当前未导 |
 | 后期 | `Materials/ColorGrading.material`、`ExposureTonemapping.material` | 全局调色/自动曝光材质存在；**无逐图 LUT 资源**（Data 内只有 UI `grade_booster.sc2` 与坦克 `*_grade` 贴图） |
 | 坦克泥污 | 场景 `MapDirtCoverageSettingsComponent` | `dirtColor`、`dirt_height/dust_normal` 贴图、覆盖/清洗时间、强度（逐地形材质） |
@@ -135,8 +135,9 @@ E2 已决策不做（回放用于高视角分析，雾削弱战场可见性）�
 
 ### G1 — 草分档与高档作者几何（P0/P1）
 
-- **依据**：三档 VRO（60k/120k/500k）；**500 档几何 38 顶点/株 vs OFF 档 27**（当前导出器
-  取首个 VRO = OFF 档，属 fidelity 缺口）。
+- **依据**：三档 VRO（60k/120k/500k）；**500 档几何 38 顶点/株 vs OFF 档 27**。
+  **现状：几何档已落地**（2026-11-17 导出器按 lod0 几何量取 500 档，修复“三角形草”）；
+  分档实例预算（60k/120k/500k）与低档回退仍待做。
 - **做法**：导出器按档导出原型（可用 `--grass-tier` 或一次导三档）；消费端按画质档选择
   实例预算 + 原型（高清=500 档几何、60k~120k 实例；低/均衡不加载）。
 - **收益**：★★（近景草更密、叶片更完整）。

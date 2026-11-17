@@ -11,6 +11,7 @@
 import pathlib
 import struct
 import sys
+import copy
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "wotbtools"))
@@ -151,6 +152,25 @@ def test_collect_grass_scene_allocates_budget():
     assert xq <= 65535 and zq <= 65535
     # 逐实例植被色（客户端 grass-vp.sl:117 的 vegetationColorMap 采样；夹具 RGB=(32,96,48)）
     assert (cr, cg, cb) == (32, 96, 48)
+
+
+def test_collect_grass_scene_prefers_detailed_tier():
+    # 同图多档 VRO：低档（27/7/7/3 顶点）在前、500 档完整草簇在后 ⇒ 原型取几何量最大档
+    scene, mats, texs = _grass_scene()
+    low = scene["#hierarchy"][0]["components"]["0001"]["rc.renderObj"]
+    high = copy.deepcopy(low)
+    chunk = high["vro.geometryData"]["cgd.chunkSet"]
+    for vi in range(4):
+        chunk[f"cgd.variation.{vi}"] = {"cgd.lod.0": _lod(
+            [(0, 0, 0), (0.1, 0, 0), (0, 0.1, 1.1), (0.2, 0.2, 0.7), (0.3, 0.1, 0.5)],
+            [0, 1, 2, 1, 3, 4])}
+    scene["#hierarchy"].append({
+        "name": "entity_grass500.sc2",
+        "components": {"0001": {"comp.typename": "RenderComponent", "rc.renderObj": high}},
+    })
+    grass = collect_grass_scene(scene, mats, texs, {"min": [-300, -300, 0], "max": [300, 300, 0]})
+    assert grass is not None
+    assert len(grass["variations"][0]["positions"]) == 5
 
 
 def test_collect_grass_scene_flipped_cells_recorded():

@@ -2508,7 +2508,9 @@ def export_deferred_decals(scene: dict, textures: "TextureStore",
 # 草（H1）：
 #   几何 = `vro.geometryData.cgd.chunkSet`——**内嵌**在 .sc2（无外部文件依赖）：
 #          4 变体 × 3 LOD，逐顶点平行数组 `cgd.lod.pos.N` / `cgd.lod.tex.N` / `cgd.lod.index.N`
-#          （lod0 实测 27 顶点 / 27 索引 = 9 三角形，normalsCount=0 ⇒ 不受光）。
+#          （normalsCount=0 ⇒ 不受光）。⚠️ 同图存在 3 个预算档 VRO：60k/120k 档的 lod0 是
+#          稀疏三角（变体顶点 27/7/7/3，成片显示为"三角形草"）；**500 档才是完整草簇**
+#          （38/39/26/5 顶点、78/81/54/9 索引）。原型按 lod0 几何量取最大档（名字不是语义）。
 #   材质 = `cgd.materialId` → NMaterial（`Textured.material` + **逐图** albedo，如
 #          `landscape/grass/images/grass120.tex`）。
 #   密度 = `vro.lightmap` 纹理的 **alpha 通道**（`vro.densityMapChannel = 4` = 第 4 通道；
@@ -2522,9 +2524,9 @@ def export_deferred_decals(scene: dict, textures: "TextureStore",
 #          grass-fp.sl:103；`isLit=false` 即不受光分支）。vegetationColor 逐实例取
 #          `vro.lightmap` 同图的 **RGB**，UV 按 grass-vp.sl:113-117 逐字：
 #          uv = 0.5 − chunkPivot.xy / worldSize.xy，uvColor = (1−uv.x, uv.y)。
-#   出货预算：客户端三档实体名 60k/120k/500k（= 实例预算）。网页端取 **60k**（每实例
-#          12 字节 ⇒ ~0.7MB/图）；逐格配额按密度 alpha 比例分配（最大余数法，确定性），
-#          格内位置/旋转/缩放/变体由确定性哈希生成。
+#   出货预算：客户端三档实体名 60k/120k/500k（= 实例预算）。网页端取 **60k 实例 +
+#          500 档完整草簇几何**（04 画质计划 G1；每实例 12 字节 ⇒ ~0.7MB/图）；逐格配额按
+#          密度 alpha 比例分配（最大余数法，确定性），格内位置/旋转/缩放/变体由确定性哈希生成。
 #
 # 边界（I5）：`MapBorderRenderObject` 的 `rb.nmatname = 0`（**引擎内置材质**，dataNodes
 #   无该节点）⇒ 材质不可得；但**几何在 scg 里**（三角形带竖带：每对顶点高差恰 =
@@ -2581,9 +2583,34 @@ def decode_cgd_lod(var_lod: dict) -> dict | None:
     return {"positions": positions, "uvs": uvs, "indices": indices}
 
 
+def grass_geometry_detail(veg: dict) -> int:
+    """VRO 的 lod0 几何量（4 变体索引数之和）。
+
+    同图有 3 个预算档 VRO（实体名 60k/120k/500k）：低两档是稀疏三角（27/7/7/3 顶点），
+    500 档是完整草簇（26–39 顶点、54–81 索引）。名字不是语义 ⇒ 按 lod0 几何量取最大者
+    作为原型（高清档几何 + 60k 实例预算，见 docs/map-quality-enhancement-plan.md G1）。
+    """
+    chunk_set = ((veg.get("vro.geometryData") or {}).get("cgd.chunkSet") or {})
+    if not isinstance(chunk_set, dict):
+        return 0
+    total = 0
+    for vi in range(4):
+        var = chunk_set.get(f"cgd.variation.{vi}")
+        if not isinstance(var, dict):
+            break
+        lod0 = var.get("cgd.lod.0")
+        if isinstance(lod0, dict):
+            total += int(lod0.get("cgd.lod.indexCount") or 0)
+    return total
+
+
 def collect_grass_scene(scene: dict, materials: "MaterialLibrary",
                         textures: "TextureStore", bounds: dict | None) -> dict | None:
     """VegetationRenderObject → 原型变体 + 实例（纯提取；不写盘）。
+
+    同图多档 VRO（60k/120k/500k）时取 **lod0 几何量最大**的一档作为原型——低档几何是
+    稀疏三角面片（会显示成"三角形草"），高档才是完整草簇；实例预算仍按 60k，与画质
+    计划 G1 的"高清 = 500 档几何 + 60k~120k 实例"一致。
 
     返回 {
       params: {baseColorMultiplier, scaleVariation, rotationVariation, wind, ...},
@@ -2594,14 +2621,16 @@ def collect_grass_scene(scene: dict, materials: "MaterialLibrary",
     }；任一关键件缺失 → None（fail-closed 不发货草层）。
     """
     veg = None
+    veg_score = -1
     for _path, entity in iter_entities_recursive(scene):
         render = component_by_type(entity, "RenderComponent")
         if render is None:
             continue
         ro = render.get("rc.renderObj")
         if isinstance(ro, dict) and str(ro.get("##name")) == "VegetationRenderObject":
-            veg = ro
-            break
+            score = grass_geometry_detail(ro)
+            if veg is None or score > veg_score:
+                veg, veg_score = ro, score
     if veg is None:
         return None
     chunk_set = ((veg.get("vro.geometryData") or {}).get("cgd.chunkSet") or {})

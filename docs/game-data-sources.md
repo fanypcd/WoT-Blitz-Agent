@@ -1139,7 +1139,7 @@ App 侧消费（WotbTools `frontend/src/data/map2dOverlay.js`）与"包内兜底
 **第二批（同日）**：
 
 - **草系统 `VegetationRenderObject`**（28 图，其余 8 图无 Grass 实体）：几何内嵌
-  （`cgd.chunkSet`，4 变体 × 3 LOD，27 顶点/变体）；材质 = `cgd.materialId` → 逐图 albedo；
+  （`cgd.chunkSet`，4 变体 × 3 LOD；原型取 lod0 几何量最大的 VRO = 500 档 38/39/26/5 顶点、54–81 索引，60k/120k 档为 27/7/7/3 顶点稀疏三角）；材质 = `cgd.materialId` → 逐图 albedo；
   密度 = `vro.lightmap` 的 **alpha**（`densityMapChannel=4`、`useSeparateDensityMap=false`）；
   `vro.flippedDensityMap` = 16384 字节 / 128×128 逐格翻转位（实测值域 {0,1}，非密度）。
   出货 60k 实例/图 → `<space>.grass.{json,bin,glb}`（9 字节/实例；原型 GLB 含 4 变体 +
