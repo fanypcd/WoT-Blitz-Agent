@@ -2,8 +2,10 @@
 
 > 全量对照总账（本仓导出物 + WotbTools 现役渲染 + 客户端 36 图实测普查）：
 > 逐项列"客户端怎么做 / 我们怎么做 / 后果 / 对齐收益 / 成本 / 归类"，各行状态列为**现役状态**。
-> 光照专项的实施设计见 [map-lighting-plan.md](map-lighting-plan.md)；可行性报告（含 36 图参数表）
-> 已归档删文（见 git 历史，参数表可经 `tools/export_map_lighting.py` 从客户端重导），
+> 光照专项的实施设计见 [map-lighting-plan.md](map-lighting-plan.md)；**画质增强候选项清单
+> （水面全档/CSM 阴影/云动画/草分档/贴花投影等，仅计划未执行）见
+> [map-quality-enhancement-plan.md](map-quality-enhancement-plan.md)**；可行性报告（含 36 图
+> 参数表）已归档删文（见 git 历史，参数表可经 `tools/export_map_lighting.py` 从客户端重导），
 > 其未定项已收编进本文 §五；本文覆盖其之外的**材质、贴图、水、天空、雾、阴影、植被、画质档**。
 
 ---
