@@ -862,14 +862,14 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
 **现行 release（2026-11-17，共享地图 base 原地更新）**：三个 active dataset 共用同一套
 地图资产，本次直接更新共享 map/ base（不新建 release）：
 - default `11.21.0_1` → `11.21.0_1-20261114-r1`：739 辆，**6079 件 / 4484.5 MB**，
-  `content_digest sha256:d14e4e30…`；
+  `content_digest sha256:98946fac…`；
 - `11.21.0` → `11.21.0-20261106-r2`：738 辆，**6072 件 / 4480.7 MB**，
-  `sha256:5a07b40b…`；
+  `sha256:b65fc15b…`；
 - `11.4.0.138-r5` → `t11r3-20261114-r7-ballistics`：747 辆，**6133 件 / 4530.3 MB**，
-  `sha256:97af2599…`。
+  `sha256:65eb50d9…`。
 
 本次地图增量：`map/` 669→776 件（+28 图草层 105 件、plant 投影贴花 2 件；86 件
-scenery/terrain 等替换）+ `map2d/index.json`，共 **194 路径 / 139 唯一对象 / 966.7 MB**
+scenery/terrain 等替换）+ 根 `index.json`（55 图变体目录）+ `map2d/index.json`，共 **195 路径 / 140 唯一对象 / 966.7 MB**
 入对象库；三份 release 逐路径**硬链接到同一对象**（新 grass.bin inode 共享），
 `tank/research/cover/data` 等按版本分叉内容未动。manifest 按磁盘重算后
 `asset_release.py stamp` 重算 content_digest/manifest_sha256，`dataset.sh catalog`
