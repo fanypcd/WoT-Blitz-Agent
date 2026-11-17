@@ -92,6 +92,39 @@ pub struct RawNotification {
     pub code: u16,
 }
 
+/// 快捷指令 / 战场标记的类型表（marker type id → 稳定语义名）。
+///
+/// **权威来源 = 客户端可执行文件**（wotblitz.exe 11.21.0 build，映像基址 0x400000）：
+/// 连续的注册块 `... push <id>; call 0x130f7e0`（字符串参数取 `chatCommand/*` 本地化键）
+/// 位于 0x1308613..0x130947d；逐项解码得下表（顺序与 id 单调一致，交叉核验：
+/// id 29 的包裹字段是 accountId——"Attack %(playerName)"；id 28 的字段是扇区号——
+/// "Attention to sector %(cell)"）。未观测/动态构造的 id（20/21/30/40-51 等）→ None，
+/// 调用方保留原始 id（fail-closed，禁猜）。
+pub fn chat_command_name(id: i64) -> Option<&'static str> {
+    Some(match id {
+        22 => "help_me",
+        23 => "follow_me",
+        24 => "attack",
+        25 => "back_to_base",
+        26 => "positive",
+        27 => "negative",
+        28 => "attention_to_cell",
+        29 => "attack_enemy",
+        52 => "turn_back",
+        53 => "help_me_ex",
+        54 => "support_me_with_fire",
+        55 => "hold_positions",
+        56 => "stop",
+        57 => "catch_point",
+        58 => "defend_point",
+        59 => "defend_point",
+        60 => "moving_here",
+        61 => "ally_attack",
+        62 => "ally_retreat",
+        _ => return None,
+    })
+}
+
 /// 0x2f（onChatAction）的事件类别——**只命名已由语料证实的类别**，其余 raw 透传。
 ///
 /// 证据（15 场跟踪语料 305 条动作事件，逐类比对与实战语义吻合）：
@@ -132,9 +165,13 @@ pub struct ChatEvent {
     /// 快捷指令码（仅 `command`）：pickle 元组第 0 项，语义未闭合 → 原样透传
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<i64>,
-    /// 指令目标（仅 `command`）：pickle 元组第 1 项（0 = 无目标），语义未闭合
+    /// 指令目标（仅 `command`）：pickle 元组第 1 项。按 id 语义解释：
+    /// `attack_enemy`→目标 accountId；`attention_to_cell`→扇区号；其余多为 0（无目标）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<i64>,
+    /// 指令语义名（客户端权威表，见 [`chat_command_name`]）；未映射 id → 省略（保留 raw）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_name: Option<&'static str>,
 }
 
 /// 一条 0x2f 动作事件的**原始**解码结果（投影层转 [`ChatEvent`]）。
@@ -223,6 +260,7 @@ pub fn chat_event_from_raw(raw: &RawChatAction) -> ChatEvent {
         text: String::new(),
         command: None,
         target: None,
+        command_name: None,
     };
     match (raw.code, &raw.pickle) {
         // 1 = 聊天正文（pickle 顶层 = 文本串）
@@ -235,6 +273,7 @@ pub fn chat_event_from_raw(raw: &RawChatAction) -> ChatEvent {
             ev.kind = ChatEventKind::Command;
             if let Some(PickleVal::Int(cmd)) = items.first() {
                 ev.command = Some(*cmd);
+                ev.command_name = chat_command_name(*cmd);
             }
             if let Some(PickleVal::Int(target)) = items.get(1) {
                 ev.target = Some(*target);
@@ -725,4 +764,29 @@ mod tests {
         assert_eq!(ev.kind, ChatEventKind::Other);
         assert_eq!(ev.raw_type, 22);
     }
+    #[test]
+    fn chat_command_table_matches_client_registration() {
+        // 客户端注册表 0x1308613..（wotblitz.exe 11.21.0）：观测到的语料 id 全覆盖
+        assert_eq!(chat_command_name(22), Some("help_me"));
+        assert_eq!(chat_command_name(24), Some("attack"));
+        assert_eq!(chat_command_name(26), Some("positive"));
+        assert_eq!(chat_command_name(28), Some("attention_to_cell"));
+        assert_eq!(chat_command_name(29), Some("attack_enemy"));
+        assert_eq!(chat_command_name(60), Some("moving_here"));
+        assert_eq!(chat_command_name(62), Some("ally_retreat"));
+        // 未映射/动态构造 id → None（保留 raw，不猜）
+        assert_eq!(chat_command_name(20), None);
+        assert_eq!(chat_command_name(30), None);
+        assert_eq!(chat_command_name(99), None);
+    }
+
+    #[test]
+    fn chat_action_command_carries_name_and_target() {
+        let raw = parse_chat_action(&hex(ACTION_CMD)).expect("command action");
+        let ev = chat_event_from_raw(&raw);
+        assert_eq!(ev.command, Some(29));
+        assert_eq!(ev.command_name, Some("attack_enemy"));
+        assert_eq!(ev.target, Some(1_549_653));
+    }
+
 }
