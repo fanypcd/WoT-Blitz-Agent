@@ -178,8 +178,9 @@ UV + 法线扰动采样并乘 `reflectionTintColor`；high/ultra 档启用，正
 回退 cubemap。导出器 `water_props` 补 HIGH 参数（`reflectionDistortion`/
 `distortionFallSquareDist`/`inGlossiness`/`inSpecularity`/`reflectanceColor`；候选包
 尚未重导，消费端用缺省值）。实测 RT mean 154/std 79（真实场景），水面像素动态反射 vs
-cubemap 均值差 64。待办：太阳高光、ULTRA 折射、W3 反射档位；L3 天空云动画随"环境动画
-冻结"暂缓。
+cubemap 均值差 64。**太阳高光已落地**（客户端 SPECULAR 分支：BlinnPhong + Fresnel
+Schlick，uSunSpecColor 按查看器曝光归一）。待办：ULTRA 折射、W3 反射档位；L3 天空云
+动画随"环境动画冻结"暂缓。
 
 **画质提升 Wave B（2026-11-17 起）**：**L2 自动曝光已落地**（WotbTools
 `playback/autoExposure.ts`，high/ultra）——64px 探针每 500ms 测对数平均亮度，在逐图

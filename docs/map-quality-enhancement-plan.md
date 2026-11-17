@@ -39,8 +39,9 @@
 > （high/ultra 档启用；正俯视/水下 fail-closed 回退 cubemap），水面 shader 按屏幕 UV +
 > 法线扰动采样并乘 `reflectionTintColor`；RT 实测 mean 154 / std 79（真实场景内容）。
 > 导出器 `water_props` 已补 `reflectionDistortion`/`distortionFallSquareDist`/`inGlossiness`/
-> `inSpecularity`/`reflectanceColor`（当前候选包尚未重导，消费端用缺省值）。太阳高光
-> （`SPECULAR` 分支）与 W2 折射仍待做；W3 反射分辨率/更新频率档位待做。
+> `inSpecularity`/`reflectanceColor`（当前候选包尚未重导，消费端用缺省值）。**太阳高光已落地**
+> （water shader BlinnPhong + Fresnel Schlick，参数取 extras props，uSunSpecColor 按曝光
+> 归一）；W2 折射与 W3 反射分辨率/更新频率档位仍待做。
 
 - **客户端依据**：HIGH 材质 `REAL_REFLECTION + FRESNEL_TO_ALPHA`；`water-fp.sl` 采样
   `dynamicReflection` 于**投影坐标**，偏移 = 波法线 × `reflectionDistortion`（距离衰减
