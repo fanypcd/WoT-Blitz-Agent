@@ -715,8 +715,10 @@ def collect_renderables(scene: dict) -> dict:
         # 的 `State N` 子树：SkinnedMesh + Skeleton/MotionComponent）。按**静止绑定姿态**导出
         # （不读骨架动画 ⇒ 不随动），且**只取激活状态**（`State 0`，见下）——用户决定"完好形态
         # 做完整、撞毁直接消失"，故不导损毁态网格。
-        # 其余类（MapBorderRenderObject 等调试/边框对象）仍跳过。
-        if cls not in ("Mesh", "SpeedTreeObject", "SkinnedMesh"):
+        # 其余类（MapBorderRenderObject 等调试/边框对象）仍跳过——见
+        # docs/map-render-align-audit.md 各行（F2 水面 / H3 Flora / B9 投影贴花）。
+        if cls not in ("Mesh", "SpeedTreeObject", "SkinnedMesh",
+                       "WaterRenderObject", "FloraRenderObject"):
             continue
 
         # RenderObject 可见位（缺省即可见，镜像 RenderObject::Load 序列化缺省）；
@@ -1989,13 +1991,23 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         # 后按用户裁示**回退到 MEDIUM**（抉择与两档对比见 docs/index.md 的 F1 条）。
         # ⚠️ 法线图与立方图**都必需**：缺任一张即 fail-closed 不发水面数据（消费端回落
         # 普通材质，宁可不画错——菲涅尔 alpha 需要法线、反射项需要立方图）。
+        # ⚠️ WaterRenderObject（水体主体，2026-11 审计 F2：13 图 14 实例）另有 UV 基
+        # 两属性门槛（见 wro_uv_basis）——缺任一 ⇒ 该实例**整批不导**（此类网格无 UV 流，
+        # 消费端无从推导 UV，硬导会渲染成错色平面；Mesh 类水面有 UV/albedo，保留既有
+        # fallback 回落普通材质）。counters: water_wro_dropped。
+        wro_uv = None
         water_surface = None
         if is_water:
             nm_img, _ = textures.get(mat_desc["textures"].get("normalmap") or "")
             wc_img = _env_cube_equirect(textures, mat_desc["textures"].get("cubemap"),
                                         env_cube_cache)
-            if nm_img is not None and wc_img is not None:
+            if cls == "WaterRenderObject":
+                wro_uv = wro_uv_basis(mat_desc)
+            if nm_img is not None and wc_img is not None and (
+                    cls != "WaterRenderObject" or wro_uv is not None):
                 water_surface = {"props": water_props(mat_desc)}
+                if wro_uv is not None:
+                    water_surface.update(wro_uv)
                 # 法线图：无损 PNG（法线图有损压缩会改变波浪朝向）
                 nbuf = io.BytesIO()
                 nm_img.convert("RGB").transpose(Image.FLIP_TOP_BOTTOM).save(nbuf, "PNG")
@@ -2010,6 +2022,9 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
                 stats["water_surface"] = stats.get("water_surface", 0) + 1
             else:
                 stats["water_fallback"] = stats.get("water_fallback", 0) + 1
+                if cls == "WaterRenderObject":
+                    stats["water_wro_dropped"] = stats.get("water_wro_dropped", 0) + 1
+                    continue
 
         # 视角淡出软混合效果片（客户端 `enabledPresets.AlphaBlend` + flags `BLEND_BY_ANGLE`）：
         # `rays.sc2` / 光柱片这类"白 RGB + 图案全在 alpha"的薄片，客户端按 `Textured.material`
@@ -2071,9 +2086,12 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
                     if blend_by_angle is not None else None),
                    (mat_desc["textures"].get("normalmap"), mat_desc["textures"].get("cubemap"),
                     # 水面**逐材质属性**也要进键：同一 albedo/法线/立方图但菲涅尔/色调不同的
-                    # 实例（马利诺夫卡的浮冰群）否则会串用首个实例的属性
+                    # 实例（马利诺夫卡的浮冰群）否则会串用首个实例的属性；WRO 的 UV 基
+                    # （texCoordTransform0/inputTangent）逐材质同样不得串用
                     tuple(sorted((k, tuple(v) if isinstance(v, list) else v)
-                                 for k, v in water_surface["props"].items())))
+                                 for k, v in water_surface["props"].items())),
+                    tuple(wro_uv["texCoordTransform0"]) if wro_uv else None,
+                    tuple(wro_uv["inputTangent"]) if wro_uv else None)
                    if water_surface is not None else None)
         if mat_key not in material_index_by_albedo:
             material_index_by_albedo[mat_key] = _build_material(
@@ -2188,8 +2206,37 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         # 组数/注册表数不一致：节点仍带 mdVariant，但没有可用的 map_id→label 映射。
         # 显式标记，消费端据此隐藏全部变体节点（fail-closed），不得全量渲染。
         scene_extras["variantMappingIncomplete"] = True
+    # 地图边界（MapBorderRenderObject，2026-11 审计 I5）：几何在 scg（三角形带竖带），
+    # 引擎内置材质不可得 ⇒ 用 MapBorderComponent 的视觉字段复刻（见 collect_map_border）。
+    border = collect_map_border(scene, groups_by_id)
+    if border is not None:
+        add_map_border(glb, border)
+        stats["map_border_verts"] = sum(len(g["positions"]) for g in border["groups"])
+        stats["map_border_groups"] = len(border["groups"])
     (output_dir / f"{space}.glb").write_bytes(
         glb.finish("wotb-agent export_map_glb (client-aligned)", scene_extras))
+
+    # 投影贴花（DeferredDecalComponent，2026-11 审计 B9；当前内容仅 plant 有）：
+    # 随 GLB 重导一起落盘（scenery_only 也写——贴花数据与几何同源，变体重打标
+    # 不改场景内容但保持数据面新鲜）。计数进 sidecar warnings。
+    decals_doc = export_deferred_decals(scene, textures, output_dir, space)
+    if decals_doc is not None:
+        stats["deferred_decals"] = len(decals_doc["decals"])
+
+    # 草系统（VegetationRenderObject，2026-11 审计 H1）：原型 GLB + 实例 bin + 元数据。
+    # 密度/翻转/变体/风参数全部来自客户端；逐格配额按密度 alpha 比例（见区块头注）。
+    try:
+        grass = collect_grass_scene(scene, materials, textures,
+                                    (renderables.get("landscape") or {}).get("worldBounds"))
+        if grass is not None:
+            export_grass(grass, output_dir, space)
+            stats["grass_instances"] = grass["meta"]["count"]
+            stats["grass_variations"] = grass["meta"]["variations"]
+        else:
+            stats["grass_skipped"] = stats.get("grass_skipped", 0) + 1
+    except Exception as exc:   # 草层可选资产：失败不影响主场景
+        stats["grass_failed"] = stats.get("grass_failed", 0) + 1
+        print(f"  [warn] {space}: 草层导出失败：{exc}")
 
     if scenery_only:
         # 只重导 GLB（变体打标等场景修正）；不触地面贴图与 sidecar——旧 sidecar
@@ -2296,6 +2343,14 @@ WATER_PROP_DEFAULTS = {
     "fresnelBias": [0.0],
     "fresnelPow": [0.0],
     "reflectionTintColor": [1.0, 1.0, 1.0],
+    # HIGH/ULTRA 档（REAL_REFLECTION）：动态反射扰动与太阳高光参数。
+    # MEDIUM 档消费端不会用，但随 extras 全量下发（water_props 全写），
+    # 便于消费端按画质档切换，无需二次导出。
+    "reflectionDistortion": [0.04],
+    "distortionFallSquareDist": [100.0],
+    "inGlossiness": [0.5],
+    "inSpecularity": [0.5],
+    "reflectanceColor": [0.5, 0.5, 0.5],
 }
 
 
@@ -2312,6 +2367,621 @@ def water_props(mat_desc: dict) -> dict:
         vals = [round(float(v), 6) for v in _prop_floats(mat_desc, key, tuple(default))[:n]]
         out[key] = vals if n > 1 else vals[0]
     return out
+
+
+def wro_uv_basis(mat_desc: dict) -> dict | None:
+    """WaterRenderObject 水面的 UV 基（两属性缺一返回 None ⇒ 调用方 fail-closed 跳过）。
+
+    客户端证据（`water-vp.sl`，`#ensuredefined WATER_RENDER_OBJECT` 分支）：
+    该类网格的着色 **不读网格 UV 流**（此类的 vertexFormat 实测无 TEXCOORD 位，如
+    neptune 106482 format=17 = VERTEX+TANGENT），UV 由**局部坐标程序化推导**：
+        uv = (dot(localPosition.xy, texCoordTransform0.xz),
+              dot(localPosition.xy, texCoordTransform0.yw))     # water-vp.sl:208-209
+        texCoord0 = uv × normal0Scale + frac(normal0ShiftPerSecond·t)
+        texCoord1 = rot90(uv) × normal1Scale + frac(normal1ShiftPerSecond·t)
+    法线恒 (0,0,1)、切线 = `inputTangent` 属性（两个属性**仅**在 WATER_RENDER_OBJECT
+    分支声明，:116-118）。Mesh 类水面（如马利诺夫卡浮冰）走 #else 分支用网格
+    UV/法线/切线流，**不消费这两个属性**——故 extras 只对 WaterRenderObject 下发，
+    消费端以键的存在与否区分 UV 来源（类判据，非内容启发式）。
+    """
+    props = mat_desc.get("properties") or {}
+    if "texCoordTransform0" not in props or "inputTangent" not in props:
+        return None
+    try:
+        tct = _prop_floats(mat_desc, "texCoordTransform0", (0.0, 0.0, 0.0, 0.0))[:4]
+        tan = _prop_floats(mat_desc, "inputTangent", (0.0, 0.0, 0.0))[:3]
+    except (ValueError, struct.error):
+        return None
+    # 全零/非有限矩阵 = 截断或损坏数据推导不出 UV（客户端也不会这么配）——fail-closed
+    if not all(math.isfinite(v) for v in tct + tan) or all(v == 0.0 for v in tct):
+        return None
+    return {
+        "texCoordTransform0": [round(float(v), 6) for v in tct],
+        "inputTangent": [round(float(v), 6) for v in tan],
+    }
+
+
+# 贴花 blending 枚举（客户端 Materials/Shaders/blending.slh 逐字；消费端按名分支）：
+# MULTIPLICATIVE(5) 在片元末还有 `rgb = lerp(1, rgb, a)`（deferred-decal-fp.sl:145-147）
+DECAL_BLENDING_NAMES = {
+    0: "none", 1: "alphaBlend", 2: "additive", 3: "alphaAdditive", 4: "softAdditive",
+    5: "multiplicative", 6: "strongMultiplicative", 7: "premultipliedAlpha",
+    8: "fuseBlendAdd",
+}
+
+
+def collect_deferred_decals(scene: dict, textures: "TextureStore") -> tuple[list[dict], dict]:
+    """收集 DeferredDecalComponent 实体 → (records, textures)（export_deferred_decals 的纯提取部分）。
+
+    客户端语义（Materials/Shaders/Default/deferred-decal-{fp,vp}.sl + DeferredDecal.material
+    + blending.slh，2026-11 审计 B9；当前内容仅 plant 有 490 实例）：
+      渲染对象 = 贴花实体的**单位盒**（TransformComponent 缩放 = 盒尺寸、旋转 = 投影朝向）。
+      逐像素由场景深度重建世界位 → 盒模型空间 positionMS ∈ [-0.5,0.5]³；|x|,|y| 出界弃
+      （DECAL_VERTICAL_FADE 时 z 走 verticalFadeWidth 淡出，否则 |z| 出界弃）；
+      UV = (positionMS.xy + 0.5) × uvOffsetScale + uvOffset（单一 albedo 采样器）。
+      blending = 组件 `blending` 字段（blending.slh 枚举，见 DECAL_BLENDING_NAMES）。
+    贴图绑定取 **atlasInfo** 槽（图集 + UV 矩形）：`decalComponent.decal` 的 dec_N.tex
+    在整个客户端树**不存在**（陈旧引用，全树 find 无一命中），atlasInfo 是唯一可解析槽。
+    fail-closed：两槽都解析不到实体文件 ⇒ 跳过该贴花（返回记录里不含它），计数交给调用方。
+    隐藏实体（visibility bit0/bit1）跳过——与场景网格同口径。
+    """
+    records: list[dict] = []
+    tex_paths: dict[str, str] = {}
+    dropped_no_texture = 0
+    for _path, entity in iter_entities_recursive(scene):
+        if entity.get("visibility", 0) & 3:
+            continue
+        comp = component_by_type(entity, "DeferredDecalComponent")
+        if comp is None:
+            continue
+        atlas = comp.get("decalComponent.atlasInfo") or {}
+        slot_tex = atlas.get("atlasInfo.albedo")
+        slot_off = atlas.get("atlasInfo.uvOffset")
+        slot_scale = atlas.get("atlasInfo.uvScale")
+        if not isinstance(slot_tex, str) or not isinstance(slot_off, list) \
+                or not isinstance(slot_scale, list) or len(slot_off) != 2 or len(slot_scale) != 2:
+            dropped_no_texture += 1
+            continue
+        if not any(c.exists() for c in textures._candidates(slot_tex)):
+            # atlas 槽解析不到实体文件：按 fail-closed 跳过（不猜 dec_N 兜底——
+            # 那些路径在客户端树同样不存在）
+            dropped_no_texture += 1
+            continue
+        rec = {
+            "name": entity.get("name") or None,
+            "blending": comp.get("blending"),
+            "blendingName": DECAL_BLENDING_NAMES.get(comp.get("blending")),
+            "fogBehaviour": comp.get("fogBehaviour"),
+            "layer": comp.get("layer"),
+            "fadeDistance": comp.get("fadeDistance"),
+            "verticalFadeWidth": comp.get("verticalFadeWidth"),
+            "backSideFade": bool(comp.get("backSideFade")),
+            "isShadowReceiver": bool(comp.get("isShadowReceiver")),
+            "texture": slot_tex,
+            "uvOffset": [float(v) for v in slot_off[:2]],
+            "uvScale": [float(v) for v in slot_scale[:2]],
+            "box": world_transform(entity),
+        }
+        fc = comp.get("flatColor")
+        if isinstance(fc, list) and len(fc) == 4:
+            # FLATCOLOR define 未在 DeferredDecal.material 声明（基础模板只有 BLENDING）
+            # ⇒ 客户端不采该字段；如实随档保留（消费端按客户端"不采"口径忽略）
+            rec["flatColor"] = [round(float(v), 6) for v in fc[:4]]
+        records.append(rec)
+        tex_paths.setdefault(slot_tex, f"decal_{slot_tex.rsplit('/', 1)[-1].rsplit('.', 1)[0]}.webp")
+    return records, tex_paths
+
+
+def export_deferred_decals(scene: dict, textures: "TextureStore",
+                           output_dir: pathlib.Path, space: str) -> dict | None:
+    """投影贴花落盘：`<space>.decals.json` + 解码图集 `<space>.decal_<name>.webp`。
+
+    打包器（export_asset_pack.py）把 json 收进 `map/<key>/decals.json`、webp 去掉
+    `<space>.` 前缀收进 `map/<key>/`（textures 映射里的文件名即包内相对名）。
+    无贴花实体时返回 None（不写空文件）。坐标 = 客户端世界系（与场景 GLB 节点同帧，
+    消费端与 GLB 同一 qFrame 变换）。
+    """
+    records, tex_paths = collect_deferred_decals(scene, textures)
+    if not records:
+        return None
+    for tex_path, out_name in tex_paths.items():
+        img = textures.get(tex_path)[0]
+        if img is None:
+            # collect 阶段刚验过存在性——这里失败只可能是解码失败，fail-closed 收缩
+            # 引用集合；没有任何贴花引用到图时整个 json 不写
+            records = [r for r in records if r["texture"] != tex_path]
+            tex_paths[tex_path] = None
+            continue
+        buf = io.BytesIO()
+        img.transpose(Image.FLIP_TOP_BOTTOM).save(buf, "WEBP", lossless=True)
+        (output_dir / f"{space}.{out_name}").write_bytes(buf.getvalue())
+    used = {name for name in tex_paths.values() if name}
+    if not used:
+        return None
+    doc = {
+        "space": space,
+        "version": 1,
+        "textures": {path: name for path, name in tex_paths.items() if name},
+        "decals": records,
+    }
+    (output_dir / f"{space}.decals.json").write_text(
+        json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    return doc
+
+
+# ---------------------------------------------------------------------------
+# 草系统（客户端 VegetationRenderObject）与地图边界（MapBorderRenderObject）
+# 2026-11-17 审计 H1 / I5：36 图全量数据面实测（脚本 tmp_analysis/explore_remaining*.py）
+#
+# 草（H1）：
+#   几何 = `vro.geometryData.cgd.chunkSet`——**内嵌**在 .sc2（无外部文件依赖）：
+#          4 变体 × 3 LOD，逐顶点平行数组 `cgd.lod.pos.N` / `cgd.lod.tex.N` / `cgd.lod.index.N`
+#          （normalsCount=0 ⇒ 不受光）。⚠️ 同图存在 3 个预算档 VRO：60k/120k 档的 lod0 是
+#          稀疏三角（变体顶点 27/7/7/3，成片显示为"三角形草"）；**500 档才是完整草簇**
+#          （38/39/26/5 顶点、78/81/54/9 索引）。原型按 lod0 几何量取最大档（名字不是语义）。
+#   材质 = `cgd.materialId` → NMaterial（`Textured.material` + **逐图** albedo，如
+#          `landscape/grass/images/grass120.tex`）。
+#   密度 = `vro.lightmap` 纹理的 **alpha 通道**（`vro.densityMapChannel = 4` = 第 4 通道；
+#          `vro.useSeparateDensityMap = false` ⇒ 取自该图草地植被/光照图；多个图上该文件
+#          与 landscape 材质声明的 `vegetationmap` 是同一文件）。
+#   翻转 = `vro.flippedDensityMap`：`densityMapSize = 16384` 字节 = **128×128 网格**、
+#          逐格 0/1 二值（实测值域 {0,1}）——消费端按格把草簇几何镜像（打散重复）；
+#          引擎侧真实语义无 shader 证据（客户端 grass-vp 不读该字段），未取证。
+#   其余随档：baseColorMultilplier / scaleVariation / rotationVariation /
+#          layerAnimation{Amplitude,Drug,Spring} / visibilityDistance / lodRanges。
+#   颜色 = `albedo(灰度).rgb × vegetationColor.rgb × grassBaseColorMult(2.0)`（客户端
+#          grass-fp.sl:103；`isLit=false` 即不受光分支）。vegetationColor 逐实例取
+#          `vro.lightmap` 同图的 **RGB**，UV 按 grass-vp.sl:113-117 逐字：
+#          uv = 0.5 − chunkPivot.xy / worldSize.xy，uvColor = (1−uv.x, uv.y)。
+#   放置 = 按**密度纹理逐像素** alpha 配额（最大余数法）+ 像素内确定性抖动。客户端是
+#          逐 tile/chunk pivot 采样密度并作 `densityScale`（alpha=0 时 finalScale=0 被
+#          裁掉，grass-vp.sl:173-183）；逐像素配额是它的蒙特卡洛期望，实例不会落在
+#          alpha=0 像素（道路/水边等亚格细节被尊重）。`flippedDensityMap` 仍按 128 格
+#          做几何镜像（与密度配额分辨率无关）。
+#   出货预算：客户端三档实体名 60k/120k/500k（= 实例预算）。网页端取 **60k 实例 +
+#          500 档完整草簇几何**（04 画质计划 G1；每实例 12 字节 ⇒ ~0.7MB/图）；逐密度像素
+#          配额按 alpha 比例分配（最大余数法，确定性），像素内位置/旋转/缩放/变体由确定性哈希生成。
+#
+# 边界（I5）：`MapBorderRenderObject` 的 `rb.nmatname = 0`（**引擎内置材质**，dataNodes
+#   无该节点）⇒ 材质不可得；但**几何在 scg 里**（三角形带竖带：每对顶点高差恰 =
+#   `mbc.visualHeight` 0.9m），且 `MapBorderComponent` 带全部视觉参数（visualColor 红 /
+#   visualMinZ..MaxZ / zFadeWidth / zOffset / 距离淡出 90000..160000 sq）。按几何 + 这些
+#   组件字段复刻（不受光半透明红带），不臆造材质贴图。
+GRASS_GRID = 128            # flippedDensityMap 的 128×128 格（不是密度纹理分辨率）
+GRASS_TARGET_INSTANCES = 60000
+GRASS_ALPHA_CUTOFF = 0.5
+# 每实例 12 字节：xQ u16 / zQ u16 / rot u16 / scaleQ u8 / variation u8 / flipped u8 /
+# r u8 / g u8 / b u8（逐实例植被色 = vegetationColorMap RGB 采样，客户端 grass-vp.sl:117 同源）
+GRASS_INSTANCE_STRUCT = struct.Struct("<HHHBBBBBB")
+GRASS_SCALE_MIN, GRASS_SCALE_MAX = 0.4, 1.6
+
+
+def _hash32(value: int) -> int:
+    """确定性 32 位哈希（splitmix 变体；Python 与 JS 侧同式可复算）。"""
+    value &= 0xFFFFFFFF
+    value = (value ^ 61) ^ (value >> 16)
+    value = (value + (value << 3)) & 0xFFFFFFFF
+    value = value ^ (value >> 4)
+    value = (value * 0x27D4EB2D) & 0xFFFFFFFF
+    value = value ^ (value >> 15)
+    return value & 0xFFFFFFFF
+
+
+def decode_cgd_lod(var_lod: dict) -> dict | None:
+    """`cgd.lod.N` → {positions, uvs, indices}（平行数组；任一缺失/越界 fail-closed → None）。"""
+    pos_count = var_lod.get("cgd.lod.posCount")
+    idx_count = var_lod.get("cgd.lod.indexCount")
+    if not isinstance(pos_count, int) or not isinstance(idx_count, int):
+        return None
+    if pos_count < 3 or idx_count < 3:
+        return None
+    positions: list[tuple[float, float, float]] = []
+    uvs: list[tuple[float, float]] = []
+    for i in range(pos_count):
+        p = var_lod.get(f"cgd.lod.pos.{i}")
+        if not (isinstance(p, list) and len(p) == 3):
+            return None
+        try:
+            positions.append((float(p[0]), float(p[1]), float(p[2])))
+        except (TypeError, ValueError):
+            return None
+        tex = var_lod.get(f"cgd.lod.tex.{i}")
+        uvs.append((float(tex[0]), float(tex[1]))
+                   if isinstance(tex, list) and len(tex) == 2 else (0.0, 0.0))
+    indices: list[int] = []
+    for i in range(idx_count):
+        v = var_lod.get(f"cgd.lod.index.{i}")
+        if not isinstance(v, int) or not (0 <= v < pos_count):
+            return None
+        indices.append(v)
+    return {"positions": positions, "uvs": uvs, "indices": indices}
+
+
+def grass_geometry_detail(veg: dict) -> int:
+    """VRO 的 lod0 几何量（4 变体索引数之和）。
+
+    同图有 3 个预算档 VRO（实体名 60k/120k/500k）：低两档是稀疏三角（27/7/7/3 顶点），
+    500 档是完整草簇（26–39 顶点、54–81 索引）。名字不是语义 ⇒ 按 lod0 几何量取最大者
+    作为原型（高清档几何 + 60k 实例预算，见 docs/map-quality-enhancement-plan.md G1）。
+    """
+    chunk_set = ((veg.get("vro.geometryData") or {}).get("cgd.chunkSet") or {})
+    if not isinstance(chunk_set, dict):
+        return 0
+    total = 0
+    for vi in range(4):
+        var = chunk_set.get(f"cgd.variation.{vi}")
+        if not isinstance(var, dict):
+            break
+        lod0 = var.get("cgd.lod.0")
+        if isinstance(lod0, dict):
+            total += int(lod0.get("cgd.lod.indexCount") or 0)
+    return total
+
+
+def collect_grass_scene(scene: dict, materials: "MaterialLibrary",
+                        textures: "TextureStore", bounds: dict | None) -> dict | None:
+    """VegetationRenderObject → 原型变体 + 实例（纯提取；不写盘）。
+
+    同图多档 VRO（60k/120k/500k）时取 **lod0 几何量最大**的一档作为原型——低档几何是
+    稀疏三角面片（会显示成"三角形草"），高档才是完整草簇；实例预算仍按 60k，与画质
+    计划 G1 的"高清 = 500 档几何 + 60k~120k 实例"一致。
+
+    返回 {
+      params: {baseColorMultiplier, scaleVariation, rotationVariation, wind, ...},
+      variations: [{positions, uvs, indices}],
+      material: {albedo_path, albedo_img},
+      instances: bytes（GRASS_INSTANCE_STRUCT 打包）,
+      meta: {grid, densityGrid, target, count, densitySource, cellsWithGrass, bounds}
+    }；任一关键件缺失 → None（fail-closed 不发货草层）。
+    """
+    veg = None
+    veg_score = -1
+    for _path, entity in iter_entities_recursive(scene):
+        render = component_by_type(entity, "RenderComponent")
+        if render is None:
+            continue
+        ro = render.get("rc.renderObj")
+        if isinstance(ro, dict) and str(ro.get("##name")) == "VegetationRenderObject":
+            score = grass_geometry_detail(ro)
+            if veg is None or score > veg_score:
+                veg, veg_score = ro, score
+    if veg is None:
+        return None
+    chunk_set = ((veg.get("vro.geometryData") or {}).get("cgd.chunkSet") or {})
+    if not isinstance(chunk_set, dict):
+        return None
+    mat_desc = materials.resolve(chunk_set.get("cgd.materialId"))
+    albedo_path = ((mat_desc or {}).get("textures") or {}).get("albedo")
+    if not albedo_path:
+        return None
+    albedo_img, _ = textures.get(albedo_path)
+    if albedo_img is None:
+        return None
+    variations_out = []
+    for vi in range(4):
+        var = chunk_set.get(f"cgd.variation.{vi}")
+        if not isinstance(var, dict):
+            break
+        lod0 = var.get("cgd.lod.0")
+        geo = decode_cgd_lod(lod0) if isinstance(lod0, dict) else None
+        if geo is None:
+            break
+        variations_out.append(geo)
+    if not variations_out:
+        return None
+    density_path = veg.get("vro.lightmap")
+    if not isinstance(density_path, str):
+        return None
+    density_img, _ = textures.get(density_path)
+    if density_img is None:
+        return None
+    flip_val = veg.get("vro.flippedDensityMap")
+    flip_hex = flip_val.get("$bytes") if isinstance(flip_val, dict) else None
+    if not isinstance(flip_hex, str):
+        return None
+    try:
+        flip_bytes = bytes.fromhex(flip_hex)
+    except ValueError:
+        return None
+    if len(flip_bytes) < GRASS_GRID * GRASS_GRID:
+        return None
+    scale_var = [float(v) for v in (veg.get("vro.scaleVariation") or [])][:4] or [0.2] * 4
+    rot_var = [float(v) for v in (veg.get("vro.rotationVariation") or [])][:4] or [180.0] * 4
+
+    def floats(name: str, default: list[float]) -> list[float]:
+        vals = [float(v) for v in (veg.get(name) or [])]
+        return vals if vals else default
+
+    params = {
+        "baseColorMultiplier": float(veg.get("vro.baseColorMultilplier") or 1.0),
+        "scaleVariation": scale_var,
+        "rotationVariation": rot_var,
+        "windAmplitude": floats("vro.layerAnimationAmplitude", [0.2] * 4),
+        "windDrag": floats("vro.layersAnimationDrug", [1.4] * 4),
+        "windSpring": floats("vro.layersAnimationSpring", [15.0] * 4),
+        "visibilityDistance": floats("vro.visibilityDistance", [2500.0, 1600.0]),
+        "lodRanges": floats("vro.lodRanges", [0.0, 2.0, 6.0]),
+        "isLit": bool(veg.get("vro.isLit")),
+        "densitySource": density_path,
+    }
+    bounds = bounds or {"min": [-300.0, -300.0, 0.0], "max": [300.0, 300.0, 0.0]}
+    bmin = bounds.get("min") or [-300.0, -300.0, 0.0]
+    bmax = bounds.get("max") or [300.0, 300.0, 0.0]
+    x0, y0 = float(bmin[0]), float(bmin[1])
+    span_x = max(1e-6, float(bmax[0]) - x0)
+    span_y = max(1e-6, float(bmax[1]) - y0)
+
+    n = GRASS_GRID
+    flip_grid = np.frombuffer(flip_bytes[: n * n], dtype=np.uint8).reshape(n, n)
+    # flippedDensityMap = 逐格 0/1：客户端用于打散重复（几何镜像），**不是**密度镜像。
+    flipped_cells = flip_grid.astype(bool)
+    # 密度与植被色同取 `vro.lightmap`（客户端 grass-vp.sl 的 vegetationColorMap）：
+    #   uv = 0.5 − pivot.xy / worldSize.xy；uvColor = (1−uv.x, uv.y)
+    # 即纹理 u = 0.5 + x/spanX、v = 0.5 − y/spanY（v 向下）。
+    tex = np.asarray(density_img.convert("RGBA"), dtype=np.uint8)
+    th, tw = tex.shape[0], tex.shape[1]
+
+    def sample_rgba(wx: float, wy: float) -> tuple[int, int, int, float]:
+        u = min(max(0.5 + wx / span_x, 0.0), 1.0)
+        v = min(max(0.5 - wy / span_y, 0.0), 1.0)
+        xi = min(tw - 1, int(u * tw))
+        yi = min(th - 1, int(v * th))
+        r, g, b, a = tex[yi, xi]
+        return int(r), int(g), int(b), float(a) / 255.0
+
+    # 配额按**密度纹理逐像素** alpha 分配（客户端是逐 tile pivot 采样密度并作
+    # densityScale；逐像素配额是它的蒙特卡洛期望）。旧实现按 128×128 格中心采样、
+    # 格内均匀抖动，会把道路/水边等亚格细节撒上草（Normandy 实测 5.6% 落点 alpha=0）。
+    # 现在每个实例的抖动限制在 alpha>0 的密度像素内，保证不落在客户端无草区域。
+    n_dx, n_dy = tw, th
+    weights = np.zeros((n_dy, n_dx), dtype=np.float64)
+    for py in range(n_dy):
+        wy = y0 + (py + 0.5) * (span_y / n_dy)
+        for px in range(n_dx):
+            wx = x0 + (px + 0.5) * (span_x / n_dx)
+            weights[py, px] = sample_rgba(wx, wy)[3]
+    total = float(weights.sum())
+    if total <= 1e-6:
+        return None
+    # 逆 CDF 分层采样：第 i 个实例取 q=(i+0.5)/N，落在权重累积跨过 q 的像素。
+    # 期望计数 = N × alpha/Σalpha（与客户端逐 tile 密度采样同分布），且确定性、
+    # 不会因“最大余数 + 像素序号”在均匀密度图上把草挤到地图一角。
+    flat = weights.ravel()
+    cumulative = np.cumsum(flat)
+    quantiles = (np.arange(GRASS_TARGET_INSTANCES) + 0.5) / GRASS_TARGET_INSTANCES * total
+    pixel_index = np.searchsorted(cumulative, quantiles, side="right")
+    pixel_index = np.minimum(pixel_index, flat.size - 1)
+    if float(flat[pixel_index].min()) <= 0.0:   # fail-closed：绝不在 alpha=0 像素落点
+        return None
+    cells_with_grass = int(np.unique(pixel_index).size)
+    packed = bytearray()
+    cell_w = span_x / n_dx
+    cell_h = span_y / n_dy
+    for i in range(GRASS_TARGET_INSTANCES):
+        cell_index = int(pixel_index[i])
+        px = cell_index % n_dx
+        py = cell_index // n_dx
+        seed = _hash32(i * 131 + 1)
+        r1 = _hash32(seed ^ 0x9E3779B9)
+        r2 = _hash32(r1 ^ 0x85EBCA6B)
+        r3 = _hash32(r2 ^ 0xC2B2AE35)
+        variation = r1 % len(variations_out)
+        jx = (r1 >> 8) % 65536 / 65535.0
+        jz = (r2 >> 8) % 65536 / 65535.0
+        wx = x0 + (px + jx) * cell_w
+        wy = y0 + (py + jz) * cell_h
+        xq = int(round((wx - x0) / span_x * 65535))
+        yq = int(round((wy - y0) / span_y * 65535))
+        rot = (r3 % 65536) / 65535.0 * math.radians(rot_var[variation])
+        scale = 1.0 + ((r2 >> 24) % 65536 / 65535.0 * 2.0 - 1.0) * scale_var[variation]
+        sq = int(round((max(GRASS_SCALE_MIN, min(GRASS_SCALE_MAX, scale)) - GRASS_SCALE_MIN)
+                       / (GRASS_SCALE_MAX - GRASS_SCALE_MIN) * 255))
+        cr, cg, cb, _ = sample_rgba(wx, wy)
+        fx = min(n - 1, max(0, int((wx - x0) / span_x * n)))
+        fy = min(n - 1, max(0, int((wy - y0) / span_y * n)))
+        packed += GRASS_INSTANCE_STRUCT.pack(
+            max(0, min(65535, xq)), max(0, min(65535, yq)),
+            int(round(rot / (2 * math.pi) * 65535)) & 0xFFFF,
+            max(0, min(255, sq)), variation, 1 if flipped_cells[fy, fx] else 0,
+            cr, cg, cb)
+    if not packed:
+        return None
+    return {
+        "params": params,
+        "variations": variations_out,
+        "material": {"albedo_path": albedo_path, "albedo_img": albedo_img},
+        "instances": bytes(packed),
+        "meta": {
+            "grid": n,
+            "densityGrid": [n_dx, n_dy],
+            "target": GRASS_TARGET_INSTANCES,
+            "count": len(packed) // GRASS_INSTANCE_STRUCT.size,
+            "densitySource": density_path,
+            "cellsWithGrass": cells_with_grass,
+            "colorSource": density_path,
+            "bounds": {"min": [x0, y0, float(bmin[2])],
+                       "max": [float(bmax[0]), float(bmax[1]), float(bmax[2])]},
+            "variations": len(variations_out),
+        },
+    }
+
+
+def export_grass(grass: dict, output_dir: pathlib.Path, space: str) -> None:
+    """落盘：`<space>.grass.glb`（原型 4 变体 + albedo）+ `.grass.json` + `.grass.bin`。"""
+    proto = GlbBuilder()
+    albedo_img = grass["material"]["albedo_img"]
+    buf = io.BytesIO()
+    albedo_img.transpose(Image.FLIP_TOP_BOTTOM).save(buf, "PNG")
+    tex_idx = proto.add_texture(("grass", grass["material"]["albedo_path"]), buf.getvalue(),
+                                "image/png")
+    proto.materials.append({
+        "name": "Grass|vegetation",
+        "pbrMetallicRoughness": {"metallicFactor": 0.0, "roughnessFactor": 1.0,
+                                 "baseColorTexture": {"index": tex_idx}},
+        "alphaMode": "MASK",
+        "alphaCutoff": GRASS_ALPHA_CUTOFF,
+        "doubleSided": True,
+        "extras": {"grass": {
+            "baseColorMultiplier": grass["params"]["baseColorMultiplier"],
+            "isLit": grass["params"]["isLit"],
+        }},
+    })
+    for vi, geo in enumerate(grass["variations"]):
+        mi = proto.add_shared_mesh(("grass", vi), geo["positions"], geo["indices"], geo["uvs"],
+                                   None, 0)
+        if mi is None:
+            continue
+        proto.nodes.append({
+            "mesh": mi, "name": f"grass_v{vi}",
+            "translation": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0],
+            "scale": [1.0, 1.0, 1.0], "extras": {"grassVariation": vi},
+        })
+    (output_dir / f"{space}.grass.glb").write_bytes(proto.finish("wotb-agent grass prototype", {}))
+    doc = {
+        "space": space, "version": 1,
+        "params": grass["params"], "meta": grass["meta"],
+        "prototype": "grass.glb", "instances": "grass.bin",
+        "instanceStride": GRASS_INSTANCE_STRUCT.size,
+    }
+    (output_dir / f"{space}.grass.json").write_text(
+        json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    (output_dir / f"{space}.grass.bin").write_bytes(grass["instances"])
+
+
+def _strip_to_triangles(strip: list[int]) -> list[int]:
+    """顺序索引的三角形带 → 三角形列表（交替绕序，与 DAVA RHI TRIANGLESTRIP 同）。"""
+    tris: list[int] = []
+    for i in range(len(strip) - 2):
+        a, b, c = strip[i], strip[i + 1], strip[i + 2]
+        if i % 2 == 1:
+            b, c = c, b
+        tris.extend((a, b, c))
+    return tris
+
+
+def collect_map_border(scene: dict, groups_by_id: dict) -> dict | None:
+    """MapBorderRenderObject → **按变体标签分组**的几何 + 首个实体的视觉参数（纯提取）。
+
+    几何 = scg 三角形带（逐实体按世界变换烘焙）；材质 id=0（引擎内置、dataNodes 无节点）
+    ⇒ 视觉完全由 `MapBorderComponent` 字段驱动（见区块头注）。
+
+    ⚠️ 变体：多变体地图的每个边界实体带 `LabelComponent`（nt0/nt1/nt2、dt1..），一局只
+    激活一组——客户端只显示本局变体那条边界。这里按标签分组导出，节点带 `extras.mdVariant`
+    （与场景节点同一套消费端变体过滤）；无标签的图合并为单组恒显示。**不能全部合并**：
+    否则基础图会把其它变体的内部边界线一起画出来（2026-11-17 用户报障）。
+    """
+    groups: dict[str | None, dict] = {}
+    visual: dict | None = None
+    for _path, entity in iter_entities_recursive(scene):
+        render = component_by_type(entity, "RenderComponent")
+        if render is None:
+            continue
+        ro = render.get("rc.renderObj")
+        if not isinstance(ro, dict) or str(ro.get("##name")) != "MapBorderRenderObject":
+            continue
+        comp = component_by_type(entity, "MapBorderComponent")
+        if comp is None:
+            continue
+        if visual is None:
+            rect = decode_bytes(comp.get("mbc.rect"))
+            rect_vals = list(struct.unpack("<4f", rect)) if rect and len(rect) == 16 else None
+            visual = {
+                "color": [round(float(v), 6)
+                          for v in (comp.get("mbc.visualColor") or [1, 0, 0, 1])[:4]],
+                "height": float(comp.get("mbc.visualHeight") or 0.9),
+                "minZ": float(comp.get("mbc.visualMinZ") or -100.0),
+                "maxZ": float(comp.get("mbc.visualMaxZ") or 100.0),
+                "zFadeWidth": float(comp.get("mbc.visualZFadeWidth") or 0.0),
+                "zOffset": float(comp.get("mbc.visualZOffset") or 0.0),
+                "distanceFadeEnabled": bool(comp.get("mbc.visualDistanceFadeEnabled")),
+                "distanceFadeNear": float(comp.get("mbc.visualDistanceFadeNear") or 0.0),
+                "distanceFadeFar": float(comp.get("mbc.visualDistanceFadeFar") or 0.0),
+                "rect": rect_vals,
+                # 渲染对象侧（mro.*）距离淡出：平方距离近/远界
+                "distanceNearFarSq": [float(v) for v in
+                                      (ro.get("mro.distanceNearFarSq") or [])][:2],
+                "distanceFadeEnabledRo": bool(ro.get("mro.distanceFadeEnabled")),
+            }
+        label = entity_variant_label(entity)
+        bucket = groups.setdefault(label, {"positions": [], "indices": []})
+        positions = bucket["positions"]
+        indices = bucket["indices"]
+        transform = world_transform(entity)
+        tx, ty, tz = transform["translation"]
+        qx, qy, qz, qw = transform["rotation"]
+        sx, sy, sz = transform["scale"]
+        for batch in (ro.get("ro.batches") or {}).values():
+            if not isinstance(batch, dict):
+                continue
+            group = groups_by_id.get(batch.get("rb.datasource"))
+            if group is None:
+                continue
+            try:
+                pos = decode_polygon_positions(group)
+                raw = decode_polygon_indices(group)
+            except Exception:
+                continue
+            if len(raw) < 3:
+                continue
+            tris = _strip_to_triangles(raw)
+            if not tris:
+                continue
+            base = len(positions)
+            for px, py, pz in pos:
+                # 四元数旋转 + 缩放 + 平移（与 world_transform 同语义；DAVA 四元数 (x,y,z,w)）
+                vx, vy, vz = px * sx, py * sy, pz * sz
+                ix = qw * vx + qy * vz - qz * vy
+                iy = qw * vy + qz * vx - qx * vz
+                iz = qw * vz + qx * vy - qy * vx
+                iw = -qx * vx - qy * vy - qz * vz
+                rx = ix * qw + iw * -qx + iy * -qz - iz * -qy
+                ry = iy * qw + iw * -qy + iz * -qx - ix * -qz
+                rz = iz * qw + iw * -qz + ix * -qy - iy * -qx
+                positions.append([rx + tx, ry + ty, rz + tz])
+            indices.extend(base + i for i in tris)
+    if not groups or visual is None:
+        return None
+    out_groups = [{"label": label, **data} for label, data in groups.items()
+                  if data["positions"] and data["indices"]]
+    if not out_groups:
+        return None
+    return {"groups": out_groups, "visual": visual}
+
+
+def add_map_border(glb: GlbBuilder, border: dict) -> None:
+    """边界几何 → **每个变体标签一个 node** + 一个不受光材质（extras.mapBorder 视觉字段）。
+
+    节点 `extras.mdVariant = <label>` 与场景节点同一套变体过滤（消费端按对局 map_id 剔除非
+    本组）；无标签组不写 mdVariant（恒显示）。
+    """
+    visual = border["visual"]
+    color = visual["color"]
+    mat = {
+        "name": "MapBorder",
+        "pbrMetallicRoughness": {
+            "metallicFactor": 0.0, "roughnessFactor": 1.0,
+            "baseColorFactor": [float(color[0]), float(color[1]),
+                                float(color[2]), float(color[3])],
+        },
+        "doubleSided": True,
+        "extras": {"mapBorder": visual},
+    }
+    glb.materials.append(mat)
+    mat_index = len(glb.materials) - 1
+    for gi, group in enumerate(border["groups"]):
+        mi = glb.add_shared_mesh(("mapborder", gi), group["positions"], group["indices"], None,
+                                 None, mat_index)
+        if mi is None:
+            continue
+        node = {
+            "mesh": mi,
+            "name": "MapBorder" + (":" + group["label"] if group.get("label") else ""),
+            "translation": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0],
+            "scale": [1.0, 1.0, 1.0],
+        }
+        if group.get("label"):
+            node["extras"] = {"mdVariant": group["label"]}
+        glb.nodes.append(node)
 
 
 def _env_cube_equirect(textures: "TextureStore", tex_path: str | None, cache: dict,
@@ -2651,7 +3321,15 @@ def _build_material(glb: GlbBuilder, textures: TextureStore, albedo_path: str | 
             base["alphaCutoff"] = 0.5 if st_tint is not None else 0.33
     else:
         r, g, b = textures.avg_color.get(albedo_path or "", (0.62, 0.60, 0.55)) or (0.62, 0.60, 0.55)
-        base["pbrMetallicRoughness"]["baseColorFactor"] = [r, g, b, 1.0]
+        if water and water_surface is not None:
+            # WaterRenderObject 水面：网格**无 UV 流** ⇒ 无 albedo 可嵌（MEDIUM 档 shader
+            # 也不采 albedo——tex2D(albedo) 只在 !PIXEL_LIT 分支）。消费端走 extras.water
+            # 自定义材质，GLB 侧仍按水面语义落 BLEND + 水面透明度兜底
+            base["alphaMode"] = "BLEND"
+            base["pbrMetallicRoughness"]["baseColorFactor"] = [
+                r, g, b, opacity if opacity is not None else 1.0]
+        else:
+            base["pbrMetallicRoughness"]["baseColorFactor"] = [r, g, b, 1.0]
     if base.get("alphaMode") == "BLEND":
         # 语义标记：这是客户端声明/导出器判定的真混合材质。消费端不得再按
         # opacity≈1 把它改写成不透明 + alphaTest（旧包的伪透明启发式仅作 fallback）。

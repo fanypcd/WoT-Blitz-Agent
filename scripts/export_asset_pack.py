@@ -43,6 +43,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import struct
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -54,6 +55,29 @@ from pack_incremental import overlay_bytes
 from tank_image_overrides import apply_covers, load_catalog, matches_dataset
 
 GROUND_LAYERS = ["cm", "lm", "tile0", "tile1", "mask0", "mask1", "hmap0", "hmap1"]
+
+
+def glb_variant_map(path: Path) -> dict[str, str]:
+    """读 GLB scene extras 的 `variantByMapId`（map_id → 变体标签）。
+
+    多变体地图的资产只物化一份，index 里每个 id 仍需要自己的变体标签：预览端据此
+    切换变体、按标签取该变体的基地点位；3D 侧由 GLB scene extras 自行裁剪边界。
+    只读 GLB 头 + JSON chunk，不加载 43MB 二进制体。
+    """
+    try:
+        with path.open("rb") as f:
+            magic, _version, _length = struct.unpack("<III", f.read(12))
+            if magic != 0x46546C67:
+                return {}
+            chunk_len, chunk_type = struct.unpack("<II", f.read(8))
+            if chunk_type != 0x4E4F534A:
+                return {}
+            document = json.loads(f.read(chunk_len).decode("utf-8"))
+    except (OSError, ValueError, struct.error, UnicodeDecodeError):
+        return {}
+    extras = ((document.get("scenes") or [{}])[0].get("extras") or {})
+    mapping = extras.get("variantByMapId")
+    return mapping if isinstance(mapping, dict) else {}
 
 
 def sha256(p: Path) -> str:
@@ -422,9 +446,26 @@ def main() -> None:
             got.append("destructibles")
 
         # 逐图光照参数（tools/export_map_lighting.py：太阳方向/色/强度 + 环境色 + 雾 + IBL
-        # 引用）——3D 侧方向光与半球环境光的来源；缺失时消费端回落硬编码灯光，不阻断）
+        # 引用 + dynamicLights 动态光源）——3D 侧方向光与半球环境光的来源；缺失时消费端
+        # 回落硬编码灯光，不阻断）
         if cp(cache_maps / f"{space}.lighting.json", f"map/{key}/lighting.json"):
             got.append("lighting")
+
+        # 投影贴花（tools/export_map_glb.py 产物，2026-11 审计 B9；当前内容仅 plant 有）：
+        # <space>.decals.json + 解码图集 <space>.decal_<name>.webp（去 <space>. 前缀
+        # 收进 map/<key>/，decals.json.textures 里的文件名即包内相对名）。缺失时
+        # 消费端无贴花层，不阻断
+        if cp(cache_maps / f"{space}.decals.json", f"map/{key}/decals.json"):
+            got.append("decals")
+        for dpath in sorted(cache_maps.glob(f"{space}.decal_*.webp")):
+            cp(dpath, f"map/{key}/{dpath.name[len(space) + 1:]}")
+
+        # 草层（tools/export_map_glb.py 产物，2026-11-17 审计 H1）：grass.json + grass.bin
+        # + grass.glb（原型 4 变体 + 逐图 albedo）。缺失（无草系统的图）→ 消费端无草层，不阻断
+        if cp(cache_maps / f"{space}.grass.json", f"map/{key}/grass.json"):
+            got.append("grass")
+            cp(cache_maps / f"{space}.grass.bin", f"map/{key}/grass.bin")
+            cp(cache_maps / f"{space}.grass.glb", f"map/{key}/grass.glb")
 
         # 逐图 IBL 环境贴图（tools/export_map_ibl.py：客户端 specular 立方图 → 等距柱状投影）
         # ——动态物/坦克的环境反射来源；缺失时消费端不设 scene.environment（不阻断）
@@ -457,12 +498,34 @@ def main() -> None:
         apply_covers(out, img_dir, True, catalog)
 
     # ---- index.json（前端一次性装载：数字 id → key） ----
+    # 多变体地图：key = 资产目录（同 space 只物化一份，所有变体共用），variant =
+    # 该 id 在场景里的变体标签（来自 GLB scene extras），variantKey = 注册表原 key。
+    # 预览端按 id 选变体（3D 裁剪边界用）、按 variant 取该变体的基地点位。
     generated = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    variant_cache: dict[str, dict[str, str]] = {}
+
+    def variant_of(entry: dict) -> str | None:
+        space = entry["space"]
+        if space not in variant_cache:
+            variant_cache[space] = glb_variant_map(cache_maps / f"{space}.glb")
+        return variant_cache[space].get(str(entry["map_id"]))
+
+    index_maps = {}
+    for e in maps:
+        item = {
+            "key": seen_spaces.get(e["space"], e["key"]),
+            "display": e["display"],
+            "variantKey": e["key"],
+        }
+        label = variant_of(e)
+        if label:
+            item["variant"] = label
+        index_maps[str(e["map_id"])] = item
     index = {
         "version": 1,
         "generated": generated,
         **provenance,
-        "maps": {str(e["map_id"]): {"key": seen_spaces.get(e["space"], e["key"]), "display": e["display"]} for e in maps},
+        "maps": index_maps,
     }
     (out / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=1),
                                     encoding="utf-8")

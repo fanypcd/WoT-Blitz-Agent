@@ -121,6 +121,163 @@ asset consumption 变更）。
 WebAudio 距离/pan 增益，曲线为产品近似非客户端语义）；音频为 Wargaming 资产，公开发布
 口径待产品侧确认。
 
+### 地图要素完整化（第二批）：草系统 + 地图边界（2026-11-17，数据面新增 + 消费端）
+
+**做了什么**：把审计表最后两个"客户端会渲染、导出器跳过"的类补齐，并给粒子 FX 定性：
+
+- **H1 草系统（`VegetationRenderObject`）**：28 图（其余 8 图无 Grass 实体）。几何
+  `vro.geometryData.cgd.chunkSet` **内嵌在 sc2**（4 变体 × 3 LOD；原型取 500 档完整草簇 lod0 = 38/39/26/5 顶点、54–81 索引——60k/120k 档是 27/7/7/3 顶点稀疏三角，2026-11-17 用户报“三角形草”后改取高档，
+  normalsCount=0）；材质 `cgd.materialId` → 逐图 albedo；**密度 = `vro.lightmap` 的 alpha**
+  （`densityMapChannel=4`、`useSeparateDensityMap=false`）；`vro.flippedDensityMap` 实测
+  16384 字节 = 128×128 逐格 0/1（翻转位，非密度）；风参数逐层随档。出货 60k 实例/图
+  （12 字节/实例：位置 u16×2 + 旋转 u16 + 缩放 u8 + 变体 u8 + 翻转 u8 + 逐实例 RGB×3，
+  ~0.72MB/图；原型 GLB 另 ~0.12MB/图），逐格配额按密度比例分配（最大余数法）+
+  确定性哈希铺点。
+- **I5 地图边界（`MapBorderRenderObject`）**：33 图。材质 id=0（引擎内置）不可得，但
+  **几何在 scg**（三角形带竖带：顶点对高差恰 = `mbc.visualHeight`）+ `MapBorderComponent`
+  带全部视觉字段（颜色/可见 z 区间/边缘淡出/z 偏移/距离淡出）⇒ 合并几何 + `extras.mapBorder`
+  随档，消费端复刻不受光半透明红带。
+- **J1 粒子 FX**：36 图**逐实体祖先链实测**——粒子实体 100% 挂在带 `ActionComponent` 的
+  祖先下（触树落叶/击毁扬尘/爆炸），即客户端里也不存在常驻粒子 ⇒ 结构性非目标，
+  不再作为"未做项"跟踪。
+
+**产物**：28 图 `grass.{json,bin,glb}`（原型 4 变体 + albedo；实例 ~0.72MB + 原型 ~0.12MB/图）；33 图主 GLB 增
+`MapBorder` 网格与材质；打包器收 `map/<key>/grass.*`。消费端（WotbTools 隔离分支）：
+`mapGrass.ts`（解析/分块 InstancedMesh/作者风摆，仅高清·极致档）+ `makeMapBorderMaterial`；
+Android `wotbVersion` 已在消费分支 bump。
+
+**爆炸半径**：解析器/WASM/回放切面零改动；地图资产新增草三件 + 边界网格（GLB 体积
++~0.1%/图）；消费端需 pin 新包（旧包缺文件 → 草层/边界静默不画，不报错）。
+
+**地图预览复用（2026-11-17 同日补记）**：WotbTools 地图预览 3D 面板（`?view=map-preview`）
+与 3D 回放**共用同一场景内核**（`initPlayback` → `loadMapOnly` → `mapWorld.loadMapImage`）——
+草层/投影贴花/动态光源/地图边界/WRO 水体在地图预览里同样呈现。**环境动画**（草风摆、
+水面法线滚动、动画混合层烟雾/瀑布）在地图预览里**全部冻结为初始静态**（2026-11-17 用户
+裁示：动画会把反射/贴图里的硬边放大成锐利白边）；回放会话仍严格按回放时钟驱动，
+暂停/seek 的相位可复现语义不变。
+
+**同日修正（用户报障）**：① **草颜色**——首版只乘灰度 albedo，漏了逐实例
+`vegetationColor`（`grass-fp.sl:103` 为 `albedo × vegetationColor × grassBaseColorMult`）；
+实例 9→12 字节补 RGB，密度/颜色采样统一按客户端 UV（`uv=0.5−pivot/worldSize`、
+`uvColor=(1−uv.x,uv.y)`），`flippedDensityMap` 改作几何镜像标记。② **边界变体**——
+`collect_map_border` 按 `LabelComponent` 分组、节点带 `extras.mdVariant`，基础图只显示本变体
+边界（此前全部合并 ⇒ 中间多出其它变体的内部边界线）。③ **删除旧边界带**（WotbTools
+`playback/boundary.ts` + `buildBoundary` 调用全撤），四周只保留客户端导出的
+`MapBorderRenderObject` 边界。
+
+**2026-11-17 续（用户报障）**：① **环境动画冻结**——地图预览放弃全部时间驱动环境动画
+（水波法线滚动/草风摆/动画混合层），水面材质排除出动画表、`uTime` 固定 0；回放会话仍按
+回放时钟驱动。② **三角形草**——导出器取同图首个 VRO
+（60k 档，lod0 为 27/7/7/3 顶点稀疏三角）；改为按 lod0 几何量取 **500 档完整草簇**
+（38/39/26/5 顶点、54–81 索引），实例预算仍 60k，28 图 `grass.*` 重导。③ **全部变体**——
+打包器 `index.json` 增 `variantKey`（注册表原 key）与 `variant`（GLB `scene.extras.
+variantByMapId` 的标签），同一资产 key 的全部变体条目保留；`mapBases.js` 增
+`variants: { <label>: { supremacy, assault } }` 全套点位；WotbTools 地图预览加变体切换，
+3D 按该变体 map_id 裁剪边界/基地（诺曼底 = Normandy / Hills / Beach，边界分别 nt0/nt1/nt2）。
+
+**画质提升 Wave A（2026-11-17 起）**：**W1 HIGH 档动态平面反射已落地**（WotbTools
+`playback/waterReflection.ts`）——镜像相机 + 斜裁剪面 + 半分辨率 RT，水面按主相机屏幕
+UV + 法线扰动采样并乘 `reflectionTintColor`；high/ultra 档启用，正俯视/水下 fail-closed
+回退 cubemap。导出器 `water_props` 补 HIGH 参数（`reflectionDistortion`/
+`distortionFallSquareDist`/`inGlossiness`/`inSpecularity`/`reflectanceColor`；候选包
+尚未重导，消费端用缺省值）。实测 RT mean 154/std 79（真实场景），水面像素动态反射 vs
+cubemap 均值差 64。**太阳高光已落地**（客户端 SPECULAR 分支：BlinnPhong + Fresnel
+Schlick，uSunSpecColor 按查看器曝光归一）。待办：ULTRA 折射、W3 反射档位；L3 天空云
+动画随"环境动画冻结"暂缓。
+
+**画质提升 Wave B（2026-11-17 起）**：**L2 自动曝光尝试已撤回（用户裁示）**——曾用
+64px 探针 + 0.5–2.5 倍率实现，但 3D 回放实测诺曼底 avg 0.339 → 倍率 0.53、曝光
+0.375→0.19，坦克等高光比主体明显发黑；用户要求放弃光影调整、保留原来的亮度，模块与
+消费接线已删除，现行亮度仍为逐图太阳强度归一的固定曝光。L1 CSM 阴影仍待做（导出器暂无
+`shadow` 块）。
+
+**画质档语义表 + W3 反射档位（2026-11-17 续）**：WotbTools `quality.ts` 新增
+`QUALITY_FEATURES` 四档语义表（水面档/反射开关与 RT 比例/更新间隔、草实例预算、
+坦克阴影、贴花投影），`QUALITY_PRESETS` 重叠字段由单测锁定一致；建场景与运行时切档
+统一经 `qualityFeatures()` 应用。W3 落地：反射 pass 支持运行时 RT 比例
+（高清/极致 1/2）与更新间隔（高清每 2 帧、极致每帧），反射 pass 临时隐藏草层/战斗
+特效/3D 标注（finally 恢复），避免镜像副本与无谓填充；低/均衡仍回退 MEDIUM cubemap。
+**W1 着色器修复**：`uReflectionMatrix` 原先只在 `USE_WRO_UV` 分支声明，而非 WRO 水面
+顶点着色器无条件计算 `vClip = uReflectionMatrix * wp` ⇒ 该类水面程序编译失败
+（`uReflectionMatrix undeclared`）；已把声明提到公共段，`test:shader-check` 36/36 程序
+0 编译失败。**草实例预算**：`QUALITY_FEATURES.grass.instances`（低/均衡 0、高清/极致 60k）经
+`buildGrassMeshes({maxInstances})` 消费，超预算等步长抽取；打包数据仍只 60k，120k/500k
+档需重导更大 grass.bin（资产体积决策，未执行）。**贴花淡出 D2 = 无对象**：plant 490 条
+`fadeDistance/verticalFadeWidth/backSideFade` 全为 0/0/false，客户端 shader 也没有组件
+字段映射证据，按 fail-closed 不实现。
+
+**共享地图 base 发布（2026-11-17）**：按用户裁示，现行三个 active dataset 共用同一套
+地图资产，直接原地更新共享 `map/` base（不新建 release）：`map/` 669→776 件
+（+28 图草层 105 件、plant 投影贴花 2 件；86 件 scenery/terrain 等替换）+
+根 `index.json`（55 图变体目录）与 `map2d/index.json`，195 路径 / 140 唯一对象 / 966.7 MB 入对象库，三份 release
+（`11.21.0-20261106-r2`、`11.21.0_1-20261114-r1`、`t11r3-20261114-r7-ballistics`）
+逐路径硬链接共享同一对象；`tank/research/cover/data` 未动。manifest 重算 +
+`asset_release.py stamp` 重算 content_digest（4480.7 / 4484.5 / 4530.3 MB；digest b65fc15b / 98946fac / 65eb50d9），
+`dataset.sh catalog` 刷新 versions.json（default/current 仍 11.21.0_1）。
+`dataset.sh verify --full`、公网逐文件 sha256、`deploy/assets/verify.sh` 均 PASS；
+三份 `delta.json` 按各自 base_release 重生成（210/212/196 处变更）；旧 manifest/version.json 备份在 `_backup-mapbase-20261117/`。
+
+**草分布修正（2026-11-17 续）**：旧导出器按 128×128 格中心 alpha 配额、格内均匀抖动，
+会把道路/水边等亚格细节撒上草（Normandy 实测 5.6% 实例落在密度 alpha=0 像素）。改为
+**按密度纹理逐像素 alpha 的逆 CDF 分层采样**（像素内确定性抖动，60k 实例），并保留
+`flippedDensityMap` 的 128 格几何镜像；重导 28 图 `grass.{json,bin,glb}` 并更新候选资产包
+（35 个含草目录），manifest 重算为 **6072 文件 / 4480.7MB**。复核 Normandy：alpha≤0 落点
+0.01%（浮点边界）、≤0.1 为 0.29%，局部 alpha 均值 0.907；`grass.json` 新增
+`densityGrid`（逐图 256²–2048²）。
+
+**未取证 / 边界**：草密度通道 `densityMapChannel=4` → alpha 已由 `grass-vp.sl` 的
+`#else` 分支确认（1/2/3 = rgb，其余取 a）；`flippedDensityMap` 仍按"逐格几何镜像"实现，
+引擎侧语义无 shader 证据（未取证，已在导出器注释标注）；边界材质为引擎内置、消费端按
+组件字段近似（颜色/区间/淡出逐字段照抄，渲染方程不可对）。
+
+### 地图元素导出补全：水体主体 / 投影贴花 / 动态光源 / Flora（2026-11-17，数据面新增）
+
+**问题**：2026-11-16 全面审计（36 图 sc2 全量解析，见
+[map-render-align-audit.md](map-render-align-audit.md) 新增 F2/B9/A5/H3/I5/J1 行）发现四类
+客户端会渲染、导出器整类跳过的元素；用户报障"诺曼底水面缺东西"的根因即其一——
+
+- **F2 `WaterRenderObject`（水体主体）**：渲染类白名单只有 Mesh/SpeedTreeObject/SkinnedMesh，
+  13 图 14 个实例的海/河/湖**整片缺失**（neptune/lagoon/holland/canyon/rudniki/lumber/rift/
+  pliego/amigosville 九图完全没水）；该类网格客户端**不读 UV 流**，UV =
+  `dot(localPosition.xy, texCoordTransform0)` 程序化推导（water-vp.sl WATER_RENDER_OBJECT 分支）。
+- **B9 `DeferredDecalComponent` 投影贴花**：plant 490 个（漆线/污渍/格栅），单位盒投影 + 图集 UV 矩形。
+- **A5 `LightComponent` 动态光源**：6 图 142 个（iceworld 聚光 71 / faust 夜灯 61 / plant 3 / 其余 7）。
+- **H3 `FloraRenderObject`**：4 图的静态花草簇（8–144 顶点/批）。
+
+**证据基础**：全 36 图 sc2 render 类普查（WaterRenderObject 14、DeferredDecal 490、
+LightComponent 142、FloraRenderObject 4、VegetationRenderObject 71=草、MapBorderRenderObject 51
+=引擎内置材质不可导、ParticleEffectComponent 25,361=粒子系统级非目标）；客户端 shader 逐行核对
+（`water-{vp,fp}.sl`、`deferred-decal-{vp,fp}.sl`、`blending.slh`、`DeferredDecal.material`、
+`WaterAllQualities.material` 四档模板）。投影贴花的 `dec_N.tex` 槽全树不存在（陈旧引用），
+实际生效槽 = `atlasInfo`（atlas0 + UV 矩形）——按存在性判定，非内容启发式。
+
+**做了什么**：导出器白名单 + WRO 水面 UV 基捕获（`wro_uv_basis`：`texCoordTransform0`/`inputTangent`
+缺一或字节退化 fail-closed 整批不导，extras 键只对 WRO 类下发）+ 无 albedo 水面 BLEND 语义；
+`collect_deferred_decals`/`export_deferred_decals` → `<space>.decals.json` + 无损图集
+`<space>.decal_*.webp`；`export_map_lighting.py` 新增 `dynamicLights[]`（原始字段直传，
+`type` 语义未定版已标注）；打包器收 `decals.json`/`decal_*.webp`。
+
+**产物与爆炸半径**：19 图 GLB 重导（105 s，`water_surface` 40→**60** 批次，0 fallback /
+0 dropped）、plant `decals.json`（490 条 + 2048² 图集 2.1 MB）、6 图 `lighting.json` 带光源；
+解析器/WASM/回放切面零改动。**WotbTools 消费侧待接**（pin bump 前不影响现网）：
+① WRO 水面按位置推导 UV（网格 UV0 是作者态、客户端不读）；② decals.json 投影/贴片渲染；
+③ dynamicLights 光源渲染；④ Android `wotbVersion` 在消费 PR 同步 bump。地图边界（I5）与
+粒子 FX（J1）定为非目标（数据不可得 / 系统级特效）。
+
+**打包链勘误（同批实测）**：`export_2d_basemaps.py` 的 map2d 输出目录旧默认硬编码
+`release/asset_pack/map2d`（`--pack` 只管注册表）——候选包构建时曾把 `map2d/index.json`
+误写进已 stamp 的 11.21.0-20261106-r2 主包（43 张 webp 为确定性派生、字节未变，仅 index
+`generated` 时间戳变化；已从阿里 origin 回拉原件恢复，全包 manifest 复核 **0 mismatch**）。
+修复 = `--map2d-dir` 缺省改 `<pack>/map2d` 派生 + `cmd_export/cmd_verify` 对含 `version.json`
+的包 fail-closed 拒写（与打包器同一道防线）。同批实测发现并修正打包链顺序：**变体物化必须在
+2D 底图之前**（2D 注册表读 pack index 去重 key，先 2D 后物化在全新候选包上被 staging 一致性
+检查拒绝）——AGENTS.md 与 data-inventory.md 的顺序说明已同步修正。
+
+**未取证 / 边界**：Light `type` 枚举语义（观测全为 2，按位姿推断"带方向光源"——推断）缺一次
+画面 A/B；贴花 flatColor×54 在 `DeferredDecal.material` 无 FLATCOLOR define（如实随档，按
+客户端口径不采）；WRO 水面的客户端近景 cell 细分（`cellSize 40 / quadSize 0.15`）属运行时
+LOD，静态导出为作者网格（近景细节略粗的画质取舍）。
+
 ### 资产原发布补齐：连发组 DPM + 口径权威的 tank/*.json 上线（2026-11-04，数据面发布勘误）
 
 **问题（修了但没上线）**：2026-10-28 连发组（PomPom）DPM 修复与 2026-10-27 口径权威修正
@@ -832,7 +989,7 @@ https://assets.wotbtools.com` PASS。前端已上线无需再动——百科 DPM
     `unsupported_damage`）以 [wotbtools-cross-reference.md](wotbtools-cross-reference.md) §五
     为单一维护点，本页不再复制。
 - 解析侧遗留未定项（禁猜、封存）以 [总集 第五篇](回放与射击逆向总集.md#第五篇-遗留未定项) 为准；
-  前端侧未做项（自动曝光、水面 HIGH/ULTRA 反射、雾=非目标等）见
+  前端侧未做项（ULTRA 屏幕空间反射/折射、浪花/涟漪/岸线、雾=非目标等）见
   [map-render-align-audit.md](map-render-align-audit.md)。
 
 ## 约定

@@ -118,6 +118,48 @@ def _components(scene: dict) -> dict:
     return out
 
 
+def extract_dynamic_lights(scene: dict) -> list[dict]:
+    """LightComponent 实体 → dynamicLights 数组（2026-11 审计 A5；纯函数）。
+
+    客户端证据（lc.light 实测字段全并集）：`type`（引擎枚举，本机观测 1/2；语义未从
+    引擎源定版——原样下发，不臆造）、`flags`、`color`/`ambColor`（rgba）、`intensity`、
+    `radius`、`falloffExponent`。位姿 = 实体 TransformComponent 的**世界**值（客户端
+    世界系 z 上，与场景 GLB 节点同帧，消费端走同一 qFrame 变换）。
+    可见性口径与场景网格一致：实体 `visibility` bit0/bit1 为隐藏 ⇒ 跳过。
+    """
+    out = []
+    for _path, entity in E.iter_entities_recursive(scene):
+        if entity.get("visibility", 0) & 3:
+            continue
+        comp = E.component_by_type(entity, "LightComponent")
+        if comp is None:
+            continue
+        light = comp.get("lc.light") or {}
+
+        def rgba(prefix: str):
+            vals = [light.get(f"{prefix}.r"), light.get(f"{prefix}.g"),
+                    light.get(f"{prefix}.b"), light.get(f"{prefix}.a")]
+            return vals if all(v is not None for v in vals) else None
+
+        t = E.component_by_type(entity, "TransformComponent") or {}
+        rec = {
+            "name": entity.get("name") or None,
+            "type": light.get("type"),
+            "flags": light.get("flags"),
+            "intensity": light.get("intensity"),
+            "radius": light.get("radius"),
+            "falloffExponent": light.get("falloffExponent"),
+            "color": rgba("color"),
+            "ambient": rgba("ambColor"),
+            "position": ([float(v) for v in t["tc.worldTranslation"]]
+                         if isinstance(t.get("tc.worldTranslation"), list) else None),
+            "rotation": ([float(v) for v in t["tc.worldRotation"]]
+                         if isinstance(t.get("tc.worldRotation"), list) else None),
+        }
+        out.append(rec)
+    return out
+
+
 def extract_lighting(scene: dict, space: str) -> dict:
     """纯函数：sc2 实体树 → lighting.json 结构（缺件记 warnings，不臆造默认值）。"""
     comps = _components(scene)
@@ -161,6 +203,13 @@ def extract_lighting(scene: dict, space: str) -> dict:
     ibl = comps.get("IBLComponent")
     if ibl is not None:
         out["ibl"] = _scalars(ibl, IBL_SCALARS)
+
+    # 动态光源（LightComponent 实体，2026-11 审计 A5：plant 霓虹 / faust 夜灯 /
+    # iceworld 聚光灯群 / rift 动态灯 / forgecity / neptune）。空数组不写键，
+    # 保持 36 图 json 形状一致（消费端 `.dynamicLights ?? []` 同义）。
+    lights = extract_dynamic_lights(scene)
+    if lights:
+        out["dynamicLights"] = lights
 
     return out
 

@@ -2,21 +2,23 @@
 
 > 全量对照总账（本仓导出物 + WotbTools 现役渲染 + 客户端 36 图实测普查）：
 > 逐项列"客户端怎么做 / 我们怎么做 / 后果 / 对齐收益 / 成本 / 归类"，各行状态列为**现役状态**。
-> 光照专项的实施设计见 [map-lighting-plan.md](map-lighting-plan.md)；可行性报告（含 36 图参数表）
-> 已归档删文（见 git 历史，参数表可经 `tools/export_map_lighting.py` 从客户端重导），
+> 光照专项的实施设计见 [map-lighting-plan.md](map-lighting-plan.md)；**画质增强候选项清单
+> （水面全档/CSM 阴影/云动画/草分档/贴花投影等，仅计划未执行）见
+> [map-quality-enhancement-plan.md](map-quality-enhancement-plan.md)**；可行性报告（含 36 图
+> 参数表）已归档删文（见 git 历史，参数表可经 `tools/export_map_lighting.py` 从客户端重导），
 > 其未定项已收编进本文 §五；本文覆盖其之外的**材质、贴图、水、天空、雾、阴影、植被、画质档**。
 
 ---
 
 ## 结论（TL;DR）
 
-三方对照下来，**共 33 条**（§三逐条列出，另 1 条 D1 为已对齐基线；后续审计追加的 B6/B7/B8、
-D3–D8、P3 已并入计数），按性质分四类（逐条现役状态见 §三 各行）：
+三方对照下来，**共 40 条**（§三逐条列出，另 1 条 D1 为已对齐基线；后续审计追加的 B6/B7/B8、
+D3–D8、P3、F2/B9/A5/H3/I5/J1 已并入计数），按性质分四类（逐条现役状态见 §三 各行）：
 
 - **错误 15 条**：静态场景用假光而非烘焙光照图（A3）、ACES/曝光与客户端"线性 × exposure"不符并派生一批补偿旋钮（A2）、逐图光照数据未使用（A1）（三件均已落地/部分）、软混合/光图判据/裁切判据（B6/B7/B8，已修复）、贴图分辨率封顶（C1，已修）、GLB 贴图无各向异性（C2，已修）、地面伽马空间乘法（C3，已核实对齐）、地形相位/贴地 LOD/岸线量化/水下件/贴地贴花（D3/D4/D7/D6/D8，已修复）、`flatShading` 抹掉 authored 法线（I4，已修复）。
-- **缺失 11 条**：天空穹（E1，已修复）、水面着色（F1，MEDIUM 档已对齐）、动态阴影（G1，决策不做）、`DETAIL` 细节层（B1）、`ENVIRONMENT_MAPPING` 环境反射（B2）、软透明语义（B5）（已修复）、`TILED_DECAL_MASK`（B4，本版无对象）、岸线淡化（D5，已实现）、地面动态贴花（D2，碾压痕已落地）、状态切换器 + 骨骼网格（P3，已修复）、草（H1，未做）。
-- **画质档/取舍差异 6 条**：均衡档整块移除建筑与分层地面（I1）、战场静帧贴花 vs 动态铺展（B3）、树的风相位（H2）、只导 LOD0（I2）、全场景 `DoubleSide`（I3）、ULTRA 档 PBR 路径（A4）。
-- **非目标 1 条**：雾（E2，决策不做）。
+- **缺失 14 条**：天空穹（E1，已修复）、水面着色（F1，MEDIUM 档已对齐）、**水体主体 `WaterRenderObject`（F2，2026-11 发现：13 图水体整类缺失→导出已落地，消费端待接）**、动态阴影（G1，决策不做）、`DETAIL` 细节层（B1）、`ENVIRONMENT_MAPPING` 环境反射（B2）、软透明语义（B5）（已修复）、`TILED_DECAL_MASK`（B4，本版无对象）、岸线淡化（D5，已实现）、地面动态贴花（D2，碾压痕已落地）、状态切换器 + 骨骼网格（P3，已修复）、**草（H1，2026-11-17 已修复：28 图实例化草层 + 风动）**、**投影贴花（B9，plant 490 实例→数据已随包，消费端待接）**、**动态光源（A5，6 图 142 实例→数据已随包，消费端待接）**、**静态 Flora 簇（H3，4 图→导出已落地）**。
+- **画质档/取舍差异 7 条**：均衡档整块移除建筑与分层地面（I1）、战场静帧贴花 vs 动态铺展（B3）、树的风相位（H2）、只导 LOD0（I2）、全场景 `DoubleSide`（I3）、ULTRA 档 PBR 路径（A4）、**场景动画未播放（I6，静态姿态已导出）**。
+- **非目标 2 条**：雾（E2，决策不做）、FX 粒子系统（J1，**2026-11-17 实测：36 图粒子实体 100% 挂在带 ActionComponent 的祖先下 = 纯事件驱动，客户端场景里本就不是静态要素**）。**地图边界（I5）已从非目标移出**：引擎材质虽不可得，但几何（scg 三角形带）+ `MapBorderComponent` 全部视觉字段可复刻 ⇒ 2026-11-17 已落地。
 
 **影响面最大的三件**（按"可见收益 × 覆盖批次"排序）：① 静态场景烘焙光照图（36 图 / 42,651 个批次绑定了光照图）；② 逐图太阳/环境色 + 线性曝光（替掉现有一整套补偿 hack）；③ 天空 + 雾（36/36 图）。这三件已在光照文档里排期，本文补的是它们之外的部分。
 
@@ -67,9 +69,10 @@ D3–D8、P3 已并入计数），按性质分四类（逐条现役状态见 §�
 | # | 客户端 | 我们 | 后果 | 收益 | 成本 | 类 |
 |---|---|---|---|---|---|---|
 | A1 | 逐图太阳（色/强度/方向/环境色）+ 逐图雾 + IBL | 36 图共用一套硬编码光 | 黄昏/夜战/雪图/沙漠全都一个调子 | ★★★ | **部分已落地（2026-10-09）**：太阳方向/色/强度 + 环境色由 `lighting.json` 驱动（[map-lighting-plan.md](map-lighting-plan.md)）；**雾（决策不做）与烘焙光照图（已落地）见下**；IBL 已落地 | 〔错误→部分修复〕 |
-| A2 | 出屏 = 线性 × exposure（filmic 曲线在发布版被注释掉） | ACES + 1.15，另有 4 处 `toneMapped=false` 绕过 | 全局对比/饱和度与客户端不同；为迁就它派生一批补偿旋钮（0.75 压暗、亮色板、加深阵营色） | ★★★ 对齐后补偿旋钮可整体退役 | **已落地（2026-10-09；2026-10-10 收紧）**：`renderer.toneMapping = LinearToneMapping` + `toneMappingExposure = 1.0`（= 客户端"线性 × 曝光 → 编码"同式），**不留任何出屏旋钮**（`?tonemap`/`?exposure` 已撤除：客户端曝光是运行时自动曝光、数据面无静态值可抄，替代参数只能手工调）。（切换依据：离线拟合 ACES@1.15 等效显示增益 0.974≈1，差在曲线形状非亮度。）**残余缺口**：① 自动曝光未实现 ⇒ 整体亮度可能与客户端有系统性差异（如实记录，不用手调参数盖）；② legacy 类材质不经出屏变换 —— **C3 已核实与客户端同构**（legacy 材质在客户端也 raw 写出），非缺陷。〔错误→已修复（部分）〕 |
+| A2 | 出屏 = 线性 × exposure（filmic 曲线在发布版被注释掉） | ACES + 1.15，另有 4 处 `toneMapped=false` 绕过 | 全局对比/饱和度与客户端不同；为迁就它派生一批补偿旋钮（0.75 压暗、亮色板、加深阵营色） | ★★★ 对齐后补偿旋钮可整体退役 | **已落地（2026-10-09；2026-10-10 收紧）**：`renderer.toneMapping = LinearToneMapping` + `toneMappingExposure = 1.0`（= 客户端"线性 × 曝光 → 编码"同式），**不留任何出屏旋钮**（`?tonemap`/`?exposure` 已撤除：客户端曝光是运行时自动曝光、数据面无静态值可抄，替代参数只能手工调）。（切换依据：离线拟合 ACES@1.15 等效显示增益 0.974≈1，差在曲线形状非亮度。）**残余缺口**：① 自动曝光未实现——2026-11-17 曾按 L2 落地（64px 探针 + 0.5–2.5 倍率），但均值测光被天空主导，3D 回放实测诺曼底 avg 0.339 → 曝光 0.375→0.19，坦克等高光比主体明显发黑；用户裁示放弃光影调整、保留原来的亮度，模块与接线已删除。现行仍为逐图太阳强度归一的固定曝光；若重试需按客户端直方图分位数/中心加权重设计；② legacy 类材质不经出屏变换 —— **C3 已核实与客户端同构**（legacy 材质在客户端也 raw 写出），非缺陷。〔错误→已修复（部分）〕 |
 | A3 | 静态几何用烘焙光照图（42.6k 批次） | Lambert 假光照 + 全局压暗 | 建筑明暗关系全错（朝上面吃满天光、岩石过曝、红房子过暗） | ★★★ | **已落地（2026-10-09）**：36 图全量——图集随包 + 逐实例 UV 变换（`InstancedBufferAttribute aLm`）+ 前端 unlit `albedo × lightmap × 2`；动态阴影混合（LMGateFactor）与 `pbrLightmap`（ULTRA 档 RG 光图）未做 | 〔错误→回退为客户端同构〕 |
 | A4 | 5 张"AllQualities"图在 ULTRA 走 PBR + `pbrLightmap`(RG) | 无 PBR 路径 | 极高画质档下这几张图的观感差异更大 | ★（仅 ultra 档） | 视是否支持 ULTRA 档 | 〔画质〕 |
+| A5 | **`LightComponent` 动态光源实体**（142 个 / 6 图）：plant 霓虹灯 3、faust 夜战路灯 61、iceworld 聚光灯群 71、rift 动态灯 3、forgecity 3、neptune 1；字段 = type（引擎枚举，本机观测全为 2）/flags/color+ambColor(rgba)/intensity/radius/falloffExponent + 实体世界位姿 | ~~整类未处理（静态导出只认 RenderComponent）~~ | 夜战图/工业图的点状照明全无（faust 夜图路灯、iceworld 雪地聚光、plant 车间霓虹） | ★★（夜间/工业图明显） | **数据已随包（2026-11-17）**：`lighting.json` 新增 `dynamicLights[]`（原始字段直传 + 世界位姿，坐标 = 客户端世界系与 GLB 节点同帧）；`type` 语义未从引擎源定版（观测全为 2，按位姿带旋转推断为"带方向光源"——**推断**，消费端接时需一次画面 A/B 定版）；**消费端（WotbTools）待接**（渲染 = 逐光源点光/聚光近似） | 〔缺失→数据已随包；消费端待接〕 |
 
 ### B. 静态场景材质
 
@@ -84,6 +87,7 @@ D3–D8、P3 已并入计数），按性质分四类（逐条现役状态见 §�
 
 | B7 | 光照图只在 `MATERIAL_LIGHTMAP` define 下采样（来源：材质顶层 define / 实例启用的 `LightMap` 预设 / `*LightmapAllQualities*` 模板族） | 判据是"**绑了 lightmap 槽即受光图**"——过宽 | 客户端 unlit 的网格被乘上暗光图：medvedkovo 外围群山（跨 1.2 km）被压成深灰带黑斑（实测采到均值 0.23、p10 0.012 的窗口） | ★★ | **已修复**：新增 `lightmap_capable`（+ `preset_names`/`preset_defines` 纯函数与两条单测）；影响面 111 实例 / 7 图，其余 42540 判定不变 | 〔错误→已修复〕 |
 | B8 | alpha 裁切只在声明 `ALPHATEST` 时启用（材质链顶层 define 或实例启用 `AlphaTest` 预设；客户端证据 `Detail.material` 基础层 = `OpaqueRenderLayer`） | 判据是"**albedo 贴图有 alpha 通道即 MASK 0.33**"——未核对 `enabledPresets` | plant walls.sc2 墙板（`Detail.material`、无 AlphaTest 预设、UV 区 53% 像素 alpha<0.33）整批被裁 ⇒ 墙面消失、露出真地形 ⇒ 墙板整批被裁、露出真地形（"地形塌陷"观感） | ★★ | **已修复**：`alpha_test_capable`（与 lightmap/detail 判据同口径）+ MASK 分支加门（SpeedTree 豁免其着色器自带 discard；AlphaBlend 预设实例维持既有 MASK 取舍）；plant GLB 重导、墙板恢复不透明 | 〔错误→已修复〕 |
+| B9 | **`DeferredDecalComponent` 投影贴花**（490 实例 / 仅 plant）：渲染对象 = 贴花实体的**单位盒**（TransformComponent 缩放=盒尺寸、旋转=投影朝向）；逐像素由场景深度重建世界位 → 盒模型空间 `positionMS∈[-0.5,0.5]³`，`|x|,|y|` 界内才着色（`DECAL_VERTICAL_FADE` 时 z 走 `verticalFadeWidth` 淡出）；UV = `(positionMS.xy+0.5) × uvOffsetScale`（单一 albedo 采样器）；blending = 组件字段（blending.slh 枚举：本内容 1 AlphaBlend×64 / 2 Additive×66 / 5 Multiplicative×360——MULTIPLICATIVE 片元末 `rgb=lerp(1,rgb,a)`）。贴图绑 **atlasInfo** 槽（`decals/atlas0.tex` + UV 矩形；`decalComponent.decal` 的 dec_N.tex 全树**不存在**=陈旧引用）。与 D8 的材质级 decal 槽（`Decal.material`）是两套系统 | ~~整类未处理（非 RenderComponent）~~ | plant 工业图墙面/地面的漆线、污渍、格栅纹（dark_line×360 等）缺失 | ★★（plant 单图） | **数据已随包（2026-11-17）**：导出器 `collect_deferred_decals`/`export_deferred_decals` → `<space>.decals.json`（blending/blendingName/uv 矩形/盒位姿/fade 字段/flatColor×54 如实随档；atlas 槽解析不到实体文件 fail-closed 丢弃）+ 解码图集 `<space>.decal_*.webp`（2048² RGBA 无损）→ 打包器 `map/<key>/decals.json` + `decal_*.webp`。**消费端（WotbTools）待接**：真投影需深度重建（deferred），静态近似 = 盒 xy 平面贴片（需客户端语义定版后实现，勿按内容统计猜 blending） | 〔缺失→数据已随包；消费端待接〕 |
 ### C. 贴图与采样
 
 | # | 客户端 | 我们 | 后果 | 收益 | 成本 | 类 |
@@ -117,7 +121,8 @@ D3–D8、P3 已并入计数），按性质分四类（逐条现役状态见 §�
 
 | # | 客户端 | 我们 | 后果 | 收益 | 成本 | 类 |
 |---|---|---|---|---|---|---|
-| F1 | 四档水面着色：屏幕空间反射/折射 + 浪法线 + 泡沫 + 岸线 + 逐图 cubemap | 半透明 Lambert，`opacity 0.7`、强制写深度 | 所有带水图水面是"蓝玻璃" | ★★ | **MEDIUM 档已逐项复刻（2026-10-09）**：`WaterPerPixelCubemapAlphablend`（`PIXEL_LIT`：双层滚动法线 + UDN + 菲涅尔 alpha + 逐图 cubemap×色调）。LOW 档已弃用（`!PIXEL_LIT`：不透明、无法线 ⇒ 反射平面镜、零波浪扰动；验收判"不好"；代码/数据/守卫零残留）。本档固有观感：反射＝预烘探针（不含建筑）且被当整体颜色 ⇒ 俯视偏亮、反射对不上模型；照出建筑需**平面反射**（镜像相机 + RT，≈ 客户端 HIGH），ULTRA 的屏幕空间反射/折射、浪花、涟漪、岸线均未做 | 〔缺失→MEDIUM 档已对齐；HIGH/ULTRA 未做〕 |
+| F1 | 四档水面着色：屏幕空间反射/折射 + 浪法线 + 泡沫 + 岸线 + 逐图 cubemap | 半透明 Lambert，`opacity 0.7`、强制写深度 | 所有带水图水面是"蓝玻璃" | ★★ | **MEDIUM 档已逐项复刻（2026-10-09）**：`WaterPerPixelCubemapAlphablend`（`PIXEL_LIT`：双层滚动法线 + UDN + 菲涅尔 alpha + 逐图 cubemap×色调）。LOW 档已弃用（`!PIXEL_LIT`：不透明、无法线 ⇒ 反射平面镜、零波浪扰动；验收判"不好"；代码/数据/守卫零残留）。本档固有观感：反射＝预烘探针（不含建筑）且被当整体颜色 ⇒ 俯视偏亮、反射对不上模型；照出建筑需**平面反射**（镜像相机 + RT，≈ 客户端 HIGH），ULTRA 的屏幕空间反射/折射、浪花、涟漪、岸线均未做。**查看器补偿（2026-11-17 实测）**：地图预览/回放默认是 **595 m 正俯视**（工具视角，客户端相机贴地不存在）——菲涅尔 alpha≈bias 0.05 ⇒ 水面等于透明只剩海床；消费端取 `alpha=max(菲涅尔, 0.32)×coastLine` 作**工具视角可见性下限**（掠射角 fresnel≥0.32 时零影响；岸线仍按 coastLine 淡出）。取帧实测：正俯视海面像素 [35,40,49]、低角度 [83,87,92]（此前正俯视读作海床 [119,102,73]）。草同理受视角影响：1 m 草簇在 595 m 全图下亚像素，近景（4 m）实测中心像素 [72,77,56]（作者植被色生效）。**口径澄清（2026-11 审计）**：本行复刻的是 **Mesh 类水面**（40 批次：马利诺夫卡浮冰群、milbase/erlenberg/canal/italy/port/rock 等的小水面）；水体**主体**（海/河/湖）是另一渲染类，见 F2。decal 槽（`water_lightmap` 类）只被 **LOW 档**采样（water-fp.sl `!PIXEL_LIT` 分支）⇒ 采 MEDIUM 档即不消费，非缺口 | 〔缺失→MEDIUM 档已对齐（Mesh 类）；**HIGH 平面反射已落地（2026-11-17，WotbTools `waterReflection`：镜像相机+斜裁剪+半分辨率 RT，high/ultra 启用，正俯视/水下 fail-closed 回退 cubemap）；太阳高光已落地（客户端 BlinnPhong+Fresnel，按查看器曝光归一）；W3 反射档位已落地（画质档表控制 RT 比例与更新间隔，反射 pass 剔除草/特效/标注）**；ULTRA 屏幕空间反射/折射、浪花/涟漪/岸线未做〕 |
+| F2 | **`WaterRenderObject`** 渲染类：水体主体（海/河/湖）专属类 + `WATER_RENDER_OBJECT` 着色分支（`water-vp.sl:10/116-118/196-218`）——网格**不读 UV 流**，UV = `dot(localPosition.xy, texCoordTransform0.xz/.yw)` 程序化推导、法线恒 (0,0,1)、切线 = `inputTangent` 属性；运行时另有近景细分（`cellSize 40 / quadSize 0.15` 的实例化 cell） | ~~渲染类白名单只有 Mesh/SpeedTreeObject/SkinnedMesh ⇒ **整类被跳过**~~：13 图 14 实例的水体主体全部缺失（2026-11 用户报障"诺曼底水面缺东西"的根因——该图连 `water_surface` 计数都没有，GLB 0 个水材质） | **9 张图完全没水**（neptune/lagoon/holland/canyon/rudniki/lumber/rift/pliego/amigosville），port/canal/italy/rock 只剩零星 Mesh 小水面 | ★★★ | **导出已落地（2026-11-17）**：白名单 + `wro_uv_basis`（`texCoordTransform0`/`inputTangent` 两属性，缺一或字节退化 fail-closed 整批不导，`water_wro_dropped` 计数）+ extras 契约 `water.texCoordTransform0`/`water.inputTangent`（**只对 WRO 类下发**，消费端以键存在与否区分 UV 来源）+ 无 albedo 水面仍落 `alphaMode=BLEND`。14/14 实例数据面齐全（逐图 cubemap+normalmap 都在），0 dropped。几何 = scg 作者网格（20–2494 顶点；客户端近景细分属运行时 LOD，静态导出取舍）。**消费端（WotbTools）待接**：WRO 水面须按位置推导 UV（网格 UV0 是作者态、客户端不读）；HIGH/ULTRA 档同 F1 未做 | 〔缺失→导出已修复；消费端待接〕 |
 
 ### G. 动态阴影
 
@@ -129,8 +134,9 @@ D3–D8、P3 已并入计数），按性质分四类（逐条现役状态见 §�
 
 | # | 客户端 | 我们 | 后果 | 收益 | 成本 | 类 |
 |---|---|---|---|---|---|---|
-| H1 | Grass 系统：实例化草簇 + 风摆 + `GrassQuality` 档 | 无草（GLB 内无草系统网格；`dec_*_grass` 是静态装饰） | 草地大面积"光板"，野外图观感差距明显 | ★★ | 大（新系统）或中（静态草簇近似） | 〔缺失〕 |
+| H1 | Grass 系统（客户端 `VegetationRenderObject`）：实例化草簇 + 风摆 + 三档预算（实体名 60k/120k/500k） | ~~无草（GLB 内无草系统网格；`dec_*_grass` 是静态装饰）~~ | ~~草地大面积"光板"，野外图观感差距明显~~ | ★★ | **已修复（2026-11-17，上游导出 + 消费端；同日修正颜色）**：**颜色 = `albedo(灰度).rgb × vegetationColor.rgb × grassBaseColorMult(2.0)`**（客户端 `grass-fp.sl:103` 未受光分支逐字；`vegetationColor` 逐实例取 `vro.lightmap` 的 RGB，UV 按 `grass-vp.sl:113-117`：`uv=0.5−pivot/worldSize`、`uvColor=(1−uv.x,uv.y)`——首版漏乘植被色 ⇒ 草呈灰白，2026-11-17 用户报障）。几何 = `vro.geometryData.cgd.chunkSet` **内嵌**（4 变体 × 3 LOD；原型取 **lod0 几何量最大**的 VRO——500 档 38/39/26/5 顶点、54–81 索引；60k/120k 档是 27/7/7/3 顶点稀疏三角，成片会呈“三角形草”（2026-11-17 用户报障），现已改取高档，无需外部文件）；材质 = `cgd.materialId` → 逐图 albedo（`landscape/grass/images/grass120.tex` 等）；密度 = `vro.lightmap` **alpha**（`densityMapChannel=4`、`useSeparateDensityMap=false`）；`vro.flippedDensityMap` = 128×128 逐格翻转位（实测值域 {0,1}）；风参数逐层随档。出货 = 60k 实例/图（12 字节/实例 ⇒ ~0.7MB，含逐实例 RGB），逐格配额按密度比例分配（最大余数法，确定性哈希铺点）。**覆盖 28 图**（其余 8 图无 Grass 实体：desert_train/erlenberg/pliego/lagoon/himmelsdorf/holmeisk/iceworld 等）；消费端按变体 × 128m 世界分块 InstancedMesh（独立包围球可剔锥）、风摆按作者 amplitude/spring、仅高清/极致档启用（低/均衡走俯视底图） | 〔缺失→已修复〕 |
 | H2 | SpeedTree：SH/顶点色 + 叶卡风摆 + 逐档 LOD | 已对齐染色与叶卡（2026-10-18 补：SPHERICAL_LIT 净染色 = `0.282094×SH×shOcclusionMult`，静态 ST 组随导 COLOR_0 并烘 AO；旧口径 SH 字面值导致 DesertSands 棕榈叶 2.4× 过曝）；风摆用统一相位摆动（无逐实例风相位） | 树是静止的 | ★ | 小-中 | 〔画质〕 |
+| H3 | **`FloraRenderObject`** 静态花草簇（4 图 × 4 批：desert_train/erlenberg/pliego/lagoon；8–144 顶点/批，材质 `StandardAllQualities` 链 = PBR 族 albedo+baseColorMap，albedo 实测不撞 impostor 过滤） | ~~渲染类白名单外 ⇒ 整类被跳过~~ | 四图的近景小花/草簇缺失 | ★ | **导出已落地（2026-11-17）**：白名单纳入 `FloraRenderObject`，顶点流（pos/uv/normal 齐全）走既有 Mesh 路径（材质族 = pbr ⇒ 与 6361 个 pbr 批次同一条非 PBR 近似链，见 A4）；4 图 GLB 已重导 | 〔缺失→已修复〕 |
 
 ### I. 性能与档位
 
@@ -140,6 +146,16 @@ D3–D8、P3 已并入计数），按性质分四类（逐条现役状态见 §�
 | I2 | LOD 按距离切换（LodComponent） | 只导 LOD0（SpeedTree 取顶点量最大组） | 画质无损、性能更贵（远景三角形多） | 性能向 | 中 | 〔画质〕 |
 | I3 | `cullMode: FACE_BACK` 为主 | 全场景 `DoubleSide` | 过绘制翻倍、背面也参与光照 | 性能向 | 一行（按材质 flags 恢复单面） | 〔画质〕 |
 | I4 | 顶点法线：authored（硬边/烘焙法线） | ~~前端 `flatShading: true` 把导出的 authored 法线丢掉了~~ | 场景呈"多面体"感 | ★★ | **已修复**：关 `flatShading`（authored 法线生效），并同步到俯视烘焙页 | 〔错误→已修复〕 |
+| I5 | `MapBorderRenderObject`：地图边界对象（51 可见实例 / 33 图，各 1 批）；`rb.nmatname = 0`（**引擎内置材质**，dataNodes 无该节点） | ~~刻意跳过（白名单外）~~ | ~~地图边缘无边界带~~ | ★ | **已修复（2026-11-17；同日修正变体分组）**：**按 `LabelComponent` 变体标签分组导出**（`nt0/nt1/nt2`、`dt1..`；节点 `extras.mdVariant` 走既有变体过滤——基础图不再显示其它变体的内部边界线，2026-11-17 用户报障）；**几何在 scg 里**（实测三角形带竖带：每对顶点高差恰 = `mbc.visualHeight` 0.9m，desert_train 4086 顶点）；视觉参数全部在 `MapBorderComponent`（`visualColor` 红 / `visualMinZ..MaxZ` / `zFadeWidth` / `zOffset` / 距离淡出 90000–160000 sq²）⇒ 导出器合并几何 + `extras.mapBorder` 随档，消费端按字段复刻不受光半透明红带（垂直区间 + 边缘淡出 + 距离淡出）。材质贴图不存在，故不臆造 | 〔非目标→已修复〕 |
+| I6 | 场景动画：`AnimationComponent`（本机抽样 4 图 16 个；全库 16 空间 472 个）驱动可动件（转动的雷达/风机等），`RotationControllerComponent` 14 个（1 图）；状态切换器灯具的 Motion/Skeleton 见 P3 | 元素**已导出但停在初始姿态**（渲染类白名单含 SkinnedMesh，按静止绑定姿态导出） | 可动件不转/不动（静态回放里几乎不可察觉；客户端靠运行时动画） | ★ | **取舍**：动画曲线在 `.sc2` 的 AnimationData 节点（本仓已能读到节点存在，未实现采样/播放）；实现需要节点/轨道求值器 + 逐帧矩阵更新，属运行时系统，与本仓静态导出面不同 | 〔画质〕 |
+
+---
+
+### J. 效果系统
+
+| # | 客户端 | 我们 | 后果 | 收益 | 成本 | 类 |
+|---|---|---|---|---|---|---|
+| J1 | **FX 粒子系统**（`ParticleEffectComponent`，25,361 实例 / 31 图）：烟/火/水花/扬尘/飞鸟/探照灯体，逐图 `Gfx/Particles/<map>/` 图集 + `layers[].spritePath`/`flowmapPath`；诺曼底岸边浪花卡（wave/wave2/wave3）也是此系统（sc2 里 `waves_nt.tex` 材质无任何批次引用 = 孤儿，浪花实际走粒子） | 无粒子系统（静态导出天然不含） | 静态场景没有氛围粒子（烟囱无烟、爆炸无效果）——回放重点是战术分析，属"影响预期功能的特效"范畴 | ★ | **非目标（2026-11-17 实测确认为结构性非目标，不是"没做"）**：**36 图逐实体祖先链检查——全部粒子实体（neptune 1638 / forgecity 1041 / plant 657 抽样合计 3336，扩展全量同构）都挂在带 `ActionComponent` 的祖先下 ⇒ 100% 事件驱动**（触树落叶、击毁扬尘、爆炸等），客户端场景里本来就不存在"常驻粒子"。静态导出无对象可导；运行时战斗特效属另一系统（WotbTools battleFx，与本仓无关）。若日后做事件级 FX，数据面起点 = emitter 定义（`ParticleEmitterNode` 在 map sc2 的 dataNodes）+ sprite 图集 | 〔非目标（100% 事件驱动）〕 |
 
 ---
 
@@ -150,8 +166,22 @@ D3–D8、P3 已并入计数），按性质分四类（逐条现役状态见 §�
 `makeSkyMaterial` 无限远方向投影、`applyMaterialTextureAnisotropy`、删 `flatShading` 并同步到
 俯视烘焙页）。
 
-**P1（已落地 / 非目标）**：F1 水（MEDIUM 档已对齐；HIGH/ULTRA 未做）、B1 detail、B2 环境反射
-均已落地；E2 雾 = 非目标（决策不做）；G1 动态阴影 = 不做（撤回）。
+**P1（已落地 / 非目标）**：F1 水（MEDIUM 档已对齐；HIGH 平面反射/太阳高光/W3 反射档位已落地；ULTRA 屏幕空间项未做）、
+B1 detail、B2 环境反射均已落地；E2 雾 = 非目标（决策不做）；G1 动态阴影 = 不做（撤回）。
+
+**2026-11-17 追加（本次审计落地）**：**F2 `WaterRenderObject` 水体主体导出**（13 图 14 实例
+全部随包，`water_surface` 40→60 批次；WRO UV 基随 extras，消费端待接）、**B9 投影贴花数据**
+（plant 490 + 图集随包，消费端待接）、**A5 动态光源数据**（6 图 142 个进 `lighting.json`
+`dynamicLights`，消费端待接）、**H3 Flora 静态花草簇导出**（4 图已落地）；
+**I5 地图边界已落地**（几何 + 组件视觉字段复刻）；**H1 草系统已落地**（28 图、60k 实例/图）；
+J1 粒子 FX 由实测定型为非目标（36 图粒子实体 100% 祖先 ActionComponent = 纯事件驱动）。
+
+**2026-11-17 续（水面闪烁根因）**：6 张多 batch 图（rudniki/holland/pliego/lagoon/lumber/
+neptune）的 `WaterRenderObject` 各有 **2 个 render batch = 同一水面的两套三角化**：两个
+材质 dataNode 逐键相同（fx/贴图/旗标/属性 35 项全等），1 m 栅格实测被包含块落在超集外的
+面积 ≤0.01%（边界顶点到超集三角化距离 0）⇒ 导出按客户端**原样保留两套**（用户 2026-11-17
+决定）；消费端（WotbTools `waterMerge.ts`）用精确几何包含判据只显示**覆盖超集**，其余同材质
+互不包含的水面合并为单 draw 并固定 `renderOrder`，避免同像素 1/2 次混合随相机漂移。
 
 **P2（落地状态）**：C1 贴图上限提升已落地（改客户端原生分辨率）；I1 画质档语义重定、H1 草、
 A4 PBR/ULTRA 档、I2 LOD、H2 风相位未做（各自为画质取舍或缺失，见 §三各行）；B3/B4/D2
@@ -188,5 +218,13 @@ A4 PBR/ULTRA 档、I2 LOD、H2 风相位未做（各自为画质取舍或缺失�
 
 - 36 图逐图批次家族计数与特征计数：普查脚本输出（`tmp_analysis/family_census.txt`，按仓库约定不入库；方法同 §一表格口径：`collect_renderables` → 材质链 → 材质文件 shader/defines 解析）。
 - 关键计数：绑定光照图 **42,651** 批次、`speedtree` **28,411**、`pbr` **6,361**、`lit` **2,378**、`unlit textured` **114**、`water` **40**、`sky` **36**；`envReflectionMask` **535**、`detail` **437**、`decal` **273**、天空 `flowmap` **54**。
+- **2026-11-17 追加普查**（36 图 sc2 全量解析，脚本 `tmp_analysis/audit_space_classes.py`，不入库）：
+  render 类分布 Mesh 47,103 / SpeedTreeObject 6,138 / SkinnedMesh 342 / **WaterRenderObject 14（13 图）** /
+  **DeferredDecal 490（仅 plant）** / VegetationRenderObject 71（26 图，草系统=H1）/ MapBorderRenderObject 51（33 图）/
+  **FloraRenderObject 4（4 图 × 4 批）**；组件面 `ParticleEffectComponent` 25,361（31 图）、
+  `LightComponent` 142（6 图）。水面计数更新：**Mesh 类 40 批 + WRO 类 20 批 = `water_surface` 60**
+  （重导实测，0 fallback / 0 `water_wro_dropped`）。**2026-11-17 第二批**：草层 28 图 × 60,000 实例
+  （4 变体 × 38/39/26/5 顶点原型（500 档）；8 图无 Grass 实体）、地图边界 33 图（三角形带，desert_train 4086 顶点）、
+  粒子实体祖先链检查 3336/3336 = 100% 含 ActionComponent（事件驱动，非静态要素）。
 - 包内实测（审计时基线；C1 修复后贴图已按客户端原生分辨率入包）：`scenery.glb` 嵌入贴图当时最大 **1024²**（himmelsdorf 43 张 / 6.6 MB；holland 100 张 / 12.8 MB；forgecity 85 张 / 4.4 MB）；场景 GLB 内**无草系统网格**。
 - 客户端贴图规格抽样：地面 colormap 2048² **DXT3**（alpha 通道即光照图）、光照图图集 2048² DXT1 + 12 mip、建筑 albedo 1024² DXT1、`00_global_content` 抽样 400 张中 DXT1 351 / DXT5 29 / DXGI-BC1_UNORM 15 / DXT3 5。

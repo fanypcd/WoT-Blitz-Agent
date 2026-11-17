@@ -135,14 +135,16 @@ testing** happen in the WotbTools repository (https://github.com/A158Coke/WotbTo
   are recoverable read-only from the current asset origin — see §5.5 closing note). **The 2D tactical base
   maps are pack content too** (`release/asset_pack/map2d/` — the OTA channel the Android app
   validates against): the packer wipes the whole pack dir, so after every re-pack re-run
-  `python tools/export_2d_basemaps.py` (staging `release/2d-basemaps/` + pack `map2d/` + its index)
-  **before** re-stamping — [docs/game-data-sources.md](docs/game-data-sources.md) §5.6. Then
-  **materialize per-variant map dirs** — `python tools/materialize_destructible_variants.py
-  --pack release/asset_pack --map-index map_index.json`（多变体 space 的 lka 每变体一张；只给
-  映射确有差异的变体建独立 `map/<key>/`，共享资产硬链接，index 按 map_id 指向本 key；必须在
-  composite/2D 之后、manifest 重算之前）— then **re-stamp the manifest against the pack's actual
-  bytes** — `python scripts/export_asset_pack.py --refresh-manifest`（合成器在打包之后改写
-  `map/*/ground.webp`、变体工具新增目录；不重算则 manifest 与包内件不一致）.
+  `python tools/materialize_destructible_variants.py --pack release/asset_pack --map-index
+  map_index.json`（多变体 space 的 lka 每变体一张；只给映射确有差异的变体建独立 `map/<key>/`，
+  共享资产硬链接，index 按 map_id 指向本 key）→ then re-run `python tools/export_2d_basemaps.py`
+  (staging `release/2d-basemaps/` + pack `map2d/` + its index) — **before** re-stamping, per
+  [docs/game-data-sources.md](docs/game-data-sources.md) §5.6. **顺序警告（2026-11-17 实测）**：
+  2D 的注册表读 pack `index.json` 去重 key——变体必须先物化，2D 才能枚举到 43 个 key 并产出变体
+  底图；先 2D 后物化会在全新候选包上被 staging 一致性检查 fail-closed 拒绝。且 2D 的 map2d 输出
+  缺省 = `<pack>/map2d` 并拒绝写已 stamp 的包（export_asset_pack 同款防线）— then **re-stamp the
+  manifest against the pack's actual bytes** — `python scripts/export_asset_pack.py --refresh-manifest`
+  （合成器在打包之后改写 `map/*/ground.webp`、变体工具新增目录；不重算则 manifest 与包内件不一致）.
   **Publish to Alibaba as a new immutable release** (never overwrite the live tree; never upload
   the whole pack to COS):
   1. `scp` only the changed files to `/srv/wotb-assets/incoming-<batch>/`（密钥
@@ -299,9 +301,11 @@ python tools/composite_overhead.py --pack release/asset_pack --all --write \
                                                                    # (orientation = fixed YX;
                                                                    #  --base-dir avoids double-baking
                                                                    #  on the already-composited files)
-python tools/export_2d_basemaps.py                                # pack map2d/ + index (after re-pack)
 python tools/materialize_destructible_variants.py --pack release/asset_pack \
-    --map-index map_index.json                                    # per-variant map dirs (hardlinks)
+    --map-index map_index.json                                    # per-variant map dirs (hardlinks; MUST
+                                                                  # run before export_2d_basemaps — the 2D
+                                                                  # registry enumerates pack index keys)
+python tools/export_2d_basemaps.py                                # pack map2d/ + index (after re-pack)
 python scripts/export_asset_pack.py --out release/asset_pack --refresh-manifest
 # publish a new Alibaba release if production users must see it (see §Asset-data changes above);
 # COS is legacy only — do not upload new content to the COS bucket root

@@ -291,6 +291,11 @@ def write_source_stamp(out_dir: Path, records: list[dict], index: dict, index_sh
 
 def cmd_export(args) -> int:
     pack, out = Path(args.pack), Path(args.out)
+    # 已 stamp 的包不可变（与 export_asset_pack.py 同一道防线）：map2d/cover 都直接写进
+    # pack 目录——目标含 version.json 即拒绝（2026-11-17 实测事故：--map2d-dir 旧默认
+    # 硬编码主包路径，候选包构建时误写 stamp 包的 map2d/index.json）。
+    if (pack / "version.json").is_file():
+        raise ExportError(f"{pack} 已 stamp 不可变；请先物化候选目录并 --pack 指向它")
     rows = registry_all(pack)
     if args.map:
         rows = [r for r in rows if r["code"] == args.map]
@@ -323,7 +328,7 @@ def cmd_export(args) -> int:
         if args.map:
             raise ExportError("--map 单张模式不写 map2d/covers 索引（索引必须覆盖全部地图）；"
                               "要么去掉 --map，要么加 --skip-map2d 只出 staging 图")
-        map2d_dir = Path(args.map2d_dir)
+        map2d_dir = Path(args.map2d_dir) if args.map2d_dir else pack / "map2d"
         index = write_map2d(map2d_dir, records, args.generated or now_iso())
         idx_bytes = (map2d_dir / "index.json").read_bytes()
         index_sha = hashlib.sha256(idx_bytes).hexdigest()
@@ -391,7 +396,8 @@ def cmd_verify(args) -> int:
         if not cover_disk.is_file() or sha256_file(cover_disk) != fresh["cover"]["sha256"]:
             bad.append(f"{code}: pack cover.webp 缺失或 sha256 不符")
     if not args.skip_map2d:
-        bad += verify_map2d(Path(args.map2d_dir), out, rows, len(rows))
+        map2d_dir = Path(args.map2d_dir) if args.map2d_dir else pack / "map2d"
+        bad += verify_map2d(map2d_dir, out, rows, len(rows))
     if "covers" in man:
         cover_idx_path = pack / "cover" / "index.json"
         if not cover_idx_path.is_file():
@@ -537,8 +543,11 @@ def main() -> int:
     ap.add_argument("--pack", default="release/asset_pack")
     ap.add_argument("--out", default="release/2d-basemaps")
     ap.add_argument("--manifest", default="release/2d-basemaps-manifest.json")
-    ap.add_argument("--map2d-dir", default="release/asset_pack/map2d",
-                    help="COS 免发版通道目录：map2d/<code>.webp + index.json（包内，随上传器发布）")
+    ap.add_argument("--map2d-dir", default=None,
+                    help="map2d/<code>.webp + index.json 输出目录（包内，随上传器发布）；"
+                         "缺省 = <pack>/map2d（2026-11-17 修正：旧默认硬编码 release/asset_pack/map2d，"
+                         "--pack 指向候选包时会把 map2d 写进已 stamp 的旧包——不可变包曾被误写、"
+                         "靠 origin 回拉恢复）")
     ap.add_argument("--skip-map2d", action="store_true", help="只出 canonical staging，不写 map2d 索引")
     ap.add_argument("--generated", help="覆盖 index.json 的 generated 时间戳（ISO-8601Z；复现/测试用）")
     ap.add_argument("--map", help="只导出单张（地图 key，如 canal）")

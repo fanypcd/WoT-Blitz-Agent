@@ -32,7 +32,7 @@
 | `data/cache/tank_images/{id}.webp` | **本机客户端**（`tools/export_tank_icons.py` 剥壳字节；BlitzKit 仅缺失兜底） | ✅ 已实现并接线 | §2.5 |
 | `data/game_data/{id}.json` 装甲/碰撞盒 | 本机客户端 DVPL | — | §2.2/§2.3 |
 | `data/tank_cache.json` | `tanks.pb` 派生（纯本地，**不经 WG API**） | ✅ 随 pb | — |
-| 地图资产（底图/地形/小地图/场景） | 本机客户端 | — | `tools/export_map_glb.py` |
+| 地图资产（底图/地形/小地图/场景；**2026-11-17 起含水体主体/Flora 网格、投影贴花 `decals.json`+图集、`lighting.json` `dynamicLights[]`**） | 本机客户端 | — | `tools/export_map_glb.py` + `tools/export_map_lighting.py` |
 | 玩家战绩 | WG API | 不可（本来就不是本地数据） | — |
 
 `fetch-tanks` 的实现是 `TankResolver::from_blitzkit()` 后落盘，`api_client.rs` 明确
@@ -859,6 +859,27 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
 （否则硬链接会被展开）。完整布局、发布 recipe、迁移与 GC 见
 [asset-store.md](asset-store.md)。
 
+**现行 release（2026-11-17，共享地图 base 原地更新）**：三个 active dataset 共用同一套
+地图资产，本次直接更新共享 map/ base（不新建 release）：
+- default `11.21.0_1` → `11.21.0_1-20261114-r1`：739 辆，**6079 件 / 4484.5 MB**，
+  `content_digest sha256:98946fac…`；
+- `11.21.0` → `11.21.0-20261106-r2`：738 辆，**6072 件 / 4480.7 MB**，
+  `sha256:b65fc15b…`；
+- `11.4.0.138-r5` → `t11r3-20261114-r7-ballistics`：747 辆，**6133 件 / 4530.3 MB**，
+  `sha256:65eb50d9…`。
+
+本次地图增量：`map/` 669→776 件（+28 图草层 105 件、plant 投影贴花 2 件；86 件
+scenery/terrain 等替换）+ 根 `index.json`（55 图变体目录）+ `map2d/index.json`，共 **195 路径 / 140 唯一对象 / 966.7 MB**
+入对象库；三份 release 逐路径**硬链接到同一对象**（新 grass.bin inode 共享），
+`tank/research/cover/data` 等按版本分叉内容未动。manifest 按磁盘重算后
+`asset_release.py stamp` 重算 content_digest/manifest_sha256，`dataset.sh catalog`
+刷新 versions.json（3 dataset 仍 active，default 与 `current` 仍 `11.21.0_1`）。
+`dataset.sh verify --full` PASS；三份 `delta.json` 按各自 `base_release` 重生成（210/212/196 处变更）；公网 `/v/<id>/map/neptune/grass.{json,bin}`、
+`plant/decals.json`、`map2d/index.json` 逐文件 sha256 = manifest；根路径（current）
+同验；`deploy/assets/verify.sh https://assets.wotbtools.com` PASS。旧对象保留在
+objects（回滚证据），三份 release 的旧 manifest/version.json 备份在
+`_backup-mapbase-20261117/`。
+
 **当前 release（2026-11-13）**：默认 dataset `11.21.0` → `11.21.0-20261106-r2`，**738 辆**
 （含 `research/tech_tree/**`），**5965 件 / 4433.0 MB**，`content_digest sha256:9198d0ca…`；
 `current` 指向它。超测 dataset `11.4.0.138` → **`t11r3-20261113-r3`**（747 辆 /
@@ -1111,6 +1132,54 @@ App 侧消费（WotbTools `frontend/src/data/map2dOverlay.js`）与"包内兜底
 `map/<key>/ground.webp`（±300 全幅渲染，取向/世界框由 `terrain.json` 契约校验）做零位移相关比对——
 移位 (0,0)、取向 identity 最优、尺度 1.000、相关 0.987–0.998（残差 = 导出侧色调/USM 逐点滤波），
 即**每一张都是包内渲染的全幅等比降采样**（一次性诊断，不入库；判据仍是契约，不搜索）。
+
+### 5.6b 地图元素导出补全：水体主体 / 投影贴花 / 动态光源 / Flora（2026-11-17）
+
+36 图 sc2 全量普查（`docs/map-render-align-audit.md` F2/B9/A5/H3/I5/J1 行）发现四类
+客户端会渲染、导出器整类跳过的元素，本次随导：
+
+- **水体主体 `WaterRenderObject`**（14 实例 / 13 图）：此前整类被白名单跳过 ⇒
+  neptune/lagoon/holland/canyon/rudniki/lumber/rift/pliego/amigosville 九图完全没水。
+  该类网格客户端不读 UV 流，UV 由 `dot(localPosition.xy, texCoordTransform0.xz/.yw)`
+  推导（`water-vp.sl` WATER_RENDER_OBJECT 分支），法线恒 (0,0,1)、切线 = `inputTangent`
+  属性。导出按 MEDIUM 档既有链路走，另把 UV 基两属性随 `extras.water` 下发
+  （键**只对 WRO 类存在**，消费端以此区分 UV 来源）；属性缺失/字节退化 fail-closed
+  整批不导（`water_wro_dropped` 计数，本机 0）。重导后全库水面批次 **40（Mesh 类）→ 60**。
+- **投影贴花 `DeferredDecalComponent`**（490 / 仅 plant）：`<space>.decals.json`
+  （blending 按 blending.slh 枚举直传 + blendingName、图集 UV 矩形、单位盒世界位姿、
+  fade 字段、flatColor×54 如实随档）+ 解码图集 `<space>.decal_<名>.webp`（2048² RGBA
+  无损）。贴图取 `atlasInfo` 槽——`decalComponent.decal` 的 `dec_N.tex` 全树不存在
+  （陈旧引用），按存在性判定。打包器收 `map/<key>/decals.json` + `decal_*.webp`。
+- **动态光源 `LightComponent`**（142 / 6 图）：`tools/export_map_lighting.py` 新增
+  `dynamicLights[]` 进 `lighting.json`（type/flags/color/ambColor/intensity/radius/
+  falloffExponent + 实体世界位姿，坐标 = 客户端世界系与 GLB 节点同帧）。`type` 枚举
+  语义未从引擎源定版（观测全为 2）——原样直传，消费端接时需 A/B 定版。
+- **静态 Flora 簇 `FloraRenderObject`**（4 图 × 4 批）：白名单纳入后走 Mesh 路径
+  （材质族 = `StandardAllQualities` → pbr 族近似链，albedo 实测不撞 impostor 过滤）。
+
+**第二批（同日）**：
+
+- **草系统 `VegetationRenderObject`**（28 图，其余 8 图无 Grass 实体）：几何内嵌
+  （`cgd.chunkSet`，4 变体 × 3 LOD；原型取 lod0 几何量最大的 VRO = 500 档 38/39/26/5 顶点、54–81 索引，60k/120k 档为 27/7/7/3 顶点稀疏三角）；材质 = `cgd.materialId` → 逐图 albedo；
+  密度 = `vro.lightmap` 的 **alpha**（`densityMapChannel=4`、`useSeparateDensityMap=false`）；
+  `vro.flippedDensityMap` = 16384 字节 / 128×128 逐格翻转位（实测值域 {0,1}，非密度；
+  消费端按格做草簇几何镜像）。
+  **放置** = 按密度纹理逐像素 alpha 做逆 CDF 分层采样（60k 实例，像素内确定性抖动）；
+  密度纹理逐图 256²–2048²，实例保证落在 alpha>0 像素，不再按 128 格中心配额（旧实现
+  会在道路/水边等亚格细节上多出草）。
+  出货 60k 实例/图 → `<space>.grass.{json,bin,glb}`（**12 字节/实例**；原型 GLB 含 4 变体
+  + albedo）；打包器收 `map/<key>/grass.*`。
+- **地图边界 `MapBorderRenderObject`**（33 图）：材质 id=0（引擎内置，dataNodes 无节点），
+  但几何在 scg（三角形带竖带，顶点对高差 = `mbc.visualHeight`）+ 组件带全部视觉字段 ⇒
+  合并进主 GLB 的 `MapBorder` 网格 + `extras.mapBorder`（颜色/可见 z 区间/边缘淡出/z 偏移/
+  距离淡出逐字段照抄）。
+- **粒子 FX = 结构性非目标（实测）**：36 图粒子实体逐祖先链检查，**100% 挂在带
+  `ActionComponent` 的祖先下**（触树落叶/击毁扬尘/爆炸）——客户端场景里不存在常驻粒子，
+  静态导出无对象可导；战斗特效属运行时系统（WotbTools battleFx），不在本仓数据面。
+
+
+消费端（WotbTools）接线项见 [index.md](index.md) 2026-11-17 条目与
+[map-render-align-audit.md](map-render-align-audit.md) 各行"成本"列。
 
 ### 5.7 客户端小地图（`map/<key>/mini.webp`）——**已退出地面链路**（2026-10-16 裁定：以 ±300 为准）
 
