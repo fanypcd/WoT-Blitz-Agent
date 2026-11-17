@@ -2525,23 +2525,29 @@ def export_deferred_decals(scene: dict, textures: "TextureStore",
 #          `vro.useSeparateDensityMap = false` ⇒ 取自该图草地植被/光照图；多个图上该文件
 #          与 landscape 材质声明的 `vegetationmap` 是同一文件）。
 #   翻转 = `vro.flippedDensityMap`：`densityMapSize = 16384` 字节 = **128×128 网格**、
-#          逐格 0/1 二值（实测值域 {0,1}）——按格镜像密度采样（属性名字面语义）。
+#          逐格 0/1 二值（实测值域 {0,1}）——消费端按格把草簇几何镜像（打散重复）；
+#          引擎侧真实语义无 shader 证据（客户端 grass-vp 不读该字段），未取证。
 #   其余随档：baseColorMultilplier / scaleVariation / rotationVariation /
 #          layerAnimation{Amplitude,Drug,Spring} / visibilityDistance / lodRanges。
 #   颜色 = `albedo(灰度).rgb × vegetationColor.rgb × grassBaseColorMult(2.0)`（客户端
 #          grass-fp.sl:103；`isLit=false` 即不受光分支）。vegetationColor 逐实例取
 #          `vro.lightmap` 同图的 **RGB**，UV 按 grass-vp.sl:113-117 逐字：
 #          uv = 0.5 − chunkPivot.xy / worldSize.xy，uvColor = (1−uv.x, uv.y)。
+#   放置 = 按**密度纹理逐像素** alpha 配额（最大余数法）+ 像素内确定性抖动。客户端是
+#          逐 tile/chunk pivot 采样密度并作 `densityScale`（alpha=0 时 finalScale=0 被
+#          裁掉，grass-vp.sl:173-183）；逐像素配额是它的蒙特卡洛期望，实例不会落在
+#          alpha=0 像素（道路/水边等亚格细节被尊重）。`flippedDensityMap` 仍按 128 格
+#          做几何镜像（与密度配额分辨率无关）。
 #   出货预算：客户端三档实体名 60k/120k/500k（= 实例预算）。网页端取 **60k 实例 +
-#          500 档完整草簇几何**（04 画质计划 G1；每实例 12 字节 ⇒ ~0.7MB/图）；逐格配额按
-#          密度 alpha 比例分配（最大余数法，确定性），格内位置/旋转/缩放/变体由确定性哈希生成。
+#          500 档完整草簇几何**（04 画质计划 G1；每实例 12 字节 ⇒ ~0.7MB/图）；逐密度像素
+#          配额按 alpha 比例分配（最大余数法，确定性），像素内位置/旋转/缩放/变体由确定性哈希生成。
 #
 # 边界（I5）：`MapBorderRenderObject` 的 `rb.nmatname = 0`（**引擎内置材质**，dataNodes
 #   无该节点）⇒ 材质不可得；但**几何在 scg 里**（三角形带竖带：每对顶点高差恰 =
 #   `mbc.visualHeight` 0.9m），且 `MapBorderComponent` 带全部视觉参数（visualColor 红 /
 #   visualMinZ..MaxZ / zFadeWidth / zOffset / 距离淡出 90000..160000 sq）。按几何 + 这些
 #   组件字段复刻（不受光半透明红带），不臆造材质贴图。
-GRASS_GRID = 128            # densityMapSize(16384) = 128×128 格
+GRASS_GRID = 128            # flippedDensityMap 的 128×128 格（不是密度纹理分辨率）
 GRASS_TARGET_INSTANCES = 60000
 GRASS_ALPHA_CUTOFF = 0.5
 # 每实例 12 字节：xQ u16 / zQ u16 / rot u16 / scaleQ u8 / variation u8 / flipped u8 /
@@ -2625,7 +2631,7 @@ def collect_grass_scene(scene: dict, materials: "MaterialLibrary",
       variations: [{positions, uvs, indices}],
       material: {albedo_path, albedo_img},
       instances: bytes（GRASS_INSTANCE_STRUCT 打包）,
-      meta: {grid, target, count, densitySource, cellsWithGrass, bounds}
+      meta: {grid, densityGrid, target, count, densitySource, cellsWithGrass, bounds}
     }；任一关键件缺失 → None（fail-closed 不发货草层）。
     """
     veg = None
@@ -2723,54 +2729,61 @@ def collect_grass_scene(scene: dict, materials: "MaterialLibrary",
         r, g, b, a = tex[yi, xi]
         return int(r), int(g), int(b), float(a) / 255.0
 
-    weights = np.zeros((n, n), dtype=np.float64)
-    for cy in range(n):
-        for cx in range(n):
-            weights[cy, cx] = sample_rgba(x0 + (cx + 0.5) * (span_x / n),
-                                          y0 + (cy + 0.5) * (span_y / n))[3]
+    # 配额按**密度纹理逐像素** alpha 分配（客户端是逐 tile pivot 采样密度并作
+    # densityScale；逐像素配额是它的蒙特卡洛期望）。旧实现按 128×128 格中心采样、
+    # 格内均匀抖动，会把道路/水边等亚格细节撒上草（Normandy 实测 5.6% 落点 alpha=0）。
+    # 现在每个实例的抖动限制在 alpha>0 的密度像素内，保证不落在客户端无草区域。
+    n_dx, n_dy = tw, th
+    weights = np.zeros((n_dy, n_dx), dtype=np.float64)
+    for py in range(n_dy):
+        wy = y0 + (py + 0.5) * (span_y / n_dy)
+        for px in range(n_dx):
+            wx = x0 + (px + 0.5) * (span_x / n_dx)
+            weights[py, px] = sample_rgba(wx, wy)[3]
     total = float(weights.sum())
     if total <= 1e-6:
         return None
-    raw = weights.ravel() / total * GRASS_TARGET_INSTANCES
-    counts = np.floor(raw).astype(np.int64)
-    remainder = GRASS_TARGET_INSTANCES - int(counts.sum())
-    if remainder > 0:
-        # 最大余数法（并列按格序号，确定性）
-        order = np.argsort(-(raw - np.floor(raw)), kind="stable")
-        counts[order[:remainder]] += 1
+    # 逆 CDF 分层采样：第 i 个实例取 q=(i+0.5)/N，落在权重累积跨过 q 的像素。
+    # 期望计数 = N × alpha/Σalpha（与客户端逐 tile 密度采样同分布），且确定性、
+    # 不会因“最大余数 + 像素序号”在均匀密度图上把草挤到地图一角。
+    flat = weights.ravel()
+    cumulative = np.cumsum(flat)
+    quantiles = (np.arange(GRASS_TARGET_INSTANCES) + 0.5) / GRASS_TARGET_INSTANCES * total
+    pixel_index = np.searchsorted(cumulative, quantiles, side="right")
+    pixel_index = np.minimum(pixel_index, flat.size - 1)
+    if float(flat[pixel_index].min()) <= 0.0:   # fail-closed：绝不在 alpha=0 像素落点
+        return None
+    cells_with_grass = int(np.unique(pixel_index).size)
     packed = bytearray()
-    cells_with_grass = 0
-    cell_w = span_x / n
-    cell_h = span_y / n
-    for cy in range(n):
-        for cx in range(n):
-            cnt = int(counts[cy * n + cx])
-            if cnt <= 0:
-                continue
-            cells_with_grass += 1
-            cell_index = cy * n + cx
-            for j in range(cnt):
-                seed = _hash32(cell_index * 131 + j * 7 + 1)
-                r1 = _hash32(seed ^ 0x9E3779B9)
-                r2 = _hash32(r1 ^ 0x85EBCA6B)
-                r3 = _hash32(r2 ^ 0xC2B2AE35)
-                variation = r1 % len(variations_out)
-                jx = (r1 >> 8) % 65536 / 65535.0
-                jz = (r2 >> 8) % 65536 / 65535.0
-                wx = x0 + (cx + jx) * cell_w
-                wy = y0 + (cy + jz) * cell_h
-                xq = int(round((wx - x0) / span_x * 65535))
-                yq = int(round((wy - y0) / span_y * 65535))
-                rot = (r3 % 65536) / 65535.0 * math.radians(rot_var[variation])
-                scale = 1.0 + ((r2 >> 24) % 65536 / 65535.0 * 2.0 - 1.0) * scale_var[variation]
-                sq = int(round((max(GRASS_SCALE_MIN, min(GRASS_SCALE_MAX, scale)) - GRASS_SCALE_MIN)
-                               / (GRASS_SCALE_MAX - GRASS_SCALE_MIN) * 255))
-                cr, cg, cb, _ = sample_rgba(wx, wy)
-                packed += GRASS_INSTANCE_STRUCT.pack(
-                    max(0, min(65535, xq)), max(0, min(65535, yq)),
-                    int(round(rot / (2 * math.pi) * 65535)) & 0xFFFF,
-                    max(0, min(255, sq)), variation, 1 if flipped_cells[cy, cx] else 0,
-                    cr, cg, cb)
+    cell_w = span_x / n_dx
+    cell_h = span_y / n_dy
+    for i in range(GRASS_TARGET_INSTANCES):
+        cell_index = int(pixel_index[i])
+        px = cell_index % n_dx
+        py = cell_index // n_dx
+        seed = _hash32(i * 131 + 1)
+        r1 = _hash32(seed ^ 0x9E3779B9)
+        r2 = _hash32(r1 ^ 0x85EBCA6B)
+        r3 = _hash32(r2 ^ 0xC2B2AE35)
+        variation = r1 % len(variations_out)
+        jx = (r1 >> 8) % 65536 / 65535.0
+        jz = (r2 >> 8) % 65536 / 65535.0
+        wx = x0 + (px + jx) * cell_w
+        wy = y0 + (py + jz) * cell_h
+        xq = int(round((wx - x0) / span_x * 65535))
+        yq = int(round((wy - y0) / span_y * 65535))
+        rot = (r3 % 65536) / 65535.0 * math.radians(rot_var[variation])
+        scale = 1.0 + ((r2 >> 24) % 65536 / 65535.0 * 2.0 - 1.0) * scale_var[variation]
+        sq = int(round((max(GRASS_SCALE_MIN, min(GRASS_SCALE_MAX, scale)) - GRASS_SCALE_MIN)
+                       / (GRASS_SCALE_MAX - GRASS_SCALE_MIN) * 255))
+        cr, cg, cb, _ = sample_rgba(wx, wy)
+        fx = min(n - 1, max(0, int((wx - x0) / span_x * n)))
+        fy = min(n - 1, max(0, int((wy - y0) / span_y * n)))
+        packed += GRASS_INSTANCE_STRUCT.pack(
+            max(0, min(65535, xq)), max(0, min(65535, yq)),
+            int(round(rot / (2 * math.pi) * 65535)) & 0xFFFF,
+            max(0, min(255, sq)), variation, 1 if flipped_cells[fy, fx] else 0,
+            cr, cg, cb)
     if not packed:
         return None
     return {
@@ -2780,6 +2793,7 @@ def collect_grass_scene(scene: dict, materials: "MaterialLibrary",
         "instances": bytes(packed),
         "meta": {
             "grid": n,
+            "densityGrid": [n_dx, n_dy],
             "target": GRASS_TARGET_INSTANCES,
             "count": len(packed) // GRASS_INSTANCE_STRUCT.size,
             "densitySource": density_path,

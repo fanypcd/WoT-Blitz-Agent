@@ -173,6 +173,26 @@ def test_collect_grass_scene_prefers_detailed_tier():
     assert len(grass["variations"][0]["positions"]) == 5
 
 
+def test_collect_grass_scene_skips_zero_density_pixels():
+    # 左半 alpha=0、右半 255：逐密度像素配额 ⇒ 所有实例必须落在右半（alpha>0）
+    scene, mats, texs = _grass_scene(alpha_value=255)
+    density = Image.new("RGBA", (16, 16), (32, 96, 48, 255))
+    for y in range(16):
+        for x in range(8):
+            density.putpixel((x, y), (32, 96, 48, 0))
+    texs.images["grass/d.tex"] = density
+    bounds = {"min": [-300, -300, 0], "max": [300, 300, 0]}
+    grass = collect_grass_scene(scene, mats, texs, bounds)
+    assert grass is not None
+    meta = grass["meta"]
+    assert meta["densityGrid"] == [16, 16]
+    assert meta["cellsWithGrass"] == 128          # 只有右半 8×16 个像素有配额
+    for off in range(0, len(grass["instances"]), GRASS_INSTANCE_STRUCT.size):
+        xq, _zq = GRASS_INSTANCE_STRUCT.unpack_from(grass["instances"], off)[:2]
+        wx = -300.0 + xq / 65535.0 * 600.0
+        assert wx >= -1e-6, (off, wx)
+
+
 def test_collect_grass_scene_flipped_cells_recorded():
     # 前 4 个格翻转 ⇒ 至少一条实例带 flipped 位（网格序：cy=0, cx=0..3）
     scene, mats, texs = _grass_scene(flip_ones=4)
