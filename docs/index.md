@@ -181,6 +181,11 @@ UV + 法线扰动采样并乘 `reflectionTintColor`；high/ultra 档启用，正
 cubemap 均值差 64。待办：太阳高光、ULTRA 折射、W3 反射档位；L3 天空云动画随"环境动画
 冻结"暂缓。
 
+**画质提升 Wave B（2026-11-17 起）**：**L2 自动曝光已落地**（WotbTools
+`playback/autoExposure.ts`，high/ultra）——64px 探针每 500ms 测对数平均亮度，在逐图
+基础曝光上乘 0.5–2.5 自适应倍率（700ms 时间常数）；实测诺曼底 avg 0.253 → 倍率 0.72、
+曝光 0.375→0.27。L1 CSM 阴影仍待做（导出器尚无 `shadow` 块）。
+
 **未取证 / 边界**：草密度通道语义（`densityMapChannel=4`）按"第 4 通道 = alpha"解读；
 `flippedDensityMap` 按属性名字面（逐格镜像密度采样）实现——两者均无引擎源可对，已在
 导出器注释标注；边界材质为引擎内置、消费端按组件字段近似（颜色/区间/淡出逐字段照抄，
