@@ -859,6 +859,27 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
 （否则硬链接会被展开）。完整布局、发布 recipe、迁移与 GC 见
 [asset-store.md](asset-store.md)。
 
+**现行 release（2026-11-17，共享地图 base 原地更新）**：三个 active dataset 共用同一套
+地图资产，本次直接更新共享 map/ base（不新建 release）：
+- default `11.21.0_1` → `11.21.0_1-20261114-r1`：739 辆，**6079 件 / 4484.5 MB**，
+  `content_digest sha256:d14e4e30…`；
+- `11.21.0` → `11.21.0-20261106-r2`：738 辆，**6072 件 / 4480.7 MB**，
+  `sha256:5a07b40b…`；
+- `11.4.0.138-r5` → `t11r3-20261114-r7-ballistics`：747 辆，**6133 件 / 4530.3 MB**，
+  `sha256:97af2599…`。
+
+本次地图增量：`map/` 669→776 件（+28 图草层 105 件、plant 投影贴花 2 件；86 件
+scenery/terrain 等替换）+ `map2d/index.json`，共 **194 路径 / 139 唯一对象 / 966.7 MB**
+入对象库；三份 release 逐路径**硬链接到同一对象**（新 grass.bin inode 共享），
+`tank/research/cover/data` 等按版本分叉内容未动。manifest 按磁盘重算后
+`asset_release.py stamp` 重算 content_digest/manifest_sha256，`dataset.sh catalog`
+刷新 versions.json（3 dataset 仍 active，default 与 `current` 仍 `11.21.0_1`）。
+`dataset.sh verify --full` PASS；公网 `/v/<id>/map/neptune/grass.{json,bin}`、
+`plant/decals.json`、`map2d/index.json` 逐文件 sha256 = manifest；根路径（current）
+同验；`deploy/assets/verify.sh https://assets.wotbtools.com` PASS。旧对象保留在
+objects（回滚证据），三份 release 的旧 manifest/version.json 备份在
+`_backup-mapbase-20261117/`。
+
 **当前 release（2026-11-13）**：默认 dataset `11.21.0` → `11.21.0-20261106-r2`，**738 辆**
 （含 `research/tech_tree/**`），**5965 件 / 4433.0 MB**，`content_digest sha256:9198d0ca…`；
 `current` 指向它。超测 dataset `11.4.0.138` → **`t11r3-20261113-r3`**（747 辆 /

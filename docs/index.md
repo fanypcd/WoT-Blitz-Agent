@@ -203,6 +203,17 @@ Schlick，uSunSpecColor 按查看器曝光归一）。待办：ULTRA 折射、W3
 `fadeDistance/verticalFadeWidth/backSideFade` 全为 0/0/false，客户端 shader 也没有组件
 字段映射证据，按 fail-closed 不实现。
 
+**共享地图 base 发布（2026-11-17）**：按用户裁示，现行三个 active dataset 共用同一套
+地图资产，直接原地更新共享 `map/` base（不新建 release）：`map/` 669→776 件
+（+28 图草层 105 件、plant 投影贴花 2 件；86 件 scenery/terrain 等替换）+
+`map2d/index.json`，194 路径 / 139 唯一对象 / 966.7 MB 入对象库，三份 release
+（`11.21.0-20261106-r2`、`11.21.0_1-20261114-r1`、`t11r3-20261114-r7-ballistics`）
+逐路径硬链接共享同一对象；`tank/research/cover/data` 未动。manifest 重算 +
+`asset_release.py stamp` 重算 content_digest（4480.7 / 4484.5 / 4530.3 MB），
+`dataset.sh catalog` 刷新 versions.json（default/current 仍 11.21.0_1）。
+`dataset.sh verify --full`、公网逐文件 sha256、`deploy/assets/verify.sh` 均 PASS；
+旧 manifest/version.json 备份在 `_backup-mapbase-20261117/`。
+
 **草分布修正（2026-11-17 续）**：旧导出器按 128×128 格中心 alpha 配额、格内均匀抖动，
 会把道路/水边等亚格细节撒上草（Normandy 实测 5.6% 实例落在密度 alpha=0 像素）。改为
 **按密度纹理逐像素 alpha 的逆 CDF 分层采样**（像素内确定性抖动，60k 实例），并保留
