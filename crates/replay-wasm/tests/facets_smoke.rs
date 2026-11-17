@@ -109,7 +109,9 @@ fn playback_smoke() {
     let pb: serde_json::Value = serde_json::from_str(&playback_str).unwrap();
     assert_eq!(pb["version"], 2, "contract v2（版本门禁；消费端拒绝错版）");
     // contract v2 新键：非争霸场为空数组也必须安全序列化在场（skip_serializing_if 语义）
-    for key in ["supremacy_bases", "supremacy_points"] {
+    // 聊天域（频道表/文本消息/单发通知）：additive 缺省省略；语料样本（频道表 15/15）
+    // 至少含频道表数组——样本集为空时跳过断言由上方 largest_sample 保证有样本。
+    for key in ["chat_channels", "chat_messages", "notifications", "supremacy_bases", "supremacy_points"] {
         assert!(
             pb.get(key).is_none_or(|v| v.is_array()),
             "v2 键 {key} 须为数组或缺省"

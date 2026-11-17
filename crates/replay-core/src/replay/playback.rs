@@ -743,6 +743,18 @@ pub struct PlaybackData {
     /// 语义来源 = collect_aoi_lifecycle（协议精确边界）；渲染插值防护仍看 coverage。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub visibility: Vec<AoiPresence>,
+    /// 聊天频道表（Avatar method 0x2f，BigWorld pickle；每场一条，开局建立）。
+    /// 形状门禁与证据见 `combat::chat` 头注与 docs/replay-chat-events.md。
+    /// 契约 additive：消费方忽略未知键。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chat_channels: Vec<combat::ChatChannel>,
+    /// 聊天文本消息（Avatar method 0x2b；形状严格校验，未过校验的包整包跳过）。
+    /// `tag`/`seq` 为原样透传的未定语义字段（单样本 provenance，禁猜）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chat_messages: Vec<combat::ChatMessageEvent>,
+    /// 单发通知（Avatar method 0x12；`code` 语义未定，原样透传——消费方不得命名/猜测）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notifications: Vec<combat::NotificationEvent>,
 }
 
 /// Project the model's raw rigid bodies without AvatarFilter, terrain snapping,
@@ -1008,6 +1020,26 @@ pub fn build_playback_data(input: &PlaybackInput) -> anyhow::Result<PlaybackData
 /// 文档），故回填在其后。幂等：重复调用以最新 packets 为准整体覆盖。
 pub fn attach_packet_evidence(data: &mut PlaybackData, packets: &[(u32, f32, &[u8])]) {
     data.armor_states = crate::replay::combat::collect_armor_state_tracks(packets);
+    // 聊天域（频道表/文本消息/单发通知）：同 armor_states 的原始包证据边界——
+    // 渲染层 from_model 类型上不接触 packets，回填在此处。
+    data.chat_channels = crate::replay::combat::collect_chat_channels(packets);
+    data.chat_messages = crate::replay::combat::collect_chat_messages(packets)
+        .into_iter()
+        .map(|m| crate::replay::combat::ChatMessageEvent {
+            t: r2(m.clock),
+            tag: m.tag,
+            seq: m.seq,
+            text: m.text,
+        })
+        .collect();
+    data.notifications = crate::replay::combat::collect_notifications(packets)
+        .into_iter()
+        .map(|n| crate::replay::combat::NotificationEvent {
+            t: r2(n.clock),
+            subject: n.subject,
+            code: n.code,
+        })
+        .collect();
     for shot in &mut data.shots {
         let Some(eid) = shot.target_eid else { continue };
         let Some(track) = data.armor_states.iter().find(|t| t.eid == eid) else {
@@ -1347,6 +1379,9 @@ pub fn from_model(
         kills,
         periods: periods_out,
         visibility,
+        chat_channels: Vec::new(), // 原始包证据：attach_packet_evidence 回填（同 armor_states 边界）
+        chat_messages: Vec::new(),
+        notifications: Vec::new(),
         supremacy_bases: model
             .timeline
             .supremacy_bases
