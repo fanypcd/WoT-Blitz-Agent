@@ -14,9 +14,9 @@
 D3–D8、P3、F2/B9/A5/H3/I5/J1 已并入计数），按性质分四类（逐条现役状态见 §三 各行）：
 
 - **错误 15 条**：静态场景用假光而非烘焙光照图（A3）、ACES/曝光与客户端"线性 × exposure"不符并派生一批补偿旋钮（A2）、逐图光照数据未使用（A1）（三件均已落地/部分）、软混合/光图判据/裁切判据（B6/B7/B8，已修复）、贴图分辨率封顶（C1，已修）、GLB 贴图无各向异性（C2，已修）、地面伽马空间乘法（C3，已核实对齐）、地形相位/贴地 LOD/岸线量化/水下件/贴地贴花（D3/D4/D7/D6/D8，已修复）、`flatShading` 抹掉 authored 法线（I4，已修复）。
-- **缺失 15 条**：天空穹（E1，已修复）、水面着色（F1，MEDIUM 档已对齐）、**水体主体 `WaterRenderObject`（F2，2026-11 发现：13 图水体整类缺失→导出已落地，消费端待接）**、动态阴影（G1，决策不做）、`DETAIL` 细节层（B1）、`ENVIRONMENT_MAPPING` 环境反射（B2）、软透明语义（B5）（已修复）、`TILED_DECAL_MASK`（B4，本版无对象）、岸线淡化（D5，已实现）、地面动态贴花（D2，碾压痕已落地）、状态切换器 + 骨骼网格（P3，已修复）、草（H1，未做）、**投影贴花（B9，plant 490 实例→数据已随包，消费端待接）**、**动态光源（A5，6 图 142 实例→数据已随包，消费端待接）**、**静态 Flora 簇（H3，4 图→导出已落地）**。
+- **缺失 14 条**：天空穹（E1，已修复）、水面着色（F1，MEDIUM 档已对齐）、**水体主体 `WaterRenderObject`（F2，2026-11 发现：13 图水体整类缺失→导出已落地，消费端待接）**、动态阴影（G1，决策不做）、`DETAIL` 细节层（B1）、`ENVIRONMENT_MAPPING` 环境反射（B2）、软透明语义（B5）（已修复）、`TILED_DECAL_MASK`（B4，本版无对象）、岸线淡化（D5，已实现）、地面动态贴花（D2，碾压痕已落地）、状态切换器 + 骨骼网格（P3，已修复）、**草（H1，2026-11-17 已修复：28 图实例化草层 + 风动）**、**投影贴花（B9，plant 490 实例→数据已随包，消费端待接）**、**动态光源（A5，6 图 142 实例→数据已随包，消费端待接）**、**静态 Flora 簇（H3，4 图→导出已落地）**。
 - **画质档/取舍差异 6 条**：均衡档整块移除建筑与分层地面（I1）、战场静帧贴花 vs 动态铺展（B3）、树的风相位（H2）、只导 LOD0（I2）、全场景 `DoubleSide`（I3）、ULTRA 档 PBR 路径（A4）。
-- **非目标 3 条**：雾（E2，决策不做）、地图边界对象（I5，材质不在数据面）、FX 粒子系统（J1，系统级特效）。
+- **非目标 2 条**：雾（E2，决策不做）、FX 粒子系统（J1，**2026-11-17 实测：36 图粒子实体 100% 挂在带 ActionComponent 的祖先下 = 纯事件驱动，客户端场景里本就不是静态要素**）。**地图边界（I5）已从非目标移出**：引擎材质虽不可得，但几何（scg 三角形带）+ `MapBorderComponent` 全部视觉字段可复刻 ⇒ 2026-11-17 已落地。
 
 **影响面最大的三件**（按"可见收益 × 覆盖批次"排序）：① 静态场景烘焙光照图（36 图 / 42,651 个批次绑定了光照图）；② 逐图太阳/环境色 + 线性曝光（替掉现有一整套补偿 hack）；③ 天空 + 雾（36/36 图）。这三件已在光照文档里排期，本文补的是它们之外的部分。
 
@@ -132,7 +132,7 @@ D3–D8、P3、F2/B9/A5/H3/I5/J1 已并入计数），按性质分四类（逐�
 
 | # | 客户端 | 我们 | 后果 | 收益 | 成本 | 类 |
 |---|---|---|---|---|---|---|
-| H1 | Grass 系统：实例化草簇 + 风摆 + `GrassQuality` 档 | 无草（GLB 内无草系统网格；`dec_*_grass` 是静态装饰） | 草地大面积"光板"，野外图观感差距明显 | ★★ | 大（新系统）或中（静态草簇近似） | 〔缺失〕 |
+| H1 | Grass 系统（客户端 `VegetationRenderObject`）：实例化草簇 + 风摆 + 三档预算（实体名 60k/120k/500k） | ~~无草（GLB 内无草系统网格；`dec_*_grass` 是静态装饰）~~ | ~~草地大面积"光板"，野外图观感差距明显~~ | ★★ | **已修复（2026-11-17，上游导出 + 消费端）**：几何 = `vro.geometryData.cgd.chunkSet` **内嵌**（4 变体 × 3 LOD，27 顶点/变体，无需外部文件）；材质 = `cgd.materialId` → 逐图 albedo（`landscape/grass/images/grass120.tex` 等）；密度 = `vro.lightmap` **alpha**（`densityMapChannel=4`、`useSeparateDensityMap=false`）；`vro.flippedDensityMap` = 128×128 逐格翻转位（实测值域 {0,1}）；风参数逐层随档。出货 = 60k 实例/图（9 字节/实例 ⇒ ~0.5MB），逐格配额按密度比例分配（最大余数法，确定性哈希铺点）。**覆盖 28 图**（其余 8 图无 Grass 实体：desert_train/erlenberg/pliego/lagoon/himmelsdorf/holmeisk/iceworld 等）；消费端按变体 × 128m 世界分块 InstancedMesh（独立包围球可剔锥）、风摆按作者 amplitude/spring、仅高清/极致档启用（低/均衡走俯视底图） | 〔缺失→已修复〕 |
 | H2 | SpeedTree：SH/顶点色 + 叶卡风摆 + 逐档 LOD | 已对齐染色与叶卡（2026-10-18 补：SPHERICAL_LIT 净染色 = `0.282094×SH×shOcclusionMult`，静态 ST 组随导 COLOR_0 并烘 AO；旧口径 SH 字面值导致 DesertSands 棕榈叶 2.4× 过曝）；风摆用统一相位摆动（无逐实例风相位） | 树是静止的 | ★ | 小-中 | 〔画质〕 |
 | H3 | **`FloraRenderObject`** 静态花草簇（4 图 × 4 批：desert_train/erlenberg/pliego/lagoon；8–144 顶点/批，材质 `StandardAllQualities` 链 = PBR 族 albedo+baseColorMap，albedo 实测不撞 impostor 过滤） | ~~渲染类白名单外 ⇒ 整类被跳过~~ | 四图的近景小花/草簇缺失 | ★ | **导出已落地（2026-11-17）**：白名单纳入 `FloraRenderObject`，顶点流（pos/uv/normal 齐全）走既有 Mesh 路径（材质族 = pbr ⇒ 与 6361 个 pbr 批次同一条非 PBR 近似链，见 A4）；4 图 GLB 已重导 | 〔缺失→已修复〕 |
 
@@ -144,7 +144,7 @@ D3–D8、P3、F2/B9/A5/H3/I5/J1 已并入计数），按性质分四类（逐�
 | I2 | LOD 按距离切换（LodComponent） | 只导 LOD0（SpeedTree 取顶点量最大组） | 画质无损、性能更贵（远景三角形多） | 性能向 | 中 | 〔画质〕 |
 | I3 | `cullMode: FACE_BACK` 为主 | 全场景 `DoubleSide` | 过绘制翻倍、背面也参与光照 | 性能向 | 一行（按材质 flags 恢复单面） | 〔画质〕 |
 | I4 | 顶点法线：authored（硬边/烘焙法线） | ~~前端 `flatShading: true` 把导出的 authored 法线丢掉了~~ | 场景呈"多面体"感 | ★★ | **已修复**：关 `flatShading`（authored 法线生效），并同步到俯视烘焙页 | 〔错误→已修复〕 |
-| I5 | `MapBorderRenderObject`：地图边界对象（51 可见实例 / 33 图，各 1 批） | 刻意跳过（白名单外）；**其材质不在 dataNodes**（MaterialLibrary 解析为空、无任何贴图槽 ⇒ 客户端为引擎内置边框视觉，数据面不可得） | 地图边缘无边界带（回放相机极少看到；worldBounds/playableBounds 元数据已随包，见导出器 `_border_doc`） | ★ | 按 fail-closed 保持不导：材质不在数据面，无从复刻。若日后在客户端二进制里定位其内置材质语义再议 | 〔非目标（数据不可得）〕 |
+| I5 | `MapBorderRenderObject`：地图边界对象（51 可见实例 / 33 图，各 1 批）；`rb.nmatname = 0`（**引擎内置材质**，dataNodes 无该节点） | ~~刻意跳过（白名单外）~~ | ~~地图边缘无边界带~~ | ★ | **已修复（2026-11-17）**：**几何在 scg 里**（实测三角形带竖带：每对顶点高差恰 = `mbc.visualHeight` 0.9m，desert_train 4086 顶点）；视觉参数全部在 `MapBorderComponent`（`visualColor` 红 / `visualMinZ..MaxZ` / `zFadeWidth` / `zOffset` / 距离淡出 90000–160000 sq²）⇒ 导出器合并几何 + `extras.mapBorder` 随档，消费端按字段复刻不受光半透明红带（垂直区间 + 边缘淡出 + 距离淡出）。材质贴图不存在，故不臆造 | 〔非目标→已修复〕 |
 
 ---
 
@@ -152,7 +152,7 @@ D3–D8、P3、F2/B9/A5/H3/I5/J1 已并入计数），按性质分四类（逐�
 
 | # | 客户端 | 我们 | 后果 | 收益 | 成本 | 类 |
 |---|---|---|---|---|---|---|
-| J1 | **FX 粒子系统**（`ParticleEffectComponent`，25,361 实例 / 31 图）：烟/火/水花/扬尘/飞鸟/探照灯体，逐图 `Gfx/Particles/<map>/` 图集 + `layers[].spritePath`/`flowmapPath`；诺曼底岸边浪花卡（wave/wave2/wave3）也是此系统（sc2 里 `waves_nt.tex` 材质无任何批次引用 = 孤儿，浪花实际走粒子） | 无粒子系统（静态导出天然不含） | 静态场景没有氛围粒子（烟囱无烟、爆炸无效果）——回放重点是战术分析，属"影响预期功能的特效"范畴 | ★ | **非目标**：系统级 FX（发射器/曲线/流图）需独立运行时；若日后做，先从"逐图 sprite 图集 + layers 参数"数据面起步 | 〔非目标〕 |
+| J1 | **FX 粒子系统**（`ParticleEffectComponent`，25,361 实例 / 31 图）：烟/火/水花/扬尘/飞鸟/探照灯体，逐图 `Gfx/Particles/<map>/` 图集 + `layers[].spritePath`/`flowmapPath`；诺曼底岸边浪花卡（wave/wave2/wave3）也是此系统（sc2 里 `waves_nt.tex` 材质无任何批次引用 = 孤儿，浪花实际走粒子） | 无粒子系统（静态导出天然不含） | 静态场景没有氛围粒子（烟囱无烟、爆炸无效果）——回放重点是战术分析，属"影响预期功能的特效"范畴 | ★ | **非目标（2026-11-17 实测确认为结构性非目标，不是"没做"）**：**36 图逐实体祖先链检查——全部粒子实体（neptune 1638 / forgecity 1041 / plant 657 抽样合计 3336，扩展全量同构）都挂在带 `ActionComponent` 的祖先下 ⇒ 100% 事件驱动**（触树落叶、击毁扬尘、爆炸等），客户端场景里本来就不存在"常驻粒子"。静态导出无对象可导；运行时战斗特效属另一系统（WotbTools battleFx，与本仓无关）。若日后做事件级 FX，数据面起点 = emitter 定义（`ParticleEmitterNode` 在 map sc2 的 dataNodes）+ sprite 图集 | 〔非目标（100% 事件驱动）〕 |
 
 ---
 
@@ -170,7 +170,8 @@ D3–D8、P3、F2/B9/A5/H3/I5/J1 已并入计数），按性质分四类（逐�
 全部随包，`water_surface` 40→60 批次；WRO UV 基随 extras，消费端待接）、**B9 投影贴花数据**
 （plant 490 + 图集随包，消费端待接）、**A5 动态光源数据**（6 图 142 个进 `lighting.json`
 `dynamicLights`，消费端待接）、**H3 Flora 静态花草簇导出**（4 图已落地）；
-I5 地图边界与 J1 粒子 FX 定为非目标（数据不可得 / 系统级特效）。
+**I5 地图边界已落地**（几何 + 组件视觉字段复刻）；**H1 草系统已落地**（28 图、60k 实例/图）；
+J1 粒子 FX 由实测定型为非目标（36 图粒子实体 100% 祖先 ActionComponent = 纯事件驱动）。
 
 **P2（落地状态）**：C1 贴图上限提升已落地（改客户端原生分辨率）；I1 画质档语义重定、H1 草、
 A4 PBR/ULTRA 档、I2 LOD、H2 风相位未做（各自为画质取舍或缺失，见 §三各行）；B3/B4/D2
@@ -212,6 +213,8 @@ A4 PBR/ULTRA 档、I2 LOD、H2 风相位未做（各自为画质取舍或缺失�
   **DeferredDecal 490（仅 plant）** / VegetationRenderObject 71（26 图，草系统=H1）/ MapBorderRenderObject 51（33 图）/
   **FloraRenderObject 4（4 图 × 4 批）**；组件面 `ParticleEffectComponent` 25,361（31 图）、
   `LightComponent` 142（6 图）。水面计数更新：**Mesh 类 40 批 + WRO 类 20 批 = `water_surface` 60**
-  （重导实测，0 fallback / 0 `water_wro_dropped`）。
+  （重导实测，0 fallback / 0 `water_wro_dropped`）。**2026-11-17 第二批**：草层 28 图 × 60,000 实例
+  （4 变体 × 27 顶点原型；8 图无 Grass 实体）、地图边界 33 图（三角形带，desert_train 4086 顶点）、
+  粒子实体祖先链检查 3336/3336 = 100% 含 ActionComponent（事件驱动，非静态要素）。
 - 包内实测（审计时基线；C1 修复后贴图已按客户端原生分辨率入包）：`scenery.glb` 嵌入贴图当时最大 **1024²**（himmelsdorf 43 张 / 6.6 MB；holland 100 张 / 12.8 MB；forgecity 85 张 / 4.4 MB）；场景 GLB 内**无草系统网格**。
 - 客户端贴图规格抽样：地面 colormap 2048² **DXT3**（alpha 通道即光照图）、光照图图集 2048² DXT1 + 12 mip、建筑 albedo 1024² DXT1、`00_global_content` 抽样 400 张中 DXT1 351 / DXT5 29 / DXGI-BC1_UNORM 15 / DXT3 5。

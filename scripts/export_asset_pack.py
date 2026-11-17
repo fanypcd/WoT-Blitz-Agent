@@ -436,6 +436,13 @@ def main() -> None:
         for dpath in sorted(cache_maps.glob(f"{space}.decal_*.webp")):
             cp(dpath, f"map/{key}/{dpath.name[len(space) + 1:]}")
 
+        # 草层（tools/export_map_glb.py 产物，2026-11-17 审计 H1）：grass.json + grass.bin
+        # + grass.glb（原型 4 变体 + 逐图 albedo）。缺失（无草系统的图）→ 消费端无草层，不阻断
+        if cp(cache_maps / f"{space}.grass.json", f"map/{key}/grass.json"):
+            got.append("grass")
+            cp(cache_maps / f"{space}.grass.bin", f"map/{key}/grass.bin")
+            cp(cache_maps / f"{space}.grass.glb", f"map/{key}/grass.glb")
+
         # 逐图 IBL 环境贴图（tools/export_map_ibl.py：客户端 specular 立方图 → 等距柱状投影）
         # ——动态物/坦克的环境反射来源；缺失时消费端不设 scene.environment（不阻断）
         if cp(cache_maps / f"{space}.ibl.webp", f"map/{key}/ibl.webp"):

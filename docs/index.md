@@ -118,6 +118,38 @@ asset consumption 变更）。
 WebAudio 距离/pan 增益，曲线为产品近似非客户端语义）；音频为 Wargaming 资产，公开发布
 口径待产品侧确认。
 
+### 地图要素完整化（第二批）：草系统 + 地图边界（2026-11-17，数据面新增 + 消费端）
+
+**做了什么**：把审计表最后两个"客户端会渲染、导出器跳过"的类补齐，并给粒子 FX 定性：
+
+- **H1 草系统（`VegetationRenderObject`）**：28 图（其余 8 图无 Grass 实体）。几何
+  `vro.geometryData.cgd.chunkSet` **内嵌在 sc2**（4 变体 × 3 LOD，lod0 = 27 顶点/9 三角形，
+  normalsCount=0）；材质 `cgd.materialId` → 逐图 albedo；**密度 = `vro.lightmap` 的 alpha**
+  （`densityMapChannel=4`、`useSeparateDensityMap=false`）；`vro.flippedDensityMap` 实测
+  16384 字节 = 128×128 逐格 0/1（翻转位，非密度）；风参数逐层随档。出货 60k 实例/图
+  （9 字节/实例：位置 u16 归一化 + 旋转 u16 + 缩放 u8 + 变体 u8 + 翻转 u8），逐格配额按
+  密度比例分配（最大余数法）+ 确定性哈希铺点。
+- **I5 地图边界（`MapBorderRenderObject`）**：33 图。材质 id=0（引擎内置）不可得，但
+  **几何在 scg**（三角形带竖带：顶点对高差恰 = `mbc.visualHeight`）+ `MapBorderComponent`
+  带全部视觉字段（颜色/可见 z 区间/边缘淡出/z 偏移/距离淡出）⇒ 合并几何 + `extras.mapBorder`
+  随档，消费端复刻不受光半透明红带。
+- **J1 粒子 FX**：36 图**逐实体祖先链实测**——粒子实体 100% 挂在带 `ActionComponent` 的
+  祖先下（触树落叶/击毁扬尘/爆炸），即客户端里也不存在常驻粒子 ⇒ 结构性非目标，
+  不再作为"未做项"跟踪。
+
+**产物**：28 图 `grass.{json,bin,glb}`（原型 4 变体 + albedo，~0.6MB/图）；33 图主 GLB 增
+`MapBorder` 网格与材质；打包器收 `map/<key>/grass.*`。消费端（WotbTools 隔离分支）：
+`mapGrass.ts`（解析/分块 InstancedMesh/作者风摆，仅高清·极致档）+ `makeMapBorderMaterial`；
+Android `wotbVersion` 已在消费分支 bump。
+
+**爆炸半径**：解析器/WASM/回放切面零改动；地图资产新增草三件 + 边界网格（GLB 体积
++~0.1%/图）；消费端需 pin 新包（旧包缺文件 → 草层/边界静默不画，不报错）。
+
+**未取证 / 边界**：草密度通道语义（`densityMapChannel=4`）按"第 4 通道 = alpha"解读；
+`flippedDensityMap` 按属性名字面（逐格镜像密度采样）实现——两者均无引擎源可对，已在
+导出器注释标注；边界材质为引擎内置、消费端按组件字段近似（颜色/区间/淡出逐字段照抄，
+渲染方程不可对）。
+
 ### 地图元素导出补全：水体主体 / 投影贴花 / 动态光源 / Flora（2026-11-17，数据面新增）
 
 **问题**：2026-11-16 全面审计（36 图 sc2 全量解析，见

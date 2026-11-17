@@ -185,7 +185,7 @@ lumber_01、neptune_01）分段表与基础变体一致，共用基础目录。�
 | `tank/{tank_id}.json` | 738 | #6（由 `tank_data/` 改名） |
 | `tank_images/{id}.webp` + `crops.json` | 739 | #9（展示裁剪数据面） |
 | `game_data/{id}.json` | 738 | #4 / #5 |
-| `map/{key}/…` | 669+ | #10：36 基础图 + 7 个变体目录（共享资产硬链接）；每目录 `scenery.glb`/`ground.webp`/`ground.layers.json`/`terrain.{json,u16.bin}`/`mini.webp`/`lighting.json`/`ibl.webp`/`destructibles.json` + 分层 `ground/{cm,lm,tile0,tile1,mask0,mask1[,hmap0,hmap1]}.webp`（`mini.webp` **当前无运行时消费方**，见 §5.7）；**2026-11-17 起另有 `decals.json` + `decal_*.webp`（投影贴花，当前仅 plant：490 条 + 2048² 图集；其余图无此文件，消费端缺文件即无贴花层）** |
+| `map/{key}/…` | 669+ | #10：36 基础图 + 7 个变体目录（共享资产硬链接）；每目录 `scenery.glb`/`ground.webp`/`ground.layers.json`/`terrain.{json,u16.bin}`/`mini.webp`/`lighting.json`/`ibl.webp`/`destructibles.json` + 分层 `ground/{cm,lm,tile0,tile1,mask0,mask1[,hmap0,hmap1]}.webp`（`mini.webp` **当前无运行时消费方**，见 §5.7）；**2026-11-17 起另有 `decals.json` + `decal_*.webp`（投影贴花，当前仅 plant：490 条 + 2048² 图集；其余图无此文件，消费端缺文件即无贴花层）；第二批同日增 `grass.json` + `grass.bin` + `grass.glb`（草系统，28 图 × 60k 实例），33 图主 GLB 内增 `MapBorder` 网格 + `extras.mapBorder`** |
 | `data/` | 7 | #1 `tanks.pb`、#2 `models.pb`、#3 `tank_cache.json`、#11 `data_version.json`、打包器派生 `tank_names.json`、#7 `shellKinds.json`、`gunMaskSlices.json` |
 | `map/{key}/lighting.json` | 43 | #10 配套：`tools/export_map_lighting.py` 逐图太阳/环境色/雾/IBL（36 + 7 变体）；**2026-11-17 起 6 图另有 `dynamicLights[]`（LightComponent 动态光源 142 个：iceworld 71 / faust 61 / plant 3 / forgecity 3 / rift 3 / neptune 1；原始字段直传，`type` 枚举语义未定版）** |
 | `map/{key}/ibl.webp` | 43 | #10 配套：`tools/export_map_ibl.py` 逐图环境反射（等距柱状，~28KB/图；36 + 7 变体） |
@@ -339,7 +339,7 @@ lumber_01、neptune_01）分段表与基础变体一致，共用基础目录。�
 | 提取目标 | 工具 | 产出落点 | 接线 |
 |---|---|---|---|
 | 2D 战术底图 canonical（29 张 1254²） | `tools/export_2d_basemaps.py`（冻结配方；`--verify` 重算 + 索引/字节/canonical 三方对齐 + **几何契约回读（worldBounds/取向/方形像素）**；`--self-test` 锁曲线单调/不裁切/色相；`tools/test_2d_basemap_geometry.py` 锁索引 v2 ↔ 交接件 ↔ 注册表常量） | `release/2d-basemaps/` + manifest → 交接 WotbTools `frontend/src/assets/maps/`；同时写包内 `release/asset_pack/map2d/<code>.webp` + `index.json`（资产 origin 免发版通道，发布由 §2.1 新 release 流程承担） | ✅ |
-| 地图场景（GLB + 地面 + 分层 + sidecar；**2026-11-17 起含 WRO 水体/Flora 网格与投影贴花 `<space>.decals.json`+图集**） | `tools/export_map_glb.py`（`--ground-only` / `--scenery-only` / `--jobs`） | `data/cache/maps/<space>.{glb,ground.*.webp,json,decals.json,decal_*.webp}` | ✅ |
+| 地图场景（GLB + 地面 + 分层 + sidecar；**2026-11-17 起含 WRO 水体/Flora 网格、投影贴花 `<space>.decals.json`+图集、草层 `<space>.grass.{json,bin,glb}`、地图边界网格**） | `tools/export_map_glb.py`（`--ground-only` / `--scenery-only` / `--jobs`） | `data/cache/maps/<space>.{glb,ground.*.webp,json,decals.json,decal_*.webp,grass.json,grass.bin,grass.glb}` | ✅ |
 | 地图可破坏物清单（碰撞 / 耐久 / 类型库联表；按 map_id 序数选本变体 lka + 结构自检） | `tools/export_map_destructibles.py` | `data/cache/maps/<key>/destructibles.json` | ✅ |
 | 坦克模型（`model.glb` + `collision.glb`） | `tools/export_tank_glb.py` | `data/cache/local_models/<id>/` → **同步进 `cache/models/`**；静态变换烘焙 / StateSwitcher 状态过滤见 [local-model-export.md](local-model-export.md) §1 铁律 14/15，单测 `tools/test_export_tank_static_transform.py` | ✅ |
 | 坦克封面图 / 图标（含展示裁剪框） | `tools/export_tank_icons.py`（DVPL 剥壳裸 webp；`--emit-crops` 内容框；`fetch-icons` 降为 BK 对照/兜底） | `data/cache/local_tank_icons/`（738/738）→ **同步进 `cache/tank_images/`**；`data/cache/tank_icon_crops.json` → 包内 `tank_images/crops.json` | ✅ |

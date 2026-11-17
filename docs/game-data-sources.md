@@ -1136,8 +1136,23 @@ App 侧消费（WotbTools `frontend/src/data/map2dOverlay.js`）与"包内兜底
 - **静态 Flora 簇 `FloraRenderObject`**（4 图 × 4 批）：白名单纳入后走 Mesh 路径
   （材质族 = `StandardAllQualities` → pbr 族近似链，albedo 实测不撞 impostor 过滤）。
 
-非目标（同批裁定）：`MapBorderRenderObject`（材质不在 dataNodes，数据面不可得）、
-FX 粒子系统（`ParticleEffectComponent` 25,361 实例 / 31 图，系统级运行时）。
+**第二批（同日）**：
+
+- **草系统 `VegetationRenderObject`**（28 图，其余 8 图无 Grass 实体）：几何内嵌
+  （`cgd.chunkSet`，4 变体 × 3 LOD，27 顶点/变体）；材质 = `cgd.materialId` → 逐图 albedo；
+  密度 = `vro.lightmap` 的 **alpha**（`densityMapChannel=4`、`useSeparateDensityMap=false`）；
+  `vro.flippedDensityMap` = 16384 字节 / 128×128 逐格翻转位（实测值域 {0,1}，非密度）。
+  出货 60k 实例/图 → `<space>.grass.{json,bin,glb}`（9 字节/实例；原型 GLB 含 4 变体 +
+  albedo）；打包器收 `map/<key>/grass.*`。
+- **地图边界 `MapBorderRenderObject`**（33 图）：材质 id=0（引擎内置，dataNodes 无节点），
+  但几何在 scg（三角形带竖带，顶点对高差 = `mbc.visualHeight`）+ 组件带全部视觉字段 ⇒
+  合并进主 GLB 的 `MapBorder` 网格 + `extras.mapBorder`（颜色/可见 z 区间/边缘淡出/z 偏移/
+  距离淡出逐字段照抄）。
+- **粒子 FX = 结构性非目标（实测）**：36 图粒子实体逐祖先链检查，**100% 挂在带
+  `ActionComponent` 的祖先下**（触树落叶/击毁扬尘/爆炸）——客户端场景里不存在常驻粒子，
+  静态导出无对象可导；战斗特效属运行时系统（WotbTools battleFx），不在本仓数据面。
+
+
 消费端（WotbTools）接线项见 [index.md](index.md) 2026-11-17 条目与
 [map-render-align-audit.md](map-render-align-audit.md) 各行"成本"列。
 

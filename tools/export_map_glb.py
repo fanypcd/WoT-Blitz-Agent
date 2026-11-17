@@ -2206,6 +2206,12 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
         # 组数/注册表数不一致：节点仍带 mdVariant，但没有可用的 map_id→label 映射。
         # 显式标记，消费端据此隐藏全部变体节点（fail-closed），不得全量渲染。
         scene_extras["variantMappingIncomplete"] = True
+    # 地图边界（MapBorderRenderObject，2026-11 审计 I5）：几何在 scg（三角形带竖带），
+    # 引擎内置材质不可得 ⇒ 用 MapBorderComponent 的视觉字段复刻（见 collect_map_border）。
+    border = collect_map_border(scene, groups_by_id)
+    if border is not None:
+        add_map_border(glb, border)
+        stats["map_border_verts"] = len(border["positions"])
     (output_dir / f"{space}.glb").write_bytes(
         glb.finish("wotb-agent export_map_glb (client-aligned)", scene_extras))
 
@@ -2215,6 +2221,21 @@ def export_map(game_data: pathlib.Path, entry: MapEntry, output_dir: pathlib.Pat
     decals_doc = export_deferred_decals(scene, textures, output_dir, space)
     if decals_doc is not None:
         stats["deferred_decals"] = len(decals_doc["decals"])
+
+    # 草系统（VegetationRenderObject，2026-11 审计 H1）：原型 GLB + 实例 bin + 元数据。
+    # 密度/翻转/变体/风参数全部来自客户端；逐格配额按密度 alpha 比例（见区块头注）。
+    try:
+        grass = collect_grass_scene(scene, materials, textures,
+                                    (renderables.get("landscape") or {}).get("worldBounds"))
+        if grass is not None:
+            export_grass(grass, output_dir, space)
+            stats["grass_instances"] = grass["meta"]["count"]
+            stats["grass_variations"] = grass["meta"]["variations"]
+        else:
+            stats["grass_skipped"] = stats.get("grass_skipped", 0) + 1
+    except Exception as exc:   # 草层可选资产：失败不影响主场景
+        stats["grass_failed"] = stats.get("grass_failed", 0) + 1
+        print(f"  [warn] {space}: 草层导出失败：{exc}")
 
     if scenery_only:
         # 只重导 GLB（变体打标等场景修正）；不触地面贴图与 sidecar——旧 sidecar
@@ -2477,6 +2498,395 @@ def export_deferred_decals(scene: dict, textures: "TextureStore",
     (output_dir / f"{space}.decals.json").write_text(
         json.dumps(doc, ensure_ascii=False), encoding="utf-8")
     return doc
+
+
+# ---------------------------------------------------------------------------
+# 草系统（客户端 VegetationRenderObject）与地图边界（MapBorderRenderObject）
+# 2026-11-17 审计 H1 / I5：36 图全量数据面实测（脚本 tmp_analysis/explore_remaining*.py）
+#
+# 草（H1）：
+#   几何 = `vro.geometryData.cgd.chunkSet`——**内嵌**在 .sc2（无外部文件依赖）：
+#          4 变体 × 3 LOD，逐顶点平行数组 `cgd.lod.pos.N` / `cgd.lod.tex.N` / `cgd.lod.index.N`
+#          （lod0 实测 27 顶点 / 27 索引 = 9 三角形，normalsCount=0 ⇒ 不受光）。
+#   材质 = `cgd.materialId` → NMaterial（`Textured.material` + **逐图** albedo，如
+#          `landscape/grass/images/grass120.tex`）。
+#   密度 = `vro.lightmap` 纹理的 **alpha 通道**（`vro.densityMapChannel = 4` = 第 4 通道；
+#          `vro.useSeparateDensityMap = false` ⇒ 取自该图草地植被/光照图；多个图上该文件
+#          与 landscape 材质声明的 `vegetationmap` 是同一文件）。
+#   翻转 = `vro.flippedDensityMap`：`densityMapSize = 16384` 字节 = **128×128 网格**、
+#          逐格 0/1 二值（实测值域 {0,1}）——按格镜像密度采样（属性名字面语义）。
+#   其余随档：baseColorMultilplier / scaleVariation / rotationVariation /
+#          layerAnimation{Amplitude,Drug,Spring} / visibilityDistance / lodRanges。
+#   出货预算：客户端三档实体名 60k/120k/500k（= 实例预算）。网页端取 **60k**（每实例
+#          9 字节 ⇒ ~0.5MB/图）；逐格配额按密度 alpha 比例分配（最大余数法，确定性），
+#          格内位置/旋转/缩放/变体由确定性哈希生成。
+#
+# 边界（I5）：`MapBorderRenderObject` 的 `rb.nmatname = 0`（**引擎内置材质**，dataNodes
+#   无该节点）⇒ 材质不可得；但**几何在 scg 里**（三角形带竖带：每对顶点高差恰 =
+#   `mbc.visualHeight` 0.9m），且 `MapBorderComponent` 带全部视觉参数（visualColor 红 /
+#   visualMinZ..MaxZ / zFadeWidth / zOffset / 距离淡出 90000..160000 sq）。按几何 + 这些
+#   组件字段复刻（不受光半透明红带），不臆造材质贴图。
+GRASS_GRID = 128            # densityMapSize(16384) = 128×128 格
+GRASS_TARGET_INSTANCES = 60000
+GRASS_ALPHA_CUTOFF = 0.5
+# 每实例 9 字节：xQ u16 / zQ u16 / rot u16 / scaleQ u8 / variation u8 / flipped u8
+GRASS_INSTANCE_STRUCT = struct.Struct("<HHHBBB")
+GRASS_SCALE_MIN, GRASS_SCALE_MAX = 0.4, 1.6
+
+
+def _hash32(value: int) -> int:
+    """确定性 32 位哈希（splitmix 变体；Python 与 JS 侧同式可复算）。"""
+    value &= 0xFFFFFFFF
+    value = (value ^ 61) ^ (value >> 16)
+    value = (value + (value << 3)) & 0xFFFFFFFF
+    value = value ^ (value >> 4)
+    value = (value * 0x27D4EB2D) & 0xFFFFFFFF
+    value = value ^ (value >> 15)
+    return value & 0xFFFFFFFF
+
+
+def decode_cgd_lod(var_lod: dict) -> dict | None:
+    """`cgd.lod.N` → {positions, uvs, indices}（平行数组；任一缺失/越界 fail-closed → None）。"""
+    pos_count = var_lod.get("cgd.lod.posCount")
+    idx_count = var_lod.get("cgd.lod.indexCount")
+    if not isinstance(pos_count, int) or not isinstance(idx_count, int):
+        return None
+    if pos_count < 3 or idx_count < 3:
+        return None
+    positions: list[tuple[float, float, float]] = []
+    uvs: list[tuple[float, float]] = []
+    for i in range(pos_count):
+        p = var_lod.get(f"cgd.lod.pos.{i}")
+        if not (isinstance(p, list) and len(p) == 3):
+            return None
+        try:
+            positions.append((float(p[0]), float(p[1]), float(p[2])))
+        except (TypeError, ValueError):
+            return None
+        tex = var_lod.get(f"cgd.lod.tex.{i}")
+        uvs.append((float(tex[0]), float(tex[1]))
+                   if isinstance(tex, list) and len(tex) == 2 else (0.0, 0.0))
+    indices: list[int] = []
+    for i in range(idx_count):
+        v = var_lod.get(f"cgd.lod.index.{i}")
+        if not isinstance(v, int) or not (0 <= v < pos_count):
+            return None
+        indices.append(v)
+    return {"positions": positions, "uvs": uvs, "indices": indices}
+
+
+def collect_grass_scene(scene: dict, materials: "MaterialLibrary",
+                        textures: "TextureStore", bounds: dict | None) -> dict | None:
+    """VegetationRenderObject → 原型变体 + 实例（纯提取；不写盘）。
+
+    返回 {
+      params: {baseColorMultiplier, scaleVariation, rotationVariation, wind, ...},
+      variations: [{positions, uvs, indices}],
+      material: {albedo_path, albedo_img},
+      instances: bytes（GRASS_INSTANCE_STRUCT 打包）,
+      meta: {grid, target, count, densitySource, cellsWithGrass, bounds}
+    }；任一关键件缺失 → None（fail-closed 不发货草层）。
+    """
+    veg = None
+    for _path, entity in iter_entities_recursive(scene):
+        render = component_by_type(entity, "RenderComponent")
+        if render is None:
+            continue
+        ro = render.get("rc.renderObj")
+        if isinstance(ro, dict) and str(ro.get("##name")) == "VegetationRenderObject":
+            veg = ro
+            break
+    if veg is None:
+        return None
+    chunk_set = ((veg.get("vro.geometryData") or {}).get("cgd.chunkSet") or {})
+    if not isinstance(chunk_set, dict):
+        return None
+    mat_desc = materials.resolve(chunk_set.get("cgd.materialId"))
+    albedo_path = ((mat_desc or {}).get("textures") or {}).get("albedo")
+    if not albedo_path:
+        return None
+    albedo_img, _ = textures.get(albedo_path)
+    if albedo_img is None:
+        return None
+    variations_out = []
+    for vi in range(4):
+        var = chunk_set.get(f"cgd.variation.{vi}")
+        if not isinstance(var, dict):
+            break
+        lod0 = var.get("cgd.lod.0")
+        geo = decode_cgd_lod(lod0) if isinstance(lod0, dict) else None
+        if geo is None:
+            break
+        variations_out.append(geo)
+    if not variations_out:
+        return None
+    density_path = veg.get("vro.lightmap")
+    if not isinstance(density_path, str):
+        return None
+    density_img, _ = textures.get(density_path)
+    if density_img is None:
+        return None
+    flip_val = veg.get("vro.flippedDensityMap")
+    flip_hex = flip_val.get("$bytes") if isinstance(flip_val, dict) else None
+    if not isinstance(flip_hex, str):
+        return None
+    try:
+        flip_bytes = bytes.fromhex(flip_hex)
+    except ValueError:
+        return None
+    if len(flip_bytes) < GRASS_GRID * GRASS_GRID:
+        return None
+    scale_var = [float(v) for v in (veg.get("vro.scaleVariation") or [])][:4] or [0.2] * 4
+    rot_var = [float(v) for v in (veg.get("vro.rotationVariation") or [])][:4] or [180.0] * 4
+
+    def floats(name: str, default: list[float]) -> list[float]:
+        vals = [float(v) for v in (veg.get(name) or [])]
+        return vals if vals else default
+
+    params = {
+        "baseColorMultiplier": float(veg.get("vro.baseColorMultilplier") or 1.0),
+        "scaleVariation": scale_var,
+        "rotationVariation": rot_var,
+        "windAmplitude": floats("vro.layerAnimationAmplitude", [0.2] * 4),
+        "windDrag": floats("vro.layersAnimationDrug", [1.4] * 4),
+        "windSpring": floats("vro.layersAnimationSpring", [15.0] * 4),
+        "visibilityDistance": floats("vro.visibilityDistance", [2500.0, 1600.0]),
+        "lodRanges": floats("vro.lodRanges", [0.0, 2.0, 6.0]),
+        "isLit": bool(veg.get("vro.isLit")),
+        "densitySource": density_path,
+    }
+    bounds = bounds or {"min": [-300.0, -300.0, 0.0], "max": [300.0, 300.0, 0.0]}
+    bmin = bounds.get("min") or [-300.0, -300.0, 0.0]
+    bmax = bounds.get("max") or [300.0, 300.0, 0.0]
+    x0, y0 = float(bmin[0]), float(bmin[1])
+    span_x = max(1e-6, float(bmax[0]) - x0)
+    span_y = max(1e-6, float(bmax[1]) - y0)
+
+    n = GRASS_GRID
+    alpha = np.asarray(density_img.convert("RGBA").resize((n, n), Image.BILINEAR),
+                       dtype=np.float64)[..., 3] / 255.0
+    flip_grid = np.frombuffer(flip_bytes[: n * n], dtype=np.uint8).reshape(n, n)
+    # 逐格镜像密度采样（客户端 flippedDensityMap 字面语义：该格按镜像方向取密度）
+    flipped_cells = flip_grid.astype(bool)
+    weights = alpha.copy()
+    if flipped_cells.any():
+        weights = np.where(flipped_cells, alpha[:, ::-1], alpha)
+    total = float(weights.sum())
+    if total <= 1e-6:
+        return None
+    raw = weights.ravel() / total * GRASS_TARGET_INSTANCES
+    counts = np.floor(raw).astype(np.int64)
+    remainder = GRASS_TARGET_INSTANCES - int(counts.sum())
+    if remainder > 0:
+        # 最大余数法（并列按格序号，确定性）
+        order = np.argsort(-(raw - np.floor(raw)), kind="stable")
+        counts[order[:remainder]] += 1
+    packed = bytearray()
+    cells_with_grass = 0
+    cell_w = span_x / n
+    cell_h = span_y / n
+    for cy in range(n):
+        for cx in range(n):
+            cnt = int(counts[cy * n + cx])
+            if cnt <= 0:
+                continue
+            cells_with_grass += 1
+            cell_index = cy * n + cx
+            for j in range(cnt):
+                seed = _hash32(cell_index * 131 + j * 7 + 1)
+                r1 = _hash32(seed ^ 0x9E3779B9)
+                r2 = _hash32(r1 ^ 0x85EBCA6B)
+                r3 = _hash32(r2 ^ 0xC2B2AE35)
+                variation = r1 % len(variations_out)
+                jx = (r1 >> 8) % 65536 / 65535.0
+                jz = (r2 >> 8) % 65536 / 65535.0
+                wx = x0 + (cx + jx) * cell_w
+                wy = y0 + (cy + jz) * cell_h
+                xq = int(round((wx - x0) / span_x * 65535))
+                yq = int(round((wy - y0) / span_y * 65535))
+                rot = (r3 % 65536) / 65535.0 * math.radians(rot_var[variation])
+                scale = 1.0 + ((r2 >> 24) % 65536 / 65535.0 * 2.0 - 1.0) * scale_var[variation]
+                sq = int(round((max(GRASS_SCALE_MIN, min(GRASS_SCALE_MAX, scale)) - GRASS_SCALE_MIN)
+                               / (GRASS_SCALE_MAX - GRASS_SCALE_MIN) * 255))
+                packed += GRASS_INSTANCE_STRUCT.pack(
+                    max(0, min(65535, xq)), max(0, min(65535, yq)),
+                    int(round(rot / (2 * math.pi) * 65535)) & 0xFFFF,
+                    max(0, min(255, sq)), variation, 1 if flipped_cells[cy, cx] else 0)
+    if not packed:
+        return None
+    return {
+        "params": params,
+        "variations": variations_out,
+        "material": {"albedo_path": albedo_path, "albedo_img": albedo_img},
+        "instances": bytes(packed),
+        "meta": {
+            "grid": n,
+            "target": GRASS_TARGET_INSTANCES,
+            "count": len(packed) // GRASS_INSTANCE_STRUCT.size,
+            "densitySource": density_path,
+            "cellsWithGrass": cells_with_grass,
+            "bounds": {"min": [x0, y0, float(bmin[2])],
+                       "max": [float(bmax[0]), float(bmax[1]), float(bmax[2])]},
+            "variations": len(variations_out),
+        },
+    }
+
+
+def export_grass(grass: dict, output_dir: pathlib.Path, space: str) -> None:
+    """落盘：`<space>.grass.glb`（原型 4 变体 + albedo）+ `.grass.json` + `.grass.bin`。"""
+    proto = GlbBuilder()
+    albedo_img = grass["material"]["albedo_img"]
+    buf = io.BytesIO()
+    albedo_img.transpose(Image.FLIP_TOP_BOTTOM).save(buf, "PNG")
+    tex_idx = proto.add_texture(("grass", grass["material"]["albedo_path"]), buf.getvalue(),
+                                "image/png")
+    proto.materials.append({
+        "name": "Grass|vegetation",
+        "pbrMetallicRoughness": {"metallicFactor": 0.0, "roughnessFactor": 1.0,
+                                 "baseColorTexture": {"index": tex_idx}},
+        "alphaMode": "MASK",
+        "alphaCutoff": GRASS_ALPHA_CUTOFF,
+        "doubleSided": True,
+        "extras": {"grass": {
+            "baseColorMultiplier": grass["params"]["baseColorMultiplier"],
+            "isLit": grass["params"]["isLit"],
+        }},
+    })
+    for vi, geo in enumerate(grass["variations"]):
+        mi = proto.add_shared_mesh(("grass", vi), geo["positions"], geo["indices"], geo["uvs"],
+                                   None, 0)
+        if mi is None:
+            continue
+        proto.nodes.append({
+            "mesh": mi, "name": f"grass_v{vi}",
+            "translation": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0],
+            "scale": [1.0, 1.0, 1.0], "extras": {"grassVariation": vi},
+        })
+    (output_dir / f"{space}.grass.glb").write_bytes(proto.finish("wotb-agent grass prototype", {}))
+    doc = {
+        "space": space, "version": 1,
+        "params": grass["params"], "meta": grass["meta"],
+        "prototype": "grass.glb", "instances": "grass.bin",
+        "instanceStride": GRASS_INSTANCE_STRUCT.size,
+    }
+    (output_dir / f"{space}.grass.json").write_text(
+        json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    (output_dir / f"{space}.grass.bin").write_bytes(grass["instances"])
+
+
+def _strip_to_triangles(strip: list[int]) -> list[int]:
+    """顺序索引的三角形带 → 三角形列表（交替绕序，与 DAVA RHI TRIANGLESTRIP 同）。"""
+    tris: list[int] = []
+    for i in range(len(strip) - 2):
+        a, b, c = strip[i], strip[i + 1], strip[i + 2]
+        if i % 2 == 1:
+            b, c = c, b
+        tris.extend((a, b, c))
+    return tris
+
+
+def collect_map_border(scene: dict, groups_by_id: dict) -> dict | None:
+    """MapBorderRenderObject → 合并几何 + 首个实体的视觉参数（纯提取）。
+
+    几何 = scg 三角形带（逐实体按世界变换烘焙）；材质 id=0（引擎内置、dataNodes 无节点）
+    ⇒ 视觉完全由 `MapBorderComponent` 字段驱动（见区块头注）。
+    """
+    positions: list[list[float]] = []
+    indices: list[int] = []
+    visual: dict | None = None
+    for _path, entity in iter_entities_recursive(scene):
+        render = component_by_type(entity, "RenderComponent")
+        if render is None:
+            continue
+        ro = render.get("rc.renderObj")
+        if not isinstance(ro, dict) or str(ro.get("##name")) != "MapBorderRenderObject":
+            continue
+        comp = component_by_type(entity, "MapBorderComponent")
+        if comp is None:
+            continue
+        if visual is None:
+            rect = decode_bytes(comp.get("mbc.rect"))
+            rect_vals = list(struct.unpack("<4f", rect)) if rect and len(rect) == 16 else None
+            visual = {
+                "color": [round(float(v), 6)
+                          for v in (comp.get("mbc.visualColor") or [1, 0, 0, 1])[:4]],
+                "height": float(comp.get("mbc.visualHeight") or 0.9),
+                "minZ": float(comp.get("mbc.visualMinZ") or -100.0),
+                "maxZ": float(comp.get("mbc.visualMaxZ") or 100.0),
+                "zFadeWidth": float(comp.get("mbc.visualZFadeWidth") or 0.0),
+                "zOffset": float(comp.get("mbc.visualZOffset") or 0.0),
+                "distanceFadeEnabled": bool(comp.get("mbc.visualDistanceFadeEnabled")),
+                "distanceFadeNear": float(comp.get("mbc.visualDistanceFadeNear") or 0.0),
+                "distanceFadeFar": float(comp.get("mbc.visualDistanceFadeFar") or 0.0),
+                "rect": rect_vals,
+                # 渲染对象侧（mro.*）距离淡出：平方距离近/远界
+                "distanceNearFarSq": [float(v) for v in
+                                      (ro.get("mro.distanceNearFarSq") or [])][:2],
+                "distanceFadeEnabledRo": bool(ro.get("mro.distanceFadeEnabled")),
+            }
+        transform = world_transform(entity)
+        tx, ty, tz = transform["translation"]
+        qx, qy, qz, qw = transform["rotation"]
+        sx, sy, sz = transform["scale"]
+        for batch in (ro.get("ro.batches") or {}).values():
+            if not isinstance(batch, dict):
+                continue
+            group = groups_by_id.get(batch.get("rb.datasource"))
+            if group is None:
+                continue
+            try:
+                pos = decode_polygon_positions(group)
+                raw = decode_polygon_indices(group)
+            except Exception:
+                continue
+            if len(raw) < 3:
+                continue
+            tris = _strip_to_triangles(raw)
+            if not tris:
+                continue
+            base = len(positions)
+            for px, py, pz in pos:
+                # 四元数旋转 + 缩放 + 平移（与 world_transform 同语义；DAVA 四元数 (x,y,z,w)）
+                vx, vy, vz = px * sx, py * sy, pz * sz
+                ix = qw * vx + qy * vz - qz * vy
+                iy = qw * vy + qz * vx - qx * vz
+                iz = qw * vz + qx * vy - qy * vx
+                iw = -qx * vx - qy * vy - qz * vz
+                rx = ix * qw + iw * -qx + iy * -qz - iz * -qy
+                ry = iy * qw + iw * -qy + iz * -qx - ix * -qz
+                rz = iz * qw + iw * -qz + ix * -qy - iy * -qx
+                positions.append([rx + tx, ry + ty, rz + tz])
+            indices.extend(base + i for i in tris)
+    if not positions or not indices or visual is None:
+        return None
+    return {"positions": positions, "indices": indices, "visual": visual}
+
+
+def add_map_border(glb: GlbBuilder, border: dict) -> None:
+    """边界几何合并成一个 node + 一个不受光材质（extras.mapBorder 携带视觉字段）。"""
+    visual = border["visual"]
+    color = visual["color"]
+    mat = {
+        "name": "MapBorder",
+        "pbrMetallicRoughness": {
+            "metallicFactor": 0.0, "roughnessFactor": 1.0,
+            "baseColorFactor": [float(color[0]), float(color[1]),
+                                float(color[2]), float(color[3])],
+        },
+        "doubleSided": True,
+        "extras": {"mapBorder": visual},
+    }
+    glb.materials.append(mat)
+    mat_index = len(glb.materials) - 1
+    mi = glb.add_shared_mesh(("mapborder",), border["positions"], border["indices"], None,
+                             None, mat_index)
+    if mi is None:
+        return
+    glb.nodes.append({
+        "mesh": mi, "name": "MapBorder",
+        "translation": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0],
+        "scale": [1.0, 1.0, 1.0],
+    })
 
 
 def _env_cube_equirect(textures: "TextureStore", tex_path: str | None, cache: dict,
