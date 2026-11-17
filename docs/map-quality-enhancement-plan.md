@@ -33,7 +33,14 @@
 当前现役 = MEDIUM 档（cubemap 预烘反射 + 双层法线 + 菲涅尔 alpha）。距离"客户端 HIGH/ULTRA"
 的差距 = 反射是否来自当帧场景、以及是否做折射。
 
-### W1 — HIGH 档动态反射（推荐 P0）
+### W1 — HIGH 档动态反射（推荐 P0）——**已落地（2026-11-17，消费端）**
+
+> **状态**：WotbTools `playback/waterReflection.ts` 已实现镜像相机 + 斜裁剪 + 半分辨率 RT
+> （high/ultra 档启用；正俯视/水下 fail-closed 回退 cubemap），水面 shader 按屏幕 UV +
+> 法线扰动采样并乘 `reflectionTintColor`；RT 实测 mean 154 / std 79（真实场景内容）。
+> 导出器 `water_props` 已补 `reflectionDistortion`/`distortionFallSquareDist`/`inGlossiness`/
+> `inSpecularity`/`reflectanceColor`（当前候选包尚未重导，消费端用缺省值）。太阳高光
+> （`SPECULAR` 分支）与 W2 折射仍待做；W3 反射分辨率/更新频率档位待做。
 
 - **客户端依据**：HIGH 材质 `REAL_REFLECTION + FRESNEL_TO_ALPHA`；`water-fp.sl` 采样
   `dynamicReflection` 于**投影坐标**，偏移 = 波法线 × `reflectionDistortion`（距离衰减

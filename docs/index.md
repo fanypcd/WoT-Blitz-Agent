@@ -172,6 +172,15 @@ variantByMapId` 的标签），同一资产 key 的全部变体条目保留；`m
 `variants: { <label>: { supremacy, assault } }` 全套点位；WotbTools 地图预览加变体切换，
 3D 按该变体 map_id 裁剪边界/基地（诺曼底 = Normandy / Hills / Beach，边界分别 nt0/nt1/nt2）。
 
+**画质提升 Wave A（2026-11-17 起）**：**W1 HIGH 档动态平面反射已落地**（WotbTools
+`playback/waterReflection.ts`）——镜像相机 + 斜裁剪面 + 半分辨率 RT，水面按主相机屏幕
+UV + 法线扰动采样并乘 `reflectionTintColor`；high/ultra 档启用，正俯视/水下 fail-closed
+回退 cubemap。导出器 `water_props` 补 HIGH 参数（`reflectionDistortion`/
+`distortionFallSquareDist`/`inGlossiness`/`inSpecularity`/`reflectanceColor`；候选包
+尚未重导，消费端用缺省值）。实测 RT mean 154/std 79（真实场景），水面像素动态反射 vs
+cubemap 均值差 64。待办：太阳高光、ULTRA 折射、W3 反射档位；L3 天空云动画随"环境动画
+冻结"暂缓。
+
 **未取证 / 边界**：草密度通道语义（`densityMapChannel=4`）按"第 4 通道 = alpha"解读；
 `flippedDensityMap` 按属性名字面（逐格镜像密度采样）实现——两者均无引擎源可对，已在
 导出器注释标注；边界材质为引擎内置、消费端按组件字段近似（颜色/区间/淡出逐字段照抄，

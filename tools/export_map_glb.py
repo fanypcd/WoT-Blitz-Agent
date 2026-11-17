@@ -2343,6 +2343,14 @@ WATER_PROP_DEFAULTS = {
     "fresnelBias": [0.0],
     "fresnelPow": [0.0],
     "reflectionTintColor": [1.0, 1.0, 1.0],
+    # HIGH/ULTRA 档（REAL_REFLECTION）：动态反射扰动与太阳高光参数。
+    # MEDIUM 档消费端不会用，但随 extras 全量下发（water_props 全写），
+    # 便于消费端按画质档切换，无需二次导出。
+    "reflectionDistortion": [0.04],
+    "distortionFallSquareDist": [100.0],
+    "inGlossiness": [0.5],
+    "inSpecularity": [0.5],
+    "reflectanceColor": [0.5, 0.5, 0.5],
 }
 
 
