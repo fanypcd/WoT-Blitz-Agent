@@ -41,7 +41,7 @@
 > 导出器 `water_props` 已补 `reflectionDistortion`/`distortionFallSquareDist`/`inGlossiness`/
 > `inSpecularity`/`reflectanceColor`（当前候选包尚未重导，消费端用缺省值）。**太阳高光已落地**
 > （water shader BlinnPhong + Fresnel Schlick，参数取 extras props，uSunSpecColor 按曝光
-> 归一）；W2 折射与 W3 反射分辨率/更新频率档位仍待做。
+> 归一）；W2 折射仍待做；W3 反射分辨率/更新频率档位**已落地（2026-11-17，见 W3）**。
 
 - **客户端依据**：HIGH 材质 `REAL_REFLECTION + FRESNEL_TO_ALPHA`；`water-fp.sl` 采样
   `dynamicReflection` 于**投影坐标**，偏移 = 波法线 × `reflectionDistortion`（距离衰减
@@ -72,10 +72,16 @@
 - **成本**：中（色拷贝/深度；与 W1 共用投影坐标）。
 - **验收**：用户视觉（深水不再一律反射天空，近岸可见水下暗部）；单测扭曲 UV。
 
-### W3 — 反射质量档位（P1，随 W1）
+### W3 — 反射质量档位（P1，随 W1）——**已落地（2026-11-17）**
 
-反射 RT 分辨率（1/2、1/4）、更新频率（每帧/隔帧）、层遮罩可配；低档可回退 MEDIUM
-cubemap（现役路径保留为 fallback）。验收：画质档切换后无残留 RT/材质泄漏。
+> **状态**：`waterReflection.ts` 接受 `scale`/`intervalFrames`，`configure()` 运行时改档
+> （RT 按新比例惰性重建、旧 target dispose）；`getExcludedRoots()` 在反射 pass 期间临时
+> 隐藏草层/战斗特效/3D 标注（渲染后恢复，异常路径 finally 同样恢复），避免镜像 RT 里
+> 出现标注副本并省填充率。语义来源 = `quality.ts` 的 `QUALITY_FEATURES.water`：
+> 高清 1/2 分辨率 + 隔帧（每 2 帧）、极致 1/2 + 每帧；低/均衡不建 RT（回退 MEDIUM
+> cubemap，现役路径保留）。单测覆盖隔帧调用次数、RT 比例/运行时改档、覆盖层隐藏与
+> 异常恢复；运行时切档由 `setQuality` 重新应用 feature 表。
+> **未做**：1/4 分辨率档位（低/均衡无反射，暂无档位需求）。
 
 ### W4 — 水面贴图精度（P2，低成本）
 
@@ -104,19 +110,22 @@ cubemap 等距柱状 1024 → 原生、法线图 mip/各向异性按档。收益
 - **验收**：自动 — 阴影矩阵/级联选择纯函数单测；用户视觉 — 坦克影随太阳方向、近远级联过渡
   无跳变。
 
-### L2 — 自动曝光（P1）——**已落地（2026-11-17，high/ultra）**
+### L2 — 自动曝光（P1）——**已撤回（2026-11-17 用户裁示）**
 
-> **状态**：WotbTools `playback/autoExposure.ts`——64px 低分辨率探针每 500ms 测当帧
-> 对数平均亮度，在逐图基础曝光（mapLighting 太阳归一化结果）上乘 0.5–2.5 自适应倍率
-> （时间常数 700ms，无效亮度保持当前值不跳变）；high/ultra 启用，可整体关闭回退。
-> 实测诺曼底 avg 0.253（目标 0.18）→ 倍率 0.72、曝光 0.375→0.27。
+> **状态**：曾在 WotbTools `playback/autoExposure.ts` 实现（64px 探针每 500ms 测对数
+> 平均亮度，在逐图基础曝光上乘 0.5–2.5 倍率，high/ultra 启用）。3D 回放实测诺曼底
+> avg 0.339 → 倍率 0.53、曝光 0.375→0.19：天空/亮地面把平均值拉高，整图被压暗约一半，
+> 坦克等高光比主体明显发黑。用户裁示**放弃光影调整、保留原来的亮度**，模块、探针 RT、
+> 调试钩子、画质档 `exposure.auto` 与消费接线已全部删除；现行亮度 = 逐图太阳强度归一后
+> 的固定曝光（mapLighting），不随画面自适应。
+>
+> **若未来重试**：客户端 `ExposureTonemapping.material` 是运行时直方图，均值测光会
+> 被天空主导；需要按直方图分位数/中心加权重新设计，并给压暗幅度上限（本次 0.5 倍下限
+> 过于激进）。在拿到可验证的客户端曲线前不再启用。
 
 - **依据**：`ExposureTonemapping.material`（客户端运行时直方图）；无逐图静态值（A2 已记录）。
-- **做法**：渲染后亮度降采样 + 时间适应曲线，驱动 `toneMappingExposure`；替代现有
-  "按太阳强度归一"补偿（保留其作为 fallback）。
 - **收益**：★★（明暗更接近客户端；可退役部分补偿旋钮）。
-- **成本**：中。
-- **风险**：与场景快切/暂停的稳定性（需滞回）。验收：用户视觉 + 曝光曲线单测（输入亮度序列）。
+- **成本/风险**：中；与场景快切/暂停的稳定性（需滞回）与高光比场景的过暗风险。
 
 ### L3 — 天空云 flowmap 动画（P0/P1，低成本高观感）
 
@@ -149,13 +158,24 @@ E2 已决策不做（回放用于高视角分析，雾削弱战场可见性）�
 ### G1 — 草分档与高档作者几何（P0/P1）
 
 - **依据**：三档 VRO（60k/120k/500k）；**500 档几何 38 顶点/株 vs OFF 档 27**。
-  **现状：几何档已落地**（2026-11-17 导出器按 lod0 几何量取 500 档，修复“三角形草”）；
-  分档实例预算（60k/120k/500k）与低档回退仍待做。
-- **做法**：导出器按档导出原型（可用 `--grass-tier` 或一次导三档）；消费端按画质档选择
-  实例预算 + 原型（高清=500 档几何、60k~120k 实例；低/均衡不加载）。
+- **状态（2026-11-17）**：**几何档已落地**（导出器按 lod0 几何量取 500 档，修复“三角形
+  草”）+ **消费端实例预算已落地**：`QUALITY_FEATURES.grass.instances`（低/均衡 0、
+  高清/极致 60k）经 `mapWorld` 传入 `buildGrassMeshes({maxInstances})`；超预算时按等
+  步长抽取（保持空间分布，不取前缀）。单测覆盖预算 0、缺省全量与抽取分布。
+- **数据面现状**：打包器只产 60k 实例/bin（每图 ~0.7 MB；导出器注释明确“出货预算
+  60k”）。客户端 120k/500k 档需要重新导出更大的 grass.bin（500k ≈ 6 MB/图 × 28 图），
+  属于资产体积决策，未执行——消费端上限逻辑已就绪，bin 里有多少就按预算抽多少。
+- **分布修正（2026-11-17）**：密度源/通道已核实（Normandy VRO
+  `useSeparateDensityMap=false`、`densityMapChannel=4`、`lightmap` alpha；UV 与
+  grass-vp.sl:113-117 一致，span 600 与 terrain.json 一致）。旧实现“128×128 格中心配额
+  + 格内均匀哈希”会把道路/水边等亚格细节撒上草（Normandy 实测 5.6% 落点 alpha=0）；
+  已改为**按密度纹理逐像素 alpha 的逆 CDF 分层采样**（像素内确定性抖动，60k 实例），
+  重导 28 图 grass.*。复核 Normandy：alpha≤0 落点 0.01%（浮点边界）、≤0.1 为 0.29%，
+  实例局部 alpha 均值 0.907；`densityGrid` 随图 256²–2048² 写入 grass.json。
+  候选资产包已更新并重算 manifest（6072 文件 / 4480.7MB）。
+  `flippedDensityMap` 仍按 128 格做几何镜像；引擎侧语义无 shader 证据（未取证）。
 - **收益**：★★（近景草更密、叶片更完整）。
-- **成本**：中（原型多份、预算映射、性能）。
-- **验收**：导出器单测（档位选择/几何顶点数）；用户视觉（近景草密度与形态）。
+- **剩余**：120k/500k 数据导出与发布（需先决定包体积）；低/均衡已由预算 0 关闭。
 
 ### G2 — 草 LOD1/2（P2）
 
@@ -201,10 +221,15 @@ I6：`AnimationComponent` 472 个/16 空间、`RotationControllerComponent` 14 �
 B9 收尾：现为"盒中心平面贴片"；客户端是深度反投影。做法：对场景做射线/深度重建投影网格
 （或先只对地面类贴花按高度场细分贴合）。收益 ★★（plant 漆线/污渍贴墙才自然），成本中。
 
-### D2 — 贴花淡出参数（P2，低成本）
+### D2 — 贴花淡出参数（P2）——**无对象，不做（2026-11-17 实测）**
 
-`decals.json` 已带 `fadeDistance/verticalFadeWidth/backSideFade`，消费端未用。按字段
-实现距离/垂直淡出。收益 ★，成本低。
+`decals.json` 已带 `fadeDistance/verticalFadeWidth/backSideFade`，但全部贴花数据
+（plant 490 条；`data/cache/maps/11_plant_pn.decals.json` 与候选包逐条核对）三项均为
+`0 / 0 / false`——没有非零样本。客户端 `Default/deferred-decal`（及 `Deferred/` 同名
+变体）vertex 只读 auto 材质参数 `nearFadeDistance/farFadeDistance`，fragment 用
+`positionMS.|z|` 出界裁切，均与这三个组件字段没有映射证据；vertical fade 还需要深度
+重建（静态四边形近似没有 `positionMS.z`）。按 fail-closed 不猜语义：字段保留在契约里，
+等出现非零实例再按客户端 shader 复刻。收益归零（无数据），不做。
 
 ### D3 — 地形贴合贴花（P2/P3）
 
@@ -214,10 +239,19 @@ B9 收尾：现为"盒中心平面贴片"；客户端是深度反投影。做法
 
 ## 5. 呈现 / 性能 / 其它
 
-### P1 — 画质档语义重排（P0，前置）
+### P1 — 画质档语义重排（P0，前置）——**已落地（2026-11-17）**
 
-把"低/均衡/高清/极致"映射到：水面档（MEDIUM/HIGH/ULTRA）、草档（无/120/500）、CSM
-（关/2 级/4 级）、反射分辨率、贴花投影开关。所有增强项都需要预算归属，建议先定这张表。
+> **状态**：WotbTools `playback/quality.ts` 的 `QUALITY_FEATURES`（`QualityFeatures`）是
+> 跨模块唯一语义来源，按低/均衡/高清/极致映射：
+> - `water`：客户端档位（medium/high/ultra）、动态反射开关、反射 RT 比例、更新间隔帧数；
+> - `grass`：实例预算（0/0/60000/60000）、原型几何档（统一 500 档 = 当前导出档）；
+> - `shadows.csm/tankContact/silhouettes`、`decals.projected`。
+>
+> 渲染器数值旋钮仍归 `QUALITY_PRESETS`；两表重叠字段（waterReflection/
+> shadowQualityEligible）由 `quality.test.ts` 锁定一致，未实现项（CSM/折射/贴花投影）
+> 固定 `false`。`playbackScene` 建场景与运行时 `setQuality` 都经由 `qualityFeatures()`
+> 应用，不再直接读 `Q.waterReflection`。
+> 草实例档（G1 的 120k/500k 预算）尚未分档，当前高清/极致同为 60k。
 
 ### P2 — 坦克动态泥污（P3）
 
@@ -239,7 +273,7 @@ B9 收尾：现为"盒中心平面贴片"；客户端是深度反投影。做法
 | 波次 | 内容 | 依赖 |
 |---|---|---|
 | **Wave A（P0）** | W1 动态反射 + L3 天空云 + G1 草 500 档 | 导出器补 water/sky/grass 字段；画质档表（P1） |
-| **Wave B（P1）** | L1 CSM（先 2 级）/ L2 自动曝光 / W2 折射 / W3 反射档位 | Wave A 的 RT/层管理复用 |
+| **Wave B（P1）** | L1 CSM（先 2 级）/ W2 折射 / W3 反射档位 | Wave A 的 RT/层管理复用 |
 | **Wave C（P2）** | D1/D2 贴花、G2/G3 草 LOD/Bend、L4 风、P3 履带印 | 无强依赖 |
 | **Wave D（P3）** | G5 LOD、G7 PBR、G8 动画、P2 泥污、G6 单面 | 各自独立 |
 

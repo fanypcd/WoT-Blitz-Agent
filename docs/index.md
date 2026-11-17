@@ -182,15 +182,39 @@ cubemap 均值差 64。**太阳高光已落地**（客户端 SPECULAR 分支：B
 Schlick，uSunSpecColor 按查看器曝光归一）。待办：ULTRA 折射、W3 反射档位；L3 天空云
 动画随"环境动画冻结"暂缓。
 
-**画质提升 Wave B（2026-11-17 起）**：**L2 自动曝光已落地**（WotbTools
-`playback/autoExposure.ts`，high/ultra）——64px 探针每 500ms 测对数平均亮度，在逐图
-基础曝光上乘 0.5–2.5 自适应倍率（700ms 时间常数）；实测诺曼底 avg 0.253 → 倍率 0.72、
-曝光 0.375→0.27。L1 CSM 阴影仍待做（导出器尚无 `shadow` 块）。
+**画质提升 Wave B（2026-11-17 起）**：**L2 自动曝光尝试已撤回（用户裁示）**——曾用
+64px 探针 + 0.5–2.5 倍率实现，但 3D 回放实测诺曼底 avg 0.339 → 倍率 0.53、曝光
+0.375→0.19，坦克等高光比主体明显发黑；用户要求放弃光影调整、保留原来的亮度，模块与
+消费接线已删除，现行亮度仍为逐图太阳强度归一的固定曝光。L1 CSM 阴影仍待做（导出器暂无
+`shadow` 块）。
 
-**未取证 / 边界**：草密度通道语义（`densityMapChannel=4`）按"第 4 通道 = alpha"解读；
-`flippedDensityMap` 按属性名字面（逐格镜像密度采样）实现——两者均无引擎源可对，已在
-导出器注释标注；边界材质为引擎内置、消费端按组件字段近似（颜色/区间/淡出逐字段照抄，
-渲染方程不可对）。
+**画质档语义表 + W3 反射档位（2026-11-17 续）**：WotbTools `quality.ts` 新增
+`QUALITY_FEATURES` 四档语义表（水面档/反射开关与 RT 比例/更新间隔、草实例预算、
+坦克阴影、贴花投影），`QUALITY_PRESETS` 重叠字段由单测锁定一致；建场景与运行时切档
+统一经 `qualityFeatures()` 应用。W3 落地：反射 pass 支持运行时 RT 比例
+（高清/极致 1/2）与更新间隔（高清每 2 帧、极致每帧），反射 pass 临时隐藏草层/战斗
+特效/3D 标注（finally 恢复），避免镜像副本与无谓填充；低/均衡仍回退 MEDIUM cubemap。
+**W1 着色器修复**：`uReflectionMatrix` 原先只在 `USE_WRO_UV` 分支声明，而非 WRO 水面
+顶点着色器无条件计算 `vClip = uReflectionMatrix * wp` ⇒ 该类水面程序编译失败
+（`uReflectionMatrix undeclared`）；已把声明提到公共段，`test:shader-check` 36/36 程序
+0 编译失败。**草实例预算**：`QUALITY_FEATURES.grass.instances`（低/均衡 0、高清/极致 60k）经
+`buildGrassMeshes({maxInstances})` 消费，超预算等步长抽取；打包数据仍只 60k，120k/500k
+档需重导更大 grass.bin（资产体积决策，未执行）。**贴花淡出 D2 = 无对象**：plant 490 条
+`fadeDistance/verticalFadeWidth/backSideFade` 全为 0/0/false，客户端 shader 也没有组件
+字段映射证据，按 fail-closed 不实现。
+
+**草分布修正（2026-11-17 续）**：旧导出器按 128×128 格中心 alpha 配额、格内均匀抖动，
+会把道路/水边等亚格细节撒上草（Normandy 实测 5.6% 实例落在密度 alpha=0 像素）。改为
+**按密度纹理逐像素 alpha 的逆 CDF 分层采样**（像素内确定性抖动，60k 实例），并保留
+`flippedDensityMap` 的 128 格几何镜像；重导 28 图 `grass.{json,bin,glb}` 并更新候选资产包
+（35 个含草目录），manifest 重算为 **6072 文件 / 4480.7MB**。复核 Normandy：alpha≤0 落点
+0.01%（浮点边界）、≤0.1 为 0.29%，局部 alpha 均值 0.907；`grass.json` 新增
+`densityGrid`（逐图 256²–2048²）。
+
+**未取证 / 边界**：草密度通道 `densityMapChannel=4` → alpha 已由 `grass-vp.sl` 的
+`#else` 分支确认（1/2/3 = rgb，其余取 a）；`flippedDensityMap` 仍按"逐格几何镜像"实现，
+引擎侧语义无 shader 证据（未取证，已在导出器注释标注）；边界材质为引擎内置、消费端按
+组件字段近似（颜色/区间/淡出逐字段照抄，渲染方程不可对）。
 
 ### 地图元素导出补全：水体主体 / 投影贴花 / 动态光源 / Flora（2026-11-17，数据面新增）
 
@@ -951,7 +975,7 @@ https://assets.wotbtools.com` PASS。前端已上线无需再动——百科 DPM
     `unsupported_damage`）以 [wotbtools-cross-reference.md](wotbtools-cross-reference.md) §五
     为单一维护点，本页不再复制。
 - 解析侧遗留未定项（禁猜、封存）以 [总集 第五篇](回放与射击逆向总集.md#第五篇-遗留未定项) 为准；
-  前端侧未做项（自动曝光、水面 HIGH/ULTRA 反射、雾=非目标等）见
+  前端侧未做项（ULTRA 屏幕空间反射/折射、浪花/涟漪/岸线、雾=非目标等）见
   [map-render-align-audit.md](map-render-align-audit.md)。
 
 ## 约定

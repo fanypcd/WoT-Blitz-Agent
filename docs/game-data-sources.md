@@ -1141,9 +1141,13 @@ App 侧消费（WotbTools `frontend/src/data/map2dOverlay.js`）与"包内兜底
 - **草系统 `VegetationRenderObject`**（28 图，其余 8 图无 Grass 实体）：几何内嵌
   （`cgd.chunkSet`，4 变体 × 3 LOD；原型取 lod0 几何量最大的 VRO = 500 档 38/39/26/5 顶点、54–81 索引，60k/120k 档为 27/7/7/3 顶点稀疏三角）；材质 = `cgd.materialId` → 逐图 albedo；
   密度 = `vro.lightmap` 的 **alpha**（`densityMapChannel=4`、`useSeparateDensityMap=false`）；
-  `vro.flippedDensityMap` = 16384 字节 / 128×128 逐格翻转位（实测值域 {0,1}，非密度）。
-  出货 60k 实例/图 → `<space>.grass.{json,bin,glb}`（9 字节/实例；原型 GLB 含 4 变体 +
-  albedo）；打包器收 `map/<key>/grass.*`。
+  `vro.flippedDensityMap` = 16384 字节 / 128×128 逐格翻转位（实测值域 {0,1}，非密度；
+  消费端按格做草簇几何镜像）。
+  **放置** = 按密度纹理逐像素 alpha 做逆 CDF 分层采样（60k 实例，像素内确定性抖动）；
+  密度纹理逐图 256²–2048²，实例保证落在 alpha>0 像素，不再按 128 格中心配额（旧实现
+  会在道路/水边等亚格细节上多出草）。
+  出货 60k 实例/图 → `<space>.grass.{json,bin,glb}`（**12 字节/实例**；原型 GLB 含 4 变体
+  + albedo）；打包器收 `map/<key>/grass.*`。
 - **地图边界 `MapBorderRenderObject`**（33 图）：材质 id=0（引擎内置，dataNodes 无节点），
   但几何在 scg（三角形带竖带，顶点对高差 = `mbc.visualHeight`）+ 组件带全部视觉字段 ⇒
   合并进主 GLB 的 `MapBorder` 网格 + `extras.mapBorder`（颜色/可见 z 区间/边缘淡出/z 偏移/
