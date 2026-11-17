@@ -130,6 +130,19 @@ fn playback_smoke() {
         pb.get("aim_frames").is_none(),
         "aim_frames 已从契约移除，不得再序列化"
     );
+    // damage 类：血量链事件必须带掉血量与归因（blitzinfo ev-damage 等价物）
+    if let Some(dmg) = pb.get("damage_events").and_then(|v| v.as_array()) {
+        assert!(!dmg.is_empty(), "largest sample must expose damage events");
+        let positive = dmg.iter().filter(|e| e["damage"].as_u64().unwrap_or(0) > 0).count();
+        assert!(positive > 0, "expected at least one nonzero damage drop");
+        for e in dmg.iter().take(50) {
+            assert!(e["victim_eid"].as_u64().is_some(), "victim required: {e}");
+            assert!(e["source_eid"].as_u64().is_some(), "source required: {e}");
+            assert!(e["cause"].as_u64().is_some(), "cause required: {e}");
+        }
+    } else {
+        panic!("damage_events missing from playback facet");
+    }
     let nv = pb["vehicles"].as_array().unwrap().len();
     assert!((8..=28).contains(&nv), "车辆数 {nv}");
     assert!(
