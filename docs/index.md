@@ -212,7 +212,7 @@ Schlick，uSunSpecColor 按查看器曝光归一）。待办：ULTRA 折射、W3
 `asset_release.py stamp` 重算 content_digest（4480.7 / 4484.5 / 4530.3 MB；digest b65fc15b / 98946fac / 65eb50d9），
 `dataset.sh catalog` 刷新 versions.json（default/current 仍 11.21.0_1）。
 `dataset.sh verify --full`、公网逐文件 sha256、`deploy/assets/verify.sh` 均 PASS；
-旧 manifest/version.json 备份在 `_backup-mapbase-20261117/`。
+三份 `delta.json` 按各自 base_release 重生成（210/212/196 处变更）；旧 manifest/version.json 备份在 `_backup-mapbase-20261117/`。
 
 **草分布修正（2026-11-17 续）**：旧导出器按 128×128 格中心 alpha 配额、格内均匀抖动，
 会把道路/水边等亚格细节撒上草（Normandy 实测 5.6% 实例落在密度 alpha=0 像素）。改为

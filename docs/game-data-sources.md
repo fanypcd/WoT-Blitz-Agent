@@ -874,7 +874,7 @@ scenery/terrain 等替换）+ 根 `index.json`（55 图变体目录）+ `map2d/i
 `tank/research/cover/data` 等按版本分叉内容未动。manifest 按磁盘重算后
 `asset_release.py stamp` 重算 content_digest/manifest_sha256，`dataset.sh catalog`
 刷新 versions.json（3 dataset 仍 active，default 与 `current` 仍 `11.21.0_1`）。
-`dataset.sh verify --full` PASS；公网 `/v/<id>/map/neptune/grass.{json,bin}`、
+`dataset.sh verify --full` PASS；三份 `delta.json` 按各自 `base_release` 重生成（210/212/196 处变更）；公网 `/v/<id>/map/neptune/grass.{json,bin}`、
 `plant/decals.json`、`map2d/index.json` 逐文件 sha256 = manifest；根路径（current）
 同验；`deploy/assets/verify.sh https://assets.wotbtools.com` PASS。旧对象保留在
 objects（回滚证据），三份 release 的旧 manifest/version.json 备份在
