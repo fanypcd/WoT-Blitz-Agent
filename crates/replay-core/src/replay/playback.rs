@@ -798,10 +798,10 @@ fn damage_events(model: &crate::replay::model::ReplayModel) -> Vec<DamageEvent> 
     // 满血/首见锚点（type=5，锚点时刻 ≤ 事件时刻才可用）
     let anchor = &model.timeline.initial_hp;
     for ev in &model.timeline.hp_events {
-        if !prev_by_victim.contains_key(&ev.victim) {
+        if let std::collections::hash_map::Entry::Vacant(slot) = prev_by_victim.entry(ev.victim) {
             if let Some((t0, hp0)) = anchor.get(&ev.victim) {
                 if *t0 <= ev.clock {
-                    prev_by_victim.insert(ev.victim, *hp0);
+                    slot.insert(*hp0);
                 }
             }
         }
