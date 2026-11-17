@@ -23,7 +23,7 @@ args[39..39+nameLen]（UTF-8 原文）；pickle（protocol 2）给出类别载�
 | code | kind | pickle 载荷 | 语义证据 |
 |---|---|---|---|
 | **1** | `message` | 顶层 = 文本串 | **真实聊天正文**："how do get that tank?" / "?" / "zetzu" / 泰文句子，发送者 = 前缀名 |
-| **20 (0x14)** | `command` | 元组 `(cmdId, targetId, 0, '', '')` | 快捷指令/战场标记；cmdId ∈ {24,26,29,…} 语义未逐一闭合 → 原样透传（禁命名） |
+| **20 (0x14)** | `command` | 元组 `(cmdId, payload, 0, '', '')` | 快捷指令/战场标记。**cmdId→语义表已从客户端可执行文件闭合**（见 §2.3）；`payload` 按 id 解释：`attack_enemy`→目标 accountId、`attention_to_cell`→扇区号、其余多为 0 |
 | 0 | `join` | 名字串 | 频道成员进入（t 4.4–124.6s，开局段） |
 | 2 | `leave` | `None` | 频道成员离开（t 56.5–314.8s） |
 | 7 | `channel_created` | 元组 `(ownerName, greeting)` | 开局频道建立/问候（全部 t < 20s） |
@@ -32,6 +32,38 @@ args[39..39+nameLen]（UTF-8 原文）；pickle（protocol 2）给出类别载�
 **v0.5.0 的归类修正**：此前 `chat_messages`（0x2b）被当作聊天正文；实测其 `u64` 字段是
 **频道句柄**、文本是另一域（改名/公告族，单样本），并非战斗聊天。战斗聊天正文只在
 0x2f code 1（43 条 / 全语料）。两字段均保留（additive），消费方应以 `chat_events` 为准。
+
+### 2.3 快捷指令类型表（客户端权威）
+
+来源 = `wotblitz.exe`（11.21.0 build，映像基址 0x400000）注册块
+`0x1308613..0x130947d`：每项 `push <id>; push <chatCommand/* 本地化键>; call 0x130f7e0`。
+逐项解码（已与语料交叉核验：id 29 的字段是 accountId→"Attack %(playerName)"、
+id 28 的字段是扇区号→"Attention to sector %(cell)"）：
+
+| id | name | 客户端键 |
+|---|---|---|
+| 22 | help_me | `chatCommand/help_me` |
+| 23 | follow_me | `chatCommand/follow_me` |
+| 24 | attack | `chatCommand/attack` |
+| 25 | back_to_base | `chatCommand/back_to_base` |
+| 26 | positive | `chatCommand/positive` |
+| 27 | negative | `chatCommand/negative` |
+| 28 | attention_to_cell | `chatCommand/attention_to_cell` |
+| 29 | attack_enemy | `chatCommand/attack_enemy` |
+| 52 | turn_back | `chatCommand/turn_back` |
+| 53 | help_me_ex | `chatCommand/help_me_ex` |
+| 54 | support_me_with_fire | `chatCommand/support_me_with_fire` |
+| 55 | hold_positions | `chatCommand/hold_positions` |
+| 56 | stop | `chatCommand/stop` |
+| 57 | catch_point | `supremacy/Status/CatchPoint` |
+| 58 | defend_point | `supremacy/Status/DefendPoint` |
+| 59 | defend_point | `supremacy/Status/DefendPoint` |
+| 60 | moving_here | `chatCommand/moving_here` |
+| 61 | ally_attack | `chatCommand/ally_attack` |
+| 62 | ally_retreat | `chatCommand/ally_retreat` |
+
+未列出的 id（20/21/30/40–51 等：动态构造字符串或未观测）→ `command_name` 省略，
+保留 raw id（fail-closed）。
 
 ### 2.2 method38 组件 token → 逐模块损伤（`module_damage_events`）
 
