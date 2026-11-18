@@ -43,7 +43,7 @@ XI 级预览车的 2D 封面可按车型核查来源、复跑渲染和生成裁�
 
 ### 版本与发行
 
-- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.5.3**）。
+- 版本源 = `Cargo.toml` 的 `[workspace.metadata.release].version`（现值 **v0.5.4**）。
   该值变更合并到 `main` 后，Release workflow 自动测试、构建、创建 `v<version>` tag
   并发布 `wotb-replay-wasm-v<version>.zip`；发布策略与 Android 同步规则见
   [AGENTS.md](../AGENTS.md)。
@@ -53,6 +53,7 @@ XI 级预览车的 2D 封面可按车型核查来源、复跑渲染和生成裁�
 
 | 版本 | 内容 |
 |---|---|
+| v0.5.4 | **战场快捷标记（additive）**：Playback 新增 `markers[]`——Avatar method 0x2e 解码 `{t, entity_id, account_id, marker_type, at?, target_eid?}`。形状门禁：args = `[entity_id u32][account_id u32][0 u32][len u8][protobuf]`，len 恰好吃满；protobuf 顶层恰一个字段（字段号=标记类型，wire2）。已证语义：type 1=`moving_here`（嵌套三轴世界坐标）、4=`attack`（target_eid）、5=`ally_retreat`（target_eid）；未观测类型只保留 `marker_type`（禁猜）。证据：2026-10-24 BZT-70 场 0x2e 两条（t=47.72 type1 / t=71.83 type5）与战斗日志 “Moving here” / “Let's fall back!” 逐条对应；15 场语料共 15 条类型分布 1/4/5，形状 15/15 一致。发送者身份取 args 内 entity_id（不是信封 Avatar eid）。契约 additive：旧消费方零扰动；WotbTools 事件流据此补全地图标记行。证据见 [replay-chat-events.md](replay-chat-events.md) §2.4。 |
 | v0.5.3 | **快捷指令语义闭合（additive）**：`chat_events[].command_name`——cmdId→语义名表从**客户端可执行文件**注册块闭合（wotblitz.exe 11.21.0，`0x1308613..0x130947d` 逐项解码；22..29 与 52..62 共 19 项，含 help_me/attack/positive/attention_to_cell/attack_enemy/moving_here/ally_attack 等），并以语料交叉核验字段语义（`attack_enemy` 的 payload=accountId、`attention_to_cell` 的 payload=扇区号）。未映射 id 省略 `command_name`（保留 raw，fail-closed）。契约 additive：旧消费方零扰动；消费方 WotbTools 事件流据此显示指令内容与目标玩家/扇区。证据表见 [replay-chat-events.md](replay-chat-events.md) §2.3。 |
 | v0.5.2 | **掉血事件（additive，blitzinfo ev-damage 等价物）**：Playback 新增 `damage_events[]`——method1 血量链投影为逐次掉血事件 `{t, victim_eid, damage, hp, source_eid, cause}`。`damage = prev_hp − hp`（prev 由 type=5 满血/首见锚点或上一事件给出；无基线不猜，damage=0 = 该事件未掉血，如治疗/复位）；`source_eid`/`cause` 与 kills 同域（0=炮弹 1=火焰 2=撞击 3=世界 5=溺水）。同刻多次命中可能被服务器血量快照折叠为单条（协议事实，不拆分）。消费方 WotbTools 事件流据其展示「谁对谁造成多少」（与 fire/blocked/ricochet/damage/kill/capture 六类对齐）。契约 additive：旧消费方零扰动。 |
 | v0.5.1 | **聊天全类型 + 逐模块损伤（additive）**：①Playback 新增 `chat_events`（Avatar method 0x2f 全类型 pickle 解码：code 1=聊天正文〔sender=前缀名、text=pickle 串〕／code 20=快捷指令〔cmd/target 原样透传〕／code 0/2=成员进出／code 7=频道建立／其余 raw 透传；判据 = 15 场跟踪语料 305 条动作事件，逐类与实战语义吻合，正文样例逐字节锁定）；②新增 `module_damage_events`（method38 组件 token 逐模块：victim/组件/rawState，rawState 0=无新负面 1=受损 2=critical，token 31..43）。**语义修正**：此前 v0.5.0 把 0x2b 文本当聊天——现保留原字段但明确其另域（u64=频道句柄）；真正战斗聊天正文在 0x2f。契约 additive（旧消费方零扰动）；消费方 WotbTools 事件流据 chat_events/module_damage_events 合并展示。证据与语义表见 [replay-chat-events.md](replay-chat-events.md)。 |

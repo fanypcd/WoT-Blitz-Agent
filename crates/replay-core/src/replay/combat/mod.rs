@@ -4,6 +4,7 @@
 //! - [`pb`]：protobuf wire 解析助手（varint/字段遍历/hex——全库唯一一套）；
 //! - [`arena`]：updateArena 流（subtype 过滤收集/PERIOD/击杀播报/AoI 在场/反馈计数/type39）；
 //! - [`chat`]：聊天域（频道表 pickle / 文本消息 / 单发通知——fail-closed 形状门禁）；
+//! - [`markers`]：战场快捷标记（Avatar method 0x2e；type 1/4/5 语义已证，其余原样保留）；
 //! - [`collect`]：射击路径的包收集器（launch/endpoint/direct8/warning32/地形命中/降幅/tick）；
 //! - [`indexes`]：per-entity 索引与 prop2 时间线求值（st10/prop2/二分采样）；
 //! - [`anchors`]：判定锚点选择与渲染层滤波时间线（AvatarFilter 输出）；
@@ -19,6 +20,7 @@ mod chat;
 mod collect;
 mod events;
 mod indexes;
+mod markers;
 mod nickname;
 mod pb;
 mod pitch;
@@ -30,6 +32,7 @@ pub use chat::*;
 pub use collect::*;
 pub use events::*;
 pub use indexes::*;
+pub use markers::*;
 pub use nickname::*;
 pub(crate) use pb::*;
 pub use pitch::*;
