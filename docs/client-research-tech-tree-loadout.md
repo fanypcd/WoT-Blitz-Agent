@@ -698,9 +698,10 @@ Type5 物化尾部 `0B <n>` + nB（n=1..=9，空槽省略）就是本场装备 i
   消耗品/给养/模式能力按 `0A` 块解码（给养 = `payload f32 -1.0` 静态尾；`0x67` =
   `gravityJump`/Thruster 单列为能力）。`VehicleEquipment::from_ids` 仍把 103/110 翻成
   射击复现布尔，其余进 `raw`/`equipment_ids`；`0xA9` = `DYNAMIC_ARMOUR_SYSTEM`。
-  欧系/瑞典/捷克/波兰食物块 `0x46..0x4D` 与 BlitzKit `provisions.pb` id 103..110 逐项
-  相差 33，按每国 HQ(大)→regular(小) 闭合（`0x4A` = Goulash/LARGE_FOOD；该映射纠正
-  WotbTools 文档把 `0x48`/`0x49` 互换的推断）。
+  食物线码 `0x46..0x4B` 与波兰 `0x6D`/`0x6E` 是游戏内部补给槽 id 的自有命名空间，与
+  BlitzKit `provisions.pb` 目录 id **无统一换算**，逐码独立取证闭合（2026-10-31 受控
+  实验；WotbTools 11.19 生产映射 `0x48`=SMALL/`0x49`=LARGE 本来正确，已采纳——本节
+  旧「逐项 −33」外推已撤销，权威口径见本仓 `wotbtools-cross-reference.md` §二）。
 
 **已验证的端到端例子**：`tmp_analysis/loadout_1375.json`（历史探针）中，
 带「耐久加成」的车 `hp_initial / hp_base = 1.05` 精确成立（2400→2520、1700→1785），
@@ -988,6 +989,10 @@ Type5 物化尾部 `0B <n>` + nB（n=1..=9，空槽省略）就是本场装备 i
 > 实施范围移除，数据仍由导出器可选保留。
 
 ### 9.1 建议的数据管线（本仓出数据，WotbTools 出 UI）
+
+> 历史建议稿：实际落盘布局以 §12.1 与 [data-inventory.md](data-inventory.md) §6.1 为准
+> （`modules/{nation}.json`、`tech_tree/{nation}.json`、顶层 `devices.json`/`skills.json`
+> 等），与本节早期草图的文件名有出入。
 
 新增一个只读导出器（建议 `tools/export_research_loadout.py`，与
 `tools/extract_vehicles.py` 同风格：读磁盘、fail-closed、确定性输出）：

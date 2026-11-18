@@ -18,7 +18,7 @@
 
 ## 1. combat.rs 拆分（已实施 ✅）
 
-**落地形态**：`replay/combat/` 目录八子模块，公共 API 经 `mod.rs` 网格再导出，
+**落地形态**：`replay/combat/` 目录十一子模块，公共 API 经 `mod.rs` 网格再导出，
 `crate::replay::combat::*` 路径不变：
 
 - `events`（CombatTimeline/CombatEvent/HpEvent 事件层）；
@@ -29,7 +29,10 @@
 - `indexes`（st10/prop2 索引与二分求值）；
 - `anchors`（判定锚点与渲染层滤波时间线）；
 - `pitch`（俯仰极限模型与 frac 解码；有效极限 = 基础 models.pb 值 + 实体配件 122 加成）；
-- `shots`（ShotReplayData/ShotScanShared 与两条提取路径）。
+- `shots`（ShotReplayData/ShotScanShared 与两条提取路径）；
+- `chat`（聊天域：0x2f 频道表 / 0x2b 文本消息 / 0x12 单发通知，v0.5.0+）；
+- `markers`（战场快捷标记 Avatar method 0x2e，v0.5.4）；
+- `nickname`（Type5 昵称域唯一解码器 SSOT）。
 
 `print_timeline`/`print_shots` 已移出核心库到 `main.rs`（库不绑定 IO 契约）。
 

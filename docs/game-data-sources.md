@@ -273,9 +273,11 @@ XI 级预览车的封面来源是同版客户端的默认外观模型及贴图�
 **当前预览源（2026-11-12 起）**：`http://cdn.static.wotb.app/win7/WotBlitz_11.4.0.138_t11r3.zip`
 （20,878,922,119 B ≈ 19.4 GiB，Last-Modified 2026-11-12；`version.txt.dvpl` =
 `11.4.0.138_7408695 11.22_supertest_tier11_6 WOTB_Win7`）。dataset **`11.4.0.138`**
-（label「超测服 11.4.0.138」）指向该包构建的 release `t11r3-20261113-r1` → 现役
+（label「超测服 11.4.0.138」；2026-11-11 起规范 id 为 `11.4.0.138-r5`，`11.4.0.138` 为
+退役别名）指向该包构建的 release `t11r3-20261113-r1` → 2026-11-13 时点现役
 **`t11r3-20261113-r3`**（**6026 件 / 4482.5 MB / 747 辆 = 738 + 9 XI**，
-`content_digest sha256:634da494…`；r1/r2 保留回滚）。上一轮 dataset `11.4.0.130`
+`content_digest sha256:634da494…`；r1/r2 保留回滚；**现行 release
+`t11r3-20261114-r7-ballistics`，见 §5.2 release 链**）。上一轮 dataset `11.4.0.130`
 （`t11p2-20261106-r9`）保留作回滚。
 
 **实装范围（t11p2）**：`list.xml` 共 5 辆 level 11：
@@ -880,9 +882,10 @@ scenery/terrain 等替换）+ 根 `index.json`（55 图变体目录）+ `map2d/i
 objects（回滚证据），三份 release 的旧 manifest/version.json 备份在
 `_backup-mapbase-20261117/`。
 
-**当前 release（2026-11-13）**：默认 dataset `11.21.0` → `11.21.0-20261106-r2`，**738 辆**
-（含 `research/tech_tree/**`），**5965 件 / 4433.0 MB**，`content_digest sha256:9198d0ca…`；
-`current` 指向它。超测 dataset `11.4.0.138` → **`t11r3-20261113-r3`**（747 辆 /
+**release 快照（2026-11-13；已被上方 2026-11-17 块取代）**：默认 dataset `11.21.0` →
+`11.21.0-20261106-r2`，**738 辆**（含 `research/tech_tree/**`），**5965 件 / 4433.0 MB**，
+`content_digest sha256:9198d0ca…`；当时 `current` 指向它（现指向 `11.21.0_1`，见上）。
+超测 dataset `11.4.0.138` → **`t11r3-20261113-r3`**（747 辆 /
 **6026 件 / 4482.5 MB**，`content_digest sha256:634da494…`），仅显式选择；同名 dataset
 上一代 `t11r3-20261113-r1` 与上一轮超测 `t11p2-20261106-r9`（743 辆 / 6000 件 /
 4460.9 MB，dataset `11.4.0.130`）均保留回滚；首发 `t11p2-20261105` 因穿深缺陷

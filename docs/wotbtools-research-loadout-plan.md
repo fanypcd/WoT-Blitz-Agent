@@ -583,7 +583,7 @@ interface VehicleSetup {
 
 | 层 | 本仓（WoT-Blitz-Agent） | WotbTools |
 |---|---|---|
-| 导出器 | `tools/export_research_loadout.py` → `data/research/`（磁盘 123 文件 3.71 MB；`meta.json` 记版本 + 全部 122 个产物的 sha256；预览车用 `--game-data` / `--bridge` / `--modules-only --merge` 增量并入） | **全部非图标数据进资产包 `research/**`**（`scripts/export_asset_pack.py` 发布，assetProvider 读取）；`common/research/` 只保留全局图标集；新坦克/物品不需 WotbTools 发版 |
+| 导出器 | `tools/export_research_loadout.py` → `data/research/`（磁盘 132 文件 ≈3.80 MB；`meta.json` 记版本 + 131 个产物逐文件 sha256；预览车用 `--game-data` / `--bridge` / `--modules-only --merge` 增量并入） | **全部非图标数据进资产包 `research/**`**（`scripts/export_asset_pack.py` 发布，assetProvider 读取）；`common/research/` 只保留全局图标集；新坦克/物品不需 WotbTools 发版 |
 | 目录/过滤 | — | `frontend/src/utils/researchCatalog.js`（`loadResearchCatalog` 请求全局 `/research/*.json`、`loadTankModules` 请求 `/research/modules/{nation}.json`、`availableItems` 全语义 vehicleFilter、`resolveDeviceIds`、`scriptMap`、图标 URL glob） |
 | 公式 | — | `frontend/src/replay-local/compute/characteristics.ts`（纯函数；22 条 golden 覆盖 T-34 三套配置 + 乘员曲线 + 迷彩网 + 装甲系数 + 弹速 + 技能/扩圈） |
 | 状态/参数行 | — | `frontend/src/replay-local/compute/tankSetup.ts`（config 对号、装备槽编解码、上次值 delta、装甲表；24 条单测） |
@@ -776,7 +776,7 @@ interface VehicleSetup {
       `hysteresisHealth`/`hullPosition`。
       产物更新为 123 文件 3.51 MB（`meta.json` 仍 122 个 sha256 条目）。
 
-21. **自动装填有效 DPM + 火炮转向速度（2026-10-27 用户要求）**：
+22. **自动装填有效 DPM + 火炮转向速度（2026-10-27 用户要求）**：
     - **无炮塔标记**：客户端车辆 XML 的 `<hull><fakeTurrets>` 元素**存在** ⇔ 无炮塔
       （`hasTurret=false`）。该块不是数值阈值——738/738 辆与 BI 11.21 `hasTurret`
       逐辆一致（114 辆 false，含 Jagdtiger/SU-100/T95/M3 Grant/Mark I Male），

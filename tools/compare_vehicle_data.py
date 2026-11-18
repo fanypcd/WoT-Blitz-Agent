@@ -147,7 +147,7 @@ def armor(b: bytes) -> tuple[dict, list]:
             rr = R(v)
             while (t := rr.tag()) is not None:
                 if t[1] == 0:
-                    spaced.append(t[0] if False else rr.varint())
+                    spaced.append(rr.varint())
                 elif t[1] == 2:
                     raise ValueError("unexpected spaced wire")
         elif fn == 2 and wt == 0:

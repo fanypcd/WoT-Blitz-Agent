@@ -12,6 +12,7 @@ XI 级预览车的 2D 封面可按车型核查来源、复跑渲染和生成裁�
 | [README.md](../README.md) | 项目总入口：定位、能力总览、与 WotbTools 的关系（分发形态）、仓库结构 |
 | [docs/回放与射击逆向总集.md](回放与射击逆向总集.md) | 射击/回放逆向**唯一权威参考**：第一篇=协议层数据段（字节布局/语义/使用状态/死路清单/消费地图）、第二篇=客户端处理架构、第三篇=客户端弹道与命中表现（含 DecodeShotSegment 权威定义）、第四篇=WI 对照与射击复现实现、第五篇=遗留未定项 |
 | [docs/replay-contract-v2-supremacy-type39.md](replay-contract-v2-supremacy-type39.md) | **回放契约 v2**：争霸基地状态（sparse 重建 + 空闲整播判据）、实时点数、type39 原始帧、独立炮塔与生命轨道等 additive 切面契约、门禁与版本护栏 |
+| [docs/replay-chat-events.md](replay-chat-events.md) | 聊天域证据链与契约（v0.5.0–v0.5.4）：Avatar method 0x2f 频道表 / 0x2b 文本消息 / 0x12 单发通知 / 0x2e 战场快捷标记的证据、fail-closed 边界与 WASM 切面契约 |
 | [docs/author-initial-position.md](author-initial-position.md) | **录像者初始世界位姿能力**（v0.4.15 additive）：`parseAuthorInitialPosition` 的 JSON 形状、身份/位姿证据规则、`null` 失败边界、坐标轴约定、性能与架构边界、真实夹具回归 |
 | [docs/recorder-camera.md](recorder-camera.md) | **录像者相机能力**（v0.4.21 additive）：`parseRecorderCamera` 的 DTO、结构校验、抽稀容差与证据边界 |
 | [docs/wotbtools-cross-reference.md](wotbtools-cross-reference.md) | 与 WotbTools 逆向结论的逐条裁决（采纳/驳回/互证），防止误采或回退已定案；附跨仓协作现状 |
@@ -24,7 +25,8 @@ XI 级预览车的 2D 封面可按车型核查来源、复跑渲染和生成裁�
 | [docs/wotbtools-research-loadout-plan.md](wotbtools-research-loadout-plan.md) | **WotbTools 复刻实施方案与落地记录**（2026-10-27 裁定后范围）：单一整合配置界面（模块/装备/消耗品补给选择，BlitzKit 布局同构），与装甲查看器模型及百科数值联动；**不做**研发/购买/科技树/分入口；数据源铁律（客户端解析权威 / BlitzKit 备用+公式参照，隐蔽加成按客户端）、`data/research/` 导出契约、计算层规格、联动契约（configIndex/delta/URL）、已知偏差表、P0–P4 分期与测试门禁；§12 实现状态与实现期口径 |
 | [docs/decoupling-status.md](decoupling-status.md) | 解耦现状（BlitzKit → 本机客户端自产，已全量完成）：已定案差异清单、封面图与命名域细节、对外沟通材料 |
 | [docs/local-model-export.md](local-model-export.md) | 坦克模型本机自产管线：实现铁律（违反会静默出错）、贴图语义口径与通道搬迁、与 BlitzKit 的逐维度对照结论 |
-| [docs/map-render-align-audit.md](map-render-align-audit.md) | 地图渲染 × 客户端**差异总账**（36 图普查 33 条逐项现役状态）；**未落地项以此文为准**；光照可行性报告删档后的未定项收编于其 §五 |
+| [docs/map-render-align-audit.md](map-render-align-audit.md) | 地图渲染 × 客户端**差异总账**（36 图普查 40 条逐项现役状态）；**未落地项以此文为准**；光照可行性报告删档后的未定项收编于其 §五 |
+| [docs/map-quality-enhancement-plan.md](map-quality-enhancement-plan.md) | 地图画质增强计划：水面/阴影/大气/植被/贴花/后期方向的可选项、客户端依据与实施边界（W1/W3/G1/P1 已落地、L2 已撤回，其余仍为计划） |
 
 ## 档案（已执行完毕 / 报告留档）
 
@@ -93,6 +95,54 @@ XI 级预览车的 2D 封面可按车型核查来源、复跑渲染和生成裁�
 | v0.3.6 | prop3 血量属性广播（录像者自身血量的唯一来源，与 method1 非镜像）。 |
 | v0.3.5 | 原始 HP 证据 `Damage.hp_raw`（未钳制 u16，区分零血与终态未知）与 AoI 开段物化 HP；method8 原始命中通知（全变体、不分类）。 |
 | v0.3.4 | 包流自行分帧（不再依赖 crate 对 payload 的反序列化——单个 pickle 形状偏差不再让整场失败）。 |
+
+### 全仓文档/脚本勘误清理（2026-11-19，docs 勘误 + tools 零行为清理）
+
+**起因**：全面审查（docs 19 篇 + tools/scripts 引用普查 + Rust/CI 核对）发现的过时/冗余集中清理；
+本条同 commit 落地全部勘误（文档随变更同 commit）。
+
+**文档勘误**：
+- **撤销线码映射的残留副本清除（最重要）**：`回放与射击逆向总集.md` §2.6、
+  `replay-contract-v2-supremacy-type39.md` §10、`client-research-tech-tree-loadout.md` §6.4
+  仍复述已被 2026-10-31 受控实验证伪撤销的「103..110 逐项 −33」外推及对 WotbTools
+  `0x48/0x49` 的"纠正"（与该裁决正面冲突）。三处统一改为逐码独立取证口径，指向
+  `wotbtools-cross-reference.md` §二（单一维护点，不再三处复制）。
+- **聊天域收录进权威总集**：总集 §三/§4.2/§6.2 的 `onChatAction`/`ChatActionData`
+  "未解析/未解码"表述更新为已解码（v0.5.0–v0.5.4，`combat/chat.rs`/`markers.rs`，
+  指向专文 replay-chat-events.md）；总集 7 处 `combat.rs` 指称按现役模块改写
+  （events/arena/collect）。
+- **数字漂移修正**：data-inventory 2D 底图 29→43 张（两处；`release/2d-basemaps`/`map2d`
+  实测 43 webp、合计 31.49 MiB）；"线上当前"release 统一到现行事实（default =
+  `11.21.0_1-20261114-r1`，公网 version.json 实测 content_digest `98946fac…`；超测 =
+  `t11r3-20261114-r7-ballistics`，6133 件 / 4530.3 MB）；v0.4.19 括号值删除（版本单一源）；
+  game-data-sources §2.7"现役 r3"与 2026-11-13"当前 release"块标注已被 §5.2 最新块取代；
+  map-render-align-audit §三标题 33→40 条；architecture-debt combat 八→十一子模块
+  （补 chat/markers/nickname）；research-loadout-plan §12.1 123→132 文件（meta.json
+  131 产物条目实测）+ 重复编号 21→22；本页文档索引表补 replay-chat-events.md 与
+  map-quality-enhancement-plan.md 两行；map-quality-enhancement-plan 头部
+  "PLAN ONLY——未开始实现"改为逐项状态（W1/W3/G1/P1 已落地 2026-11-17、L2 已撤回，
+  与正文自洽）；cross-reference ReplayDataset 路径补 crates/ 前缀。
+
+**tools 清理（零/增强行为，均有测试）**：
+- 删 `tools/bake_ground_roofs.py`（488 行，2026-10-07 单日 CPU 俯视烘焙脚本；已被
+  WotbTools GPU 烘焙管线取代、全仓无引用、直接写 ground.webp 且不写 `ground=true`
+  世代元数据——与世代护栏体系不兼容；git 历史可找回）。
+- `extract_armor_states.py` DVPL 解码收敛到 canonical `wotb_sc2.decode_dvpl`：原手写解码
+  跳过 CRC32 且引入 python-lz4 外部依赖；canonical 版与 Rust `dvpl.rs` 同口径
+  fail-closed（CRC/packed-size/unpacked-size 逐项核对）。仅当历史文件 CRC 不符时结论
+  改变——同一批客户端文件在生产链路上一直被 Rust 强制 CRC 通过，无实际影响面。
+- `export_augment_icons.py` 修复 `wotb_sc2` 导入链：脚本原只把 `tools/` 加入 sys.path，
+  而 `wotb_sc2` 在 `tools/wotbtools/`，现布局下 `_dvpl_decode` 调用会 ModuleNotFoundError
+  （潜因 wotb_sc2 迁包后未复跑）；同一修复删除直通包装、改为模块级 import。
+  行为变化 = 修复不可用路径。
+- `compare_vehicle_data.py` 清理恒假死条件（`t[0] if False else rr.varint()` →
+  `rr.varint()`，纯 dead code）。
+
+**验证**：py_compile + 模块导入 PASS（两工具 `decode_dvpl` 均解析到 `wotb_sc2`）；
+`test_dvpl_decode`(13)/`test_export_augment_icons`/`test_apply_data_version`/
+`test_asset_release`(16)/`test_asset_store`(9)/`test_plan_data_version`/
+`test_check_wg_update`(5) 全 PASS。**波及面**：纯文档勘误（无代码行为面）+ 上述 3 个
+工具；`armor_states.json` 需下次重跑提取链时才受 CRC 增强影响。
 
 ### 3D 回放炮声：客户端 Wwise 武器音效提取链（2026-11-14，数据面新增 + 工具）
 
