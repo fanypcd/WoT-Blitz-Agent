@@ -65,6 +65,40 @@ id 28 的字段是扇区号→"Attention to sector %(cell)"）：
 未列出的 id（20/21/30/40–51 等：动态构造字符串或未观测）→ `command_name` 省略，
 保留 raw id（fail-closed）。
 
+### 2.4 战场快捷标记（Avatar method 0x2e，`markers`）
+
+0x2e 与 0x2f 的 chat command 是**两条包路径**：`moving_here` / `attack` /
+`ally_retreat` 这类地图标记走 0x2e，聊天文本与 `attention_to_cell` / `attack_enemy` /
+`help_me` 等走 0x2f。BZT-70 场（2026-10-24）同时含两条路径：0x2f 只有 attention /
+help / negative / attack_enemy，0x2e 补上 “Moving here” 与 “Let's fall back!”。
+
+args 形状（15/15 语料一致）：
+
+```
+[entity_id u32][account_id u32][0 u32][len u8][protobuf len 字节]
+```
+
+- `entity_id` 是**发送者车辆实体**（与名册 `vehicles[].eid` 同域），不是信封头里的
+  Avatar eid（BZT 场包 eid=136067526，args entity=136106019）。
+- `account_id` 与名册 `vehicles[].account_id` 同域。
+- 第三个 u32 在全部样本中为 0，作为形状门禁；`len` 必须恰好吃满其余字节。
+
+protobuf 顶层恰一个字段，字段号 = 标记类型，wire type = 2：
+
+| type | 语义名 | 嵌套消息 | 证据 |
+|---|---|---|---|
+| 1 | `moving_here` | `field1 { field1 x f32, field2 y f32, field3 z f32 }` | BZT t=47.72；战斗日志 “Moving here” |
+| 4 | `attack` | `field2 targetEntityId varint` | 15 场语料 5 条（如 136528023） |
+| 5 | `ally_retreat` | `field2 targetEntityId varint` | BZT t=71.83；战斗日志 “Let's fall back!” |
+
+未观测类型（blitzinfo 白名单中的 6/9/10/15/18/26 等）没有形状证据：只保留
+`marker_type`，`at` / `target_eid` 缺省，消费方不得命名。已知类型若嵌套坐标/目标
+缺失或坏包长度 → 整包跳过。
+
+**扇区标签**：`attention_to_cell` 的 payload 是 1..9 的扇区号；客户端/BlitzInfo 的
+同一映射为 `letter = 65 + floor((n-1)/3)`、`number = (n-1)%3 + 1`（6 → B3，与
+BZT 战斗日志逐条对应）。域外值不生成标签（保留原始 `cell`）。
+
 ### 2.2 method38 组件 token → 逐模块损伤（`module_damage_events`）
 
 `method38`（作者射击）尾部组件表 `count × (componentToken u8 + rawState u8)` 逐项展开：
@@ -135,9 +169,9 @@ args(34) = 01 | 3d 4b 75 ba 00 00 00 00 | 18 | e788b1 e78ea9 e6b8b8 e6888f e79a8
 
 ## 六、已知未解（后续任务候选）
 
-1. **快捷指令 marker**：blitzinfo 白名单 {1,6,9,10,15,18,26}（WAT 0x1048642 位掩码）
-   证明 markerType 编码存在，但其包级定位未完成（本语料 15 场 0 条可归因 marker 包，
-   静态追踪 func392 marker 分支参数语义未闭合）——需要含快捷指令的语料。
+1. **战场 marker 未观测类型**：0x2e 包级定位已闭合（v0.5.4，type 1/4/5，见 §2.4）；
+   仍缺 type 6/9/10/15/18/26 等（blitzinfo 白名单，WAT 0x1048642 位掩码）的样本与
+   嵌套消息形状。当前只保留 `marker_type`，不命名语义。
 2. 0x2f 的 44B 前缀结构（双 f64 时间戳已识别为时间量纲，字段布局未闭合）。
 3. 0x2b 的 `tag`/`seq` 语义与发送者归属（需多聊天样本，尤其含 id→昵称可互验者）。
 4. 0x12 通知 `code` 名表（需客户端二进制侧定位该方法的分派表）。

@@ -788,6 +788,11 @@ pub struct PlaybackData {
     /// 与 blitzinfo 的 ev-damage 同语义。契约 additive：消费方忽略未知键。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub damage_events: Vec<DamageEvent>,
+    /// 战场快捷标记（Avatar method 0x2e）：type 1=moving_here（坐标）、4=attack（目标 eid）、
+    /// 5=ally_retreat（目标 eid）；未观测类型只保留 marker_type。契约 additive：
+    /// 消费方忽略未知键。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<combat::BattleMarkerEvent>,
 }
 
 /// 血量链 → 逐次掉血事件（damage = prev − hp）。prev 序列：满血锚点（若锚点时刻
@@ -1120,6 +1125,13 @@ pub fn attach_packet_evidence(data: &mut PlaybackData, packets: &[(u32, f32, &[u
         .map(|ev| crate::replay::combat::ModuleDamageEvent {
             clock: r2(ev.clock),
             ..ev
+        })
+        .collect();
+    data.markers = crate::replay::combat::collect_battle_markers(packets)
+        .into_iter()
+        .map(|mut ev| {
+            ev.t = r2(ev.t);
+            ev
         })
         .collect();
     for shot in &mut data.shots {
@@ -1464,6 +1476,7 @@ pub fn from_model(
         chat_events: Vec::new(), // 原始包证据：attach_packet_evidence 回填
         module_damage_events: Vec::new(),
         damage_events: damage_events(model),
+        markers: Vec::new(), // 原始包证据：attach_packet_evidence 回填
         supremacy_bases: model
             .timeline
             .supremacy_bases
