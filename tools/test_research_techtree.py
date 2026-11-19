@@ -5,7 +5,9 @@
 client-research-tech-tree-loadout.md §3.2 / §4.2），以及 XI 预览合并
 （tools/fetch_t11_techtree.py → --tech-tree-extra）的落盘事实：
 
-- 节点/研发边总数与 census 一致（308 = 304 主树 + 4 辆预览定义车；314 条整车边）；
+- 节点/研发边总数与 census 一致——**双口径**（2026-11-19 判定）：现役 11.21 基线
+  304 节点 / 310 边、预览车不得出现；预览合并树（meta.previewGameVersion 在场）
+  312 节点 / 318 边、8 辆预览定义车在树上（A179_Black_Rock 树外）；
 - 每个定义节点能对号 modules/{nation}.json（前端联表的完整性边界）；
 - 列↔tier 映射按列内一致性成立（other 树列 1..7 → tier 4..10）；
 - pending 只有 stem/x/y（未实装展示位不造名称/价格）；
@@ -27,12 +29,20 @@ if not RESEARCH_ROOT.is_absolute():
     RESEARCH_ROOT = ROOT / RESEARCH_ROOT
 TT = RESEARCH_ROOT / "tech_tree"
 NATIONS = ["ussr", "germany", "usa", "china", "france", "uk", "japan", "other", "european"]
+# 口径判别（2026-11-19）：`meta.previewGameVersion` 只在 sync_preview_research 真有增量时
+# 写入（见该工具 227 行注释）⇒ 有它 = 预览合并树，无它 = 现役基线。此前 census 常量写死
+# 预览口径，默认跑现役 data/research 必然失败（CI 曾暂列排除，判定后恢复）。
+_META_PATH = RESEARCH_ROOT / "meta.json"
+_META = json.loads(_META_PATH.read_text(encoding="utf-8")) if _META_PATH.is_file() else {}
+PREVIEW_MERGED = bool(_META.get("previewGameVersion"))
 # census 的整车边行（vehicle）；逐来源模块 kind 的拆分是导出的派生事实，
 # 只校验自洽（各 kind 之和 = 总数），不用未记录的数字硬编码。
-# 2026-11-13 t11r3（11.4.0.138）：此前 4 个登记位全部实装（J77_Ho_Ri_4 / F135_AS_XX_40_t /
+# 2026-11-13 t11r3（11.4.0.138）：4 个登记位全部实装（J77_Ho_Ri_4 / F135_AS_XX_40_t /
 # G187_Taschenratte / G189_Hirschkafer），pending 归零；研发边 318 = 314（t11p2）+ 4。
-CENSUS_VEHICLE_EDGES = 318
-CENSUS_NODES = 312
+if PREVIEW_MERGED:
+    CENSUS_NODES, CENSUS_VEHICLE_EDGES = 312, 318
+else:
+    CENSUS_NODES, CENSUS_VEHICLE_EDGES = 304, 310
 CENSUS_PENDING = 0
 # 科技树上有节点的预览定义车；A179_Black_Rock 是收藏车（tier 11）但**不在树上**，
 # 单独校验它只存在于 modules 而无 tree 节点（防"树外车混进节点"回归）。
@@ -121,25 +131,29 @@ def test_tech_tree_export():
     if sum(kinds.values()) != edges_total:
         problems.append(f"sourceKind 之和 {sum(kinds.values())} != edges {edges_total}")
 
-    # XI 预览事实
+    # XI 预览事实：合并树校验"在树上"；现役基线反向校验"不得混入"（防预览增量回灌现役）
     for stem, (nation, tank_id) in PREVIEW_TANKS.items():
         data = json.loads((TT / f"{nation}.json").read_text(encoding="utf-8"))
         node = next((n for n in data["nodes"] if n["stem"] == stem), None)
-        if node is None:
-            problems.append(f"{nation}: 预览定义车 {stem} 缺节点")
-        elif not (node.get("preview") and node["tankId"] == tank_id and node["tier"] == 11 and node["x"] == 11):
-            problems.append(f"{nation}/{stem}: 预览节点事实不符 {node}")
+        if PREVIEW_MERGED:
+            if node is None:
+                problems.append(f"{nation}: 预览定义车 {stem} 缺节点")
+            elif not (node.get("preview") and node["tankId"] == tank_id and node["tier"] == 11 and node["x"] == 11):
+                problems.append(f"{nation}/{stem}: 预览节点事实不符 {node}")
+        elif node is not None:
+            problems.append(f"{nation}: 现役基线不应含预览定义车 {stem}")
     pending_all = set()
     for nation in NATIONS:
         data = json.loads((TT / f"{nation}.json").read_text(encoding="utf-8"))
         pending_all |= {item["stem"] for item in data["pending"]}
     if pending_all != PENDING_STEMS:
         problems.append(f"pending stems {sorted(pending_all)} != 预览登记位")
-    # 树外预览车（收藏 tier 11）：必须在 modules 里，且不得出现在任何树上
+    # 树外预览车（收藏 tier 11）：合并树必须在 modules 里；任何口径都不得出现在树上
     for stem, (nation, tank_id) in PREVIEW_OFF_TREE.items():
-        modules = json.loads((RESEARCH_ROOT / f"modules/{nation}.json").read_text(encoding="utf-8"))
-        if stem not in modules.get("tanks", {}):
-            problems.append(f"{nation}: 树外预览车 {stem} 缺 modules 条目")
+        if PREVIEW_MERGED:
+            modules = json.loads((RESEARCH_ROOT / f"modules/{nation}.json").read_text(encoding="utf-8"))
+            if stem not in modules.get("tanks", {}):
+                problems.append(f"{nation}: 树外预览车 {stem} 缺 modules 条目")
         data = json.loads((TT / f"{nation}.json").read_text(encoding="utf-8"))
         if any(n["stem"] == stem for n in data["nodes"]):
             problems.append(f"{nation}: 树外预览车 {stem} 不应有 tree 节点")
@@ -149,7 +163,34 @@ def test_tech_tree_export():
     assert not problems, "tech_tree 导出问题:\n" + "\n".join(problems)
 
 
+PREVIEW_EXTRA = ROOT / "data/research_t11_preview/tech_tree_extra.json"
+
+
+def test_preview_tech_tree_extra():
+    """预览树坐标覆盖层（fetch_t11_techtree.py 产物）。缺失时显式 skip。
+
+    覆盖层与现役 data/research 分库存放，只在预览工作流里合并（sync_preview_research）；
+    本测试只锁其形状与预览车登记，不要求合并进现役树。
+    """
+    if not PREVIEW_EXTRA.is_file():
+        print("  (skip: 无 data/research_t11_preview/tech_tree_extra.json)")
+        return
+    extra = json.loads(PREVIEW_EXTRA.read_text(encoding="utf-8"))
+    tanks = extra.get("meta", {}).get("tanks")
+    assert isinstance(tanks, list) and len(tanks) == 9 and len(set(tanks)) == 9,         f"预览车登记应为 9 辆: {tanks}"
+    assert {30737, 30993, 30241} <= set(tanks), "预览车登记缺 G187/G189/Black_Rock"
+    trees = extra.get("trees")
+    assert isinstance(trees, dict) and trees, "trees 覆盖层为空"
+    for nation, tree in trees.items():
+        assert nation in NATIONS, f"未知国别 {nation}"
+        for stem, ent in (tree.get("tanks") or {}).items():
+            pos = ent.get("position")
+            assert isinstance(pos, list) and len(pos) == 2 and all(isinstance(v, int) for v in pos),                 f"{nation}/{stem}: position 非法 {pos}"
+
+
 if __name__ == "__main__":
     test_tech_tree_export()
     print("[ok] test_tech_tree_export")
+    test_preview_tech_tree_extra()
+    print("[ok] test_preview_tech_tree_extra")
     print("全部通过")

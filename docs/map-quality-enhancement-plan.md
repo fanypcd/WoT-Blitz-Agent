@@ -54,7 +54,7 @@
   `lightColor0`（已有 `sunUniforms`）。
 - **数据缺口（导出器需补）**：`extras.water` 增加 `specular: true`、
   `inGlossiness`/`inSpecularity`/`reflectanceColor`/`distortionFallSquareDist`/
-  `reflectionDistortion`（`water_props` 现只写 normal/fresnel/tint）。
+  `reflectionDistortion`（2026-11-17 W1 已补：`water_props` 现 12 键全写；此前只写 normal/fresnel/tint）。
 - **收益**：★★★（建筑/桥/岸线倒影；当前"蓝玻璃"总观感的主因）。
 - **成本**：中高（多一趟场景渲染、RT、层管理、与变体裁剪/实例化共存）。
 - **风险**：反射 RT 与透明物排序；斜裁剪面漏光；移动端带宽。缓解：半/四分之一分辨率、
