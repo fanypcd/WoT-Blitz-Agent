@@ -44,11 +44,16 @@ def test_buildings_named_water_are_not_water():
 def test_water_props_defaults_follow_client_property_values():
     # 全写：无属性时逐键落客户端 property 缺省（water-fp.sl:126-128 / water-vp.sl:121-124）。
     # 不做"只写非缺省项"的省略——消费端据此把 MEDIUM 档公式逐项照抄。
+    # 2026-11-17 W1 起 WATER_PROP_DEFAULTS 追加 HIGH/ULTRA 档 5 键
+    # （reflectionDistortion/distortionFallSquareDist/inGlossiness/inSpecularity/reflectanceColor）。
     got = water_props({})
     assert got == {"normal0Scale": 1.0, "normal1Scale": 1.0,
                    "normal0ShiftPerSecond": [0.0, 0.0], "normal1ShiftPerSecond": [0.0, 0.0],
                    "fresnelBias": 0.0, "fresnelPow": 0.0,
-                   "reflectionTintColor": [1.0, 1.0, 1.0]}
+                   "reflectionTintColor": [1.0, 1.0, 1.0],
+                   "reflectionDistortion": 0.04, "distortionFallSquareDist": 100.0,
+                   "inGlossiness": 0.5, "inSpecularity": 0.5,
+                   "reflectanceColor": [0.5, 0.5, 0.5]}
     assert sorted(got) == sorted(WATER_PROP_DEFAULTS)
 
 

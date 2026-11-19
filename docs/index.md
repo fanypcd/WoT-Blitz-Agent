@@ -151,12 +151,10 @@ XI 级预览车的 2D 封面可按车型核查来源、复跑渲染和生成裁�
   交接件 `map2d-source.json`（2026-11-17 代）vs pack `map2d/index.json`（2026-11-06 代），
   归属下次重打包全链消化（同本地 pack 磁盘 6045 件 vs manifest 5965 条的混合态），测试
   不弱化。
-- **ci.yml 新增 `python-tests` job**（ubuntu + pillow，全量 `tools/test_*.py` standalone
-  脚本逐个执行、断言失败即红）：数据/客户端/WotbTools 检出依赖用例自带显式 skip，干净
-  检出不假失败。全量普查 34 套 = 32 PASS / 2 个 **pre-existing 红**暂列排除（口径判定后
-  移出排除恢复）：`test_export_surface_flags`（`water_props` 默认值单元素保持列表 vs
-  测试期望标量——哪边对齐客户端属性待判定）、`test_research_techtree`（期望 t11 预览车
-  并入 `data/research` vs 现役 11.21 基线不含预览增量——口径待判定）。
+- **ci.yml 新增 `python-tests` job**（ubuntu + pillow/numpy/imagecodecs，全量
+  `tools/test_*.py` standalone 脚本逐个执行、断言失败即红）：数据/客户端/WotbTools
+  检出依赖用例自带显式 skip，干净检出不假失败。两个 pre-existing 红同日判定后恢复
+  （见下条"口径判定落地"）。
 - **`upload_asset_pack_cos.py` 的 `qcloud_cos` 改惰性导入**：被测纯逻辑
   （`skip_decision`/`patch_manifest_entries`）无需 SDK 即可导入，CI/新机器不装
   `cos-python-sdk-v5` 也能跑其 8 个用例；真上传缺 SDK 时给可操作报错而非 ImportError。
@@ -164,6 +162,14 @@ XI 级预览车的 2D 封面可按车型核查来源、复跑渲染和生成裁�
   （`WOTB_AGENT_RELEASE_VERSION`；解析缺失 panic + `main.rs` `env!()` 双 fail-closed，
   `rerun-if-changed=Cargo.toml`）——实测输出 `wotb-agent 0.5.4`，替代脱节的 `0.1.0`；
   package version 本身不动（发布政策）。
+- **口径判定落地（2026-11-19，两测试恢复）**：① `test_export_surface_flags`——真因是
+  测试停在 W1 前的 7 键旧契约（工具输出 12 键、标量形状本就正确；此前只探到断言截断处
+  而误述为"单元素列表 vs 标量"，实测共有键零差异），测试期望已补 W1 新增的 5 个
+  HIGH/ULTRA 键（`reflectionDistortion`/`distortionFallSquareDist`/`inGlossiness`/
+  `inSpecularity`/`reflectanceColor`）；② `test_research_techtree`——改为按
+  `meta.previewGameVersion` 判别**双口径**：现役基线 304 节点/310 边且预览车不得出现，
+  预览合并树 312/318 且 8 辆预览定义车在树上；新增 `tech_tree_extra.json`（预览坐标
+  覆盖层）形状校验（缺失显式 skip）。两者已从 CI 排除清单移出，34 套恢复全量真跑。
 
 **CI 首跑暴露的三处跨平台兼容（PR #79 修，同纪律）**：
 - 依赖普查补齐：`numpy`（composite_overhead/export_map_glb/export_tank_glb 等模块级依赖，
