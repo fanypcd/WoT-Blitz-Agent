@@ -42,6 +42,7 @@
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import struct
 import subprocess
@@ -201,6 +202,16 @@ def main() -> None:
     cache_maps = data / "cache" / "maps"
     terrain_cache = data / "cache" / "terrain"
     out = args.out
+    # sound/wpn（炮声）由 tools/export_gun_sounds.py 直接产出在包内，不在打包器重建面内；
+    # 重建会 wipe 整个 out——先挪到包目录外暂存，重建后原位放回并登记进 manifest。
+    # 2026-11-19 炮声补发后 sound/wpn 属于 manifest 内容（未登记文件在 asset_release
+    # verify 是 fail-closed），不能在重打包时丢掉。
+    sounds_backup: Path | None = None
+    if (out / "sound" / "wpn").is_dir():
+        sounds_backup = out.parent / f".asset_pack-sounds-{os.getpid()}"
+        if sounds_backup.exists():
+            shutil.rmtree(sounds_backup)
+        shutil.move(str(out / "sound" / "wpn"), str(sounds_backup))
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
@@ -532,6 +543,13 @@ def main() -> None:
     files.append(out / "index.json")
 
     # ---- manifest（sha256，部署前校验包完整性） ----
+    # 放回保留的炮声资产并登记（见上方 wipe 前的暂存说明）
+    if sounds_backup is not None:
+        (out / "sound" / "wpn").parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(sounds_backup), str(out / "sound" / "wpn"))
+        for f in sorted((out / "sound" / "wpn").rglob("*")):
+            if f.is_file():
+                files.append(f)
     # 按路径去重（map 段 cp 与 rglob 会重复登记同一文件）
     uniq: dict[str, dict] = {}
     for f in sorted(files):
