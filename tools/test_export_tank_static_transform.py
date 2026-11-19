@@ -320,6 +320,9 @@ def test_integration_unaffected_tank_byte_identical():
     """未命中静态变换/状态过滤的车必须与现役缓存**逐字节一致**（修正的零副作用保证）。"""
     root = pathlib.Path(__file__).resolve().parent.parent
     cache = root / "data" / "cache" / "models"
+    if not cache.is_dir():
+        print("  (skip: 无本地模型缓存 data/cache/models——gitignored，打包后自检)")
+        return
     static_affected = {3921, 5969, 8305, 9073, 10625, 10753, 10881, 12657, 16001, 17217,
                        17265, 17777, 20081, 20817, 21249, 22033, 22385, 24145, 24945,
                        26145, 28689, 28961, 29457}

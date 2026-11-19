@@ -46,7 +46,7 @@ def test_index_schema_and_geometry_contract():
     idx, _ = _load()
     assert idx["schemaVersion"] == 2, "索引必须声明几何契约（schemaVersion 2）"
     maps = idx["maps"]
-    assert len(maps) == 29, f"注册表 29 张，索引 {len(maps)} 张"
+    assert len(maps) == 43, f"索引应为 43 张（2026-11-01 起 pack index 全量枚举），实际 {len(maps)} 张"
     for code, e in maps.items():
         b = e.get("worldBounds")
         assert b == {"xMin": -300.0, "xMax": 300.0, "yMin": -300.0, "yMax": 300.0}, f"{code}: worldBounds {b}"
@@ -74,7 +74,8 @@ def test_stamp_is_same_generation_and_byte_bound():
     assert stamp["contentGeneratedAt"] == idx["generated"], "交接件与索引必须同一代内容"
     assert stamp["indexSha256"] == hashlib.sha256(INDEX.read_bytes()).hexdigest(), "交接件 indexSha256 与索引实际字节不符"
     maps = stamp["maps"]
-    assert len(maps) == len(idx["maps"]) == 29
+    # 总量锁在 test_index_schema_and_geometry_contract（43 张）；此处只锁交接件与索引同代同数。
+    assert len(maps) == len(idx["maps"])
     lines = []
     for code, entry in sorted(maps.items()):
         canonical = STAGING / entry["file"]

@@ -224,10 +224,11 @@ AoI 收集器已实证"同 eid 重入"）。切面以 additive 字段表达多�
 旧消费方忽略即可。**消费方注意**：WotbTools 现有 `toLoadout` 以 `loadout_items.length === 6`
 为门禁，7 条布局（3 消耗品 + 1 模式能力 + 3 给养）会被整条丢弃——应改读 `vehicles[].loadout`
 或按 `f32 -1.0` 静态尾分流。**已闭合**：模式能力 `0x67` = `gravityJump`/Thruster；消耗品
-`0xA9` = `DYNAMIC_ARMOUR_SYSTEM`/armorMover；欧系/瑞典/捷克/波兰食物块 `0x46..0x4D` 与
-`provisions.pb` id 103..110 逐项相差 33，按每国 HQ(大)→regular(小)（`0x4A` = Goulash/
-LARGE_FOOD；纠正 WotbTools 11.19 文档 `0x48`/`0x49` 的互换推断）。当前语料所有观测线码
-均已闭合；**未决**仅描述符 12B 内部计时/动态字段。
+`0xA9` = `DYNAMIC_ARMOUR_SYSTEM`/armorMover；食物线码 `0x46`/`0x47`/`0x48`/`0x49`/`0x4A`/
+`0x4B` 与波兰 `0x6D`/`0x6E` 于 2026-10-31 受控实验逐码独立取证闭合——线码与 `provisions.pb`
+目录 id **无统一换算**，旧「103..110 逐项 −33」外推及对 WotbTools `0x48`/`0x49` 的"纠正"
+已撤销（权威口径见 `wotbtools-cross-reference.md` §二）。当前语料所有观测线码均已闭合；
+**未决**仅描述符 12B 内部计时/动态字段。
 
 ## 11. 消耗品状态与剩余时间（additive，2026-10-30）
 

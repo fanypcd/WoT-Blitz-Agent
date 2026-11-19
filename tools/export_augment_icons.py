@@ -33,6 +33,9 @@ import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "tools"))
+sys.path.insert(0, str(REPO_ROOT / "tools" / "wotbtools"))
+
+from wotb_sc2 import decode_dvpl  # noqa: E402（wotb_sc2 位于 tools/wotbtools/，CRC fail-closed canonical）
 
 DEFAULT_ZIP = "http://cdn.static.wotb.app/win7/WotBlitz_11.4.0.138_t11r3.zip"
 UPGRADE_DIR = "Gfx/Lobby/icons/upgrades"
@@ -89,11 +92,6 @@ def collect_requirements(pack: pathlib.Path) -> tuple[set[str], dict[str, str]]:
     return icons, mechanics
 
 
-def _dvpl_decode(raw: bytes) -> bytes:
-    from wotb_sc2 import decode_dvpl
-    return decode_dvpl(raw)
-
-
 def _crop_alpha(data: bytes) -> tuple[bytes, tuple[int, int], tuple[int, int]]:
     """按 alpha 可见内容裁边 → 无损 webp 字节（保留原宽高比）。"""
     from PIL import Image
@@ -120,7 +118,7 @@ class ZipSource:
             if member in self.entries:
                 from fetch_t11_techtree import read_member
                 raw = read_member(self.reader, {member: self.entries[member]}, member)
-                return _dvpl_decode(raw)
+                return decode_dvpl(raw)
         return None
 
     def close(self) -> None:
@@ -135,7 +133,7 @@ class DataRootSource:
         for variant in (f"{relbase}@2x.packed.webp.dvpl", f"{relbase}.packed.webp.dvpl"):
             path = self.root / variant
             if path.is_file():
-                return _dvpl_decode(path.read_bytes())
+                return decode_dvpl(path.read_bytes())
         return None
 
 

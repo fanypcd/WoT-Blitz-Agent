@@ -129,7 +129,7 @@ WotbTools 的 canonical 流水线（Java `wotb-core` + 前端）需要 Agent 侧
   world_gun_yaw/pitch`（开火时刻 |dt|≤0.05s 锚定——326/326 三明治保证帧存在）。
 - **method38 位常量结构化**（`combat::hit_flags_mod` 全 16 位命名 + PENETRATION_FAMILY 谓词）；
   同钟同受击者合并（0.05s 窗）；rawState 语义注释已按 §二 定案。
-- **ReplayDataset**（`models/replay_dataset.rs` + CLI `dataset <file>`）：metadata/settlement/
+- **ReplayDataset**（`crates/replay-core/src/models/replay_dataset.rs` + CLI `dataset <file>`）：metadata/settlement/
   diagnostics（packet_types 直方图 + unsupported 盘点 + degradation 聚合）。
 - **装填相位与有效时长**（v0.3.9）：见 §六。
 - **车辆实际搭载配置与弹容**（`config_idx`/`burst_size`）：见 §六弹容裁决。

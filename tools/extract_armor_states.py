@@ -14,24 +14,17 @@ from __future__ import annotations
 
 import argparse
 import json
-import lz4.block
 import pathlib
 import re
-import struct
+import sys
 import zipfile
 
+_TOOLS_WOTBTOOLS = pathlib.Path(__file__).resolve().parent / "wotbtools"
+if str(_TOOLS_WOTBTOOLS) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_WOTBTOOLS))
+from wotb_sc2 import decode_dvpl  # noqa: E402（canonical DVPL 解码：CRC fail-closed，与 Rust dvpl.rs 同口径）
+
 DEFAULT_OUT = pathlib.Path(__file__).resolve().parent.parent / "data" / "armor_states.json"
-
-
-def dvpl(data: bytes) -> bytes:
-    assert data[-4:] == b"DVPL", "not a DVPL payload"
-    decoded, _enc, _crc, typ = struct.unpack("<IIII", data[-20:-4])
-    payload = data[:-20]
-    if typ == 0:
-        return payload
-    if typ == 2:
-        return lz4.block.decompress(payload, uncompressed_size=decoded)
-    raise ValueError(f"unsupported DVPL type {typ}")
 
 
 def parse_states(xml: str) -> list[dict] | None:
@@ -76,7 +69,7 @@ def main() -> None:
     for name in sorted(zf.namelist()):
         if not re.fullmatch(r"vehicles/[^/]+/[^/]+\.xml\.dvpl", name):
             continue
-        xml = dvpl(zf.read(name)).decode("utf-8", "replace")
+        xml = decode_dvpl(zf.read(name)).decode("utf-8", "replace")
         states = parse_states(xml)
         if states is None:
             continue

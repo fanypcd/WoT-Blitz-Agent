@@ -26,7 +26,9 @@ import threading
 import time
 from pathlib import Path
 
-from qcloud_cos import CosConfig, CosS3Client
+# qcloud_cos（cos-python-sdk-v5）惰性导入：skip_decision / patch_manifest_entries 等被测
+# 纯逻辑不依赖 SDK，模块导入须在未装 SDK 的环境（CI / 新机器）可用；真正上传前再导入，
+# 缺 SDK 时给出可操作的报错而不是 ImportError。
 
 BUCKET = "wotbtools-assets-1478073677"
 REGION = "ap-shanghai"
@@ -139,6 +141,11 @@ def main():
         print("缺少 COS_SECRET_ID / COS_SECRET_KEY 环境变量", file=sys.stderr)
         return 2
 
+    try:
+        from qcloud_cos import CosConfig, CosS3Client
+    except ImportError:
+        print("缺少 cos-python-sdk-v5（pip install cos-python-sdk-v5）——legacy COS 通道", file=sys.stderr)
+        return 2
     client = CosS3Client(CosConfig(Region=REGION, SecretId=sid, SecretKey=skey, Scheme="https"))
 
     # `overhead/` = 俯视烘焙的**中间渲染件**（frontend/scripts/bake-ground-overhead.mjs 落进包目录，
