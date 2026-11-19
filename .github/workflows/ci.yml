@@ -61,3 +61,31 @@ jobs:
         working-directory: frontend
       - name: bundle 特性编译验证（data/ + 前端 + wasm 嵌入路径）
         run: cargo build --features bundle
+
+  # Python 侧回归锁（tools/test_*.py，standalone 脚本：断言失败即非零退出）此前只在
+  # 本机按需手跑。依赖本机数据 / 客户端 / WotbTools 检出 / release/ 产物的用例自带
+  # 显式 skip（各文件头注明），干净检出上自动跳过，不会假失败。
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 依赖（Pillow：2D 几何回读 / 图标裁剪类测试）
+        run: python -m pip install --quiet pillow
+      - name: 全量 tools/test_*.py
+        run: |
+          # 两个 pre-existing 红暂列排除（口径判定后移除并恢复，见 docs/index.md 2026-11-19 条目）：
+          # - test_export_surface_flags：water_props 默认值单元素保持列表 vs 测试期望标量，待定哪边对齐客户端属性
+          # - test_research_techtree：期望 t11 预览车并入 data/research vs 现役包 11.21 基线不含预览增量
+          excluded="tools/test_export_surface_flags.py tools/test_research_techtree.py"
+          fail=0
+          for f in tools/test_*.py; do
+            skip=""
+            for e in $excluded; do [ "$f" = "$e" ] && skip=1; done
+            if [ -n "$skip" ]; then echo "=== $f（跳过：已知红，待口径判定）"; continue; fi
+            echo "=== $f"
+            python "$f" || fail=1
+          done
+          exit $fail

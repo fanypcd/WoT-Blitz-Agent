@@ -11,6 +11,29 @@ use std::path::Path;
 /// 占位 index.html 的哨兵标记（真实 npm 产物不含此字符串）。
 const PLACEHOLDER_SENTINEL: &str = "<!--wotb-agent-placeholder-->";
 
+/// 从 Cargo.toml 文本提取 `[workspace.metadata.release]` 段的 `version`（AGENTS.md 规定
+/// 该值为纯 SemVer、不带 v 前缀）。按本仓固定格式做最小解析，解析不到返回 None。
+fn parse_workspace_release_version(text: &str) -> Option<String> {
+    let mut in_section = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_section = trimmed == "[workspace.metadata.release]";
+            continue;
+        }
+        if !in_section {
+            continue;
+        }
+        let Some(rest) = trimmed.strip_prefix("version") else { continue };
+        let Some(rest) = rest.trim_start().strip_prefix('=') else { continue };
+        let value = rest.trim().trim_matches('"');
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
 fn main() {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
     let index = Path::new(&manifest).join("frontend/dist/index.html");
@@ -48,4 +71,15 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     // vite 产物文件名带内容哈希：显式跟踪 index.html 保证 npm build 后嵌入面刷新。
     println!("cargo:rerun-if-changed=frontend/dist/index.html");
+
+    // CLI --version 单一版本源：从 [workspace.metadata.release].version 注入（AGENTS.md
+    // 发布政策——package version 不是产品版本）。解析缺失即 panic（fail-closed）；
+    // main.rs 的 env!() 在变量缺失时同样编译失败，两条路都不会静默降级。
+    let toml_text = std::fs::read_to_string(Path::new(&manifest).join("Cargo.toml"))
+        .expect("读取根 Cargo.toml 失败");
+    let release_version = parse_workspace_release_version(&toml_text)
+        .unwrap_or_else(|| panic!("Cargo.toml 缺少 [workspace.metadata.release].version"));
+    println!("cargo:rustc-env=WOTB_AGENT_RELEASE_VERSION={release_version}");
+    // 元数据段变更不会触发依赖重建：显式跟踪，保证 bump 后 --version 立即跟新。
+    println!("cargo:rerun-if-changed=Cargo.toml");
 }

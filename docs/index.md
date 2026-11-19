@@ -144,6 +144,27 @@ XI 级预览车的 2D 封面可按车型核查来源、复跑渲染和生成裁�
 `test_check_wg_update`(5) 全 PASS。**波及面**：纯文档勘误（无代码行为面）+ 上述 3 个
 工具；`armor_states.json` 需下次重跑提取链时才受 CRC 增强影响。
 
+**补充（同日，遗留事项落地）**：
+- **`test_2d_basemap_geometry.py` 两处 `== 29` 常量 → 43**：2026-11-01 全量枚举后测试
+  常量未跟上（根注册表 `map_index.json` 55 key 实测**全覆盖** map2d 43 key，数据面无漂移，
+  纯测试常量过时）。修正后第一/二项恢复通过；第三项暴露**本地真实混合代**——staging
+  交接件 `map2d-source.json`（2026-11-17 代）vs pack `map2d/index.json`（2026-11-06 代），
+  归属下次重打包全链消化（同本地 pack 磁盘 6045 件 vs manifest 5965 条的混合态），测试
+  不弱化。
+- **ci.yml 新增 `python-tests` job**（ubuntu + pillow，全量 `tools/test_*.py` standalone
+  脚本逐个执行、断言失败即红）：数据/客户端/WotbTools 检出依赖用例自带显式 skip，干净
+  检出不假失败。全量普查 34 套 = 32 PASS / 2 个 **pre-existing 红**暂列排除（口径判定后
+  移出排除恢复）：`test_export_surface_flags`（`water_props` 默认值单元素保持列表 vs
+  测试期望标量——哪边对齐客户端属性待判定）、`test_research_techtree`（期望 t11 预览车
+  并入 `data/research` vs 现役 11.21 基线不含预览增量——口径待判定）。
+- **`upload_asset_pack_cos.py` 的 `qcloud_cos` 改惰性导入**：被测纯逻辑
+  （`skip_decision`/`patch_manifest_entries`）无需 SDK 即可导入，CI/新机器不装
+  `cos-python-sdk-v5` 也能跑其 8 个用例；真上传缺 SDK 时给可操作报错而非 ImportError。
+- **CLI `--version` 由 build.rs 从 `[workspace.metadata.release].version` 注入**
+  （`WOTB_AGENT_RELEASE_VERSION`；解析缺失 panic + `main.rs` `env!()` 双 fail-closed，
+  `rerun-if-changed=Cargo.toml`）——实测输出 `wotb-agent 0.5.4`，替代脱节的 `0.1.0`；
+  package version 本身不动（发布政策）。
+
 ### 3D 回放炮声：客户端 Wwise 武器音效提取链（2026-11-14，数据面新增 + 工具）
 
 **做了什么**：新增 `tools/export_gun_sounds.py` 与 `tools/export_gun_class.py`，把客户端内置

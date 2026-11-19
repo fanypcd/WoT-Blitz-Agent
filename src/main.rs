@@ -17,7 +17,8 @@ use wotb_agent::wargaming::tank_resolver::TankResolver;
 #[derive(ClapParser)]
 #[command(
     name = "wotb-agent",
-    version = "0.1.0",
+    // 产品版本单一源 = [workspace.metadata.release].version（build.rs 注入，见 AGENTS.md 发布政策）
+    version = env!("WOTB_AGENT_RELEASE_VERSION"),
     about = "WoTB Replay Analysis Agent"
 )]
 struct Cli {
