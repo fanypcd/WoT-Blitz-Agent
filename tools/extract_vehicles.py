@@ -357,8 +357,17 @@ class Names:
     def _load_overlay() -> dict:
         """运行时本地化覆盖层 → {原文键: 值}（只收拉丁值）。缺失/不可读时返回空表。"""
         out: dict[str, str] = {}
+        localappdata = os.environ.get("LOCALAPPDATA")
         for d in Names.OVERLAY_DIRS:
-            root = os.path.expandvars(d)
+            # %LOCALAPPDATA% 显式展开：os.path.expandvars 在 POSIX 上不认 %VAR% 语法
+            # （CI/Linux 会留成字面路径，覆盖层整体失效）。Windows 行为不变。
+            if "%LOCALAPPDATA%" in d:
+                if not localappdata:
+                    continue
+                root = d.replace("%LOCALAPPDATA%", localappdata)
+            else:
+                root = d
+            root = os.path.expandvars(root)
             if not os.path.isdir(root):
                 continue
             for p in sorted(glob.glob(os.path.join(root, "*.yaml"))):

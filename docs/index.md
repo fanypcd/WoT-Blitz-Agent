@@ -165,6 +165,18 @@ XI 级预览车的 2D 封面可按车型核查来源、复跑渲染和生成裁�
   `rerun-if-changed=Cargo.toml`）——实测输出 `wotb-agent 0.5.4`，替代脱节的 `0.1.0`；
   package version 本身不动（发布政策）。
 
+**CI 首跑暴露的三处跨平台兼容（PR #79 修，同纪律）**：
+- 依赖普查补齐：`numpy`（composite_overhead/export_map_glb/export_tank_glb 等模块级依赖，
+  初版普查 grep 被 head 截断漏报）、`imagecodecs`（`wotb_cube.decode_dds_cube` 惰性导入，
+  test_export_ibl 走到 cube 解码路径）——均入 `python-tests` 的 pip install。
+- `test_export_tank_static_transform::test_integration_unaffected_tank_byte_identical`
+  补缓存缺失护栏：`data/cache/models`（gitignored）缺失时显式 skip——与该测试末行
+  `or not cache.is_dir()` 的既有意图一致，此前 `cache.iterdir()` 直接 FileNotFoundError。
+- `extract_vehicles.Names._load_overlay` 跨平台展开 `%LOCALAPPDATA%`：`os.path.expandvars`
+  在 POSIX 上不认 `%VAR%` 语法（CI/Linux 留成字面路径，覆盖层整体失效→dynloc 回退测试
+  断言失败）；改为显式 replace + 环境变量缺失跳过。Windows 行为不变（本机全套测试复跑
+  PASS）；`~/wotblitz/...` 两条目录项仍不经 expanduser（现状即死项，另立待办不混入）。
+
 ### 3D 回放炮声：客户端 Wwise 武器音效提取链（2026-11-14，数据面新增 + 工具）
 
 **做了什么**：新增 `tools/export_gun_sounds.py` 与 `tools/export_gun_class.py`，把客户端内置

@@ -72,8 +72,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: 依赖（Pillow / numpy：2D 几何回读、地图导出器与俯视合成类测试）
-        run: python -m pip install --quiet pillow numpy
+      - name: 依赖（Pillow / numpy / imagecodecs：2D 几何回读、地图导出器、俯视合成与 cube DDS 解码类测试）
+        run: python -m pip install --quiet pillow numpy imagecodecs
       - name: 全量 tools/test_*.py
         run: |
           # 两个 pre-existing 红暂列排除（口径判定后移除并恢复，见 docs/index.md 2026-11-19 条目）：
