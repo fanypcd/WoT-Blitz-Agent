@@ -204,7 +204,43 @@ asset consumption 变更）。
 
 **未取证 / 边界**：客户端按距离切 Close/Mid/Far 的 HIRC 阈值未取证（当前固定 close 层 +
 WebAudio 距离/pan 增益，曲线为产品近似非客户端语义）；音频为 Wargaming 资产，公开发布
-口径待产品侧确认。
+口径**已由产品侧裁定为发布（2026-11-19，见下条）**。
+
+### 炮声资产发布 + 本地资产回灌对齐（2026-11-19，数据面发布 + 运维）
+
+**发布（用户裁定"发布"）**：`sound/wpn/`（75 OGG ≈3.8 MB + `index.json` + `gun_class.json`，
+共 77 件唯一对象）以 `incoming-sounds-20261119` 批次**原地补发**进三份现役 release
+（`11.21.0-20261106-r2` / `11.21.0_1-20261114-r1` / `t11r3-20261114-r7-ballistics`），
+沿用 mapbase 批次的已验证模式：内容入对象库（77 个新对象）→ 备份
+`_backup-sounds-20261119` → 原子硬链接（release 内不可变语义）→ manifest 合并（77 件
+进逐文件 sha256 清单）→ `asset_release.py stamp` 重算 digest（新值：11.21.0 =
+`sha256:45b6b924…`、11.21.0_1 = `sha256:564a2810…`、t11r3-r7 = `sha256:c78cc66b…`）
+→ `dataset.sh catalog`（default 仍 `11.21.0_1`）。URL/ETag 语义不变，线上客户端逐文件
+校验基于 manifest 自洽。**验证**：主机 `dataset.sh verify` PASS（3 dataset）+
+`asset_store verify --links` PASS（197622 条）；公网回读四基址（root + 3 个 /v/）
+`index.json`/OGG 逐字节一致、三 manifest sha256 与 versions.json 全对。**事故与修复**：
+t11r3-r7 release 目录属主异常为 root（其余 release 均 admin，建目录 PermissionError 中断），
+`sudo chown -R admin:admin` 规范化后脚本加**重入容错**（对象/链接已存在且大小一致则跳过）
+重跑完成——前两 release 的中断态被幂等消化，无残留。**打包器收编**：
+`scripts/export_asset_pack.py` 重建前把 `sound/wpn/` 暂存到包目录外、重建后原位放回并
+登记进 manifest（此前这 78 件游离在 manifest 体系外、重建即丢——炮声进 manifest 后
+`asset_release verify` 对未登记文件 fail-closed，必须收编）。
+
+**本地回灌（对齐"本地资产 vs 线上"差异报告）**：三份本地 pack
+（`release/asset_pack` / `asset_pack_11210_1_r2` / `asset_pack_t11r3_r3`）按线上
+manifest 逐文件回灌（实测差异 = 11.21.0: +184/±88、11.21.0_1: +184/±88、t11r3-r7: +184/±100——
+各含本批 77 件炮声 + 共享地图 base 的 107 件新增与 86..98 件替换），本地 `release/versions.json` 用线上字节替换（default =
+`11.21.0_1`，dataset 收敛为 `11.21.0` / `11.21.0_1` / `11.4.0.138-r5` 三条），
+`release/datasets/` 补 `11.4.0.138-r5` 软链（旧 `11.4.0.130`/`11.4.0.138` 别名与主机
+现状一致保留）。回灌后全量 sha 复核（逐 manifest 逐文件）PASS：6149/6156/6210 全对、
+三 pack version.json digest 与线上一致；本地 `test_2d_basemap_geometry` **4 项全绿**
+（pack map2d index 随回灌到 11-17 代，与 staging 交接件同代——上一轮遗留的
+"本地混合代"第三项失败随之消除）。
+
+**波及面**：线上三 release 各 +77 路径（manifest 6149/6156/6210）、digest 变更
+（versions.json / version.json 同步）；本地三 pack 与线上逐字节一致。WotbTools 无需发版
+（`gunfireAudio.ts` 已在生产且 404 降级——发布后自动恢复，无需 pin bump：资产 origin
+内容变化不触发 Android Version-as-Code 规则）。
 
 ### 地图要素完整化（第二批）：草系统 + 地图边界（2026-11-17，数据面新增 + 消费端）
 

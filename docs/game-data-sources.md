@@ -637,7 +637,7 @@ play_wpn_{small|mid|main|large|huge|huge_extra|auto}_3p
 
 **边界**：
 
-- 音频是 Wargaming 资产；公开发布口径由产品侧决定（本仓只记录提取链）。
+- 音频是 Wargaming 资产；公开发布口径已由产品侧裁定为发布（2026-11-19 随三现役 release 原地补发进 manifest，77 件对象硬链接共享，digest 见 release-log.jsonl `gun-sound-assets` 条目）。
 - 两 pck 的其余流式媒体（UI/语音/坦克引擎等，181 − 75 = 106 个）不在事件闭集内，不导出。
 - `play_wpn_damaged_1p` / `play_wpn_shell_last` / `play_wpn_shell_penult`
   无流式媒体（或仅 1p），不属 3p 闭环。
