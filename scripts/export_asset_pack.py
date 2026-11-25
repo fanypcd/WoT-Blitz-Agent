@@ -15,6 +15,9 @@
     │         gunMaskSlices.json}
     ├── research/**                     # 坦克百科配置器数据（data/research 非图标部分：全局目录/
     │                                   #   物品/技能/params/strings + 逐车 modules；图标留 WotbTools）
+    ├── ui/{flags,medals,crew-skills,ribbons,tournament,lobby-icons}/**  # 客户端 UI 单图元素
+    │                                   #   （data/cache/ui ← tools/export_ui_elements.py；
+    │                                   #    DVPL 剥壳裸 webp，docs/game-data-sources.md §2.9）
     └── map/{key}/
         ├── ground.webp                 # /api/playback/map 的高清底图答案
         │                               # ⚠️ 本脚本会用 client colormap 重写 ground.webp、
@@ -282,6 +285,25 @@ def main() -> None:
             continue  # 全局图标集留在 WotbTools common/research/icons
         if cp(f, f"research/{rel.as_posix()}"):
             research_n += 1
+
+    # ---- 客户端 UI 单图元素（data/cache/ui；国家旗帜/勋章/技能图标/大厅图标） ----
+    # 客户端资源名即路径（`ui/flags/flag_text_usa.webp` 等），语义绑定来自客户端 UI yaml
+    # （docs/game-data-sources.md §2.9）。缺目录/空组即拒绝打包——静默发布“没有旗帜”的包
+    # 会让消费方在运行期 404 且难以定位；重跑 `tools/export_ui_elements.py --all` 即可。
+    ui_dir = data / "cache" / "ui"
+    ui_n = 0
+    if not ui_dir.is_dir():
+        ap.error("缺少 data/cache/ui —— 先运行 `python tools/export_ui_elements.py --all`")
+    for group in sorted(p for p in ui_dir.iterdir() if p.is_dir()):
+        sources = sorted(group.rglob("*.webp"))
+        if not sources:
+            ap.error(f"UI 组 {group.name} 为空 —— 重跑 "
+                     f"`python tools/export_ui_elements.py --group {group.name}`")
+        for f in sources:
+            if cp(f, f"ui/{group.name}/{f.relative_to(group).as_posix()}"):
+                ui_n += 1
+    if not ui_n:
+        ap.error("data/cache/ui 下没有任何 webp —— 重跑 `python tools/export_ui_elements.py --all`")
 
     # ---- 逐车悬挂参数（tools/export_tank_suspension.py 产物；additive） ----
     # 客户端 `Parameters/*.yaml` 的 suspension 块（逐轮行程 + 履带静止折线 + 弯曲/铺放系数 +
@@ -570,7 +592,8 @@ def main() -> None:
     mb = sum(f["bytes"] for f in manifest["files"]) / 1e6
     print(f"资产包已导出: {out}")
     print(f"  GLB {glb_n} 个文件 / 封面 {img_n} 张 / 核心数据 {core_n} 个 / 地图 {map_n} 张"
-          f"（含地形 {with_terrain}）/ 悬挂 {sus_n} 辆 / 配置器数据 {research_n} 件")
+          f"（含地形 {with_terrain}）/ 悬挂 {sus_n} 辆 / 配置器数据 {research_n} 件"
+          f" / UI 元素 {ui_n} 件")
     print(f"  共 {n_files} 文件, {mb:.1f}MB（manifest.json 含逐文件 sha256）")
     if missing_scale:
         print(f"  ⚠ 缺地形尺度（sidecar worldBounds），terrain 未打包: {', '.join(missing_scale)}")
