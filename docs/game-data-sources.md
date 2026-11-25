@@ -642,6 +642,110 @@ play_wpn_{small|mid|main|large|huge|huge_extra|auto}_3p
 - `play_wpn_damaged_1p` / `play_wpn_shell_last` / `play_wpn_shell_penult`
   无流式媒体（或仅 1p），不属 3p 闭环。
 
+### 2.9 UI 单图元素 ← 客户端 Gfx（国家旗帜 / 勋章 / 技能图标，2026-11-25）
+
+**形态**：下列资源全部是 `*.packed.webp.dvpl`，DVPL 壳内就是 RIFF/WEBP 裸字节
+（VP8X，含 alpha）——**剥壳即得、无需重编码**，与 §2.5 坦克封面同一口径
+（DVPL 校验契约见 §5.3）。`@2x` 是客户端独立资源，按原名保留。**枚举与读取经 DLC
+覆盖层**（`%LOCALAPPDATA%/wotblitz/packs` 优先，见 §5.4）：本机 11.21.0_1 实测 2 个
+`Gfx/Lobby/icons/icon_halloween_l[*].packed.webp.dvpl` 覆盖项（字节与 `Data/` 相同），
+`_export_status.json` 逐条记 `overlay: true`。
+
+| 资源组 | 客户端目录 | 文件 | 独立资源 | 内容 |
+|---|---|---|---|---|
+| `flags` | `Gfx/Lobby/flags` | 284 | 142（142 对 `@2x`） | 国家/子国家/金币旗帜，9 种角色前缀 |
+| `medals` | `Gfx/Lobby/medals` | 360 | 180（180 对） | 勋章 / 奖励图 |
+| `crew-skills` | `Gfx/UI/CrewSkillIcons` | 40 | 20（20 对） | 乘员技能图标 |
+| `ribbons` | `Gfx/UI/RibbonsLobby` | 4 | 2（2 对） | 战斗结果缎带 |
+| `tournament` | `Gfx/UI/Tournament` | 106 | 53（53 对） | 锦标赛元素（含 `markOfMastery1–3`） |
+| `lobby-icons` | `Gfx/Lobby/icons`（递归） | 867 | 437 基础 + 430 `@2x` | 大厅通用图标（货币/设置/强化树/机制等） |
+
+**旗帜角色**（`flag_<角色>_<sprite>`；sprite 全集 = 9 国 `usa/germany/ussr/uk/japan/china/
+france/european/other` + 7 子国家 `finland/poland/sweden/italy/australia/canada/czech`
++ `gold`）。尺寸逐角色固定，`@2x` 恰为 2 倍：
+
+| 角色 | 资源数 | 基础尺寸 | 客户端消费点（`Data/UI` 实测引用） |
+|---|---|---|---|
+| `carousel` | 17 | 256×128 | 车辆卡片 / 商店 / 宝箱（`ChestVehicleItem`、`OfferVehicleItem`、`OfferedTankCell` 等 7 份） |
+| `event` | 15 | 256×512 | 剧情步骤（`Story/Components/Steps/Line.yaml`） |
+| `filter` | 9 | 128×64 | 车库国家筛选（`NationFilterButton.yaml`） |
+| `notification` | 16 | 128×128 | 新闻通知（`NewsNotificationCell.style.yaml`） |
+| `profile-stat` | 9 | 32×32 | 个人战绩（`Profile/Common/VehicleNation.yaml`） |
+| `tank-node` | 17 | 256×64 | 奖励 / 车辆卡片节点（`RewardBig`、`Vehicle` 等 11 份） |
+| `tank-node_I` | 17 | 256×128 | 科技树/奖励长节点（`RewardBigContent`、`flagPath` 分支） |
+| `tank-tree` | 9 | 64×64 | 侧栏科技树 / 教学（`SidebarTanksTreeMenu.yaml`、`NationItem.yaml`） |
+| `text` | 17 | 32×16 | 小旗（`TankInfo/NationFlag.yaml` → `flag_text_<sprite>`） |
+| `tutor-tank` | 16 | 512×256（`@2x` 1024×512） | 训练 / 商店背景（`SimpleContent`、`Repeatable` 等 6 份） |
+
+国家选择按钮的 `bg-frame` 0–7 顺序见
+`UI/Screens3/Lobby/Common/FlagButton.style.yaml.dvpl`（usa/germany/ussr/uk/japan/china/
+france/other）；`NationFlag.yaml` 的 `nationSprite`/`subnationSprite` 是 sprite 名的
+权威映射。**不做名称猜测**：输出名 = 客户端资源名，语义由这些 yaml 的显式绑定决定。
+
+**输出**（`--out` 默认 `data/cache/ui`，本地缓存、gitignored）：
+
+```
+data/cache/ui/<group>/<客户端相对路径去掉 .packed.webp.dvpl>.webp
+data/cache/ui/_export_status.json   # client_version / total/done/unchanged/failed/finished
+                                    # + 逐文件 src/out/bytes/sha256/width/height（overlay 可选）
+```
+
+2026-11-25 实测（客户端 `11.21.0.1235_7376187 release/11.21.0`）：6 组 **1661 件 /
+20.8 MB（逻辑字节；`du` 磁盘块占用 24 MB），0 失败**，逐文件与 DVPL 解包字节
+100% 一致（1661/1661）。
+
+**进资产包 / asset origin（2026-11-25 已发布）**：
+
+- `scripts/export_asset_pack.py` 把 `data/cache/ui/**` 复制为包内 `ui/**`（按组白名单
+  只收 `*.webp`；缺目录或空组 fail-closed，避免静默发布“没有旗帜”的包）。
+- 发布到 Alibaba origin（`https://assets.wotbtools.com`）：两个 11.21 dataset 全量随包，
+  超测 dataset 只补 WotbTools 实际消费的 34 条；基线 release 的全部既有条目与 UI 条目
+  一起由对象库物化（无字节复制）：
+
+| dataset | 新 release | 基线 release | manifest 条目 | content_digest |
+|---|---|---|---|---|
+| `11.21.0` | `11.21.0-20261125-ui1` | `11.21.0-20261106-r2` | 7810（6149 + 1661） | `sha256:0a3f619a…` |
+| `11.21.0_1` | `11.21.0_1-20261125-ui1` | `11.21.0_1-20261114-r1` | 7817（6156 + 1661） | `sha256:f69f70f8…` |
+| `11.4.0.138-r5` | `t11r3-20261125-ui3` | `t11r3-20261114-r7-ballistics` | 6244（6210 + 34） | `sha256:7ad865c2…` |
+
+- **超测补到 34 条并用预览源核对**：WotbTools 坦克目录实际消费的是 27 张国旗
+  （3 `flag_carousel_{germany,usa,china}@2x` + 6 `flag_text_*@2x` + 9 `flag_filter_*@2x`
+  + 9 `flag_tutor-tank_*@2x` 封面布旗）与 7 张类别/车种图标（3 category + 4 type）。
+  ui2 已有 22 条；ui3 再补 12 条（9 cover + 3 filter），这 12 条从 11.4.0.138 预览 ZIP
+  按 Range 取成员、DVPL 解包后与 11.21 提取结果 **12/12 字节一致**（此前 22/22 已核，
+  合计 34/34），因此直接复用既有对象（`import` added 0 / reused 12，**零新增字节**）；
+  其余 `ui/**` 未发布到超测（消费方未使用，也不按 11.21 猜测预览内容）。
+- **去重**：1661 个包内路径只对应 **1648 个唯一对象（20.7 MB）**，13 个同内容路径
+  （`tournament/tabpanel` 6、`lobby-icons` 5、`medals` 2、`ribbons` 2）硬链接同一对象；
+  两个 11.21 release 共享这 1648 个对象，第二个 dataset 零新增字节；超测 34 条同样命中
+  既有对象。发布后对象库 **8872 个对象 / 5307 MB**，38 个 release 逻辑 169322.1 MB
+  （去重 96.9%）。
+- **验证**：四个新 release `asset_release verify --pack --full` PASS（739 / 738 / 747 辆）；
+  `asset_store verify --full --links` PASS（231955 条路径 / 8869 个对象）；
+  `dataset.sh verify` PASS；公网 `versions.json` 指向最新 release，两个 11.21 dataset
+  各抽 5 条 `ui/**`（含 `@2x`）逐字节 sha256 一致（10/10），超测新增 12 条公开回读
+  sha256 与本地 36/36 一致（3 dataset × 12 条），预览 ZIP 实测 12/12。
+- 消费路径 = `/ui/<group>/<客户端资源名>.webp`（如 `/ui/flags/flag_text_usa.webp`）；
+  **WotbTools 已接入**（2026-11-25，`wotbVersion` 5.7.2）：坦克目录的 34 条素材
+  （22 图标 + 9 封面布旗 + 3 filter 补全）改由 `assetProvider.url(remote)` 取用；
+  列表卡片与详情封面用 `flag_tutor-tank_*` 作整幅背景（位于坦克图下层、不遮挡坦克），
+  筛选控件统一用 `flag_filter_*`；`common/research/icons/**` 未改（另行裁切/重编码，
+  与 `ui/**` 0 字节重复）。
+- **已用内容核对（WotbTools 随包副本）**：`frontend/src/assets/tank-catalog/sources.json`
+  已内置的 **34 条客户端素材**（3 `flag_carousel_{germany,usa,china}@2x` + 6 `flag_text_*@2x` +
+  9 `flag_filter_*@2x` + 9 `flag_tutor-tank_*@2x` + 3 `icon_tank-{normal,premium,collectible}@2x` + 4
+  `icon_tank-class_*@2x`）与 `ui/**` 对应文件 **sha256 34/34 一致**，远端路径分别是
+  `/ui/flags/…` 与 `/ui/lobby-icons/…`。**WotbTools 已改为远端取用并删除全部 34 条随包副本**（含旧版
+  用户素材 `nation-{usa,china}.webp`；2026-11-25，`wotbVersion` 5.7.2；bundle 无 `tank-catalog` 图片）；
+  `common/research/icons/**` 170 张与 `ui/**` **0 个字节重复**
+  （技能/物品图标是另行裁切/重编码的派生物，不存在内容去重空间）。
+
+**工具**：`tools/export_ui_elements.py`（`--group` 可重复 / `--all` / `--list`；DLC
+覆盖层优先）；回归 `tools/test_export_ui_elements.py`（webp 头解析、剥壳同字节、坏 payload
+fail-closed、幂等、组目录白名单、DLC 覆盖/新增）。图集资源（`InventoryIcons/`、
+`DamagedModules/` 等的 `texture0.packed.webp.dvpl` + `*.txt.dvpl` 切片描述）**不在本工具
+范围**——消费方需按 §2.6 的图集链自行切片。
+
 ---
 
 ## 三、`tank_id` ↔ 游戏模型名的桥（可由客户端重建）
@@ -808,9 +912,11 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
   与 WotbTools `useDataVersion.ts`——**origin 的 `versions.json` 引入新字符集 id 之前，
   必须先部署放宽后的前端 bundle**（旧 bundle 对 catalog 整目录 fail-closed）。
   当前 dataset 登记：`11.21.0_1`（**default，2026-11-14 起**——SmartDLC 槽位，充实为
-  11.21.0 基线 + Relic D3 = 739 辆，release `11.21.0_1-20261114-r1`；此前 r1 为占位克隆）/
-  `11.21.0`（客户端基线命名，738 辆，保留回滚）/ `11.4.0.130`（超测客户端版本号，
-  label 超测服；2026-11-11 由 `supertest` 改名，未打补丁基线不用 `_0`——客户端无该命名）。
+  11.21.0 基线 + Relic D3 = 739 辆，release `11.21.0_1-20261125-ui1`；含 2026-11-25
+  补发的 `ui/**`）/
+  `11.21.0`（客户端基线命名，738 辆，release `11.21.0-20261125-ui1`，保留回滚）/
+  `11.4.0.138-r5`（超测客户端版本号，label 超测服，release `t11r3-20261114-r7-ballistics`；
+  2026-11-11 由 `supertest` 改名，未打补丁基线不用 `_0`——客户端无该命名）。
 - 每个 release 内的 `version.json` 是不可变身份：`dataset_id` / `game_version` /
   `variant` / `release` / `generated` / `content_digest` / `manifest_sha256` /
   `tank_count` / `preview` / `min_client` / `status`。
@@ -833,10 +939,10 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
   `default --dataset <id>`、`rollback --dataset <id> --release <release-id>`。
 - 对外路径：`/v/<dataset-id>/...` 与 `/versions.json`；根路径仍是 `current`，
   旧客户端零改动。前端通过 `?data=<id>` 与显式下拉切换（WotbTools 实现）。
-- **生产登记（2026-11-05/06 登记，2026-11-14 起默认入口移交）**：dataset 通道为 **`11.21.0`（现役基线，
-  release `11.21.0-20261106-r2`，738 辆，5965 件，含 `research/tech_tree/**`；default 于
+- **生产登记（2026-11-05/06 登记，2026-11-14 起默认入口移交，2026-11-25 补发 UI）**：dataset 通道为 **`11.21.0`（现役基线，
+  release `11.21.0-20261125-ui1`，738 辆，7810 件，含 `research/tech_tree/**` + `ui/**`；default 于
   2026-11-14 移交 `11.21.0_1`，保留回滚）+
-  `supertest`（超测服，release `t11p2-20261106-r3`，743 辆，仅显式选择）**；`11.22`
+  `11.4.0.138-r5`（超测服，release `t11r3-20261114-r7-ballistics`，747 辆，6133 件，仅显式选择）**；`11.22`
   通道待 11.22 正式服包发布时加入（三通道终态：11.21 / 超测服 / 11.22）。旧通道
   `11.21.0-t11-preview` 已 `dataset.sh unlink` 下线（release 保留回滚）；`current`
 现指向 `11.21.0_1`，`supertest` 不再占默认入口。
@@ -861,7 +967,28 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
 （否则硬链接会被展开）。完整布局、发布 recipe、迁移与 GC 见
 [asset-store.md](asset-store.md)。
 
-**现行 release（2026-11-17，共享地图 base 原地更新）**：三个 active dataset 共用同一套
+**现行 release（2026-11-25，UI 单图元素进包 + 封面布旗）**：两个 11.21 dataset 全量随包、
+超测补到 WotbTools 实际消费的 34 条；均由对象库物化（既有 6149/6156/6210 条逐字节复用，
+无字节复制）：
+- default `11.21.0_1` → `11.21.0_1-20261125-ui1`：739 辆，**7817 件 / 4509.1 MB**，
+  `content_digest sha256:f69f70f8…`；
+- `11.21.0` → `11.21.0-20261125-ui1`：738 辆，**7810 件 / 4505.2 MB**，
+  `sha256:0a3f619a…`；
+- `11.4.0.138-r5` → `t11r3-20261125-ui3`：747 辆，**6244 件 / 4535.2 MB**，
+  `sha256:7ad865c2…`（34 条 UI 经预览 ZIP Range 实测与 11.21 字节 34/34 一致；ui3 相对
+  ui2 只新增 12 条：9 张 `tutor-tank` 封面布旗 + 3 张 USA/Germany/China filter）。
+
+本次增量 = `ui/**` **1661 路径 / 1648 个唯一对象 / 20.7 MB**（13 个同内容路径硬链接同一
+对象；两个 11.21 release 共享这 1648 个对象，第二个 dataset 零新增字节）；超测 34 条
+（ui2 22 + ui3 12）`import` added 0 / reused 34（**零新增字节**）。入对象库 `import`
+（1648 added + 13 reused）→ 按合并 manifest `materialize` 三 release → `stamp` → `delta`
+（1661/1661/34 处 added）→ `dataset.sh link`。验证：四个 release
+`asset_release verify --pack --full` PASS；`asset_store verify --full --links` PASS
+（231955 条路径 / 8869 对象）；`dataset.sh verify` PASS；公网 `versions.json` 已指向最新
+release、两 11.21 dataset 各抽 5 条 `ui/**` sha256 10/10 一致、超测新增 12 条按
+3 dataset × 12 条回读 36/36 一致；根路径 `current` 同验。
+
+**上一代 release（2026-11-17，共享地图 base 原地更新）**：三个 active dataset 共用同一套
 地图资产，本次直接更新共享 map/ base（不新建 release）：
 - default `11.21.0_1` → `11.21.0_1-20261114-r1`：739 辆，**6079 件 / 4484.5 MB**，
   `content_digest sha256:98946fac…`；
@@ -882,7 +1009,7 @@ scenery/terrain 等替换）+ 根 `index.json`（55 图变体目录）+ `map2d/i
 objects（回滚证据），三份 release 的旧 manifest/version.json 备份在
 `_backup-mapbase-20261117/`。
 
-**release 快照（2026-11-13；已被上方 2026-11-17 块取代）**：默认 dataset `11.21.0` →
+**release 快照（2026-11-13；已被上方 2026-11-17 / 2026-11-25 块取代）**：默认 dataset `11.21.0` →
 `11.21.0-20261106-r2`，**738 辆**（含 `research/tech_tree/**`），**5965 件 / 4433.0 MB**，
 `content_digest sha256:9198d0ca…`；当时 `current` 指向它（现指向 `11.21.0_1`，见上）。
 超测 dataset `11.4.0.138` → **`t11r3-20261113-r3`**（747 辆 /

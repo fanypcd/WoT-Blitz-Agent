@@ -44,7 +44,9 @@ function resolveUrl(urlPath) {
   const versioned = urlPath.match(/^\/v\/([^/]+)(\/.*)?$/)
   if (versioned) {
     const [, datasetId, rest = '/'] = versioned
-    if (!/^[a-z0-9][a-z0-9.-]*$/.test(datasetId)) return null
+    // 与 asset_release.py 的 DATASET_ID_RE 对齐：`_` 是客户端 SmartDLC 槽位命名
+    // （如 `11.21.0_1`）；漏掉它会让本地 `/v/11.21.0_1/...` 恒 404。
+    if (!/^[a-z0-9][a-z0-9._-]*$/.test(datasetId)) return null
     const base = join(datasetsRoot, datasetId)
     const file = join(base, normalize(rest).replace(/^([/\\])+/, ''))
     return isInside(base, file) ? file : null
