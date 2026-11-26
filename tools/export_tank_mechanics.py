@@ -37,8 +37,6 @@ import sys
 import urllib.request
 from datetime import datetime, timezone
 
-import yaml
-
 TOOLS_DIR = pathlib.Path(__file__).resolve().parent
 REPO_ROOT = TOOLS_DIR.parent
 sys.path.insert(0, str(TOOLS_DIR))
@@ -97,6 +95,15 @@ class ExportError(RuntimeError):
     pass
 
 
+def safe_load_yaml(text: str):
+    """延迟导入 PyYAML：纯解析/已提交数据锚定测试不依赖该运行时依赖。"""
+    try:
+        import yaml
+    except ImportError as exc:  # pragma: no cover - 环境缺少可选依赖
+        raise ExportError("缺少 PyYAML：python -m pip install pyyaml") from exc
+    return yaml.safe_load(text)
+
+
 def load_bridge(path: pathlib.Path) -> dict[str, dict]:
     table = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(table, dict):
@@ -136,7 +143,7 @@ def load_flat_strings(path: pathlib.Path) -> dict[str, str]:
         raise ExportError(f"缺少字符串表：{path}")
     text = decode_text(path)
     try:
-        doc = yaml.safe_load(text)
+        doc = safe_load_yaml(text)
     except Exception as exc:  # noqa: BLE001
         raise ExportError(f"{path} 不是合法 YAML：{exc}") from exc
     if not isinstance(doc, dict):
@@ -189,7 +196,7 @@ def load_overlay(lang: str, localizations_dir: pathlib.Path | None) -> tuple[dic
             continue
         raw = p.read_bytes()
         try:
-            doc = yaml.safe_load(raw.decode("utf-8", "replace"))
+            doc = safe_load_yaml(raw.decode("utf-8", "replace"))
         except Exception as exc:  # noqa: BLE001
             raise ExportError(f"本地化覆盖层不是合法 YAML：{p}：{exc}") from exc
         if not isinstance(doc, dict):
@@ -357,7 +364,7 @@ def export(game_data: pathlib.Path, bridge_path: pathlib.Path, localizations_dir
     for path in sorted(parameters_root.rglob("*.yaml.dvpl")):
         raw = decode_text(path)
         try:
-            doc = yaml.safe_load(raw)
+            doc = safe_load_yaml(raw)
         except Exception as exc:  # noqa: BLE001
             raise ExportError(f"{path} 不是合法 YAML：{exc}") from exc
         if not isinstance(doc, dict):
