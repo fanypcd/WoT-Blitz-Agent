@@ -203,7 +203,7 @@ KeyedArchive 实体树、`wotb_scg.py` 解 PolygonGroup 顶点/索引流 + `GlbB
 ### 2.5 封面图 ← 客户端本地
 
 > 现役来源 = 本目录（`tools/export_tank_icons.py` 剥壳裸 webp；**默认 `@2x` 高清档**，
-> 11.22 客户端 742/742）→ 同步进 `data/cache/tank_images/`；BlitzKit `fetch-icons` 与运行期
+> 11.22 客户端 742/742；origin `11.22.0-20261126-r3`）→ 同步进 `data/cache/tank_images/`；BlitzKit `fetch-icons` 与运行期
 > 懒下载退为缺失兜底。与 BK 同源同画：alpha 轮廓 100% 一致、RGB 差为 BK 二次重编码噪声
 > （mean 1.79 / max 17）。`@2x` 不是 1x 放大：高频细节约为 1x 双三次上采样的 1.3–1.5 倍
 > （2026-11-26 实测 T-34 / PzIV / Type59 / M48A1 / IS-7），展示层在 320×200 与 HiDPI 下
