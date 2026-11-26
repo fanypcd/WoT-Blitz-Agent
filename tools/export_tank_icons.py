@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
-"""用本机 WoT Blitz 客户端导出坦克封面图/图标（替代 BlitzKit `tanks/{id}/icons/big.webp`）。
+"""用本机 WoT Blitz 客户端导出坦克封面图/图标（现役封面数据源，替代 BlitzKit）。
 
-**不替换运行期数据源**：产物写到 `data/cache/local_tank_icons/<tank_id>.webp`，与 BlitzKit 的
-`data/cache/tank_images/<tank_id>.webp` 并存，可用 `tools/compare_tank_icons.py` 或肉眼对照。
+产物写到 `data/cache/local_tank_icons/<tank_id>.webp`，再同步进 `data/cache/tank_images/`
+（两目录逐字节一致，`scripts/export_asset_pack.py` 读后者）；BlitzKit `fetch-icons` 仅作
+缺失兜底/对照，可用 `tools/compare_tank_icons.py` 或肉眼核对。
 
 客户端来源（实测路径与形态）：
 
-  * `Data/Gfx/UI/BigTankIcons/<name>.packed.webp.dvpl`（2312 个文件，含 `@2x` 与 `_skinN` 变体）
-    —— DVPL 壳里就是**裸 webp**（RIFF/WEBP），**剥壳即得，无需重编码**。
-    分辨率：基础 256×128 RGBA / `@2x` 512×256。
+  * `Data/Gfx/UI/BigTankIcons/<name>.packed.webp.dvpl`（11.22：2342 个文件 = 1171 基础 +
+    1171 `@2x`，另有 `_skinN` 变体）—— DVPL 壳里就是**裸 webp**（RIFF/WEBP），**剥壳即得，
+    无需重编码**。分辨率：常见 2:1（基础 256×128 RGBA / `@2x` 512×256）；少数车为方形或
+    紧裁画布（基础 128×128 / `@2x` 256×256；个别 1x 为 256×128、`@2x` 为 256×256 或
+    512×256）——逐车尺寸以 `crops.json` 的 `canvas_w/canvas_h` 为准。
   * `Data/Gfx/UI/BattleScreenHUD/SmallTankIcons/<name>.packed.webp.dvpl`（1474 个）128×32，作兜底。
+
+**默认取 `@2x`（2026-11-26 起）**：`@2x` 是客户端自己的高 DPI 资源，同一画作的真实高分辨率
+版本（高频细节约为 1x 双三次上采样的 1.3–1.5 倍，非单纯放大）；11.22 实测 `@2x` 存在率
+742/742。1x 仍作缺失回退，`--use-1x` 可显式回退旧口径（对照/诊断用）。两种档位的画布尺寸可能不同，
+消费方必须按 `crops.json` 的逐车 `canvas_w/canvas_h` 计算展示框，不得写死 256×128。
 
 **匹配策略：客户端声明源优先、精确等值——不做部分串匹配**（2026-10-10 重写）：
 按下列**有序**候选查名（全部来自客户端自己的声明）：
@@ -25,13 +33,14 @@
      `XxNN_`/`Xy_`/`WH_` 前缀变体 → 人工别名表。弱来源带**唯一性护栏**（被 >1 辆车声明的
      键弃用——`T34_hvy` 的全名 "T34" 会撞他车）。
 
-覆盖实测（2026-10-10）：**735/735，全部由 `iconPath` 命中**（`match_src` 逐车可审）。
-选择优先级（同一键内）：**大图基础 > 大图皮肤变体 > 小图标**；`_export_status.json` 的
-`grade`（big / big-skin / small）与 `match_src` 逐条可查。
+覆盖实测（2026-11-26）：**742/742，全部由 `iconPath` 命中，且 742/742 有 `@2x`**
+（`match_src` 逐车可审）。选择优先级（同一键内）：**大图 @2x > 大图 1x > 大图皮肤变体 >
+小图标**；`_export_status.json` 的 `tier`（2x / 1x）、`grade`（big / big-skin / small）与
+`match_src` 逐条可查。
 
 用法：
-    python tools/export_tank_icons.py --all                    # 全量 735 辆（大图基础档）
-    python tools/export_tank_icons.py --all --use-2x           # 用 @2x（512×256）
+    python tools/export_tank_icons.py --all                    # 全量（默认 @2x 高分辨率档）
+    python tools/export_tank_icons.py --all --use-1x           # 回退 1x（对照/诊断）
     python tools/export_tank_icons.py --tank 9489 --tank 7169
     python tools/export_tank_icons.py --all --allow-small      # 允许退到 SmallTankIcons（128×32）
     python tools/export_tank_icons.py --list                   # 只打印解析结果（不写盘）
@@ -453,7 +462,8 @@ def pick_icon(index: dict, stem: str, display: str, use_2x: bool, allow_small: b
     """按优先级挑一张：**声明源候选**（精确整键）→ 手工别名表 → 启发式（stem 变体）。
 
     同一键内排序：大图档位优先（128×32 小图只作兜底）→ 精确键优于派生键 → 基础档优于皮肤
-    变体 → 与请求档位（1x/@2x）越接近越好。
+    变体 → 与请求档位（默认 @2x / `use_2x=False` 时 1x）越接近越好；同一画作两档都在时
+    @2x 胜出（仅在 1x 缺失时回退）。
     """
     by_name = index.get("name") or {}
     # 声明源：**全部候选都收集**（同一辆车可能同时命中"基础档"与"皮肤档"——注册表条目多为
@@ -613,12 +623,17 @@ def main() -> int:
                     help="只按 --out 现有图标重算内容框（展示框），不导出图标")
     ap.add_argument("--tank", action="append", default=[])
     ap.add_argument("--all", action="store_true")
-    ap.add_argument("--use-2x", action="store_true", help="优先用 @2x（512×256）")
+    ap.add_argument("--use-1x", action="store_true",
+                    help="回退旧口径：优先 1x（256×128 / 128×128；对照/诊断用）")
+    # 兼容旧脚本：@2x 已是默认档位，该开关保留为无操作。
+    ap.add_argument("--use-2x", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--allow-small", action="store_true", help="允许退到 SmallTankIcons（128×32）")
     ap.add_argument("--jobs", type=int, default=8)
     ap.add_argument("--lang", default="en", help="取本地化名的 Strings 语言（图标名依赖英文名）")
     ap.add_argument("--list", action="store_true", help="只打印解析结果，不写盘")
     args = ap.parse_args()
+    # 默认 @2x（客户端高 DPI 资源）；--use-1x 显式回退旧口径。
+    use_2x = not args.use_1x
 
     if args.emit_crops:
         return emit_crops(args.out, args.crops_out)
@@ -660,7 +675,7 @@ def main() -> int:
 
     if args.list:
         for tid, stem, nation in targets:
-            ent = pick_icon(index, stem, display_name(stem, ctx), args.use_2x, args.allow_small,
+            ent = pick_icon(index, stem, display_name(stem, ctx), use_2x, args.allow_small,
                             declared_for(stem, nation))
             name = ent["file"] if ent else "未命中"
             src = f"[{ent.get('match_src')}]" if ent else ""
@@ -668,7 +683,7 @@ def main() -> int:
         return 0
 
     payloads = [(tid, stem, display_name(stem, ctx), declared_for(stem, nation),
-                 str(game_data), str(args.out), args.use_2x, args.allow_small, index)
+                 str(game_data), str(args.out), use_2x, args.allow_small, index)
                 for tid, stem, nation in targets]
     state = {"total": len(targets), "done": 0, "missing": 0, "finished": False, "results": []}
     started = time.time()

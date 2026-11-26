@@ -18,7 +18,7 @@
 | `game_data` 冻结故障修复（field2→field32） | ✅ 已在 main | 见 git 历史与 [data-inventory.md](data-inventory.md) §一 #4 |
 | 两处 pb 字段号 bug（引擎起火率 / 履带阻力） | ✅ 已修复 | 报告 A §8；`data/tank_data/*.json` 重生成 |
 | **GLB 自产管线** | ✅ 已接线 | `data/cache/models/` 为自产导出：738 辆 `model.glb` + `collision.glb`（generator = `wotb-agent local sc2 exporter`），与 `local_models/` 逐辆逐字节一致，包随 Alibaba asset origin 发布（[data-inventory.md](data-inventory.md) §一 #8）；工具 `tools/export_tank_glb.py` + `tools/compare_tank_glb.py`；等价性口径（对照基准为 735 辆时代）：`collision` 735/735、`model` 623/735 逐字节等价（含 UV0/1/2 与节点顺序），规则见 [local-model-export.md](local-model-export.md) §3；**其中 111 辆为有意分歧**（静态变换烘焙 / 状态过滤，见该文 §5.1） |
-| **封面图自产管线** | ✅ 已接线（客户端剥壳字节为现役来源；BlitzKit 退为缺失兜底/对照） | `tools/export_tank_icons.py`；**738/738 且全为大图档**（逐车 `iconPath` 声明全命中；接线复核见 §3） |
+| **封面图自产管线** | ✅ 已接线（客户端剥壳字节为现役来源；BlitzKit 退为缺失兜底/对照） | `tools/export_tank_icons.py`；**11.22 实测 742/742 且全为 `@2x` 高清档**（逐车 `iconPath` 声明全命中；接线复核见 §3） |
 | **`tanks.pb`/`models.pb` 本机解析器 + 换源转正** | ✅ 已接线 | `tools/extract_vehicles.py`（客户端 XML/components/yaml/en.yaml → 同构 JSON）+ `tools/compare_vehicle_data.py`（pb→同形 dict 逐字段对照）+ `tools/emit_vehicle_pb.py`（同格式 pb 编码器）；`data/tanks.pb` / `data/models.pb` 现为本机解包编码（同格式 pb + 补充表），BlitzKit 降为**对照校验源**。`data/tank_id_bridge.json` 738 条已固化，**并已证明可纯客户端重建** |
 | `baseRMMap` 通道搬迁（MR 槽） | ✅ 已对齐 | ch0→G（粗糙度）、ch1→B（金属度）；修后与 BlitzKit 的 G 通道一致 1010/1011；[local-model-export.md](local-model-export.md) §4.1 |
 | UV1/UV2 / `doubleSided` 对齐 | ✅ | TEXCOORD_1/2（139/18 辆）；`customCullMode==0`（1598/1598 零反例）——见 [local-model-export.md](local-model-export.md) §3 |
@@ -100,12 +100,19 @@ BK 侧弹种集合与客户端不一致的根因是**按 gun module 塌缩 + 孤
 
 ## 3. 封面图：客户端剥壳字节（命名域与素材差异）
 
-> 现役来源：`export_tank_icons.py --all`（738/738，逐车 `iconPath` 声明全命中）→ 同步进
-> `cache/tank_images/`（两目录逐字节一致）→ 随包物化 + manifest 重算。接线复核：alpha
-> 轮廓与 BK **100% 一致**；BK 为二次重编码 + 更紧 1px 裁剪（art 区 RGB 平均差 1.79 /
-> p99≈8 / max≤17），客户端为游戏原始剥壳字节——保真度只升不降。对照渲染件：
-> `data/cache/local_compare/`（左 BK / 右客户端）。BlitzKit `fetch-icons` 与运行期懒下载
-> （`web/assets.rs:233`）退为缺失兜底（休眠）。
+> 现役来源：`export_tank_icons.py --all`（11.22 实测 742/742，逐车 `iconPath` 声明全命中；
+> **默认 `@2x` 高清档**，2026-11-26 起）→ 同步进 `cache/tank_images/`（两目录逐字节一致）
+> → 随包物化 + manifest 重算。接线复核：alpha 轮廓与 BK **100% 一致**；BK 为二次重编码 +
+> 更紧 1px 裁剪（art 区 RGB 平均差 1.79 / p99≈8 / max≤17），客户端为游戏原始剥壳字节——
+> 保真度只升不降。对照渲染件：`data/cache/local_compare/`（左 BK / 右客户端）。BlitzKit
+> `fetch-icons` 与运行期懒下载（`web/assets.rs:233`）退为缺失兜底（休眠）。
+
+**@2x 是真实高分辨率档（不是 1x 放大）**：同一画作两档并存时默认取 `@2x`；对 1x 做双三次
+上采样后比高频细节，`@2x` 原图为 1.33–1.54 倍（T-34 / PzIV / Type59 / M48A1 / IS-7 实测），
+即客户端高 DPI 资源本身含更多细节。11.22 的 742 辆车 `@2x` **100% 覆盖**，因此不存在
+"为高清档牺牲覆盖"的取舍；1x 仅在缺失时回退（`--use-1x` 可显式回退旧口径）。两种档位的
+画布可能不同（512×256 / 256×256；少数 1x 为方形 128×128），消费方按 `crops.json` 的逐车
+`canvas_w/canvas_h` 计算展示框。
 
 **"换素材 ≠ 等价替换"的复核结论**：与 BlitzKit 封面是**同一幅画**（同源美术、同像素
 尺度）——1:1 无缩放、BK 画布左上角对齐逐辆复核：姿态/光照/细节一致、内容 bbox 逐像素
@@ -120,10 +127,10 @@ BK 侧弹种集合与客户端不一致的根因是**按 gun module 塌缩 + 孤
 
 | 项 | 值 |
 |---|---|
-| 大图标 | `Data/Gfx/UI/BigTankIcons/<name>.packed.webp.dvpl`（2312 个，含 `@2x` 与 `_skinN`） |
+| 大图标 | `Data/Gfx/UI/BigTankIcons/<name>.packed.webp.dvpl`（11.22：2342 个 = 1171 基础 + 1171 `@2x`，另有 `_skinN`） |
 | 小图标（兜底） | `Data/Gfx/UI/BattleScreenHUD/SmallTankIcons/<name>.packed.webp.dvpl`（1474 个） |
 | 容器 | DVPL 壳里**就是裸 webp**（`RIFF…WEBP`）——**剥壳即得，不重编码** |
-| 分辨率 | 基础 256×128 / `@2x` 512×256 / 小图 128×32 |
+| 分辨率 | **默认 `@2x`：512×256 / 256×256**；1x 回退 256×128 / 128×128；小图 128×32 |
 
 ### 3.2 命名域：图标名是**第三套命名**，与模型名不规则对应
 
@@ -245,7 +252,7 @@ equality with yours: 0.3 / 0.05 / 0.5 / 0.03).
 python tools/export_tank_glb.py --all --texture-mode semantic --jobs 8
 python tools/compare_tank_glb.py --all --audit --jobs 8
 
-# 封面图：自产 + 展示裁剪框（默认只用大图标；--allow-small 退小图标）
+# 封面图：自产 + 展示裁剪框（默认 @2x 高清档；--allow-small 退小图标，--use-1x 回退 1x）
 python tools/export_tank_icons.py --all --allow-small
 python tools/export_tank_icons.py --emit-crops
 

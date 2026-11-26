@@ -20,8 +20,10 @@
     python tools/compare_tank_icons.py --tank 10753 --render # 并排导出对比图
     python tools/compare_tank_icons.py --all --strict        # 任一缺口即非零退出（CI 门禁用）
 
-口径提醒：`local_tank_icons` 是**对照产物、不接入运行期**（见 export_tank_icons.py 头部），
-所以本工具只报差异，不主张谁对谁错；BlitzKit 那份才是当前分发使用的那份。
+口径提醒：`local_tank_icons` 自 2026-10-15 起就是**现役来源**（同步进 `cache/tank_images/`，
+见 export_tank_icons.py 头部）；两侧默认目录现在逐字节一致，尺寸报告只在 `--blitzkit-dir`
+指向**留存的 BlitzKit 缓存**时才有对照意义。另：2026-11-26 起客户端导出默认取 `@2x`
+（512×256 / 256×256），与 BK 的 1x 画布比较时尺寸差异属预期（同为 2× 内容尺度）。
 """
 
 import argparse
