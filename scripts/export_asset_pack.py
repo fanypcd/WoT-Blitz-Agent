@@ -12,7 +12,7 @@
     │                                   #   源 data/cache/tank_icon_crops.json ← export_tank_icons --emit-crops）
     ├── suspension/{tank_id}.json       # 逐车悬挂（tools/export_tank_suspension.py，additive）
     ├── data/{tanks.pb, models.pb, tank_cache.json, data_version.json, shellKinds.json,
-    │         gunMaskSlices.json}
+    │         gunMaskSlices.json, tankMechanics.json}
     ├── research/**                     # 坦克百科配置器数据（data/research 非图标部分：全局目录/
     │                                   #   物品/技能/params/strings + 逐车 modules；图标留 WotbTools）
     ├── ui/{flags,medals,crew-skills,ribbons,tournament,lobby-icons}/**  # 客户端 UI 单图元素
@@ -35,6 +35,7 @@
 用法：
     wotb-agent dump-map-index > map_index.json      # 需游戏客户端在场（注册表源）
     wotb-agent dump-shell-kinds --out data/shell_kinds.json   # 弹种反解表（须与 data/tanks.pb 同版）
+    python tools/export_tank_mechanics.py           # 逐车机制 + 官方机制文案（客户端同版）
     python scripts/export_asset_pack.py --map-index map_index.json
     # --out 缺省为仓库根 release/asset_pack；如显式指定请用绝对路径——
     # 相对路径按 cwd 解析，曾在 frontend/dist 下误落 1.3GB 副本。
@@ -365,6 +366,17 @@ def main() -> None:
                  "（须与打包所用的 tanks.pb 同一次刷新产出）")
     shutil.copyfile(sk, out / "data" / "shellKinds.json")
     files.append(out / "data" / "shellKinds.json")
+    core_n += 1
+
+    # 逐车机制清单 + 官方机制文案（tools/export_tank_mechanics.py 产物）：坦克百科详情页
+    # 的“机制”区按车显示客户端文本，装甲查看器按 TrayShell 分段算距离伤害。缺源即拒绝
+    # 打包——静默缺表会让机制区整体消失且无人察觉（fail-closed）。
+    tm = data / "tank_mechanics.json"
+    if not tm.is_file():
+        ap.error(f"缺少 {tm} —— 先运行 `python tools/export_tank_mechanics.py`"
+                 "（须与本机客户端 Strings/Parameters 同版）")
+    shutil.copyfile(tm, out / "data" / "tankMechanics.json")
+    files.append(out / "data" / "tankMechanics.json")
     core_n += 1
 
     # 客户端 maskSlice 完整记录（emit_vehicle_pb 产物）：逐车逐炮位的裁切平面原值，

@@ -753,6 +753,60 @@ fail-closed、幂等、组目录白名单、DLC 覆盖/新增）。图集资源�
 `DamagedModules/` 等的 `texture0.packed.webp.dvpl` + `*.txt.dvpl` 切片描述）**不在本工具
 范围**——消费方需按 §2.6 的图集链自行切片。
 
+### 2.10 车辆机制（TankMechanics）← 客户端 Parameters + Strings/覆盖层（2026-11-26）
+
+**逐车机制清单（权威）**：`Data/3d/Tanks/Parameters/<nation>/<stem>.yaml.dvpl` 的
+`mechanics:` 流式列表（客户端 hangar `VehicleParamsPanel` 消费的
+`vector<eGameplayMechanics>`）。现役 11.22 客户端 771 份 Parameters 中，17 个未进桥表的
+stem（14 个教学 bot + `Cz30_TBT`、`GB144_Cutter`、`Oth99_Relic`）带 19 条声明被跳过；
+导出到资产包的是 **187 辆 / 15 种 / 206 条机制声明**：`LTCamo` 120、
+`AlteredSpotDuration` 13、`InternalTrack` 13、`ReserveAmmo` 13、
+`ShotDispersionStabilizator` 12、`ImprovedDetection` 9、`MovableArmor` 6、`TrayShell` 6、
+`WithoutCrew` 3、`DesertPower` 2、`ATGM` 2、`DraculaTrack` 2、`NotDamageModuls` 2、
+`DoubleShot` 2、`TripleShot` 1（客户端原始 YAML 口径为 225 条，差额即上述未桥接 stem）。
+条目除 `name` 外可带 `localizationValues`（客户端已算好的 `%(ParamNameN)` 文案参数；当前
+只有 TrayShell 使用）与业务字段（如 DesertPower 的 `provision`）。
+
+**TrayShell（突击弹）× 6**：`Pl120_Wz61_Ussar`（23169 Husarz）、`Pl27_SDP_Wz_66T`
+（19841 SDP wz 66 Grom）、`Pl28_SDP_Wz_60`（19329 SDP 60 Gonkiewicza）、
+`Pl29_NC_Wz_70T`（19585 NC 70 Błyskawica）、`Pl30_SDP_Wz58T`（19073 SDP 58 Kilana）、
+`R121_KV4_KTT`（28417 KV-4 KTTS）。车辆 XML 的 `<guns>/<extras><trayShell>` 给出
+`kinds=ARMOR_PIERCING_CR` 与 4 段 `{distance,factor}`：`50/1.4、120/1.2、200/1.0、
+720/0.8`（同车所有炮副本一致）。`sector.distance` = 该段**上界**（文案 “50 m or
+less”）；最后一段的 720 是最大射程，倍率从上一段边界（200 m）起算；只对 kind 命中的
+APCR（标准/金币）生效。导出器把 4 段结构折算成 `ParamName1..10`，与 Parameters 的
+`localizationValues` **逐字比对**，不一致即 fail-closed。
+
+**机制文案**：`Data/Strings/{en,zh-Hans,ru}.yaml.dvpl` 的 `TankMechanics/<Name>` /
+`...Description`（15 组标题 + 13 组说明），缺 `MovableArmorDescription` 与
+`TrayShellDescription`，由**运行时本地化覆盖层**补齐——客户端从
+`https://stufficons.wgcdn.co/localizations/<lang>.yaml` 下载到
+`%LOCALAPPDATA%/wotblitz/DAVAProject/cache/localizations/`。导出时剥除
+`%(highlight_start/end)`、`%%` 还原为 `%`，`%(ParamNameN)` 保留给前端替换。
+`AlteredSpotDuration` 的文案键是 `ReducedSpotDuration`（客户端 UI
+`TankMechanicsButton.yaml` 的 `mechanicsTitle` 映射；其余同名；未知枚举 fail-closed）。
+
+**产物与消费**：
+
+- `python tools/export_tank_mechanics.py`（`--fetch-localizations` 可下载三语覆盖层）→
+  `data/tank_mechanics.json`：`mechanics`（15 种 × 三语标题/说明 + 文案键 + 来源
+  sha256）+ `tanks`（187 辆，按 tank_id）。
+- 打包器复制为包内 `data/tankMechanics.json`（缺文件 fail-closed）。
+- Rust `tank_configs.rs` 读同一文件，把**车级** `mechanics` 原样注入
+  `tank/{id}.json` 顶层（无机制省略；不复制进 config）；WotbTools 坦克百科详情头卡的
+  机制标签（点击弹窗）按当前语言渲染，装甲查看器用 TrayShell 的 `sectors` 按交战距离算伤害。
+- **origin（2026-11-27）**：dataset `11.22.0` → release `11.22.0-20261126-mechanics1`
+  （基于 r3；7843 件，delta 188 = 187 辆 tank + `data/tankMechanics.json`；digest
+  `sha256:7edf65be…`）。`asset_release verify --pack --full`、`dataset.sh link`、公网
+  188/188 文件 sha256 与 WotbTools `deploy/assets/verify.sh` 均 PASS。
+- `tools/test_export_tank_mechanics.py` 锚定 15 种机制、6 辆 TrayShell 的分段/参数与
+  三语文案；Rust 单测 `tank_mechanics_follow_client_parameters` 锚定 28417 / 28689 /
+  无机制车。
+
+**边界**：机制文案是客户端 UI 文案，随客户端版本变化；新增机制/改文案必须重跑导出并
+显式补 `MECHANIC_TEXT_NAME`（未知枚举 fail-closed）。TrayShell 段数固定 4（文案模板
+10 个参数）；出现别的段数必须同步扩展文案模板与前端渲染，不得截断。
+
 ---
 
 ## 三、`tank_id` ↔ 游戏模型名的桥（可由客户端重建）

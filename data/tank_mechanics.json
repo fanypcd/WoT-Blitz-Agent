@@ -1,0 +1,2031 @@
+{
+ "meta": {
+  "gameVersion": "11.22.0.1379_7407169 release/11.22.0 WOTB_Win7",
+  "generatedAt": "2026-11-26T14:05:47Z",
+  "bridge": "data/tank_id_bridge.json",
+  "parametersScanned": 771,
+  "tanksWithMechanics": 187,
+  "skippedStems": [
+   "Cz30_TBT",
+   "GB03_Cruiser_Mk_I_tutorial_bot",
+   "GB03_Cruiser_Mk_I_tutorial_bot2",
+   "GB144_Cutter",
+   "Ltraktor_tutorial_bot",
+   "Ltraktor_tutorial_bot2",
+   "M2_lt_tutorial_bot",
+   "M2_lt_tutorial_bot2",
+   "MS-1_tutorial_bot",
+   "MS-1_tutorial_bot2",
+   "Oth99_Relic",
+   "PzII_tutorial_bot",
+   "PzII_tutorial_bot2",
+   "T-26_tutorial_bot",
+   "T-26_tutorial_bot2",
+   "T1_Cunningham_tutorial_bot",
+   "T1_Cunningham_tutorial_bot2"
+  ],
+  "languages": [
+   "en",
+   "zh-Hans",
+   "ru"
+  ],
+  "mechanicCount": 15,
+  "sources": {
+   "parameters": "3d/Tanks/Parameters/<nation>/<stem>.yaml.dvpl",
+   "vehicleXml": "XML/item_defs/vehicles/<nation>/<stem>.xml.dvpl",
+   "textProvenance": {
+    "en": {
+     "strings": "Strings/en.yaml.dvpl",
+     "stringsSha256": "bee3eea31ff892a59c9f41892d8747d2ed13dd6554b44bc5519d25f3b83b0ef4",
+     "localizationOverlay": {
+      "source": "https://stufficons.wgcdn.co/localizations/en.yaml",
+      "sha256": "08f58761fd6e078257d9c778b15eb262223b267e514baecd043d30b3becd5a2e"
+     }
+    },
+    "zh-Hans": {
+     "strings": "Strings/zh-Hans.yaml.dvpl",
+     "stringsSha256": "ba421804d867e107af93c1df6aeb4ea9b6e983b882450df4fb8ff1f33e744c1a",
+     "localizationOverlay": {
+      "source": "https://stufficons.wgcdn.co/localizations/zh-Hans.yaml",
+      "sha256": "d1bd14226111f9cbe36f34d481e2ea841cba17e229a8c96a6ff836d2c9c6f226"
+     }
+    },
+    "ru": {
+     "strings": "Strings/ru.yaml.dvpl",
+     "stringsSha256": "c58a3a0a3aa2804ee0717baa5e00021094d3caf01129da0eabab4086fcc30b83",
+     "localizationOverlay": {
+      "source": "https://stufficons.wgcdn.co/localizations/ru.yaml",
+      "sha256": "556dae8b64b6257794e49cf885e59a1f306eb94c1b40573c7eb1e3319a179102"
+     }
+    }
+   }
+  }
+ },
+ "mechanics": {
+  "ATGM": {
+   "titleKey": "TankMechanics/ATGM",
+   "descriptionKey": "TankMechanics/ATGMDescription",
+   "title": {
+    "en": "ATGM",
+    "zh-Hans": "反坦克导弹",
+    "ru": "ПТУР"
+   },
+   "description": {
+    "en": "You can control the fired shell by moving the camera or reticle.\n• The tank can only be used in the Mad Games, Burning Games, Gravity Force, Uprising, Big Boss, Realistic, and Gravitizing modes.",
+    "zh-Hans": "您可以通过移动镜头或准心来控制射出的炮弹。\n• 坦克只能用于Mad Games、Burning Games、重力、复生、大首领、真实战场和重力再生模式。",
+    "ru": "Выпущенным снарядом можно управлять при помощи камеры или прицела.\n• На танке можно играть только в режимах Mad Games, Выживание, Гравитация, Возрождение, Big Boss, Реалистичные бои и Гравитайзинг."
+   }
+  },
+  "AlteredSpotDuration": {
+   "titleKey": "TankMechanics/ReducedSpotDuration",
+   "descriptionKey": "TankMechanics/ReducedSpotDurationDescription",
+   "title": {
+    "en": "Adaptive Concealment",
+    "zh-Hans": "适应性隐蔽",
+    "ru": "Ускоренный выход из засвета"
+   },
+   "description": {
+    "en": "• After leaving enemy spotting range, your tank becomes invisible more quickly — in 7 seconds instead of the standard 10.\n• When you're spotted by an opponent, a red eye icon appears above them — hide from these particular enemies.\n\n• When a Tracer Shell hits the tank, it becomes invisible in 17 seconds instead of 20.",
+    "zh-Hans": "• 脱离敌方侦察范围后，您的坦克会更快隐形——从10秒变为7秒。\n• 当您被对手发现时，对方头顶会出现红眼图标——躲避这些特定的敌人。\n\n• 曳光弹命中坦克后再隐形的时间从20秒变为17秒。",
+    "ru": "• После выхода из зоны видимости противников ваш танк становится незаметным быстрее — через 7 сек вместо обычных 10 сек.\n• Над противниками, которые вас обнаружили, появляется иконка красного глаза — прячьтесь именно от них.\n\n• При попадании в танк Трассирующего снаряда — танк становится незаметным через 17 сек вместо 20 сек."
+   }
+  },
+  "DesertPower": {
+   "titleKey": "TankMechanics/DesertPower",
+   "descriptionKey": "TankMechanics/DesertPowerDescription",
+   "title": {
+    "en": "Desert Force",
+    "zh-Hans": "沙漠之力",
+    "ru": "Сила пустыни"
+   },
+   "description": {
+    "en": "+50% to module repair speed.\nEffective on Desert maps: Desert Sands, Black Goldville, Oasis Palms, and Wasteland.",
+    "zh-Hans": "+50%模块修复速度。\n在沙漠地图上生效：沙漠、黑色矿脉、砂丘和不毛之地。",
+    "ru": "+50% к скорости ремонта модулей.\nДействует на пустынных картах: Эль﻿-﻿Аламейн, Золотая долина, Горящие пески, Пустошь﻿."
+   }
+  },
+  "DoubleShot": {
+   "titleKey": "TankMechanics/DoubleShot",
+   "descriptionKey": "TankMechanics/DoubleShotDescription",
+   "title": {
+    "en": "Double Shot",
+    "zh-Hans": "双重射击",
+    "ru": "Двойной выстрел"
+   },
+   "description": {
+    "en": "Fires two shells in one shot in quick succession.",
+    "zh-Hans": "一次性射出两发炮弹的快速射击。",
+    "ru": "Позволяет стрелять сразу двумя снарядами. Снаряды вылетают мгновенно один за другим."
+   }
+  },
+  "DraculaTrack": {
+   "titleKey": "TankMechanics/DraculaTrack",
+   "descriptionKey": "TankMechanics/DraculaTrackDescription",
+   "title": {
+    "en": "Track Regenerator",
+    "zh-Hans": "履带再生装置",
+    "ru": "Регенератор гусеницы"
+   },
+   "description": {
+    "en": "A destroyed track is restored twice as fast.",
+    "zh-Hans": "被摧毁的履带修复速度翻倍。",
+    "ru": "Сбитая гусеница восстанавливается в 2 раза быстрее."
+   }
+  },
+  "ImprovedDetection": {
+   "titleKey": "TankMechanics/ImprovedDetection",
+   "descriptionKey": "TankMechanics/ImprovedDetectionDescription",
+   "title": {
+    "en": "Tracer Shells",
+    "zh-Hans": "曳光弹",
+    "ru": "Трассирующие снаряды"
+   },
+   "description": {
+    "en": "Makes an enemy tank visible to all allies for 20 seconds instead of the standard 10.\n\n• When hitting these tanks, makes them visible for 17 seconds: 121B, Char Futur 4, CS-63, ELC AMX-901, HWK 12, KJPZ TIII Jäger, Leopard 1, LKpz.70 K, Rheinmetall Panzerwagen, Type 59, Type 62, WZ-132A, WZ-132-1.\n• Activates upon penetration, non-penetration, and ricochet.\n• Does not activate upon blind hit or splash damage.",
+    "zh-Hans": "使敌方坦克对所有队友可见20秒（标准时间为10秒）。\n\n• 命中以下坦克时，使其可见17秒：121B、Char Futur 4、CS-63、ELC AMX-901、HWK 12、KJPZ TIII Jäger、Leopard 1、LKpz.70 K、Rheinmetall Panzerwagen、Type 59、Type 62、WZ-132A、WZ-132-1。\n• 在穿透、未穿透和跳弹时均可激活。\n• 未命中或溅射伤害不会激活。",
+    "ru": "При попадании делают противника заметным всем союзникам на 20 секунд (вместо 10). Для 121B, Char Futur 4, CS-63, ELC AMX-901, HWK 12, KJPZ TIII Jäger, Leopard 1, LKpz.70 K, Rheinmetall Panzerwagen, Type 59, Type 62, WZ-132A и WZ-132-1 — на 17 секунд. Срабатывают при пробитии, непробитии и рикошете. Активируются при всех попаданиях, кроме попадания вслепую и урона от разлёта осколков."
+   }
+  },
+  "InternalTrack": {
+   "titleKey": "TankMechanics/InternalTrack",
+   "descriptionKey": "TankMechanics/InternalTrackDescription",
+   "title": {
+    "en": "Emergency Track",
+    "zh-Hans": "应急履带",
+    "ru": "Аварийная гусеница"
+   },
+   "description": {
+    "en": "Allows the tank to move backward at a speed of 7 km/h if the main track is destroyed.",
+    "zh-Hans": "允许坦克在主履带被摧毁时以7公里/小时的速度向后行驶。",
+    "ru": "Позволяет двигаться назад со скоростью\n 7 км/ч, если основная гусеница сбита."
+   }
+  },
+  "LTCamo": {
+   "titleKey": "TankMechanics/LTCamo",
+   "descriptionKey": "TankMechanics/LTCamoDescription",
+   "title": {
+    "en": "Concealment in Movement",
+    "zh-Hans": "隐蔽移动",
+    "ru": "Маскировка в движении"
+   },
+   "description": {
+    "en": "Concealment does not decrease while moving. Ineffective when shooting.",
+    "zh-Hans": "移动时不会降低隐蔽性。射击时无效。",
+    "ru": "Маскировка не снижается при движении. Не действует при выстреле."
+   }
+  },
+  "MovableArmor": {
+   "titleKey": "TankMechanics/MovableArmor",
+   "descriptionKey": "TankMechanics/MovableArmorDescription",
+   "title": {
+    "en": "Dynamic Armor",
+    "zh-Hans": "动态装甲",
+    "ru": "Подвижные бронелисты"
+   },
+   "description": {
+    "en": "Moves armor to cover weak spots in the hull and turret, creating additional protection.\n\n• For the Titan H-Nd, activates when HP drops to 50%.\n• For the Titan-54d, Titan Charioteer, Titan Strife, Titan JPanther II, and Titan AMX, activates after the Dynamic Armor System has been used.",
+    "zh-Hans": "移动装甲覆盖车体和炮塔弱点，提供额外防护。\n\n• 对于Titan H-Nd，血量降至50%时激活。\n• 对于Titan-54d、Titan Charioteer、Titan Strife、Titan JPanther II和Titan AMX，使用动态装甲系统后激活。",
+    "ru": "Передвигаются в уязвимые места корпуса и башни танка и создают дополнительную защиту.\n\n• На Titan H-Nd срабатывают, когда запас прочности опускается до 50%.\n• На Titan-54d, Titan Charioteer, Titan Strife, Titan JPanther II, и Titan AMX срабатывают после активации снаряжения «Привод бронелистов»."
+   }
+  },
+  "NotDamageModuls": {
+   "titleKey": "TankMechanics/NotDamageModuls",
+   "descriptionKey": "TankMechanics/NotDamageModulsDescription",
+   "title": {
+    "en": "Werewolf Defense",
+    "zh-Hans": "狼人防御",
+    "ru": "Защита оборотня"
+   },
+   "description": {
+    "en": "The internal modules and gun do not receive critical damage.\n• In Big Boss mode, fire and an ammo rack explosion from a shot by the Boss are possible.",
+    "zh-Hans": "内部模块和火炮不会重伤。\n• 在大首领模式中，首领的射击可能引发起火和弹药架爆炸。",
+    "ru": "Защищает внутренние модули и орудие от критического урона.\n• В режиме Big Boss возможны возгорание и взрыв боеукладки от выстрела Босса."
+   }
+  },
+  "ReserveAmmo": {
+   "titleKey": "TankMechanics/ReserveAmmo",
+   "descriptionKey": "TankMechanics/ReserveAmmoDescription",
+   "title": {
+    "en": "Reserve Shell",
+    "zh-Hans": "备用炮弹",
+    "ru": "Резервный снаряд"
+   },
+   "description": {
+    "en": "• All shells except the last one reload relatively quickly.<br/><br/>• Use the last shell as a reserve if necessary because the magazine takes a long time to reload after using it.",
+    "zh-Hans": "• 除了最后一发所有炮弹的装填加快。<br/><br/>• 必要时将最后一发作为备用，因为弹匣在使用后需要较长时间进行装填。",
+    "ru": "• Все снаряды, кроме последнего, перезаряжаются достаточно быстро.<br/><br/>• Используйте последний снаряд как резервный, при крайней необходимости, так как после его использования магазин уходит на долгую перезарядку."
+   }
+  },
+  "ShotDispersionStabilizator": {
+   "titleKey": "TankMechanics/ShotDispersionStabilizator",
+   "descriptionKey": "TankMechanics/ShotDispersionStabilizatorDescription",
+   "title": {
+    "en": "Combat Stabilization",
+    "zh-Hans": "战斗稳定装置",
+    "ru": "Боевая стабилизация"
+   },
+   "description": {
+    "en": "At a forward speed of no more than 15 km/h or at a reverse speed of no more than 15 km/h, the aiming circle remains small, allowing for more accurate aiming.",
+    "zh-Hans": "以不超过15公里/小时的速度前进或后退时，瞄准圈不会扩散，能够更准确的瞄准。",
+    "ru": "При скорости вперёд не выше 15 км/ч или скорости назад не выше 15 км/ч круг разброса остаётся минимальным и позволяет целиться точнее."
+   }
+  },
+  "TrayShell": {
+   "titleKey": "TankMechanics/TrayShell",
+   "descriptionKey": "TankMechanics/TrayShellDescription",
+   "title": {
+    "en": "Assault Shells",
+    "zh-Hans": "突击弹",
+    "ru": "Штурмовые снаряды"
+   },
+   "description": {
+    "en": "The effectiveness of Assault Shells depends on distance. The closer you are to your target, the more damage you'll deal.\n\n• %(ParamName1) m or less: avg. damage x %(ParamName2)%\n• %(ParamName3) m – %(ParamName4) m: avg. damage x %(ParamName5)%\n• %(ParamName6) m – %(ParamName7) m: avg. damage x %(ParamName8)%\n• %(ParamName9) m or more: avg. damage x %(ParamName10)%\n\nThe fullness of the indicator to the right of the crosshair shows your current multiplier. An empty indicator means lowest and full green means highest.",
+    "zh-Hans": "突击弹的效能取决于距离。\n距离目标越近，造成的伤害越高。\n\n• %(ParamName1)米或以内：平均伤害 x %(ParamName2)%\n• %(ParamName3)米 – %(ParamName4) 米：平均伤害 x %(ParamName5)%\n• %(ParamName6)米 – %(ParamName7)米：平均伤害 x %(ParamName8)%\n• %(ParamName9)米或以上：平均伤害 x %(ParamName10)%\n\n准星右侧指示条的填充程度\n代表当前的伤害倍率。指示条为空时倍率最低，\n绿色全满时倍率最高。",
+    "ru": "Эффективность штурмовых снарядов зависит от\n дистанции. Чем ближе твой танк к цели,\n тем больше урона ты нанесёшь.\n\n• Не более %(ParamName1) м: средний урон x %(ParamName2)%\n• %(ParamName3) м – %(ParamName4) м: средний урон x %(ParamName5)%\n• %(ParamName6) м – %(ParamName7) м: средний урон x %(ParamName8)%\n• %(ParamName9) м или более: средний урон x %(ParamName10)%\n\nИндикатор справа от прицела покажет текущий\n множитель урона. Пустой индикатор означает самый\n низкий уровень, а полный зелёный — самый высокий."
+   }
+  },
+  "TripleShot": {
+   "titleKey": "TankMechanics/TripleShot",
+   "descriptionKey": "TankMechanics/TripleShotDescription",
+   "title": {
+    "en": "Triple Shot",
+    "zh-Hans": "三重射击",
+    "ru": "Тройной выстрел"
+   },
+   "description": {
+    "en": "Fires three shells in one shot in quick succession.",
+    "zh-Hans": "一次性射出三发炮弹的快速射击。",
+    "ru": "Позволяет стрелять сразу тремя снарядами. Снаряды вылетают мгновенно один за другим."
+   }
+  },
+  "WithoutCrew": {
+   "titleKey": "TankMechanics/WithoutCrew",
+   "descriptionKey": "TankMechanics/WithoutCrewDescription",
+   "title": {
+    "en": "Phantom Crew",
+    "zh-Hans": "幽灵乘员",
+    "ru": "Неуязвимый экипаж"
+   },
+   "description": {
+    "en": "You can't hurt a crew that isn't there.\n• Though you can still increase its skills. Bonuses from skills work like with other tanks.",
+    "zh-Hans": "您无法伤害不存在的乘员。\n• 但您仍然可以提升技能。技能加成和其他坦克一样。",
+    "ru": "Нельзя нанести урон экипажу, если у танка его нет.\n• При этом навыки экипажа можно улучшать, а бонусы от навыков действуют как и у других танков."
+   }
+  }
+ },
+ "tanks": {
+  "49": {
+   "stem": "Ch01_Type59",
+   "mechanics": [
+    {
+     "name": "AlteredSpotDuration"
+    }
+   ]
+  },
+  "289": {
+   "stem": "M3_Stuart",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "385": {
+   "stem": "It08_Progetto_M40_mod65",
+   "mechanics": [
+    {
+     "name": "ShotDispersionStabilizator"
+    }
+   ]
+  },
+  "545": {
+   "stem": "T1_Cunningham",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "577": {
+   "stem": "RenaultFT",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "609": {
+   "stem": "NC27",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "769": {
+   "stem": "BT-7",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "785": {
+   "stem": "Pz35t",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "865": {
+   "stem": "Ha_Go",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "1025": {
+   "stem": "BT-2",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "1329": {
+   "stem": "Ch06_Renault_NC31",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "1601": {
+   "stem": "D1",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "1649": {
+   "stem": "Van_Helsing",
+   "mechanics": [
+    {
+     "name": "DoubleShot"
+    }
+   ]
+  },
+  "1825": {
+   "stem": "M2_lt",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "1857": {
+   "stem": "F75_Char_de_25t",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "2049": {
+   "stem": "A-20",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "2065": {
+   "stem": "PzII",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "2129": {
+   "stem": "GB20_Crusader",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "2177": {
+   "stem": "Pl07_14TP",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "2353": {
+   "stem": "Ch07_Vickers_MkE_Type_BT26",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "2401": {
+   "stem": "Ke_Ni",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "2433": {
+   "stem": "Pl06_10TP",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "2609": {
+   "stem": "Ch24_Type64",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "2689": {
+   "stem": "F01_Vickers_MkF",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "2913": {
+   "stem": "Ke_Ho",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "3073": {
+   "stem": "T-46",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "3089": {
+   "stem": "Ltraktor",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "3121": {
+   "stem": "Ch09_M5",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "3329": {
+   "stem": "MS-1",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "3345": {
+   "stem": "Pz38t",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "3377": {
+   "stem": "Ch16_WZ_131",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "3649": {
+   "stem": "Bat_Chatillon25t",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "3889": {
+   "stem": "Ch17_WZ131_1_WZ132",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "4609": {
+   "stem": "T-26",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "4881": {
+   "stem": "PzIII_A",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "4913": {
+   "stem": "Ch15_59_16",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "4929": {
+   "stem": "AMX_13_90",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "4945": {
+   "stem": "GB04_Valentine",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "5153": {
+   "stem": "M5_Stuart",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "5185": {
+   "stem": "AMX_13_75",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "5201": {
+   "stem": "GB03_Cruiser_Mk_I",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "5393": {
+   "stem": "VK1602",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "5681": {
+   "stem": "Ch25_121_mod_1971B",
+   "mechanics": [
+    {
+     "name": "AlteredSpotDuration"
+    }
+   ]
+  },
+  "6161": {
+   "stem": "PzII_Luchs",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "6465": {
+   "stem": "AMX_12t",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "6481": {
+   "stem": "GB60_Covenanter",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "6689": {
+   "stem": "T49_Rocket",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "6705": {
+   "stem": "Ch_LT_vz38",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "6993": {
+   "stem": "GB69_Cruiser_Mk_II",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "7281": {
+   "stem": "Oth23_Werewolf",
+   "mechanics": [
+    {
+     "name": "NotDamageModuls"
+    }
+   ]
+  },
+  "7777": {
+   "stem": "J36_Type_63_HT",
+   "mechanics": [
+    {
+     "name": "ShotDispersionStabilizator"
+    }
+   ]
+  },
+  "7793": {
+   "stem": "Oth25_HWT20_FalconFire",
+   "mechanics": [
+    {
+     "name": "TripleShot"
+    }
+   ]
+  },
+  "8209": {
+   "stem": "Pz38_NA",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "8305": {
+   "stem": "Oth28_Sturmfeur_HW",
+   "mechanics": [
+    {
+     "name": "MovableArmor"
+    }
+   ]
+  },
+  "8561": {
+   "stem": "Oth27_M24_AMX",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "8753": {
+   "stem": "Ch42_M41D",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "8817": {
+   "stem": "Oth29_A15HW",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "9073": {
+   "stem": "Oth30_T54MS",
+   "mechanics": [
+    {
+     "name": "MovableArmor"
+    }
+   ]
+  },
+  "9761": {
+   "stem": "M24_Chaffee",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "9841": {
+   "stem": "Oth33_Blizzard_BP",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "10001": {
+   "stem": "VK2801",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "10033": {
+   "stem": "Ch28_WZ_132A",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    },
+    {
+     "name": "AlteredSpotDuration"
+    }
+   ]
+  },
+  "10113": {
+   "stem": "It20_Car_Comb_45t",
+   "mechanics": [
+    {
+     "name": "ReserveAmmo"
+    }
+   ]
+  },
+  "10289": {
+   "stem": "Ch29_Type_62C_prot",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    },
+    {
+     "name": "AlteredSpotDuration"
+    }
+   ]
+  },
+  "10353": {
+   "stem": "Oth34_PanzerMummy",
+   "mechanics": [
+    {
+     "name": "DesertPower",
+     "provision": "desertPower"
+    }
+   ]
+  },
+  "10369": {
+   "stem": "It21_Controcarro3_Minotauro",
+   "mechanics": [
+    {
+     "name": "ReserveAmmo"
+    }
+   ]
+  },
+  "10545": {
+   "stem": "Ch15_59_16_BP",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "10625": {
+   "stem": "It19_Controcarro_1MK2_Ciclope",
+   "mechanics": [
+    {
+     "name": "ReserveAmmo"
+    }
+   ]
+  },
+  "10881": {
+   "stem": "It18_Semovente_mod_64",
+   "mechanics": [
+    {
+     "name": "ReserveAmmo"
+    }
+   ]
+  },
+  "11121": {
+   "stem": "Oth38_50TP_Tyszkiewicza_S1",
+   "mechanics": [
+    {
+     "name": "ShotDispersionStabilizator"
+    }
+   ]
+  },
+  "11137": {
+   "stem": "It17_Semovente_mod_56",
+   "mechanics": [
+    {
+     "name": "ReserveAmmo"
+    }
+   ]
+  },
+  "11633": {
+   "stem": "Oth42_ForestWitch_HW23",
+   "mechanics": [
+    {
+     "name": "InternalTrack"
+    },
+    {
+     "name": "ReserveAmmo"
+    }
+   ]
+  },
+  "12145": {
+   "stem": "Oth41_Centurion_Mk3_S2",
+   "mechanics": [
+    {
+     "name": "ImprovedDetection"
+    }
+   ]
+  },
+  "12161": {
+   "stem": "S31_Strv_K",
+   "mechanics": [
+    {
+     "name": "ShotDispersionStabilizator"
+    }
+   ]
+  },
+  "12417": {
+   "stem": "It22_Progetto_C45_mod_71",
+   "mechanics": [
+    {
+     "name": "ReserveAmmo"
+    }
+   ]
+  },
+  "12657": {
+   "stem": "Oth44_Charioteer_T",
+   "mechanics": [
+    {
+     "name": "MovableArmor"
+    }
+   ]
+  },
+  "12913": {
+   "stem": "Oth45_Sandstriker",
+   "mechanics": [
+    {
+     "name": "DesertPower",
+     "provision": "desertPower"
+    }
+   ]
+  },
+  "12929": {
+   "stem": "Cz16_TNH_T_vz51",
+   "mechanics": [
+    {
+     "name": "ShotDispersionStabilizator"
+    }
+   ]
+  },
+  "13073": {
+   "stem": "Pz_II_AusfG",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "13185": {
+   "stem": "Cz17_Vz_55",
+   "mechanics": [
+    {
+     "name": "ShotDispersionStabilizator"
+    }
+   ]
+  },
+  "14129": {
+   "stem": "Ch57_BZT_70",
+   "mechanics": [
+    {
+     "name": "InternalTrack"
+    }
+   ]
+  },
+  "14145": {
+   "stem": "ELC_AMX",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "14449": {
+   "stem": "Oth47_AMX_13_90_S3",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    },
+    {
+     "name": "ReserveAmmo"
+    }
+   ]
+  },
+  "14609": {
+   "stem": "Leopard1",
+   "mechanics": [
+    {
+     "name": "AlteredSpotDuration"
+    }
+   ]
+  },
+  "14977": {
+   "stem": "Pl21_CS_63",
+   "mechanics": [
+    {
+     "name": "AlteredSpotDuration"
+    }
+   ]
+  },
+  "15137": {
+   "stem": "T21",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "15473": {
+   "stem": "Oth50_STT",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "15617": {
+   "stem": "Object_907",
+   "mechanics": [
+    {
+     "name": "ImprovedDetection"
+    }
+   ]
+  },
+  "15649": {
+   "stem": "T71",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "16449": {
+   "stem": "F69_AMX_13_57GF",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "16641": {
+   "stem": "MT25",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "16673": {
+   "stem": "A94_T37",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "16769": {
+   "stem": "It30_CC_mod_64_Prem",
+   "mechanics": [
+    {
+     "name": "ReserveAmmo"
+    }
+   ]
+  },
+  "17265": {
+   "stem": "Oth69_Souleater",
+   "mechanics": [
+    {
+     "name": "DoubleShot"
+    }
+   ]
+  },
+  "17473": {
+   "stem": "F69_AMX_13D",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "17777": {
+   "stem": "Oth71_Titan_Strife",
+   "mechanics": [
+    {
+     "name": "MovableArmor"
+    }
+   ]
+  },
+  "17953": {
+   "stem": "M41_Bulldog",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "18049": {
+   "stem": "It21_Lion",
+   "mechanics": [
+    {
+     "name": "ReserveAmmo"
+    }
+   ]
+  },
+  "18177": {
+   "stem": "R109_T54S",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "18209": {
+   "stem": "A100_T49",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "18433": {
+   "stem": "R107_LTB",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "18449": {
+   "stem": "G103_RU_251",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "18689": {
+   "stem": "R43_T-70_57",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "18801": {
+   "stem": "Oth75_Braniaq_DM5",
+   "mechanics": [
+    {
+     "name": "ImprovedDetection"
+    }
+   ]
+  },
+  "18961": {
+   "stem": "G113_SP_I_C",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "18977": {
+   "stem": "A95_T95E6",
+   "mechanics": [
+    {
+     "name": "ShotDispersionStabilizator"
+    }
+   ]
+  },
+  "19009": {
+   "stem": "F_AMX-12BP",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "19073": {
+   "stem": "Pl30_SDP_Wz58T",
+   "mechanics": [
+    {
+     "name": "TrayShell",
+     "localizationValues": {
+      "ParamName1": "50",
+      "ParamName10": "80",
+      "ParamName2": "140",
+      "ParamName3": "50",
+      "ParamName4": "120",
+      "ParamName5": "120",
+      "ParamName6": "120",
+      "ParamName7": "200",
+      "ParamName8": "100",
+      "ParamName9": "200"
+     },
+     "kinds": [
+      "ARMOR_PIERCING_CR"
+     ],
+     "sectors": [
+      {
+       "distance": 50.0,
+       "factor": 1.4
+      },
+      {
+       "distance": 120.0,
+       "factor": 1.2
+      },
+      {
+       "distance": 200.0,
+       "factor": 1.0
+      },
+      {
+       "distance": 720.0,
+       "factor": 0.8
+      }
+     ]
+    }
+   ]
+  },
+  "19313": {
+   "stem": "Oth77_Prowler",
+   "mechanics": [
+    {
+     "name": "DraculaTrack"
+    },
+    {
+     "name": "InternalTrack"
+    },
+    {
+     "name": "ShotDispersionStabilizator"
+    }
+   ]
+  },
+  "19329": {
+   "stem": "Pl28_SDP_Wz_60",
+   "mechanics": [
+    {
+     "name": "TrayShell",
+     "localizationValues": {
+      "ParamName1": "50",
+      "ParamName10": "80",
+      "ParamName2": "140",
+      "ParamName3": "50",
+      "ParamName4": "120",
+      "ParamName5": "120",
+      "ParamName6": "120",
+      "ParamName7": "200",
+      "ParamName8": "100",
+      "ParamName9": "200"
+     },
+     "kinds": [
+      "ARMOR_PIERCING_CR"
+     ],
+     "sectors": [
+      {
+       "distance": 50.0,
+       "factor": 1.4
+      },
+      {
+       "distance": 120.0,
+       "factor": 1.2
+      },
+      {
+       "distance": 200.0,
+       "factor": 1.0
+      },
+      {
+       "distance": 720.0,
+       "factor": 0.8
+      }
+     ]
+    }
+   ]
+  },
+  "19521": {
+   "stem": "Bat-Chat-25CL",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "19537": {
+   "stem": "GB_Vickers_Light_105",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "19585": {
+   "stem": "Pl29_NC_Wz_70T",
+   "mechanics": [
+    {
+     "name": "TrayShell",
+     "localizationValues": {
+      "ParamName1": "50",
+      "ParamName10": "80",
+      "ParamName2": "140",
+      "ParamName3": "50",
+      "ParamName4": "120",
+      "ParamName5": "120",
+      "ParamName6": "120",
+      "ParamName7": "200",
+      "ParamName8": "100",
+      "ParamName9": "200"
+     },
+     "kinds": [
+      "ARMOR_PIERCING_CR"
+     ],
+     "sectors": [
+      {
+       "distance": 50.0,
+       "factor": 1.4
+      },
+      {
+       "distance": 120.0,
+       "factor": 1.2
+      },
+      {
+       "distance": 200.0,
+       "factor": 1.0
+      },
+      {
+       "distance": 720.0,
+       "factor": 0.8
+      }
+     ]
+    }
+   ]
+  },
+  "19793": {
+   "stem": "GB_Vickers_Cruiser",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "19841": {
+   "stem": "Pl27_SDP_Wz_66T",
+   "mechanics": [
+    {
+     "name": "TrayShell",
+     "localizationValues": {
+      "ParamName1": "50",
+      "ParamName10": "80",
+      "ParamName2": "140",
+      "ParamName3": "50",
+      "ParamName4": "120",
+      "ParamName5": "120",
+      "ParamName6": "120",
+      "ParamName7": "200",
+      "ParamName8": "100",
+      "ParamName9": "200"
+     },
+     "kinds": [
+      "ARMOR_PIERCING_CR"
+     ],
+     "sectors": [
+      {
+       "distance": 50.0,
+       "factor": 1.4
+      },
+      {
+       "distance": 120.0,
+       "factor": 1.2
+      },
+      {
+       "distance": 200.0,
+       "factor": 1.0
+      },
+      {
+       "distance": 720.0,
+       "factor": 0.8
+      }
+     ]
+    }
+   ]
+  },
+  "20001": {
+   "stem": "A99_T92E1",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "20033": {
+   "stem": "F114_Projet_4_1",
+   "mechanics": [
+    {
+     "name": "AlteredSpotDuration"
+    }
+   ]
+  },
+  "20049": {
+   "stem": "GB_FV301",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "20097": {
+   "stem": "It35_Felice",
+   "mechanics": [
+    {
+     "name": "ReserveAmmo"
+    }
+   ]
+  },
+  "20257": {
+   "stem": "A116_XM551",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "21057": {
+   "stem": "F119_Projet_Murat",
+   "mechanics": [
+    {
+     "name": "InternalTrack"
+    }
+   ]
+  },
+  "21617": {
+   "stem": "Oth85_Ghoul",
+   "mechanics": [
+    {
+     "name": "WithoutCrew"
+    }
+   ]
+  },
+  "21777": {
+   "stem": "G_VK9001P",
+   "mechanics": [
+    {
+     "name": "ShotDispersionStabilizator"
+    }
+   ]
+  },
+  "21793": {
+   "stem": "A116_XM551_Exp",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    },
+    {
+     "name": "ATGM"
+    }
+   ]
+  },
+  "21825": {
+   "stem": "F120_Project_Louis",
+   "mechanics": [
+    {
+     "name": "InternalTrack"
+    }
+   ]
+  },
+  "22033": {
+   "stem": "VK2801_BP",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "22081": {
+   "stem": "F127_ELC_AMX_901_Proto",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    },
+    {
+     "name": "AlteredSpotDuration"
+    }
+   ]
+  },
+  "22273": {
+   "stem": "R110_Object_260",
+   "mechanics": [
+    {
+     "name": "ShotDispersionStabilizator"
+    }
+   ]
+  },
+  "22305": {
+   "stem": "A125_AEP_1",
+   "mechanics": [
+    {
+     "name": "InternalTrack"
+    }
+   ]
+  },
+  "22385": {
+   "stem": "Oth92_JagdPantherII_Titan",
+   "mechanics": [
+    {
+     "name": "MovableArmor"
+    }
+   ]
+  },
+  "22529": {
+   "stem": "R158_LT_432",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    },
+    {
+     "name": "ImprovedDetection"
+    }
+   ]
+  },
+  "22657": {
+   "stem": "It34_Toro",
+   "mechanics": [
+    {
+     "name": "ReserveAmmo"
+    }
+   ]
+  },
+  "22817": {
+   "stem": "M-6-Y",
+   "mechanics": [
+    {
+     "name": "InternalTrack"
+    }
+   ]
+  },
+  "22913": {
+   "stem": "It38_Donnola",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "23057": {
+   "stem": "G147_mPanzer_64",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "23073": {
+   "stem": "M-5-Y",
+   "mechanics": [
+    {
+     "name": "InternalTrack"
+    }
+   ]
+  },
+  "23169": {
+   "stem": "Pl120_Wz61_Ussar",
+   "mechanics": [
+    {
+     "name": "TrayShell",
+     "localizationValues": {
+      "ParamName1": "50",
+      "ParamName10": "80",
+      "ParamName2": "140",
+      "ParamName3": "50",
+      "ParamName4": "120",
+      "ParamName5": "120",
+      "ParamName6": "120",
+      "ParamName7": "200",
+      "ParamName8": "100",
+      "ParamName9": "200"
+     },
+     "kinds": [
+      "ARMOR_PIERCING_CR"
+     ],
+     "sectors": [
+      {
+       "distance": 50.0,
+       "factor": 1.4
+      },
+      {
+       "distance": 120.0,
+       "factor": 1.2
+      },
+      {
+       "distance": 200.0,
+       "factor": 1.0
+      },
+      {
+       "distance": 720.0,
+       "factor": 0.8
+      }
+     ]
+    }
+   ]
+  },
+  "23377": {
+   "stem": "GB101_FV1066_Senlac",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "23553": {
+   "stem": "MS-1obr21",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "23809": {
+   "stem": "R_Object_84",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    },
+    {
+     "name": "ImprovedDetection"
+    }
+   ]
+  },
+  "24065": {
+   "stem": "R131_LTG",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "24177": {
+   "stem": "Oth95_MTU_defender",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "24321": {
+   "stem": "R132_T100LT",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    },
+    {
+     "name": "ImprovedDetection"
+    }
+   ]
+  },
+  "24433": {
+   "stem": "Oth96_Morbid",
+   "mechanics": [
+    {
+     "name": "WithoutCrew"
+    },
+    {
+     "name": "NotDamageModuls"
+    }
+   ]
+  },
+  "24609": {
+   "stem": "A128_Concept_1b",
+   "mechanics": [
+    {
+     "name": "InternalTrack"
+    }
+   ]
+  },
+  "24657": {
+   "stem": "GB108_A46",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "24689": {
+   "stem": "Oth97_CNO_Consul",
+   "mechanics": [
+    {
+     "name": "InternalTrack"
+    }
+   ]
+  },
+  "24865": {
+   "stem": "M-3-Y-Midas",
+   "mechanics": [
+    {
+     "name": "InternalTrack"
+    }
+   ]
+  },
+  "24945": {
+   "stem": "Oth98_AMX_50_100_Titan",
+   "mechanics": [
+    {
+     "name": "MovableArmor"
+    }
+   ]
+  },
+  "25617": {
+   "stem": "G140_HWK_30",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "25633": {
+   "stem": "A141_M-4-Y",
+   "mechanics": [
+    {
+     "name": "InternalTrack"
+    }
+   ]
+  },
+  "25889": {
+   "stem": "T21_BP",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "26113": {
+   "stem": "R181_Object_452K",
+   "mechanics": [
+    {
+     "name": "ShotDispersionStabilizator"
+    }
+   ]
+  },
+  "26913": {
+   "stem": "M24_Chaffee_BP",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "27153": {
+   "stem": "G85_Auf_Panther",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "27393": {
+   "stem": "R217_Object_Kust",
+   "mechanics": [
+    {
+     "name": "ReserveAmmo"
+    }
+   ]
+  },
+  "27937": {
+   "stem": "T49_Fearless",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "28177": {
+   "stem": "G166_LKpz_70_K",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    },
+    {
+     "name": "ImprovedDetection"
+    },
+    {
+     "name": "AlteredSpotDuration"
+    }
+   ]
+  },
+  "28417": {
+   "stem": "R121_KV4_KTT",
+   "mechanics": [
+    {
+     "name": "TrayShell",
+     "localizationValues": {
+      "ParamName1": "50",
+      "ParamName10": "80",
+      "ParamName2": "140",
+      "ParamName3": "50",
+      "ParamName4": "120",
+      "ParamName5": "120",
+      "ParamName6": "120",
+      "ParamName7": "200",
+      "ParamName8": "100",
+      "ParamName9": "200"
+     },
+     "kinds": [
+      "ARMOR_PIERCING_CR"
+     ],
+     "sectors": [
+      {
+       "distance": 50.0,
+       "factor": 1.4
+      },
+      {
+       "distance": 120.0,
+       "factor": 1.2
+      },
+      {
+       "distance": 200.0,
+       "factor": 1.0
+      },
+      {
+       "distance": 720.0,
+       "factor": 0.8
+      }
+     ]
+    }
+   ]
+  },
+  "28433": {
+   "stem": "G126_HWK_12",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    },
+    {
+     "name": "ImprovedDetection"
+    },
+    {
+     "name": "AlteredSpotDuration"
+    }
+   ]
+  },
+  "28689": {
+   "stem": "G125_Spz_57_Rh",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    },
+    {
+     "name": "ImprovedDetection"
+    },
+    {
+     "name": "AlteredSpotDuration"
+    }
+   ]
+  },
+  "28705": {
+   "stem": "A153_XM66F",
+   "mechanics": [
+    {
+     "name": "InternalTrack"
+    }
+   ]
+  },
+  "29201": {
+   "stem": "G167_Tiger_Maus",
+   "mechanics": [
+    {
+     "name": "ShotDispersionStabilizator"
+    }
+   ]
+  },
+  "29457": {
+   "stem": "G190_VK_1602_Quby",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "29473": {
+   "stem": "A175_ATAC",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "29713": {
+   "stem": "G168_KJpz_T_III",
+   "mechanics": [
+    {
+     "name": "AlteredSpotDuration"
+    }
+   ]
+  },
+  "30481": {
+   "stem": "G14_KpfPz_70R",
+   "mechanics": [
+    {
+     "name": "ATGM"
+    }
+   ]
+  },
+  "51489": {
+   "stem": "T2_lt",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "51729": {
+   "stem": "PzII_J",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "51809": {
+   "stem": "Ke_Ni_B",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "52225": {
+   "stem": "BT-SV",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "52481": {
+   "stem": "Valentine_LL",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "52497": {
+   "stem": "H39_captured",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "52737": {
+   "stem": "M3_Stuart_LL",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "52769": {
+   "stem": "M22_Locust",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "53505": {
+   "stem": "T-127",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "53537": {
+   "stem": "T1_E6",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "54529": {
+   "stem": "Tetrarch_LL",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "54801": {
+   "stem": "T-15",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "54865": {
+   "stem": "GB76_Mk_VIC",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "55073": {
+   "stem": "T7_Combat_Car",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "56577": {
+   "stem": "LTP",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "60929": {
+   "stem": "R105_BT_7A",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "62737": {
+   "stem": "G120_M41_90",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    }
+   ]
+  },
+  "63601": {
+   "stem": "AMX_dracula",
+   "mechanics": [
+    {
+     "name": "DraculaTrack"
+    }
+   ]
+  },
+  "64017": {
+   "stem": "S01_Frankentank",
+   "mechanics": [
+    {
+     "name": "WithoutCrew"
+    }
+   ]
+  },
+  "65329": {
+   "stem": "Ch02_Type62",
+   "mechanics": [
+    {
+     "name": "LTCamo"
+    },
+    {
+     "name": "AlteredSpotDuration"
+    }
+   ]
+  }
+ }
+}
