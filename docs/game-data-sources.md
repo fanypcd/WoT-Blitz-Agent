@@ -202,17 +202,22 @@ KeyedArchive 实体树、`wotb_scg.py` 解 PolygonGroup 顶点/索引流 + `GlbB
 
 ### 2.5 封面图 ← 客户端本地
 
-> 现役来源 = 本目录（`tools/export_tank_icons.py` 剥壳裸 webp，738/738）→ 同步进
-> `data/cache/tank_images/`；BlitzKit `fetch-icons` 与运行期懒下载退为缺失兜底。
-> 与 BK 同源同画：alpha 轮廓 100% 一致、RGB 差为 BK 二次重编码噪声（mean 1.79 / max 17）。
+> 现役来源 = 本目录（`tools/export_tank_icons.py` 剥壳裸 webp；**默认 `@2x` 高清档**，
+> 11.22 客户端 742/742）→ 同步进 `data/cache/tank_images/`；BlitzKit `fetch-icons` 与运行期
+> 懒下载退为缺失兜底。与 BK 同源同画：alpha 轮廓 100% 一致、RGB 差为 BK 二次重编码噪声
+> （mean 1.79 / max 17）。`@2x` 不是 1x 放大：高频细节约为 1x 双三次上采样的 1.3–1.5 倍
+> （2026-11-26 实测 T-34 / PzIV / Type59 / M48A1 / IS-7），展示层在 320×200 与 HiDPI 下
+> 更清晰；代价是 742 张图标 4.0 MB → 11.3 MB（+7.3 MB）。
 
-- `Data/Gfx/UI/BigTankIcons/<国家标签>-<名字>.packed.webp.dvpl`（2312 个，含 `@2x` 与 `_skinN` 变体）
+- `Data/Gfx/UI/BigTankIcons/<国家标签>-<名字>.packed.webp.dvpl`（11.22：2342 个 = 1171 基础
+  + 1171 `@2x`，另有 `_skinN` 变体）
 - `Data/Gfx/UI/BattleScreenHUD/SmallTankIcons/`（1474 个，128×32，作兜底）
 
 **权威来源 = 客户端逐车声明**：`3d/Tanks/Parameters/<nation>/<stem>.yaml.dvpl` 的
 `bigIconPath` / `smallIconPath`（764 份参数文件中 755 份为逐车文件、全含该字段）——
 **按整文件名（含国家标签）精确解析**（`ussr-IS_2` 必须命中苏联图标，不能归一化后撞上
-同键的 `china-IS2`），738/738 全部由此命中。命名比"标签-模型名"复杂，需一并接受的形态：
+同键的 `china-IS2`），11.22 实测 742/742 全部由此命中、且 742/742 有 `@2x`。命名比
+"标签-模型名"复杂，需一并接受的形态：
 
 1. 国家标签有一处客户端错拼须一并接受：`britsh`（另有 `british`）；
 2. 有些图标名**不带任何国家标签**（如 `Frankentank_event`）；
@@ -226,10 +231,12 @@ KeyedArchive 实体树、`wotb_scg.py` 解 PolygonGroup 顶点/索引流 + `GlbB
 **别的车**（`PzV_PzIV`→`PzIV`、`GB24_Centurion_Mk3`→`Oth41_Centurion_Mk3_S2`），
 宁可留空也不串车。对照诊断用 `tools/compare_tank_icons.py`。
 
-**展示裁剪**：图标字节保持游戏原始画布（256×128，坦克锚定左上、右下留白），
-`export_tank_icons.py --emit-crops` 输出逐车内容框（alpha>0，确定性、无统计判定）
-→ `data/cache/tank_icon_crops.json` → 包内 `tank_images/crops.json`（打包器
-fail-closed）；消费方展示层按框缩放定位。图标重导后须重跑 `--emit-crops`。
+**展示裁剪**：图标字节保持游戏原始画布（默认 `@2x`：512×256 或 256×256；1x 回退：
+256×128 / 128×128；坦克锚定左上、右下留白），`export_tank_icons.py --emit-crops` 输出
+逐车内容框（alpha>0，确定性、无统计判定）→ `data/cache/tank_icon_crops.json` → 包内
+`tank_images/crops.json`（打包器 fail-closed）；消费方展示层按框缩放定位，**不得写死
+256×128**（两种档位/方形画布的尺寸不同，逐车 `canvas_w/canvas_h` 才是权威）。图标重导后
+须重跑 `--emit-crops`。
 
 ### 2.6 客户端关键路径速查
 
@@ -829,8 +836,9 @@ BT-2（1025）：`<armor_8>0<vehicleDamageFactor>0.0</vehicleDamageFactor>`，Bl
      camouflage/skills/strings 全平面增量，内容相同保留原文件；
    - `vehicle-assets`：按 plan.tanks 逐个调用原 `export_tank_glb.py --tank` /
      `export_tank_suspension.py --tank` / `export_tank_tread.py --tank` /
-     `export_tank_icons.py --tank`；图标重新 `--emit-crops`，只覆盖哈希变化的文件，
-     被移除车同步删除；
+     `export_tank_icons.py --tank`；图标默认取 `@2x`（2026-11-26 起）并重新
+     `--emit-crops`，只覆盖哈希变化的文件，被移除车同步删除；审定封面目录
+     （`data/tank_image_overrides`）的字节比对仍用 `--use-1x`（目录以 1x 原图为基准）；
    - `core`（整表重建、只覆盖变化字节）：从 base pack 反向物化 `work/data/`（核心
      pb/cache、game_data、cache/models 等），在 `work/` 下按原顺序运行
      `wotb-agent update-data --force` → `dump-tank-data` → `dump-shell-kinds`；

@@ -191,9 +191,12 @@ def main() -> None:
             raw = args.raw_tank_images
             if raw is None:
                 raw = work / "raw-tank-images"
+                # 审定封面目录（data/tank_image_overrides）的 placeholder_sha256 以 1x
+                # 原图为基准（审定图本身也是 256×128）；此处只做字节比对，须保持 1x 口径。
+                # 目录按 2x 刷新后才可去掉 --use-1x。
                 command = [sys.executable, "-X", "utf8", "-I", str(TOOLS / "export_tank_icons.py"),
                            "--game-data", str(ctx.game_data), "--pb", str(out / "data/tanks.pb"),
-                           "--out", str(raw), "--jobs", str(ctx.jobs)]
+                           "--out", str(raw), "--jobs", str(ctx.jobs), "--use-1x"]
                 for tid in present:
                     command.extend(["--tank", tid])
                 subprocess.run(command, cwd=ROOT, check=True)
