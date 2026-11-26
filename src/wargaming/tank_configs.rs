@@ -13,6 +13,57 @@ use serde_json::{json, Value};
 
 use crate::wargaming::dvpl::ArmorModel;
 
+/// 逐车机制清单（`data/tank_mechanics.json`，由 `tools/export_tank_mechanics.py` 从
+/// 客户端 `3d/Tanks/Parameters/*.yaml` 的 `mechanics:` 导出）。数据只在进程内加载一次；
+/// 文件缺失/解析失败时返回空表（该文件由资产打包器 fail-closed 强制存在，见
+/// `scripts/export_asset_pack.py`）。
+#[derive(serde::Deserialize)]
+struct TankMechanicsDoc {
+    #[serde(default)]
+    tanks: HashMap<String, TankMechanicsEntry>,
+}
+
+#[derive(serde::Deserialize)]
+struct TankMechanicsEntry {
+    #[serde(default)]
+    mechanics: Vec<Value>,
+}
+
+static TANK_MECHANICS: std::sync::OnceLock<HashMap<u32, Vec<Value>>> = std::sync::OnceLock::new();
+
+fn tank_mechanics_map() -> &'static HashMap<u32, Vec<Value>> {
+    TANK_MECHANICS.get_or_init(|| {
+        let path = crate::data::data_path("tank_mechanics.json");
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            eprintln!(
+                "warning: 缺少 {} —— 车辆机制不注入 tank_data（先运行 \
+                 `python tools/export_tank_mechanics.py`）",
+                path.display()
+            );
+            return HashMap::new();
+        };
+        let Ok(doc) = serde_json::from_str::<TankMechanicsDoc>(&text) else {
+            eprintln!(
+                "warning: {} 解析失败 —— 车辆机制不注入 tank_data",
+                path.display()
+            );
+            return HashMap::new();
+        };
+        doc.tanks
+            .into_iter()
+            .filter_map(|(id, entry)| {
+                let id = id.parse::<u32>().ok()?;
+                (!entry.mechanics.is_empty()).then_some((id, entry.mechanics))
+            })
+            .collect()
+    })
+}
+
+/// 该车的机制清单（客户端 `mechanics:` 原顺序；无机制 → None，字段省略）。
+fn tank_mechanics(tank_id: u32) -> Option<&'static Vec<Value>> {
+    tank_mechanics_map().get(&tank_id)
+}
+
 /// GLB 缓存目录（data/cache/models；路径解析归领域层，HTTP 伺服在 web::assets）
 pub(crate) const GLB_CACHE_DIR: &str = "cache/models";
 use crate::wargaming::tank_resolver::TankResolver;
@@ -341,6 +392,11 @@ pub(crate) fn tank_data_value_prefixed(tank_id: u32, base_prefix: &str) -> Value
     // 顶级 HP 仅 XI 有值：条件插入，避免 738 辆基线 tank JSON 多出 `"hp_top": null`。
     if let Some(hp_top) = info.as_ref().and_then(|i| i.hp_top) {
         value["hp_top"] = json!(hp_top);
+    }
+    // 逐车机制（客户端 `3d/Tanks/Parameters/*.yaml` 的 `mechanics:` 原清单）。
+    // 机制是车级语义（不随炮塔/炮配置变化），只放顶层；无机制的车省略字段。
+    if let Some(mechanics) = tank_mechanics(tank_id) {
+        value["mechanics"] = json!(mechanics);
     }
     value
 }
@@ -891,5 +947,49 @@ mod synth_tests {
         let top = configs.last().expect("top config");
         assert_eq!(top["caliber"], 83);
         assert_eq!(v["caliber"], 83);
+    }
+
+    /// 逐车机制清单（客户端 `3d/Tanks/Parameters/*.yaml` 的 `mechanics:`）：
+    /// - TrayShell 的结构化 sectors 必须与官方文案参数同源（KV-4 KTTS 锚点）；
+    /// - 多机制车的顺序 = 客户端清单顺序（LTCamo → ImprovedDetection → AlteredSpotDuration）；
+    /// - 无机制车不出现字段（避免 738 辆基线全部多出空数组）；
+    /// - 机制是车级语义，只挂顶层，不复制进 config。
+    #[test]
+    fn tank_mechanics_follow_client_parameters() {
+        let kv4 = tank_data_value(28417);
+        let mechanics = kv4["mechanics"].as_array().expect("KV-4 KTTS mechanics");
+        assert_eq!(mechanics.len(), 1);
+        assert_eq!(mechanics[0]["name"], "TrayShell");
+        assert_eq!(mechanics[0]["kinds"], serde_json::json!(["ARMOR_PIERCING_CR"]));
+        assert_eq!(
+            mechanics[0]["sectors"],
+            serde_json::json!([
+                {"distance": 50.0, "factor": 1.4},
+                {"distance": 120.0, "factor": 1.2},
+                {"distance": 200.0, "factor": 1.0},
+                {"distance": 720.0, "factor": 0.8},
+            ])
+        );
+        assert_eq!(mechanics[0]["localizationValues"]["ParamName1"], "50");
+        assert_eq!(mechanics[0]["localizationValues"]["ParamName10"], "80");
+        // 文案表不进 tank_data（随包走独立的 data/tankMechanics.json）
+        assert!(mechanics[0].get("title").is_none());
+        assert!(kv4["configs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c.get("mechanics").is_none()));
+
+        let multi = tank_data_value(28689);
+        let names: Vec<&str> = multi["mechanics"]
+            .as_array()
+            .expect("Rhm Pzw mechanics")
+            .iter()
+            .filter_map(|m| m["name"].as_str())
+            .collect();
+        assert_eq!(names, vec!["LTCamo", "ImprovedDetection", "AlteredSpotDuration"]);
+
+        // 无机制车：字段省略（不是空数组）
+        assert!(tank_data_value(1).get("mechanics").is_none());
     }
 }

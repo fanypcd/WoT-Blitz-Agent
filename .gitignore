@@ -56,6 +56,7 @@ shots_*.json
 t110_shots.json
 tank_*.json
 !data/tank_id_bridge.json
+!data/tank_mechanics.json
 
 # 调试日志与 WI 资产转储（0f91f5d 误入库，清理并防复发）
 tmp_*.log
