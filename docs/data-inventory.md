@@ -109,8 +109,9 @@ XI 封面 release `t11r3-20261113-r6` 以 `t11r3-20261113-r4-mechanics` 为基�
 
 ## 二、分发渠道
 
-共 **三条**，彼此独立：Alibaba 资产 origin（Web 与新 Android 的数据面主力）、COS
-（旧 APK 与临时回滚，**legacy**）与 GitHub Release（WASM 引擎）。
+共 **四条**，彼此独立：Alibaba 资产 origin（Web 与新 Android 的数据面主力）、COS
+（旧 APK 与临时回滚，**legacy**）、GitHub Release（WASM 引擎）与 `/diffs`
+（版本变更派生数据，见 §2.3）。
 
 ### 2.1 Alibaba asset origin（数据面主力）
 
@@ -274,6 +275,17 @@ lumber_01、neptune_01）分段表与基础变体一致，共用基础目录。�
 （版本策略见 [AGENTS.md](../AGENTS.md)；现值以 Cargo.toml / 本目录 index.md §版本与发行为准）。消费方按 **commit + sha256** 锁定，
 落到自己的 `/wasm/<40 位 commit>/` 目录；**不浮动跟随 upstream main**。
 
+### 2.3 `/diffs` 版本变更通道（派生数据，本地已通、生产未发布）
+
+`tools/version_diff.py` 把相邻主线 dataset 的语义差异写到 `release/diffs/`
+（`index.json` + 每个 pair 的 `summary.json` / `tanks/<id>.json` / `maps/<id>.json` /
+`items.json`）。它**不是** dataset manifest 的一部分，不占对象库 release 树；本地由
+`scripts/serve_asset_pack.mjs` 第 5 个参数伺服，生产 origin 尚未发布。发布时必须与两边
+dataset 的不可变 release id 绑定，整 pair 目录不可变，并在页面侧回读
+`/v/<id>/version.json` 校验 release。完整契约、语义配对规则与当前计数见
+[game-data-sources.md](game-data-sources.md) §5.8；WotbTools 页面
+`?view=agent-version-diff&from=&to=` 消费该通道（前端归 WotbTools，无需 WASM pin）。
+
 ## 三、跨领域接线点与护栏
 
 逐项替代完成度见 §一 / §1b；本节只留**不属于任何单项、换源必然撞上**的接线点与护栏：
@@ -386,7 +398,8 @@ lumber_01、neptune_01）分段表与基础变体一致，共用基础目录。�
 | `scripts/export_asset_pack.py` | 收拢上述产物为 `release/asset_pack/`（`index.json` / `manifest.json` + 逐文件 sha256）；`--refresh-manifest` = 不重打包、按包内容重算 manifest（合成后 / 上传前跑） |
 | `tools/materialize_destructible_variants.py` | 打包链末端：只给 `destructibles.json` 映射确有差异的地图变体物化独立 `map/<key>/`（共享资产硬链接，index 按 map_id 指向本 key）；必须在 composite 之后、`export_2d_basemaps` **之前**（2D 注册表读 pack index 去重 key——变体先物化才能枚举出 43 key；2026-11-17 实测顺序修正）、`--refresh-manifest` 之前 |
 | `tools/upload_asset_pack_cos.py` | **legacy only**：资产包 → COS 差分上传（旧 APK/回滚；跳过判定 = 桶内 manifest 的逐文件 sha256；新内容走 §2.1 的 Alibaba 新 release） |
-| `scripts/serve_asset_pack.mjs` | 本机 CORS 伺服 `release/asset_pack`（消费方 dev server 取用） |
+| `tools/version_diff.py` | 相邻主线 dataset 的语义 diff（输入 `data/version_lineage.json` + `release/datasets`，输出 `release/diffs/`；`--strict` 对未解析引用 fail-closed）。契约见 [game-data-sources.md](game-data-sources.md) §5.8；单测 `tools/test_version_diff.py` |
+| `scripts/serve_asset_pack.mjs` | 本机 CORS 伺服 `release/asset_pack`，并（按参数）伺服 `/v/<dataset>/...`、`/versions.json` 与 `/diffs/...` |
 | `scripts/build-wasm.ps1` | WASM 回放解析产物构建（引擎侧，与资产提取无关） |
 
 ### 6.5 不在本仓 / 未跟踪

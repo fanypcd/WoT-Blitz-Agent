@@ -1399,6 +1399,101 @@ malinovka/mountain 聚在 0.962–0.968 ≈ 覆盖 620 m；medvedkovo 0.926）�
 
 ---
 
+### 5.8 版本变更 diff 通道（`/diffs`，2026-11-27）
+
+**目的**：给 WotbTools 的「版本变更」页提供**相邻主线 dataset** 的语义差异，不把整包
+逐字节差异直接丢给 UI。输入是两个已发布的 dataset 包（`version.json` / `manifest.json` /
+`data/tank_cache.json` / `tank/*.json` / `game_data/*.json` / `research/**` / `map/**`），
+不读客户端 `Data/` 源树。
+
+**主线链是显式的**：`data/version_lineage.json` 写死每个 dataset 的前驱；工具**不猜**
+上一个版本（缺前驱或链断裂 fail-closed）。当前链：`11.21.0 → 11.21.0_1 → 11.22.0`。
+
+```bash
+python tools/version_diff.py \
+  --lineage data/version_lineage.json \
+  --datasets-root release/datasets \
+  --out release/diffs --all --strict
+```
+
+**输出布局**（`schema: 1`）：
+
+```text
+release/diffs/index.json
+release/diffs/<from>__<to>/<fromRelease>__<toRelease>/
+  meta.json          # tool/toolVersion/generated/pipelineChanged
+  summary.json       # counts + 逐车/逐图卡片 + modelOnly + unresolved
+  tanks/<tankId>.json
+  maps/<mapId>.json
+  items.json
+```
+
+`index.json.pairs[]` 同时带 `from/to` 的 `dataset/label/release/gameVersion/variant/
+tankCount/contentDigest/manifestSha256/manifestGenerated/upstreamCommit/worktreeDirty`
+与 `path`、聚合 `counts`。地图行（2026-11-28 additive）带**实例计数**：`scenery`（scenery.glb
+带 mesh 节点数 = 导出器逐实例契约，节点名 = 来源 sc2 物件名；按名字多重集给出逐名
+added/removed）与 `grass`（grass.bin 每实例 12 字节），UI 据此展示"场景物件/草地实例多了还是少了"。前端只依赖 `path` 与两边 `release`；页面会回读
+`<origin>/v/<id>/version.json` 校验 release，不一致时告警（防止旧 diff 冒充新包）。
+`summary.json.tanks[]` 与 `modelOnly[]` 每行带 `premium`/`collector`
+（照抄 `tank_cache` 的 `is_premium`/`is_collector`，2026-11-27 additive；只用于前端
+百科同款车名配色，diff 语义不读它）。
+
+**语义配对（唯一权威，禁按样本统计分类）**：
+
+- 坦克按 `tank_id`；新增/移除是真实增删。
+- 配置按 `(turret_local, gun_local)`：`tank/*.json` 的 `turret_name` 为空，名字只作
+  显示与回退；同键重复 fail-closed（进 `unpaired`，`--strict` 失败）。
+- 弹种按 `type`（AP/APCR/HE/…），发动机按名字。
+- 研发模块按 `(category, name_en, level)`；`unlock` 的 stem 先解析成显示名，避免 11.22
+  客户端批量重命名引擎 stem（`Maybach_HL_*_N`）造成假变更。科技树 `sourceModule` 同法解析。
+- 地图按仓库 `map_index.json` 的 `space` 聚合，**不按 `variantKey`**：11.22 的变体目录
+  把 `variantKey` 写成自身，43 个目录会被误判成 7 张新图；真实图数是 36 space。
+- destructibles 逐实例比较 `collision.health`、`type.health`、`collision_type`、原型
+  文件/段、名称与位置；把「厚度/生命值变化」与 `CollisionVolume` 改名分开计数。
+- 内部 ID（`shell_global_ids`、`localId`、`stem`、`gameVersion`）不参与语义比较。
+
+**输出分桶**（避免把导出器世代变化当成玩法改动）：
+
+- `changes`：真实参数/结构变化（按 `category` 分 firepower/mobility/survivability/armor/
+  research/geometry/identity）。
+- `schema`：只在单侧出现的字段，按**字段路径聚合**计数（`mechanics:187`、
+  `stats.clip:249`、`skills.effects.lobbyIcon:20`），提示消费方 schema 升级，不逐车展开。
+- `modelOnly`：仅 `glb`/`suspension`/`tread`/图标变化、参数无变化。
+- `technicalOnly`：只有内部 ID/时间戳类差异的车辆数。
+- `presentation`：`tank_images`（含 2x）、`map2d`、`cover`、`ground` 等展示层重生成。
+- `artifacts`：模型 / 悬挂 / 履带变化，及 `data/` 新增/删除文件。
+- `items`：consumables/provisions/devices/skills/camouflage 的逐项增删改 + schema，
+  科技树节点/边单独计数。
+- `unresolved`：未能配对的引用；非空时 `--strict` 失败，不允许静默丢弃。
+
+**当前实测（本机，2026-11-27）**：`11.21.0→11.21.0_1` 仅 +1（Relic D3），0 语义变化
+（Rinoceronte 仅模型）；`11.21.0_1→11.22.0` +3 / -0 / ~19 辆（装甲 5、配置 10）、仅模型 7、
+地图 36、schema `mechanics:187` + `stats.clip:249`、unresolved 0；物品 consumables 4 /
+provisions 9，科技树边 0。回归 `tools/test_version_diff.py`（15 例）。
+
+**本地伺服**：`scripts/serve_asset_pack.mjs` 第 5 个参数是 diffs 根目录（默认
+`release/diffs`），路径 `/diffs/...` 与 `/v/<id>/...` 共用同一 origin：
+
+```bash
+node scripts/serve_asset_pack.mjs 8129 release/asset_pack release/datasets release/diffs
+# WotbTools: ?assets=http://127.0.0.1:8129&view=agent-version-diff
+```
+
+**发布约束（尚未发布）**：`/diffs` 不是 dataset manifest 的一部分，也不进对象库的
+release 树。发布到 `https://assets.wotbtools.com` 时必须满足：
+
+1. 两边 dataset 的 release 已上线且不可变；
+2. diff 目录名含两边 release id，整棵树按该 pair 不可变，**禁止原地改写**；
+3. 页面 release 校验通过（`/v/<id>/version.json` 的 `release` 与 `index.json` 一致）；
+4. 旧 pair 保留回滚，不做「只保留最新」的清理；
+5. 发布动作属对外变更，需单独确认（本轮只落本地通道与 WotbTools 页面）。
+
+**边界**：只做主线相邻版本，不做跨大版本/任意两版比较；不做 `Data/` 源树 diff；
+3D 产物只标记「变了」，不做逐字节/几何级 diff；WotbTools 页面与预览窗口归 WotbTools
+仓（本轮未发 WASM、不改 pin）。
+
+---
+
 ## 六、许可
 
 

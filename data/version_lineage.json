@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "lineage": [
+    {
+      "dataset": "11.21.0"
+    },
+    {
+      "dataset": "11.21.0_1",
+      "predecessor": "11.21.0"
+    },
+    {
+      "dataset": "11.22.0",
+      "predecessor": "11.21.0_1"
+    }
+  ]
+}
