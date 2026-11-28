@@ -15,8 +15,8 @@
 //   2) frontend/.env.local: VITE_ASSET_BASE_URL=http://127.0.0.1:8123   # WotbTools 仓
 //   3) npm run dev → http://localhost:5173/?view=agent-replay&agentViews=1
 //
-// 用法：node scripts/serve_asset_pack.mjs [port] [packDir] [datasetsDir]
-//   默认：node scripts/serve_asset_pack.mjs 8123 release/asset_pack release/datasets
+// 用法：node scripts/serve_asset_pack.mjs [port] [packDir] [datasetsDir] [diffsDir]
+//   默认：node scripts/serve_asset_pack.mjs 8123 release/asset_pack release/datasets release/diffs
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { extname, join, normalize, resolve, sep } from 'node:path'
@@ -24,6 +24,7 @@ import { extname, join, normalize, resolve, sep } from 'node:path'
 const port = Number(process.argv[2] || 8123)
 const root = resolve(process.argv[3] || 'release/asset_pack')
 const datasetsRoot = resolve(process.argv[4] || 'release/datasets')
+const diffsRoot = resolve(process.argv[5] || 'release/diffs')
 const catalogPath = resolve(datasetsRoot, '..', 'versions.json')
 
 const TYPES = {
@@ -40,6 +41,11 @@ function isInside(base, file) {
 function resolveUrl(urlPath) {
   if (urlPath === '/versions.json') {
     return existsSync(catalogPath) && statSync(catalogPath).isFile() ? catalogPath : null
+  }
+  if (urlPath === '/diffs' || urlPath.startsWith('/diffs/')) {
+    const rest = urlPath === '/diffs' ? '/' : urlPath.slice('/diffs'.length)
+    const file = join(diffsRoot, normalize(rest).replace(/^([/\\])+/, ''))
+    return isInside(diffsRoot, file) ? file : null
   }
   const versioned = urlPath.match(/^\/v\/([^/]+)(\/.*)?$/)
   if (versioned) {
@@ -77,4 +83,5 @@ createServer((req, res) => {
 }).listen(port, '127.0.0.1', () => {
   console.log(`asset pack: http://127.0.0.1:${port}/  (root=${root})`)
   console.log(`datasets:   http://127.0.0.1:${port}/v/<id>/  (datasetsDir=${datasetsRoot})`)
+  console.log(`diffs:      http://127.0.0.1:${port}/diffs/  (diffsDir=${diffsRoot})`)
 })
